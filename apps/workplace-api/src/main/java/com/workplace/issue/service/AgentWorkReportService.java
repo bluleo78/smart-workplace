@@ -18,6 +18,7 @@ import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.workflow.service.WorkflowAgentWorkBridge;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserKind;
 import java.util.ArrayList;
@@ -47,6 +48,8 @@ public class AgentWorkReportService {
   private final IssueChatPoster chatPoster;
   private final ApplicationEventPublisher publisher;
   private final UserMentionHydrator mentionHydrator;
+  // 워크플로우 이슈의 보고를 노드·실행 상태에 맞물린다(WP-1986). 다리는 이 서비스에 의존하지 않아 순환이 없다.
+  private final WorkflowAgentWorkBridge workflowBridge;
 
   /** 명시 보고. 부수 쓰기(상태 변경·챗 글)가 작업 터치로 보고 상태를 되돌리지 않도록 전체를 억제 구간으로 감싼다. */
   @Transactional
@@ -74,6 +77,11 @@ public class AgentWorkReportService {
     if (IssueStatuses.CLOSED.contains(issue.status())) throw new AgentWorkIssueClosedException();
 
     boolean hasMessage = req.message() != null && !req.message().isBlank();
+    String note = noteFor(req, hasMessage);
+
+    // 워크플로우 맞물림(WP-1986) — 무엇이든 저장하기 전에 판정한다: 지금 노드 담당 AI 의 답변 필요·검토 대기는 409 로 거절해 챗 글·이슈 상태·작업
+    // 행이 하나도 바뀌지 않고, 차단·실패는 node_run·실행을 같은 트랜잭션에서 멈춘다. 워크플로우 이슈가 아니면 아무것도 하지 않는다.
+    boolean workflowNode = workflowBridge.onAgentReport(issue.id(), callerId, req.state(), note);
 
     // 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 진행 상태 갱신이 아니라 작업 행을 닫는 신호다.
     // startOrUpdate 에 넘기지 않고, TODO 이슈도 IN_PROGRESS 로 올리지 않으며 이슈 상태는 건드리지 않는다.
@@ -92,7 +100,7 @@ public class AgentWorkReportService {
               new AgentWorkPatch(
                   tool,
                   null,
-                  noteFor(req, hasMessage),
+                  note,
                   "".equals(req.note()),
                   req.progress(),
                   req.stepsDone(),
@@ -108,7 +116,9 @@ public class AgentWorkReportService {
     // 단, 다음 회차 대기(SCHEDULED) 보고는 아직 착수 전(「월요일 9시에 시작」)이라 이슈 상태를 바꾸지 않는다(WP-450).
     // AI 가 사람에게 보낸(글 맨 앞 멘션에 사람이 있는) 대기 중 보고는 답변 필요로 저장한다(WP-1217·WP-1841) — 아래 상태 변경·질문 저장·알림이 모두
     // 바뀐 상태를 따른다.
-    String state = storedState(req, agentWorker, hasMessage);
+    // 워크플로우 노드 담당 AI 는 사람에게 보낸 대기 중 보고도 답변 필요로 바꾸지 않는다(WP-1986) — 워크플로우에서 질문은 이동의 질문 결과로만
+    // 한다(답변 필요 직접 보고도 409). 보고로 묻게 두면 실행이 모르는 질문이 생겨 노드가 「답변 필요」로 서 있어도 실행은 그대로 진행 중으로 보인다.
+    String state = storedState(req, agentWorker && !workflowNode, hasMessage);
     boolean scheduled = AgentWorkState.SCHEDULED.equals(state);
     if (IssueStatuses.TODO.equals(issue.status()) && !scheduled) {
       issueService.updateStatus(callerId, projectKey, number, IssueStatuses.IN_PROGRESS);
@@ -124,7 +134,7 @@ public class AgentWorkReportService {
             new AgentWorkPatch(
                 tool,
                 state,
-                noteFor(req, hasMessage),
+                note,
                 clearNote,
                 req.progress(),
                 req.stepsDone(),

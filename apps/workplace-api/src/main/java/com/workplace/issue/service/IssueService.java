@@ -62,6 +62,7 @@ import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.issue.repository.ProjectStatusRepository;
+import com.workplace.issue.workflow.service.WorkflowAgentWorkBridge;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.label.service.LabelService;
@@ -126,6 +127,8 @@ public class IssueService {
   private final IssueChangeNotifier changeNotifier;
   // WP-377: 상세 요약에 진행 중 AI 작업을 싣는다.
   private final AgentWorkService agentWorkService;
+  // 닫힘·삭제 때 활성 워크플로우 실행을 취소한다(WP-1986).
+  private final WorkflowAgentWorkBridge workflowBridge;
 
   /** WP-356: 생성 시 라벨·사이클 소속 검증과 연결. */
   private final LabelRepository labelRepository;
@@ -1174,6 +1177,8 @@ public class IssueService {
       } else {
         agentWorkService.cancelAllForIssues(List.of(before.id()));
       }
+      // 닫힌 이슈의 활성 워크플로우 실행은 취소로 끝낸다(WP-1986 §5-4) — 다시 열어도 되살리지 않는다.
+      workflowBridge.onIssuesClosed(List.of(before.id()));
     }
     // WP-199 본문이 바뀐 요청만 이미지 연결 상태를 맞춘다 — 상태·담당자만 바꾸는 PATCH 에서 불필요한 잠금을 잡지 않는다.
     // 새 본문·이전 본문 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다.
@@ -1590,6 +1595,8 @@ public class IssueService {
     bodyImageService.demoteAllOfIssues(deletedIds);
     // 삭제된 이슈(부모+자식)의 진행 중 AI 작업 종료(WP-377) — 남겨 두면 AI 위임 작업 건수·담당 작업 흐름에 유령 작업으로 남는다.
     agentWorkService.cancelAllForIssues(deletedIds);
+    // 삭제된 이슈(부모+자식)의 활성 워크플로우 실행도 취소로 끝낸다(WP-1986 §5-4).
+    workflowBridge.onIssuesClosed(deletedIds);
     // 실시간 무효화 — checkDeletable 이 이미 resolve 한 project 를 재사용(중복 조회 방지)
     changeNotifier.deleted(target.project(), number, row.id(), callerId);
   }

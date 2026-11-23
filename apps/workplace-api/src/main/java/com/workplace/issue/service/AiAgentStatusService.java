@@ -119,7 +119,8 @@ public class AiAgentStatusService implements AgentSlotCounter {
 
   /**
    * 동시 진행 자리를 쥔 행 — 한 AI 의 열린 작업 행 중 {@link #SLOT_STATES} 이고 무소식(stale)·반복 회차 줄 대기·선행 풀린 자리
-   * 대기(WP-1956)가 아닌 것. 자리를 쥔(센) 하위가 있는 부모는 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
+   * 대기(WP-1956)·이동 없이 끝나 쉬는 중(WP-1986 — 일하지 않고 다음 이동·깨우기를 기다린다. 전에는 시작 전(SUBMITTED)이라 세지 않았다)이 아닌
+   * 것. 자리를 쥔(센) 하위가 있는 부모는 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
    */
   static List<WorkRow> slotRows(List<WorkRow> rows) {
     // 먼저 센 행을 고른 뒤, 그중 하위의 부모 id 를 모아 부모 행을 뺀다 — 무소식 하위는 자리를 쥔 게 아니므로 부모를 가리지 않는다.
@@ -130,7 +131,8 @@ public class AiAgentStatusService implements AgentSlotCounter {
                     SLOT_STATES.contains(r.state())
                         && !r.stale()
                         && !isRecurrenceQueued(r)
-                        && !isSlotWaitAfterBlocker(r))
+                        && !isSlotWaitAfterBlocker(r)
+                        && !AgentWorkState.isFinishedWithoutMove(r.state(), r.note()))
             .toList();
     Set<Long> parentsWithCountedChild =
         counted.stream()

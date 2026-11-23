@@ -258,10 +258,11 @@ export interface WorkplaceApiClient {
     },
   ): Promise<void>;
   // WP-1219: 담당 지정·코멘트로 깨어난 이슈 실행의 시작·끝 보고 — 실행한 AI(agentId) 대행. API 가 그 AI 의 작업 기록(작업 중 → 검토 대기·차단됨)을 남긴다.
+  // runId(WP-1986): 실행마다 만든 UUID — 시작·끝에 같은 값을 실어, API 가 끝 보고가 그 AI 의 마지막 도는 실행의 것인지 가린다(구버전 api 는 무시).
   reportAgentRun(
     agentId: number,
     issueId: number,
-    body: { phase: 'STARTED' | 'FINISHED'; ok: boolean; note?: string },
+    body: { phase: 'STARTED' | 'FINISHED'; ok: boolean; note?: string; runId?: string },
   ): Promise<void>;
   // WP-1828: AI 처리 기록 묶음 전송 — 사용자 대행이 아닌 시스템 호출이라 Internal 토큰만 쓴다.
   reportAiRuns(runs: AiRunRecord[]): Promise<{ accepted: number; dropped: number }>;

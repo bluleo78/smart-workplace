@@ -1,5 +1,6 @@
 // envelope → AGENT id 결정 → token fetch → 인-프로세스 SDK 실행(#462 슬라이스5).
 // 이 앱의 마지막 CLI 의존 기능 경로를 sdk-runner + 인-프로세스 MCP 로 전환. 모든 호출에 agentId 명시.
+import { randomUUID } from 'node:crypto';
 import { SYSTEM_PROMPT } from './system-prompt.js';
 import { fetchAgentInstructions, withAgentInstructions } from './agent-instructions.js';
 import { buildUserMessage } from './user-message.js';
@@ -47,10 +48,13 @@ export async function runAgent(
   // WP-1219: 실행의 시작·끝을 API 에 알려 작업 기록을 남긴다 — 서버 AI 는 report_agent_work 를 싣지 않아 이것이 없으면 AI 위임 작업에서 빠진다.
   // 보고 실패는 실행을 막지 않는다(로그만). 끝 보고는 실패 경로(연결 정보·실행 오류·비정상 결과)에서도 꼭 보내 「작업 중」에 남지 않게 한다.
   const tracked = TRACKED_TYPES.has(envelope.type);
+  // WP-1986: 이 실행의 id — 시작·끝 보고 모두에 실어, API 가 같은 AI 의 다른 실행(다음 노드의 새 실행·이슈 댓글로 깨어난 실행)이 아직 도는 동안 이 실행의 끝으로
+  // 작업을 「이동 없이 끝남」으로 내리지 않게 한다. 이슈 이벤트 실행은 줄 세우지 않아 같은 AI 의 실행이 겹칠 수 있다.
+  const runId = randomUUID();
   const report = async (body: RunReport) => {
     if (!tracked) return;
     try {
-      await deps.client.reportAgentRun(agentId, issueId, body);
+      await deps.client.reportAgentRun(agentId, issueId, { ...body, runId });
     } catch (e) {
       console.error('[run-agent] 실행 보고 실패', {
         issueKey,

@@ -12,6 +12,7 @@ import com.workplace.issue.workflow.domain.MoveActor;
 import com.workplace.issue.workflow.domain.MoveRules;
 import com.workplace.issue.workflow.domain.MoveRules.MovePlan;
 import com.workplace.issue.workflow.domain.MoveViolation;
+import com.workplace.issue.workflow.domain.NodeTypes;
 import com.workplace.issue.workflow.domain.OutputRules;
 import com.workplace.issue.workflow.domain.RunRoleMembers;
 import com.workplace.issue.workflow.domain.RunState;
@@ -38,6 +39,7 @@ import com.workplace.project.service.ProjectAccessGuard;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,7 +62,8 @@ import tools.jackson.databind.ObjectMapper;
  * 담당에게 가기 때문이다(빠지는 옛 담당이 아니라 새 담당이 받게). 설계 §9 의 「실행·node_run → 댓글 → 담당」과 순서가 다르지만 한 트랜잭션이라 저장 결과는
  * 같고, 이슈 행 잠금 덕에 그 사이 revision 이 바뀌지 않는다(revision 비교 갱신은 그래도 지킨다).
  *
- * <p>내부 AI 실행·agent_work 는 만들지 않는다(WP-1986) — 담당·댓글은 Task 3 의 좁은 경로만 쓴다.
+ * <p>agent_work·AI 깨우기는 이 서비스가 직접 쓰지 않는다 — 진입은 {@link WorkflowAgentWorkBridge} 가 진입 이벤트로, 떠남은 이동이
+ * 다리의 {@code onNodeLeft} 를 불러 같은 트랜잭션에서 한다(WP-1986). 담당·댓글은 좁은 경로만 쓴다.
  */
 @Service
 @Transactional
@@ -83,9 +86,10 @@ public class WorkflowRunService {
   private final WorkflowRepository workflowRepository;
   private final WorkflowRunRepository runRepository;
   private final WorkflowMemberLookup memberLookup;
-  private final WorkflowModelCache modelCache;
+  private final WorkflowModelLoader modelLoader;
   private final WorkflowRunWriter writer;
   private final WorkflowRunViews views;
+  private final WorkflowAgentWorkBridge agentWorkBridge;
   private final ObjectMapper objectMapper;
 
   // ───────────────────────── 조회 ─────────────────────────
@@ -106,6 +110,18 @@ public class WorkflowRunService {
 
   /** 게시된 활성 버전으로 실행을 시작한다(설계 §6). dryRun 이면 같은 검사·판정으로 view 만 돌려주고 행·이벤트·담당은 바꾸지 않는다(잠그지도 않는다). */
   public IssueWorkflowView start(long issueId, long workflowId, boolean dryRun, long actorId) {
+    return start(issueId, workflowId, dryRun, actorId, Set.of());
+  }
+
+  /**
+   * {@link #start(long, long, boolean, long)} 와 같되, 같은 트랜잭션에서 앞선 담당 교체가 이미 ASSIGNED 를 보낸 사람을 시작 노드
+   * 진입의 「이미 알림 받은 사람」에 더한다(「지정하고 바로 시작」 — 원장 R3 진입당 ASSIGNED 하나). 담당 계산·워크플로우가 넣은 사람(added)에는 섞지
+   * 않는다.
+   *
+   * @param alreadyNotified 앞선 담당 교체로 이미 ASSIGNED 를 받은 사람
+   */
+  IssueWorkflowView start(
+      long issueId, long workflowId, boolean dryRun, long actorId, Set<Long> alreadyNotified) {
     IssueRow seen = issueRepository.findById(issueId).orElseThrow(IssueNotFoundException::new);
     ProjectRow project = writableProject(seen, actorId);
     IssueRow issue =
@@ -199,7 +215,8 @@ public class WorkflowRunService {
             match.matched(),
             List.of(),
             actorId,
-            now));
+            now,
+            union(added, alreadyNotified)));
     // 버전 ref·모델·구성원은 위에서 읽은 것을 그대로 쓴다(쓰기로 바뀌지 않는다).
     return views.build(
         snapshot(
@@ -219,7 +236,7 @@ public class WorkflowRunService {
    * <p>왜: 비교 갱신이 0 행이면 손에 든 run 은 이미 옛 값이다. 옛 값을 주면 요청자가 그 revision 으로 다시 보내 또 STALE 을 받는다. 다시 읽지
    * 못하면(그사이 지워짐 등) 손에 든 값으로 응답한다.
    */
-  private WorkflowException staleNow(RunRow run) {
+  WorkflowException staleNow(RunRow run) {
     RunRow now = runRepository.findRun(run.id()).orElse(run);
     return WorkflowException.fromViolation(MoveViolation.stale(now.currentNode(), now.revision()));
   }
@@ -285,27 +302,14 @@ public class WorkflowRunService {
     Route route = plan.route();
     NodeRunRow leaving = WorkflowRunViews.currentVisit(before);
 
-    // 담당(설계 §9) — C=지금 이슈 담당, W=떠나는 노드의 workflow_assigned_ids, N=다음 담당.
-    Set<Long> c = new LinkedHashSet<>(before.issueAssignees());
-    Set<Long> w = new LinkedHashSet<>(leaving.workflowAssignedIds());
-    Set<Long> add = new LinkedHashSet<>();
-    Set<Long> remove = new LinkedHashSet<>();
-    Set<Long> nextW = new LinkedHashSet<>();
+    // 담당(설계 §9) — 조치(onError·옮기기)와 같은 계산을 쓴다(원장 R1).
     List<Long> next = plan.resolution().assignees();
-    if (!route.limitExceeded()) {
-      Set<Long> n = new LinkedHashSet<>(next);
-      Set<Long> wc = new LinkedHashSet<>(w);
-      wc.retainAll(c);
-      remove.addAll(wc);
-      remove.removeAll(n); // 뺌 = (W ∩ C) − N
-      add.addAll(n);
-      add.removeAll(c); // 넣음 = N − C
-      nextW.addAll(add);
-      Set<Long> kept = new LinkedHashSet<>(wc);
-      kept.retainAll(n);
-      nextW.addAll(kept); // 다음 W = 넣음 ∪ (W ∩ C ∩ N)
-    }
-    // 넣음 ⊆ ¬C, 뺌 ⊆ C 라 둘은 겹치지 않는다(applyWorkflowChange 의 겹침 예외가 나지 않는다).
+    AssigneeDiff diff =
+        assigneeDiff(
+            before.issueAssignees(), leaving.workflowAssignedIds(), next, route.limitExceeded());
+    Set<Long> add = diff.add();
+    Set<Long> remove = diff.remove();
+    List<Long> nextW = diff.nextWorkflowAssigned();
 
     Instant now = now();
     // 담당 교체 → 의견 댓글 순서: 댓글 알림(COMMENTED)의 받는 담당은 댓글을 쓸 때의 이슈 담당이라, 교체 뒤에 써야 빠지는 옛 담당이 아니라
@@ -349,6 +353,14 @@ public class WorkflowRunService {
             "removed", List.copyOf(remove)),
         actorId,
         now);
+    // AI 작업 떠남(WP-1986) — 다음 노드 진입(enter 가 낸 진입 이벤트로 다리가 SUBMITTED 를 연다)보다 먼저 한다. 같은 AI 가 다음 노드도
+    // 맡으면 이 닫기(COMPLETED) 뒤에 진입이 새 SUBMITTED 를 열어야 진행 중 행 유일성과 충돌하지 않는다. 반복 회수를 작업 기록보다 먼저 —
+    // AgentWorkService 의 잠금 순서(반복 → 작업 기록)와 맞춘다.
+    agentWorkBridge.retireRemovedAgents(issue.id(), remove);
+    if (NodeTypes.AGENT_TASK.equals(from.type())) {
+      agentWorkBridge.onNodeLeft(
+          issue.id(), leaving.assigneeIds(), OutputRules.isQuestion(model, from, outcome));
+    }
     writer.enter(
         new WorkflowRunWriter.Entry(
             run.id(),
@@ -359,11 +371,12 @@ public class WorkflowRunService {
             from.returnTo(),
             route,
             next,
-            List.copyOf(nextW),
+            nextW,
             leaving.assigneeIds(),
             leaving.workflowAssignedIds(),
             actorId,
-            now));
+            now,
+            Set.copyOf(add)));
 
     IssueWorkflowView view =
         views.build(snapshot(issue, runRepository.findRun(run.id()).orElseThrow(), before));
@@ -385,7 +398,7 @@ public class WorkflowRunService {
    * 쓸 수 있는 이슈의 프로젝트 — 프로젝트 구성원(비PERSONAL ADMIN 우회). 볼 수 없으면 404, 볼 수만 있으면(OPEN 비구성원) 403. 이동은
    * 담당·관리자 판정을 더 한다.
    */
-  private ProjectRow writableProject(IssueRow issue, long actorId) {
+  ProjectRow writableProject(IssueRow issue, long actorId) {
     ProjectRow project =
         projectRepository.findById(issue.projectId()).orElseThrow(IssueNotFoundException::new);
     // 못 보는 프로젝트는 없는 이슈와 같은 본문의 404 — assertMember 의 숨김 문구로 이슈 존재가 드러나지 않게 먼저 거른다.
@@ -396,7 +409,7 @@ public class WorkflowRunService {
   }
 
   /** 프로젝트 관리자 — project:manage + OWNER(비PERSONAL ADMIN 우회), 정의 편집과 같은 기준(설계 §5). */
-  private boolean isManager(ProjectRow project, long actorId) {
+  boolean isManager(ProjectRow project, long actorId) {
     String role = accessGuard.viewerRole(project, actorId);
     return (OWNER.equals(role) || ADMIN.equals(role))
         && permissionChecker.hasPermission(actorId, "project:manage");
@@ -405,12 +418,12 @@ public class WorkflowRunService {
   // ───────────────────────── 읽기 ─────────────────────────
 
   /** 활성 실행, 없으면 가장 최근 실행. */
-  private Optional<RunRow> currentRun(long issueId) {
+  Optional<RunRow> currentRun(long issueId) {
     return runRepository.findCurrentByIssue(issueId);
   }
 
   /** DB 에서 읽은 실행의 모습. 실행 행이 RLS 로 보였으므로 그 버전도 이 테넌트의 것이다 — 그 뒤에만 캐시를 쓴다. */
-  private Snapshot snapshot(ProjectRow project, IssueRow issue, RunRow run) {
+  Snapshot snapshot(ProjectRow project, IssueRow issue, RunRow run) {
     WorkflowVersionRef version =
         workflowRepository
             .findVersionRefById(run.versionId())
@@ -425,7 +438,7 @@ public class WorkflowRunService {
    * 읽는다. 버전은 실행에 고정이고 모델은 바꾸지 않으며, 같은 트랜잭션의 쓰기는 구성원을 바꾸지 않으므로 다시 읽은 것과 같은 view 가 나온다(멱등 저장 본문이 이것이라
    * 바이트 단위로 같아야 한다).
    */
-  private Snapshot snapshot(IssueRow issue, RunRow run, Snapshot before) {
+  Snapshot snapshot(IssueRow issue, RunRow run, Snapshot before) {
     return snapshot(
         issue, run, before.workflowId(), before.versionNo(), before.model(), before.members());
   }
@@ -528,13 +541,14 @@ public class WorkflowRunService {
 
   /** 버전 모델 사본(캐시). 부르는 쪽이 RLS 로 버전이 보이는 것을 확인한 뒤에만 부른다. */
   private WorkflowModel model(long versionId) {
-    return modelCache.get(
-        versionId,
-        () ->
-            workflowRepository
-                .findVersionById(versionId)
-                .orElseThrow(WorkflowException::notFound)
-                .modelJson());
+    return modelLoader.get(versionId);
+  }
+
+  /** 진입의 「이미 알림 받은 사람」 — 시작이 넣은 사람과 앞선 담당 교체가 알린 사람을 합친다. */
+  private static Set<Long> union(List<Long> added, Set<Long> alreadyNotified) {
+    Set<Long> all = new LinkedHashSet<>(added);
+    all.addAll(alreadyNotified);
+    return all;
   }
 
   /** 지금 이슈 담당 — 저장소가 순서를 정하지 않아 id 오름차순으로 고정한다(시작 매치·응답이 실행마다 같게). */
@@ -553,10 +567,52 @@ public class WorkflowRunService {
   // ───────────────────────── 계산 ─────────────────────────
 
   /**
+   * 노드를 떠나 다음 담당으로 바꿀 때의 이슈 담당 변화(설계 §9).
+   *
+   * @param add 넣을 사람 = N − C
+   * @param remove 뺄 사람 = (W ∩ C) − N
+   * @param nextWorkflowAssigned 머무는 노드의 workflow_assigned_ids = 넣음 ∪ (W ∩ C ∩ N)
+   */
+  record AssigneeDiff(Set<Long> add, Set<Long> remove, List<Long> nextWorkflowAssigned) {}
+
+  /**
+   * 담당 변화 계산 — 이동과 조치(onError·관리자 옮기기)가 같이 쓴다(원장 R1 — 규칙을 두 곳에 쓰지 않는다). 연쇄 한도를 넘었으면 담당을 바꾸지 않는다(설계
+   * §8). 넣음 ⊆ ¬C, 뺌 ⊆ C 라 둘은 겹치지 않는다({@code applyWorkflowChange} 의 겹침 예외가 나지 않는다).
+   *
+   * @param current C — 지금 이슈 담당
+   * @param leavingWorkflowAssigned W — 떠나는 노드의 workflow_assigned_ids
+   * @param next N — 머무는 노드의 담당
+   */
+  static AssigneeDiff assigneeDiff(
+      Collection<Long> current,
+      Collection<Long> leavingWorkflowAssigned,
+      List<Long> next,
+      boolean limitExceeded) {
+    Set<Long> add = new LinkedHashSet<>();
+    Set<Long> remove = new LinkedHashSet<>();
+    Set<Long> nextW = new LinkedHashSet<>();
+    if (!limitExceeded) {
+      Set<Long> c = new LinkedHashSet<>(current);
+      Set<Long> n = new LinkedHashSet<>(next);
+      Set<Long> wc = new LinkedHashSet<>(leavingWorkflowAssigned);
+      wc.retainAll(c);
+      remove.addAll(wc);
+      remove.removeAll(n); // 뺌 = (W ∩ C) − N
+      add.addAll(n);
+      add.removeAll(c); // 넣음 = N − C
+      nextW.addAll(add);
+      Set<Long> kept = new LinkedHashSet<>(wc);
+      kept.retainAll(n);
+      nextW.addAll(kept); // 다음 W = 넣음 ∪ (W ∩ C ∩ N)
+    }
+    return new AssigneeDiff(add, remove, List.copyOf(nextW));
+  }
+
+  /**
    * 머무는 곳에 따른 실행 상태 — 한도 초과 SUSPENDED, end COMPLETED, agent_task RUNNING, human_task WAITING(설계
    * §8).
    */
-  private static String statusOf(WorkflowModel model, Route route) {
+  static String statusOf(WorkflowModel model, Route route) {
     if (route.limitExceeded()) {
       return RunState.SUSPENDED;
     }
@@ -666,7 +722,7 @@ public class WorkflowRunService {
   }
 
   /** 요청 하나의 시각 — DB 단위(마이크로초)로 잘라 응답과 저장 값이 같게. */
-  private static Instant now() {
+  static Instant now() {
     return Instant.now().truncatedTo(ChronoUnit.MICROS);
   }
 }

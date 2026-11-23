@@ -19,6 +19,7 @@ import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentRuntimeSlotState;
 import com.workplace.jooq.tables.AgentScreenInput;
 import com.workplace.jooq.tables.AgentScreenSession;
+import com.workplace.jooq.tables.AgentServerRun;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
@@ -285,6 +286,12 @@ public class Tables {
      * The table <code>public.agent_screen_session</code>.
      */
     public static final AgentScreenSession AGENT_SCREEN_SESSION = AgentScreenSession.AGENT_SCREEN_SESSION;
+
+    /**
+     * 서버 AI 의 도는 이슈 실행 — STARTED 에 넣고 FINISHED 에 지운다(끝 보고가 마지막 도는 실행의 것인지 가르는 데
+     * 쓴다)
+     */
+    public static final AgentServerRun AGENT_SERVER_RUN = AgentServerRun.AGENT_SERVER_RUN;
 
     /**
      * The table <code>public.agent_work</code>.

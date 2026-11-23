@@ -8,6 +8,7 @@ import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.workflow.service.WorkflowAgentWorkBridge;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
@@ -47,6 +48,8 @@ public class IssueAssigneeService {
   private final ApplicationEventPublisher publisher;
   private final IssueChangeNotifier changeNotifier;
   private final AgentWorkService agentWorkService;
+  // 워크플로우 프로젝트·이슈 판정(WP-1986) — 다리는 담당 지정 서비스에 의존하지 않으므로 순환이 없다.
+  private final WorkflowAgentWorkBridge workflowBridge;
 
   /**
    * 이슈 담당자 집합을 통째로 교체한다.
@@ -166,12 +169,28 @@ public class IssueAssigneeService {
 
     for (Long uid : toAdd) repo.add(issue.id(), uid, callerId);
     for (Long uid : toRemove) repo.remove(issue.id(), uid);
+    // 워크플로우가 맡는 이슈의 담당 지정은 깨우지 않는다(WP-1986 설계 §5-3·§9-4) — 활성 실행이 있는 이슈이거나, 켜고 게시한 정의 중 하나가 교체
+    // 뒤의 담당으로 시작될 수 있는(시작 조건이 맞는) 이슈면 AI 를 깨우는 것은 노드 진입(시작·이동)이고, 사람이 담당을 넣는 것은 「시작하라」가 아니다.
+    // 그래서 깨우기 표시를 끄고 「시작 전」 작업도 열지 않는다. 담당 변경 이벤트(ASSIGNED 알림)와 해제의 작업 취소는 그대로다. 어떤 정의도 시작할 수
+    // 없는 이슈는 워크플로우가 깨울 일이 없어 지금처럼 깨운다(코드 리뷰 I4 — 프로젝트 전체 억제를 좁힘). 깨울 교체(REST·claim·MCP)에서 새로 넣는
+    // 사람이 있을 때만 판정해, 깨우지 않는 교체(반복 AI 작업 저장)와 켜지 않은 프로젝트의 동작은 그대로 둔다.
+    boolean openSubmitted = true;
+    if (manageAgentWork
+        && wakeAgent
+        && !toAdd.isEmpty()
+        && (workflowBridge.isWorkflowIssue(issue.id())
+            || workflowBridge.couldStartFor(project.id(), repo.findUserIdsByIssue(issue.id())))) {
+      wakeAgent = false;
+      openSubmitted = false;
+    }
     // 워크플로우 경로(manageAgentWork=false, WP-1985)는 agent_work 를 만들거나 닫지 않는다 — 이동으로 바뀐 담당의 작업 상태는
     // WP-1986 이 맡는다. 반복 회수도 cancelForWorkers 안에 있어 함께 건너뛴다 — AI 작업 수명은 WP-1986 몫이고, 회차 발행이 담당
     // 여부를 확인하므로 빠진 AI 의 반복이 실제로 돌지는 않는다.
     if (manageAgentWork) {
       // 외부 실행 AI 구성원이 새로 담당자가 되면 "시작 전" 작업을 만든다(WP-377) — 종료 이슈는 서비스가 거른다.
-      agentWorkService.submitForAssignees(issue.id(), issue.status(), addedUsers);
+      if (openSubmitted) {
+        agentWorkService.submitForAssignees(issue.id(), issue.status(), addedUsers);
+      }
       // 담당에서 빠진 사람의 AI 작업은 끝낸다(WP-377 §4.3) — 변경 알림 전에 닫아 화면 갱신이 최신 상태를 보게 한다.
       if (!toRemove.isEmpty()) {
         agentWorkService.cancelForWorkers(issue.id(), toRemove);

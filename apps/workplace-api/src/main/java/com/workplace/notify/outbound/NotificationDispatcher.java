@@ -17,6 +17,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueReporterChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
 import com.workplace.mail.outbound.MailSendFailedEvent;
 import com.workplace.notify.dto.NotificationType;
@@ -62,6 +63,22 @@ public class NotificationDispatcher {
           NotificationType.ASSIGNED, recipients, actorId(e.actor()), e.issueId(), null);
     } catch (Exception ex) {
       log.warn("[notify] assigned 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * 워크플로우 노드 깨우기(WP-1986): 노드 AI 에게 ASSIGNED — 외부 AI 는 이 알림으로 깨어난다. 받는 사람 확정(이미 ASSIGNED 를 받은 사람
+   * 제외, 행위자 예외, 실행 방식 판정)은 {@link NotificationService#createWorkflowWakeAndFanOut} 이 한 곳에서 트랜잭션 안에
+   * 한다. 여기서는 후보·이미 알림 받은 사람·행위자를 그대로 넘긴다.
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWorkflowNodeWake(WorkflowNodeWakeEvent e) {
+    try {
+      service.createWorkflowWakeAndFanOut(
+          e.issueId(), e.agentIds(), e.alreadyNotifiedIds(), e.actorId());
+    } catch (Exception ex) {
+      log.warn("[notify] 워크플로우 깨우기 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
     }
   }
 

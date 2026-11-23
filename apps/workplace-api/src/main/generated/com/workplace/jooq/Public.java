@@ -19,6 +19,7 @@ import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.AgentRuntimeSlotState;
 import com.workplace.jooq.tables.AgentScreenInput;
 import com.workplace.jooq.tables.AgentScreenSession;
+import com.workplace.jooq.tables.AgentServerRun;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
@@ -301,6 +302,12 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_screen_session</code>.
      */
     public final AgentScreenSession AGENT_SCREEN_SESSION = AgentScreenSession.AGENT_SCREEN_SESSION;
+
+    /**
+     * 서버 AI 의 도는 이슈 실행 — STARTED 에 넣고 FINISHED 에 지운다(끝 보고가 마지막 도는 실행의 것인지 가르는 데
+     * 쓴다)
+     */
+    public final AgentServerRun AGENT_SERVER_RUN = AgentServerRun.AGENT_SERVER_RUN;
 
     /**
      * The table <code>public.agent_work</code>.
@@ -1257,6 +1264,7 @@ public class Public extends SchemaImpl {
             AgentRuntimeSlotState.AGENT_RUNTIME_SLOT_STATE,
             AgentScreenInput.AGENT_SCREEN_INPUT,
             AgentScreenSession.AGENT_SCREEN_SESSION,
+            AgentServerRun.AGENT_SERVER_RUN,
             AgentWork.AGENT_WORK,
             AgentWorkEvent.AGENT_WORK_EVENT,
             AiAgentCredential.AI_AGENT_CREDENTIAL,

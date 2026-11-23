@@ -56,6 +56,58 @@ public class WorkflowException extends RuntimeException {
         HttpStatus.CONFLICT, "WORKFLOW_ALREADY_ACTIVE", "이 이슈에는 이미 진행 중인 워크플로우가 있습니다.", List.of());
   }
 
+  /**
+   * 워크플로우 이슈의 지금 노드 담당 AI 가 답변 필요·검토 대기·완료·취소·반려를 작업 보고로 직접 바꾸려 했다(WP-1986, 원장 R9). 워크플로우에서
+   * 질문·검토·노드 끝내기는 노드 이동(질문 결과·다음 노드)으로만 한다 — 보고로 바꾸면 실행은 그대로인데 agent_work 만 멈추거나 끝나 아무도 이어 받지 못한다.
+   */
+  public static WorkflowException useMove() {
+    return new WorkflowException(
+        HttpStatus.CONFLICT,
+        "WORKFLOW_USE_MOVE",
+        "워크플로우가 진행 중인 이슈에서는 노드 담당이 답변 필요·검토 대기·완료·취소·반려를 보고로 바꿀 수 없습니다. 노드 이동(move_issue_workflow)의 질문·다음 단계 결과를 쓰세요.",
+        List.of());
+  }
+
+  /** 조치는 멈춘(SUSPENDED) 실행에만 한다(WP-1986) — 진행 중인 실행은 노드 이동으로 넘긴다. */
+  public static WorkflowException notSuspended() {
+    return new WorkflowException(
+        HttpStatus.CONFLICT,
+        "WORKFLOW_NOT_SUSPENDED",
+        "워크플로우가 멈춰 있지 않아 조치할 수 없습니다. 노드 이동으로 넘겨 주세요.",
+        List.of());
+  }
+
+  /** 지금 노드에 onError 가 정의돼 있지 않아 onError 로 보낼 수 없다(WP-1986). */
+  @SuppressWarnings("deprecation")
+  public static WorkflowException noOnError() {
+    return new WorkflowException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        "WORKFLOW_NO_ON_ERROR",
+        "이 단계에는 오류 시 갈 곳(onError)이 정의돼 있지 않습니다. 다시 시도·옮기기·취소 중에서 골라 주세요.",
+        List.of());
+  }
+
+  /** 관리자 옮기기(override)는 프로젝트 관리자만 한다(WP-1986). */
+  public static WorkflowException notManager() {
+    return new WorkflowException(
+        HttpStatus.FORBIDDEN, "WORKFLOW_NOT_MANAGER", "다른 단계로 옮기기는 프로젝트 관리자만 할 수 있습니다.", List.of());
+  }
+
+  /**
+   * 옮기기 조치의 대상이 잘못됐다(WP-1986) — 빠졌거나, 이 실행의 정의에 없거나, start 다. 사유마다 문구만 다르고 code 는 하나다(계약). 받은 값은
+   * 되비추지 않는다.
+   *
+   * @param missing 대상(toNode)이 빠졌으면 true — 고르라는 문구를 쓴다
+   */
+  @SuppressWarnings("deprecation")
+  public static WorkflowException recoverTargetInvalid(boolean missing) {
+    return new WorkflowException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        "WORKFLOW_RECOVER_TARGET_INVALID",
+        missing ? "옮길 단계(toNode)를 골라 주세요." : "이 워크플로우에 없는 단계이거나 시작 단계라 옮길 수 없습니다.",
+        List.of());
+  }
+
   /** 꺼진 워크플로우는 시작할 수 없다(WP-1985). */
   public static WorkflowException disabled() {
     return new WorkflowException(

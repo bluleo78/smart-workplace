@@ -16,6 +16,7 @@ import com.workplace.notify.push.PushCategory;
 import com.workplace.notify.push.PushContentRepository;
 import com.workplace.notify.repository.NotificationRepository;
 import com.workplace.user.dto.UserKind;
+import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -52,6 +53,8 @@ public class NotificationService {
   private final NotificationSettingService settings;
   private final UserMentionHydrator mentionHydrator;
   private final PushContentRepository issueInfo;
+  // 깨우기 알림의 행위자가 외부 AI 인지 가린다(WP-1986 — 행위자 예외는 외부 AI 만).
+  private final UserRepository userRepository;
 
   /**
    * 이슈 알림 한 건의 내용(수신자 빼고). statusName(이슈 상태 이름, WP-869)과 agentWorkState(AI 작업 상태, WP-913)는 둘 다
@@ -86,9 +89,34 @@ public class NotificationService {
     create(IssueNotice.of(type, actorId, issueId, commentId), recipientIds);
   }
 
-  /** 생성 + 종류 기본 분류로 푸시. */
+  /**
+   * 워크플로우 노드 깨우기 알림(WP-1986) — 노드 AI 에게 ASSIGNED. 받는 사람은 이 한 곳에서 정한다: 노드 AI 중 이번 시작·이동의 담당 변경으로 이미
+   * ASSIGNED 를 받은 사람(alreadyNotifiedIds)은 뺀다(같은 알림이 두 번 가지 않게). 단 행위자는 이미 받은 사람에 들어 있어도 후보로 남긴다 —
+   * 일반 ASSIGNED 는 행위자를 거르므로 스스로 시작·자기 노드로 이동한 외부 AI 는 이 알림 말고는 깨어날 길이 없다. 그 뒤 행위자가 외부 AI 면 받는 사람으로
+   * 남기고, 내부 AI·사람이면 일반 경로처럼 거른다 — 내부 AI 는 이 알림이 아니라 ai-agent 발사로 깨어나므로 자기 이동에 자기 ASSIGNED 가 남으면
+   * 군더더기다. 행위자가 후보일 때만 실행 방식을 한 번 읽는다. 알림 표시의 actor 는 actorId 그대로고, 이슈 열람 권한·알림 설정 필터도 그대로 건다.
+   */
+  @Transactional
+  public void createWorkflowWakeAndFanOut(
+      long issueId, List<Long> agentIds, Set<Long> alreadyNotifiedIds, Long actorId) {
+    List<Long> candidates =
+        agentIds.stream()
+            .filter(id -> id.equals(actorId) || !alreadyNotifiedIds.contains(id))
+            .toList();
+    boolean keepActor =
+        actorId != null && candidates.contains(actorId) && userRepository.isExternalAgent(actorId);
+    create(
+        IssueNotice.of(NotificationType.ASSIGNED, actorId, issueId, null), candidates, keepActor);
+  }
+
+  /** 생성 + 종류 기본 분류로 푸시. 행위자는 받는 사람에서 거른다. */
   private void create(IssueNotice n, List<Long> recipientIds) {
-    List<Long> recipients = insertAndFanOut(n, recipientIds);
+    create(n, recipientIds, false);
+  }
+
+  /** keepActor=true 면 행위자도 받는 사람에 남긴다(깨우기 알림용) — 그 밖의 거르기·푸시는 같다. */
+  private void create(IssueNotice n, List<Long> recipientIds, boolean keepActor) {
+    List<Long> recipients = insertAndFanOut(n, recipientIds, keepActor);
     if (recipients.isEmpty()) return;
     publishPush(n, PushCategory.of(n.type()), recipients);
   }
@@ -119,7 +147,7 @@ public class NotificationService {
             .withAgentWorkState(agentWorkState);
     List<Long> ids = new ArrayList<>(repo.findHumanStakeholderIds(issueId));
     ids.addAll(mentionedIds);
-    List<Long> recipients = insertAndFanOut(n, ids);
+    List<Long> recipients = insertAndFanOut(n, ids, false);
     if (recipients.isEmpty()) return;
     Set<Long> mentioned = new HashSet<>(mentionedIds);
     List<Long> toMention = recipients.stream().filter(mentioned::contains).toList();
@@ -246,14 +274,15 @@ public class NotificationService {
    * 실제 insert 한 수신자를 돌려준다(빈 목록이면 아무것도 안 함).
    *
    * <p>조회 권한 필터(WP-501)는 여기 한 곳에서 건다 — 보고자·워처·멘션 등 어느 경로로 들어온 수신자든, 프로젝트에서 빠졌거나 처음부터 볼 수 없는 사람에게 알림
-   * 행과 웹 푸시(이슈 제목 포함)를 만들지 않는다. 알림 설정 필터(WP-913)도 그 뒤에 건다.
+   * 행과 웹 푸시(이슈 제목 포함)를 만들지 않는다. 알림 설정 필터(WP-913)도 그 뒤에 건다. keepActor=true 면 행위자도 받는 사람에 남긴다(깨우기
+   * 알림용).
    */
-  private List<Long> insertAndFanOut(IssueNotice n, List<Long> recipientIds) {
+  private List<Long> insertAndFanOut(IssueNotice n, List<Long> recipientIds, boolean keepActor) {
     List<Long> candidates =
         recipientIds.stream()
             .filter(Objects::nonNull)
             .distinct()
-            .filter(id -> !id.equals(n.actorId()))
+            .filter(id -> keepActor || !id.equals(n.actorId()))
             .toList();
     if (candidates.isEmpty()) return candidates;
     Set<Long> readable = new HashSet<>(repo.filterCanReadIssue(n.issueId(), candidates));
@@ -412,7 +441,7 @@ public class NotificationService {
     List<Long> mentionCandidates = mentionHydrator.filterExistingUserIds(mentionedIds);
     IssueNotice mention =
         IssueNotice.of(NotificationType.ISSUE_COMMENT_MENTION, actorId, issueId, commentId);
-    List<Long> mentioned = insertAndFanOut(mention, mentionCandidates);
+    List<Long> mentioned = insertAndFanOut(mention, mentionCandidates, false);
     if (!mentioned.isEmpty()) publishPush(mention, PushCategory.MENTION, mentioned);
     List<Long> others = new ArrayList<>(assigneesAndWatchers(issueId, assignees));
     // 실제로 멘션 알림을 받은 사람이 아니라 설정 필터 전 멘션 후보를 뺀다 — 「나를 멘션」을 끈 담당자에게 같은 코멘트가 COMMENTED 로 새어 들어가지

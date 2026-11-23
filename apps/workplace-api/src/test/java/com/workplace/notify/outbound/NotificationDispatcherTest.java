@@ -17,6 +17,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
@@ -25,6 +26,7 @@ import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessRequeste
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEvent;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -368,5 +370,14 @@ class NotificationDispatcherTest {
     verify(service).createWorkflowVisitLimitAndFanOut(40L, 5L);
     assertThat(seen).containsExactly(7L);
     assertThat(TenantContext.get()).isNull();
+  }
+
+  /** WP-1986: 깨우기 알림은 후보·이미 알림 받은 사람·행위자를 그대로 서비스에 넘긴다(받는 사람 확정은 서비스가 한다). */
+  @Test
+  void onWorkflowNodeWake_passesCandidatesToService() {
+    dispatcher.onWorkflowNodeWake(
+        new WorkflowNodeWakeEvent(1L, 10L, 5L, "dev", List.of(21L, 22L), Set.of(21L), 1L));
+
+    verify(service).createWorkflowWakeAndFanOut(10L, List.of(21L, 22L), Set.of(21L), 1L);
   }
 }
