@@ -10,6 +10,7 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.Workflow.WorkflowPath;
+import com.workplace.jooq.tables.WorkflowRun.WorkflowRunPath;
 import com.workplace.jooq.tables.records.WorkflowVersionRecord;
 
 import java.time.OffsetDateTime;
@@ -236,6 +237,19 @@ public class WorkflowVersion extends TableImpl<WorkflowVersionRecord> {
             _workflow = new WorkflowPath(this, Keys.WORKFLOW_VERSION__WORKFLOW_VERSION_WORKFLOW_ID_FKEY, null);
 
         return _workflow;
+    }
+
+    private transient WorkflowRunPath _workflowRun;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.workflow_run</code> table
+     */
+    public WorkflowRunPath workflowRun() {
+        if (_workflowRun == null)
+            _workflowRun = new WorkflowRunPath(this, null, Keys.WORKFLOW_RUN__WORKFLOW_RUN_WORKFLOW_VERSION_ID_FKEY.getInverseKey());
+
+        return _workflowRun;
     }
 
     @Override

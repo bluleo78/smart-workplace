@@ -65,13 +65,58 @@ class TenantPurgeIsolationTest extends IntegrationTestBase {
                   .returning(ISSUE_TYPE_DEF.ID)
                   .fetchOne()
                   .getId();
-          dsl.insertInto(ISSUE)
-              .set(ISSUE.PROJECT_ID, project)
-              .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(project, "TODO"))
-              .set(ISSUE.NUMBER, 1)
-              .set(ISSUE.TITLE, "i")
-              .set(ISSUE.REPORTER_ID, user)
-              .set(ISSUE.TYPE_ID, type)
+          long issue =
+              dsl.insertInto(ISSUE)
+                  .set(ISSUE.PROJECT_ID, project)
+                  .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(project, "TODO"))
+                  .set(ISSUE.NUMBER, 1)
+                  .set(ISSUE.TITLE, "i")
+                  .set(ISSUE.REPORTER_ID, user)
+                  .set(ISSUE.TYPE_ID, type)
+                  .returning(ISSUE.ID)
+                  .fetchOne()
+                  .getId();
+          // 워크플로우 실행(WP-1985): 정의 ← 버전 ← 실행(issue·version FK) ← 노드 방문·이벤트·멱등 응답
+          long wf =
+              dsl.insertInto(WORKFLOW)
+                  .set(WORKFLOW.PROJECT_ID, project)
+                  .set(WORKFLOW.NAME, "wf")
+                  .set(WORKFLOW.DRAFT_YAML, "y")
+                  .set(WORKFLOW.DRAFT_UPDATED_AT, java.time.OffsetDateTime.now())
+                  .returning(WORKFLOW.ID)
+                  .fetchOne()
+                  .getId();
+          long version =
+              dsl.insertInto(WORKFLOW_VERSION)
+                  .set(WORKFLOW_VERSION.WORKFLOW_ID, wf)
+                  .set(WORKFLOW_VERSION.VERSION_NO, 1)
+                  .set(WORKFLOW_VERSION.SOURCE_YAML, "y")
+                  .set(WORKFLOW_VERSION.MODEL, org.jooq.JSONB.valueOf("{}"))
+                  .returning(WORKFLOW_VERSION.ID)
+                  .fetchOne()
+                  .getId();
+          long run =
+              dsl.insertInto(WORKFLOW_RUN)
+                  .set(WORKFLOW_RUN.ISSUE_ID, issue)
+                  .set(WORKFLOW_RUN.WORKFLOW_VERSION_ID, version)
+                  .set(WORKFLOW_RUN.STATUS, "RUNNING")
+                  .returning(WORKFLOW_RUN.ID)
+                  .fetchOne()
+                  .getId();
+          dsl.insertInto(NODE_RUN)
+              .set(NODE_RUN.RUN_ID, run)
+              .set(NODE_RUN.NODE_KEY, "n1")
+              .set(NODE_RUN.VISIT_NO, 1)
+              .set(NODE_RUN.STATUS, "ACTIVE")
+              .execute();
+          dsl.insertInto(WORKFLOW_RUN_EVENT)
+              .set(WORKFLOW_RUN_EVENT.RUN_ID, run)
+              .set(WORKFLOW_RUN_EVENT.TYPE, "RUN_STARTED")
+              .execute();
+          dsl.insertInto(WORKFLOW_MOVE_IDEMPOTENCY)
+              .set(WORKFLOW_MOVE_IDEMPOTENCY.RUN_ID, run)
+              .set(WORKFLOW_MOVE_IDEMPOTENCY.KEY, "k")
+              .set(WORKFLOW_MOVE_IDEMPOTENCY.RESPONSE, org.jooq.JSONB.valueOf("{}"))
               .execute();
           // 메일: account ← folder ← message(content_id RESTRICT) ← attachment(content_attachment_id
           // RESTRICT)

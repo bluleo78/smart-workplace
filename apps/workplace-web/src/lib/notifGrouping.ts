@@ -44,6 +44,7 @@ export interface GroupedNotifs {
 // AI 작업 검토 요청·실패(WP-913)도 내가 검토하거나 다시 맡겨야 하는 알림이라 행동 필요.
 // 개인 비서 연결 해제(WP-1170)는 내가 다시 연결해야 비서가 동작하므로 행동 필요.
 // 새 앱 연결(WP-1686)은 내가 한 일이 아니면 바로 끊어야 하므로 행동 필요.
+// 워크플로우 되돌림 한도(WP-1985)는 같은 노드를 계속 오가는 AI 작업을 사람이 확인해야 하므로 행동 필요.
 // 메일 보내기 실패(WP-1786)는 내 메일이 나가지 않았으니 고쳐 다시 보내거나 보낸편지함을 확인해야 하므로 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
@@ -54,6 +55,7 @@ export function notifSection(n: NotificationResponse): NotifSection {
     n.type === "WIKI_SHARE_ACCESS_REQUESTED" ||
     n.type === "AI_REVIEW_REQUESTED" ||
     n.type === "AI_WORK_FAILED" ||
+    n.type === "WORKFLOW_VISIT_LIMIT" || // WP-1985
     isPersonalAssistantRevokedType(n) ||
     isOAuthAppConnectedType(n) || // WP-1686
     isMailSendFailedType(n) || // WP-1786
@@ -99,6 +101,7 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "AI_QUESTION",
   "AI_REVIEW_REQUESTED", // WP-913
   "AI_WORK_FAILED", // WP-913
+  "WORKFLOW_VISIT_LIMIT", // WP-1985
   "ISSUE_CHAT_MENTION",
   "ISSUE_COMMENT_MENTION",
   "ASSIGNED",
@@ -134,6 +137,8 @@ function deltaSummary(group: NotificationResponse[]): string {
       parts.push(c > 1 ? `검토 요청 ${c}건` : "검토 요청");
     else if (t === "AI_WORK_FAILED")
       parts.push(c > 1 ? `AI 실패 ${c}건` : "AI 실패");
+    else if (t === "WORKFLOW_VISIT_LIMIT")
+      parts.push(c > 1 ? `되돌림 한도 ${c}건` : "되돌림 한도"); // WP-1985
     else if (t === "ISSUE_CHAT_MENTION")
       parts.push(c > 1 ? `멘션 ${c}건` : "멘션");
     else if (t === "ISSUE_COMMENT_MENTION")

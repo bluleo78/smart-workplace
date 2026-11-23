@@ -52,6 +52,8 @@ describe('notifTarget', () => {
     // AI 검토 요청·실패(WP-913)는 결과를 볼 이슈 상세로 — 챗 드로워를 열지 않는다.
     expect(notifTarget(notif({ type: 'AI_REVIEW_REQUESTED', agentWorkState: 'REVIEW' }))).toBe('/projects/WP/issues/452')
     expect(notifTarget(notif({ type: 'AI_WORK_FAILED', agentWorkState: 'FAILED' }))).toBe('/projects/WP/issues/452')
+    // 워크플로우 되돌림 한도(WP-1985)도 이슈 상세로 — 챗 드로워 없이.
+    expect(notifTarget(notif({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('/projects/WP/issues/452')
   })
 
   it('AI 질문은 상태(권한 필요·차단됨)가 있어도 챗 드로워로 연다 (WP-913)', () => {

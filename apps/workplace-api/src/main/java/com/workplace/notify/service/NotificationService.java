@@ -195,6 +195,22 @@ public class NotificationService {
   }
 
   /**
+   * 워크플로우 되돌림 한도 알림(WP-1985, 설계 §10) — 한 노드에 되돌림이 아닌 방문이 maxVisits 이상이 된 진입마다 그 이슈 프로젝트의 활성 사람
+   * OWNER 에게 WORKFLOW_VISIT_LIMIT 를 만든다. 모델에 「확인자」 표시가 없어 프로젝트를 책임지는 사람에게 보낸다. 행위자 제외·이슈 열람 가능·알림
+   * 설정(ISSUE_AI_FAILED 줄) 필터와 푸시(ISSUE 분류)는 다른 이슈 알림과 같은 경로({@link #create})를 탄다.
+   *
+   * <p>OWNER 조회(project_member·RLS)는 이 트랜잭션 안에서 한다 — 커밋 뒤 비동기 스레드에서 테넌트 GUC 가 주입된 뒤 조회해야 한다.
+   *
+   * @param actorId 그 노드로 이동시킨 사람(알림에서 뺀다)
+   */
+  @Transactional
+  public void createWorkflowVisitLimitAndFanOut(long issueId, long actorId) {
+    create(
+        IssueNotice.of(NotificationType.WORKFLOW_VISIT_LIMIT, actorId, issueId, null),
+        repo.findActiveHumanOwnerIds(issueId));
+  }
+
+  /**
    * 검토 요청·실패 — 대체 규칙으로 고른 한 사람에게만 만들고, 설정 필터는 그 뒤 건다. 대리인은 firstReachableDelegate 가 이미 사람·이슈 열람 가능을
    * 확인했고 작업자는 AI(이벤트 계약)라, 열람·종류를 다시 조회하지 않고 설정 판정부터 한다. 고른 대리인을 돌려준다(없으면 null) — 설정으로 받지 않았어도 같은
    * 보고의 멘션 알림에서 뺀다.

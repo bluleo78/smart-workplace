@@ -272,6 +272,19 @@ class IssueEventDispatcherTest {
     verify(client, never()).publish(Mockito.any());
   }
 
+  /** WP-1985: 워크플로우 이동의 의견 댓글(wakeAgent=false)은 내부 AI 담당자가 있어도 issue.commented 를 보내지 않는다. */
+  @Test
+  void commented_wakeFalse_notDispatched() {
+    dispatcher = build(true);
+    var as = List.of(AGENT_ASSIGNEE);
+
+    dispatcher.onIssueCommented(
+        new IssueCommentedEvent(
+            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "의견", Instant.now(), true, false));
+
+    verify(client, never()).publish(Mockito.any());
+  }
+
   /** 비활성·self-loop 은 대행 에이전트 조회(DB) 없이 거른다. */
   @Test
   void 비활성이나_self_loop_이면_resolver_를_부르지_않는다() {

@@ -17,6 +17,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueReporterChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
 import com.workplace.mail.outbound.MailSendFailedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
@@ -288,6 +289,27 @@ public class NotificationDispatcher {
           e.issueId(),
           e.state(),
           e.mentionedIds().size(),
+          ex.getMessage());
+    }
+  }
+
+  /**
+   * 워크플로우 되돌림 한도(WP-1985, 설계 §10) → 이슈 프로젝트의 활성 사람 OWNER(행위자 제외)에게 WORKFLOW_VISIT_LIMIT. 실행 서비스가 이동
+   * 트랜잭션 안에서 내므로 커밋 뒤에만 받는다(롤백된 이동은 알리지 않음). 비동기 스레드라 이벤트에 실린 테넌트를 다시 세워 RLS 가 통하게 하고, 실패는 로그만
+   * 남긴다(이미 커밋된 이동을 되돌리지 않는다).
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWorkflowVisitLimitReached(WorkflowVisitLimitReached e) {
+    try {
+      TenantContext.runAs(
+          e.tenantId(), () -> service.createWorkflowVisitLimitAndFanOut(e.issueId(), e.actorId()));
+    } catch (Exception ex) {
+      log.warn(
+          "[notify] 워크플로우 되돌림 한도 알림 실패 issueId={} runId={} node={}: {}",
+          e.issueId(),
+          e.runId(),
+          e.nodeKey(),
           ex.getMessage());
     }
   }

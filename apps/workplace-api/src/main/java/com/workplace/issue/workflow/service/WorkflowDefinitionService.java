@@ -24,6 +24,7 @@ import com.workplace.issue.workflow.dto.WorkflowVersionSummary;
 import com.workplace.issue.workflow.exception.WorkflowException;
 import com.workplace.issue.workflow.repository.WorkflowRepository;
 import com.workplace.issue.workflow.repository.WorkflowRow;
+import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.issue.workflow.repository.WorkflowVersionRow;
 import com.workplace.issue.workflow.repository.WorkflowVersionSummaryRow;
 import com.workplace.project.dto.ProjectRow;
@@ -58,12 +59,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class WorkflowDefinitionService {
 
-  /** 실행 표가 생기기 전까지 실행 수는 늘 0 이다(응답 칸은 계약이라 미리 둔다). */
-  private static final int NO_RUNS_YET = 0;
-
   private static final String OWNER = "OWNER";
 
   private final WorkflowRepository workflowRepository;
+  private final WorkflowRunRepository runRepository;
   private final WorkflowMemberLookup memberLookup;
   private final ProjectRepository projectRepository;
   private final ProjectAccessGuard accessGuard;
@@ -94,7 +93,7 @@ public class WorkflowDefinitionService {
     return new WorkflowValidationResult(check(project.id(), req.yaml()).problems());
   }
 
-  /** 게시 버전 목록 — 게시자는 사용자 조회 한 번으로 붙인다. */
+  /** 게시 버전 목록 — 게시자는 사용자 조회 한 번, 버전별 활성 실행 수는 집계 한 번으로 붙인다(WP-1985). */
   @Transactional(readOnly = true)
   public List<WorkflowVersionSummary> versions(long workflowId, long callerId) {
     WorkflowRow workflow = readable(workflowId, callerId).workflow();
@@ -105,6 +104,8 @@ public class WorkflowDefinitionService {
                 .map(WorkflowVersionSummaryRow::createdBy)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet()));
+    // 활성(RUNNING·WAITING·SUSPENDED) 실행만 센다 — 끝난 실행은 그 버전을 붙잡지 않는다.
+    Map<Long, Integer> activeRuns = runRepository.countActiveByVersion(workflow.id());
     return rows.stream()
         .map(
             r ->
@@ -112,7 +113,7 @@ public class WorkflowDefinitionService {
                     r.versionNo(),
                     r.createdAt(),
                     r.createdBy() == null ? null : actors.get(r.createdBy()),
-                    NO_RUNS_YET))
+                    activeRuns.getOrDefault(r.id(), 0)))
         .toList();
   }
 
@@ -169,7 +170,14 @@ public class WorkflowDefinitionService {
         workflowRepository.insertVersion(
             locked.id(), locked.draftYaml(), WorkflowModelJson.write(published), actorId);
     workflowRepository.setActiveVersion(locked.id(), version.id());
-    return new PublishResult(version.versionNo(), NO_RUNS_YET);
+    // 옛 버전으로 도는(활성) 실행 수 — 실행은 시작한 버전에 고정이라 새 버전으로 옮겨 가지 않는다(WP-1985). 정의 행을 잠근 채 세므로
+    // 같은 정의의 게시와는 겹치지 않는다. 방금 만든 버전에는 아직 실행이 없지만 뜻을 분명히 하려고 뺀다.
+    int older =
+        runRepository.countActiveByVersion(locked.id()).entrySet().stream()
+            .filter(e -> e.getKey() != version.id())
+            .mapToInt(Map.Entry::getValue)
+            .sum();
+    return new PublishResult(version.versionNo(), older);
   }
 
   /**

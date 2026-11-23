@@ -115,6 +115,7 @@ import com.workplace.jooq.tables.MessageLinkPreview.MessageLinkPreviewPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.MessagingAgentRun.MessagingAgentRunPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
+import com.workplace.jooq.tables.NodeRun.NodeRunPath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.OauthConnection.OauthConnectionPath;
 import com.workplace.jooq.tables.PersonalReport.PersonalReportPath;
@@ -168,6 +169,9 @@ import com.workplace.jooq.tables.WikiSpaceMemberGroup.WikiSpaceMemberGroupPath;
 import com.workplace.jooq.tables.WorkProfile.WorkProfilePath;
 import com.workplace.jooq.tables.WorkerJob.WorkerJobPath;
 import com.workplace.jooq.tables.Workflow.WorkflowPath;
+import com.workplace.jooq.tables.WorkflowMoveIdempotency.WorkflowMoveIdempotencyPath;
+import com.workplace.jooq.tables.WorkflowRun.WorkflowRunPath;
+import com.workplace.jooq.tables.WorkflowRunEvent.WorkflowRunEventPath;
 import com.workplace.jooq.tables.WorkflowVersion.WorkflowVersionPath;
 import com.workplace.jooq.tables.WorkspaceAssistant.WorkspaceAssistantPath;
 import com.workplace.jooq.tables.records.TenantRecord;
@@ -2082,6 +2086,19 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _messagingAgentRun;
     }
 
+    private transient NodeRunPath _nodeRun;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.node_run</code>
+     * table
+     */
+    public NodeRunPath nodeRun() {
+        if (_nodeRun == null)
+            _nodeRun = new NodeRunPath(this, null, Keys.NODE_RUN__NODE_RUN_TENANT_ID_FKEY.getInverseKey());
+
+        return _nodeRun;
+    }
+
     private transient OauthConnectionPath _oauthConnection;
 
     /**
@@ -2444,6 +2461,45 @@ public class Tenant extends TableImpl<TenantRecord> {
             _workerJob = new WorkerJobPath(this, null, Keys.WORKER_JOB__WORKER_JOB_TENANT_ID_FKEY.getInverseKey());
 
         return _workerJob;
+    }
+
+    private transient WorkflowMoveIdempotencyPath _workflowMoveIdempotency;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.workflow_move_idempotency</code> table
+     */
+    public WorkflowMoveIdempotencyPath workflowMoveIdempotency() {
+        if (_workflowMoveIdempotency == null)
+            _workflowMoveIdempotency = new WorkflowMoveIdempotencyPath(this, null, Keys.WORKFLOW_MOVE_IDEMPOTENCY__WORKFLOW_MOVE_IDEMPOTENCY_TENANT_ID_FKEY.getInverseKey());
+
+        return _workflowMoveIdempotency;
+    }
+
+    private transient WorkflowRunEventPath _workflowRunEvent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.workflow_run_event</code> table
+     */
+    public WorkflowRunEventPath workflowRunEvent() {
+        if (_workflowRunEvent == null)
+            _workflowRunEvent = new WorkflowRunEventPath(this, null, Keys.WORKFLOW_RUN_EVENT__WORKFLOW_RUN_EVENT_TENANT_ID_FKEY.getInverseKey());
+
+        return _workflowRunEvent;
+    }
+
+    private transient WorkflowRunPath _workflowRun;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.workflow_run</code> table
+     */
+    public WorkflowRunPath workflowRun() {
+        if (_workflowRun == null)
+            _workflowRun = new WorkflowRunPath(this, null, Keys.WORKFLOW_RUN__WORKFLOW_RUN_TENANT_ID_FKEY.getInverseKey());
+
+        return _workflowRun;
     }
 
     private transient WorkflowPath _workflow;

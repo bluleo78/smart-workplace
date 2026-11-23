@@ -114,6 +114,7 @@ import com.workplace.jooq.tables.MessageAttachment;
 import com.workplace.jooq.tables.MessageLinkPreview;
 import com.workplace.jooq.tables.MessageReaction;
 import com.workplace.jooq.tables.Milestone;
+import com.workplace.jooq.tables.NodeRun;
 import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.OauthAuthorizationCode;
 import com.workplace.jooq.tables.OauthClient;
@@ -175,6 +176,9 @@ import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkProfile;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.Workflow;
+import com.workplace.jooq.tables.WorkflowMoveIdempotency;
+import com.workplace.jooq.tables.WorkflowRun;
+import com.workplace.jooq.tables.WorkflowRunEvent;
 import com.workplace.jooq.tables.WorkflowVersion;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
@@ -441,6 +445,9 @@ public class Indexes {
     public static final Index IDX_MESSAGE_TENANT = Internal.createIndex(DSL.name("idx_message_tenant"), Message.MESSAGE, new OrderField[] { Message.MESSAGE.TENANT_ID }, false);
     public static final Index IDX_MILESTONE_PROJECT = Internal.createIndex(DSL.name("idx_milestone_project"), Milestone.MILESTONE, new OrderField[] { Milestone.MILESTONE.PROJECT_ID }, false);
     public static final Index IDX_MILESTONE_TENANT = Internal.createIndex(DSL.name("idx_milestone_tenant"), Milestone.MILESTONE, new OrderField[] { Milestone.MILESTONE.TENANT_ID }, false);
+    public static final Index IDX_NODE_RUN_ACTOR = Internal.createIndex(DSL.name("idx_node_run_actor"), NodeRun.NODE_RUN, new OrderField[] { NodeRun.NODE_RUN.ACTOR_ID }, false);
+    public static final Index IDX_NODE_RUN_COMMENT = Internal.createIndex(DSL.name("idx_node_run_comment"), NodeRun.NODE_RUN, new OrderField[] { NodeRun.NODE_RUN.COMMENT_ID }, false);
+    public static final Index IDX_NODE_RUN_TENANT = Internal.createIndex(DSL.name("idx_node_run_tenant"), NodeRun.NODE_RUN, new OrderField[] { NodeRun.NODE_RUN.TENANT_ID }, false);
     public static final Index IDX_NOTIFICATION_ARCHIVED_AT = Internal.createIndex(DSL.name("idx_notification_archived_at"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.ARCHIVED_AT }, false);
     public static final Index IDX_NOTIFICATION_READ_UNARCHIVED = Internal.createIndex(DSL.name("idx_notification_read_unarchived"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.READ_AT }, false);
     public static final Index IDX_NOTIFICATION_RECIPIENT_ARCHIVED = Internal.createIndex(DSL.name("idx_notification_recipient_archived"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID, Notification.NOTIFICATION.ARCHIVED_AT.desc() }, false);
@@ -560,6 +567,15 @@ public class Indexes {
     public static final Index IDX_WORK_PROFILE_TENANT = Internal.createIndex(DSL.name("idx_work_profile_tenant"), WorkProfile.WORK_PROFILE, new OrderField[] { WorkProfile.WORK_PROFILE.TENANT_ID }, false);
     public static final Index IDX_WORKFLOW_ACTIVE_VERSION_ID = Internal.createIndex(DSL.name("idx_workflow_active_version_id"), Workflow.WORKFLOW, new OrderField[] { Workflow.WORKFLOW.ACTIVE_VERSION_ID }, false);
     public static final Index IDX_WORKFLOW_DRAFT_UPDATED_BY = Internal.createIndex(DSL.name("idx_workflow_draft_updated_by"), Workflow.WORKFLOW, new OrderField[] { Workflow.WORKFLOW.DRAFT_UPDATED_BY }, false);
+    public static final Index IDX_WORKFLOW_MOVE_IDEMPOTENCY_ACTOR = Internal.createIndex(DSL.name("idx_workflow_move_idempotency_actor"), WorkflowMoveIdempotency.WORKFLOW_MOVE_IDEMPOTENCY, new OrderField[] { WorkflowMoveIdempotency.WORKFLOW_MOVE_IDEMPOTENCY.ACTOR_ID }, false);
+    public static final Index IDX_WORKFLOW_MOVE_IDEMPOTENCY_TENANT = Internal.createIndex(DSL.name("idx_workflow_move_idempotency_tenant"), WorkflowMoveIdempotency.WORKFLOW_MOVE_IDEMPOTENCY, new OrderField[] { WorkflowMoveIdempotency.WORKFLOW_MOVE_IDEMPOTENCY.TENANT_ID }, false);
+    public static final Index IDX_WORKFLOW_RUN_EVENT_ACTOR = Internal.createIndex(DSL.name("idx_workflow_run_event_actor"), WorkflowRunEvent.WORKFLOW_RUN_EVENT, new OrderField[] { WorkflowRunEvent.WORKFLOW_RUN_EVENT.ACTOR_ID }, false);
+    public static final Index IDX_WORKFLOW_RUN_EVENT_RUN = Internal.createIndex(DSL.name("idx_workflow_run_event_run"), WorkflowRunEvent.WORKFLOW_RUN_EVENT, new OrderField[] { WorkflowRunEvent.WORKFLOW_RUN_EVENT.RUN_ID, WorkflowRunEvent.WORKFLOW_RUN_EVENT.ID }, false);
+    public static final Index IDX_WORKFLOW_RUN_EVENT_TENANT = Internal.createIndex(DSL.name("idx_workflow_run_event_tenant"), WorkflowRunEvent.WORKFLOW_RUN_EVENT, new OrderField[] { WorkflowRunEvent.WORKFLOW_RUN_EVENT.TENANT_ID }, false);
+    public static final Index IDX_WORKFLOW_RUN_ISSUE = Internal.createIndex(DSL.name("idx_workflow_run_issue"), WorkflowRun.WORKFLOW_RUN, new OrderField[] { WorkflowRun.WORKFLOW_RUN.ISSUE_ID, WorkflowRun.WORKFLOW_RUN.ID.desc() }, false);
+    public static final Index IDX_WORKFLOW_RUN_STARTED_BY = Internal.createIndex(DSL.name("idx_workflow_run_started_by"), WorkflowRun.WORKFLOW_RUN, new OrderField[] { WorkflowRun.WORKFLOW_RUN.STARTED_BY }, false);
+    public static final Index IDX_WORKFLOW_RUN_TENANT = Internal.createIndex(DSL.name("idx_workflow_run_tenant"), WorkflowRun.WORKFLOW_RUN, new OrderField[] { WorkflowRun.WORKFLOW_RUN.TENANT_ID }, false);
+    public static final Index IDX_WORKFLOW_RUN_VERSION = Internal.createIndex(DSL.name("idx_workflow_run_version"), WorkflowRun.WORKFLOW_RUN, new OrderField[] { WorkflowRun.WORKFLOW_RUN.WORKFLOW_VERSION_ID, WorkflowRun.WORKFLOW_RUN.ID.desc() }, false);
     public static final Index IDX_WORKFLOW_TENANT = Internal.createIndex(DSL.name("idx_workflow_tenant"), Workflow.WORKFLOW, new OrderField[] { Workflow.WORKFLOW.TENANT_ID }, false);
     public static final Index IDX_WORKFLOW_VERSION_CREATED_BY = Internal.createIndex(DSL.name("idx_workflow_version_created_by"), WorkflowVersion.WORKFLOW_VERSION, new OrderField[] { WorkflowVersion.WORKFLOW_VERSION.CREATED_BY }, false);
     public static final Index IDX_WORKFLOW_VERSION_TENANT = Internal.createIndex(DSL.name("idx_workflow_version_tenant"), WorkflowVersion.WORKFLOW_VERSION, new OrderField[] { WorkflowVersion.WORKFLOW_VERSION.TENANT_ID }, false);
@@ -601,6 +617,7 @@ public class Indexes {
     public static final Index UQ_ISSUE_PROJECT_IMPORT_SOURCE_KEY = Internal.createIndex(DSL.name("uq_issue_project_import_source_key"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.IMPORT_SOURCE_KEY }, true);
     public static final Index UQ_ISSUE_RELATION_TYPE_CODE = Internal.createIndex(DSL.name("uq_issue_relation_type_code"), IssueRelationType.ISSUE_RELATION_TYPE, new OrderField[] { IssueRelationType.ISSUE_RELATION_TYPE.TENANT_ID, IssueRelationType.ISSUE_RELATION_TYPE.CODE }, true);
     public static final Index UQ_MAIL_DRAFT_ATTACHMENT_FILE = Internal.createIndex(DSL.name("uq_mail_draft_attachment_file"), MailDraftAttachment.MAIL_DRAFT_ATTACHMENT, new OrderField[] { MailDraftAttachment.MAIL_DRAFT_ATTACHMENT.FILE_ID }, true);
+    public static final Index UQ_NODE_RUN_OPEN = Internal.createIndex(DSL.name("uq_node_run_open"), NodeRun.NODE_RUN, new OrderField[] { NodeRun.NODE_RUN.RUN_ID }, true);
     public static final Index UQ_OAUTH_CONNECTION_ACTIVE = Internal.createIndex(DSL.name("uq_oauth_connection_active"), OauthConnection.OAUTH_CONNECTION, new OrderField[] { OauthConnection.OAUTH_CONNECTION.USER_ID, OauthConnection.OAUTH_CONNECTION.TENANT_ID, OauthConnection.OAUTH_CONNECTION.CLIENT_PK }, true);
     public static final Index UQ_PERSONAL_REPORT_AUTO = Internal.createIndex(DSL.name("uq_personal_report_auto"), PersonalReport.PERSONAL_REPORT, new OrderField[] { PersonalReport.PERSONAL_REPORT.TENANT_ID, PersonalReport.PERSONAL_REPORT.USER_ID, PersonalReport.PERSONAL_REPORT.KIND, PersonalReport.PERSONAL_REPORT.PERIOD_START }, true);
     public static final Index UQ_PERSONAL_REPORT_PENDING = Internal.createIndex(DSL.name("uq_personal_report_pending"), PersonalReport.PERSONAL_REPORT, new OrderField[] { PersonalReport.PERSONAL_REPORT.TENANT_ID, PersonalReport.PERSONAL_REPORT.USER_ID, PersonalReport.PERSONAL_REPORT.KIND, PersonalReport.PERSONAL_REPORT.PERIOD_START, PersonalReport.PERSONAL_REPORT.PERIOD_END }, true);
@@ -609,4 +626,5 @@ public class Indexes {
     public static final Index UQ_WIKI_SHARE_ACCESS_REQUEST_PENDING = Internal.createIndex(DSL.name("uq_wiki_share_access_request_pending"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.PAGE_ID, WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.REQUESTER_ID }, true);
     public static final Index UQ_WIKI_SPACE_LINKED_PROJECT = Internal.createIndex(DSL.name("uq_wiki_space_linked_project"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.LINKED_PROJECT_ID }, true);
     public static final Index UQ_WIKI_SPACE_PERSONAL_OWNER = Internal.createIndex(DSL.name("uq_wiki_space_personal_owner"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID, WikiSpace.WIKI_SPACE.OWNER_ID }, true);
+    public static final Index UQ_WORKFLOW_RUN_ACTIVE_ISSUE = Internal.createIndex(DSL.name("uq_workflow_run_active_issue"), WorkflowRun.WORKFLOW_RUN, new OrderField[] { WorkflowRun.WORKFLOW_RUN.ISSUE_ID }, true);
 }

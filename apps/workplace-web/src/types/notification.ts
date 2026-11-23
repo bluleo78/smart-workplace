@@ -36,7 +36,10 @@ export interface NotificationResponse {
     | "OAUTH_APP_CONNECTED"
     // WP-1786: 보내기 대기열에 올린 내 메일을 보내지 못함(mailSendUnknown=false) / 보내다 멈춰 결과를 모름(true) — 본인이 받는다.
     // 행위자·이슈·일정·노트 id 없이 온다. 메일 제목은 message(없으면 null), 그 임시보관은 mailDraftId. 클릭하면 그 임시보관을 쓰기 창으로 연다.
-    | "MAIL_SEND_FAILED";
+    | "MAIL_SEND_FAILED"
+    // WP-1985: 워크플로우 실행이 한 노드에 되돌림이 아닌 방문으로 maxVisits 번 이상 들어감 — 이동은 그대로 되고 프로젝트의 활성 사람 OWNER
+    // (그 노드로 넘긴 행위자 제외)가 받는다. 설정은 AI 「실패」 줄과 같다. 이슈 상세로 연다.
+    | "WORKFLOW_VISIT_LIMIT";
   actorId: number | null;
   actorName: string | null;
   actorKind: string | null; // 'HUMAN' | 'AGENT' | null

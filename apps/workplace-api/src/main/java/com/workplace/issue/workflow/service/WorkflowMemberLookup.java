@@ -1,6 +1,7 @@
 package com.workplace.issue.workflow.service;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.workflow.domain.ActiveMember;
 import com.workplace.issue.workflow.domain.ProjectMembers;
 import com.workplace.project.dto.MemberResponse;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -26,15 +27,31 @@ class WorkflowMemberLookup {
    * 내부 AI 로 잘못 본다.
    */
   ProjectMembers membersOf(long projectId) {
+    return ProjectMembers.of(
+        activeInfos(projectId).stream()
+            .map(u -> new ProjectMembers.Member(u.username(), u.kind(), u.agentRuntime()))
+            .toList());
+  }
+
+  /**
+   * 지금의 활성 구성원을 id·저장된 username 으로(WP-1985 실행 판정용). {@link #membersOf} 와 같은 걸러내기라 정의 검증과 실행이 같은 사람을
+   * 구성원으로 본다. 역할과의 맞춤은 정확한 username 으로 {@code RunRoleMembers} 가 한다.
+   */
+  List<ActiveMember> activeMembersOf(long projectId) {
+    return activeInfos(projectId).stream()
+        .map(u -> new ActiveMember(u.id(), u.username()))
+        .toList();
+  }
+
+  /** 실효 구성원 중 프로젝트 활성 + 워크스페이스 활성인 사용자 정보. */
+  private List<AssigneeInfo> activeInfos(long projectId) {
     List<String> usernames =
         memberRepository.findEffectiveByProject(projectId).stream()
             .filter(MemberResponse::active)
             .map(MemberResponse::username)
             .toList();
-    return ProjectMembers.of(
-        userRepository.findAssigneeInfosByUsernames(usernames, TenantContext.get()).stream()
-            .filter(AssigneeInfo::isActive)
-            .map(u -> new ProjectMembers.Member(u.username(), u.kind(), u.agentRuntime()))
-            .toList());
+    return userRepository.findAssigneeInfosByUsernames(usernames, TenantContext.get()).stream()
+        .filter(AssigneeInfo::isActive)
+        .toList();
   }
 }

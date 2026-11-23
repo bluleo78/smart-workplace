@@ -20,8 +20,12 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validator;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -51,6 +55,8 @@ public class IssueCommentService {
   // 코멘트 응답에 보는 사람별 반응 집계를 싣는다(WP-504).
   private final IssueCommentReactionService reactionService;
   private final IssueCommentMentionService mentionService;
+  // 워크플로우 의견 댓글(WP-1985)은 컨트롤러를 거치지 않아 요청 제약을 직접 돌린다 — 댓글 API 와 같은 Bean Validation.
+  private final Validator validator;
 
   /**
    * 이슈 → 프로젝트 → 조회 가드(readable). OPEN 은 테넌트 전원 조회 허용(RLS 가 테넌트 경계 보장). 프로젝트 row 반환.
@@ -147,6 +153,54 @@ public class IssueCommentService {
    * 댓글은 알림·SSE 는 그대로 내되 AI 를 깨우지 않는다(이벤트의 actorCanWriteContent=false, IssueHumanReplyPosted 미발행).
    */
   public IssueCommentResponse create(Long callerId, Long issueId, CreateCommentRequest req) {
+    var target = assertCommentWritable(callerId, issueId);
+    var written = writeComment(callerId, target, req, true);
+    var actor = written.actor();
+    // MCP(수행 도구 헤더) 경유 코멘트면 이미 있는 AI 작업을 터치한다(WP-377) — 새로 시작하지는 않는다(WP-1365). 코멘트 작성은 이슈 updated
+    // 알림을 거치지 않아 여기서 직접 낸다.
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId, false);
+    // 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다(챗 글과 같은 신호, WP-377 §4.3). 비멤버 댓글은 제외.
+    if (target.actorCanWrite() && actor != null && UserKind.HUMAN.equals(actor.kind())) {
+      publisher.publishEvent(new IssueHumanReplyPosted(issueId));
+    }
+
+    // 작성 응답으로 캐시에 붙여도 멘션 이름이 바로 보이게 멘션 사용자를 싣는다(WP-1095).
+    return mentionService.enrich(written.comment());
+  }
+
+  /**
+   * 워크플로우 이동의 의견 댓글(WP-1985) — 작성 자격·본문 처리·이미지·첨부·워처·알림·SSE 는 {@link #create} 와 같고, 내부 AI 실행(이벤트
+   * wakeAgent=false)·{@link AgentToolWriteEvent}·{@link IssueHumanReplyPosted} 를 내지 않는다. 뒤 둘은 멈춘
+   * agent_work 를 작업 중으로 되돌리는데, 이동은 agent_work 를 바꾸지 않는다(설계 §7 의견).
+   *
+   * <p>컨트롤러를 거치지 않아 Bean Validation 이 돌지 않으므로 댓글 API 와 같은 제약({@link CreateCommentRequest} 의
+   * {@code @NotBlank}·{@code @VisibleText}·{@code @Size})을 여기서 직접 돌린다 — 위반은 API 와 같은 400 필드 오류
+   * ({@link ConstraintViolationException})로, 이슈 조회보다 먼저(API 의 400 → 404 순서) 낸다. NUL 은 API 처럼 DB 가
+   * 거절한다.
+   */
+  public IssueCommentResponse createForWorkflow(
+      Long callerId, Long issueId, CreateCommentRequest req) {
+    Set<ConstraintViolation<CreateCommentRequest>> violations = validator.validate(req);
+    if (!violations.isEmpty()) {
+      throw new ConstraintViolationException(violations);
+    }
+    var target = assertCommentWritable(callerId, issueId);
+    var written = writeComment(callerId, target, req, false);
+    return mentionService.enrich(written.comment());
+  }
+
+  /** 댓글을 쓸 이슈·프로젝트와, 작성자가 원래 쓰기 권한자인지(AI 깨우기·첨부 자격 판정). */
+  private record CommentTarget(
+      com.workplace.issue.dto.IssueRow issue, ProjectRow project, boolean actorCanWrite) {}
+
+  /** 저장한 댓글과 작성자 요약 — 호출부가 작성자 종류로 후속 신호를 정한다. */
+  private record WrittenComment(IssueCommentResponse comment, UserSummary actor) {}
+
+  /**
+   * 댓글 작성 자격 검사 — {@link #create}·{@link #createForWorkflow} 공통. 볼 수 없는 이슈는 404, 볼 수는 있지만 쓸 수 없으면
+   * 403.
+   */
+  private CommentTarget assertCommentWritable(Long callerId, Long issueId) {
     var issue = issueRepository.findById(issueId).orElseThrow(IssueNotFoundException::new);
     var project =
         projectRepository
@@ -162,6 +216,21 @@ public class IssueCommentService {
     if (!actorCanWrite) {
       accessGuard.assertCommentable(project, issue.reporterId(), callerId);
     }
+    return new CommentTarget(issue, project, actorCanWrite);
+  }
+
+  /**
+   * 댓글 저장과 공통 부수효과 — 자리표시 해석·저장·이미지·첨부·워처·{@link IssueCommentedEvent} 발행을 {@link #create} 와 같은 순서로
+   * 한다.
+   *
+   * @param wakeAgent 이벤트에 실을 값 — false 면 ai-agent issue.commented 발사만 건너뛴다(알림·SSE 는 그대로)
+   */
+  private WrittenComment writeComment(
+      Long callerId, CommentTarget target, CreateCommentRequest req, boolean wakeAgent) {
+    var issue = target.issue();
+    var project = target.project();
+    long issueId = issue.id();
+    boolean actorCanWrite = target.actorCanWrite();
     // WP-1634 스테이징 파일 자리표시(![설명](file:N))를 실제 주소로 바꾼 본문으로 저장·알린다. 못 쓰는 번호면 예외로 댓글이 남지 않는다.
     var resolved = bodyImageService.resolveStagedPlaceholders(project, callerId, req.body());
     requireAttachable(resolved, actorCanWrite);
@@ -192,17 +261,9 @@ public class IssueCommentService {
             resp.id(),
             body,
             Instant.now(),
-            actorCanWrite));
-    // MCP(수행 도구 헤더) 경유 코멘트면 이미 있는 AI 작업을 터치한다(WP-377) — 새로 시작하지는 않는다(WP-1365). 코멘트 작성은 이슈 updated
-    // 알림을 거치지 않아 여기서 직접 낸다.
-    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId, false);
-    // 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다(챗 글과 같은 신호, WP-377 §4.3). 비멤버 댓글은 제외.
-    if (actorCanWrite && actor != null && UserKind.HUMAN.equals(actor.kind())) {
-      publisher.publishEvent(new IssueHumanReplyPosted(issueId));
-    }
-
-    // 작성 응답으로 캐시에 붙여도 멘션 이름이 바로 보이게 멘션 사용자를 싣는다(WP-1095).
-    return mentionService.enrich(resp);
+            actorCanWrite,
+            wakeAgent));
+    return new WrittenComment(resp, actor);
   }
 
   /** 코멘트 수정 (본인만, WP-620) — 프로젝트 OWNER 도 남의 코멘트는 고칠 수 없다(삭제는 가능). */

@@ -35,5 +35,8 @@ public enum NotificationType {
   OAUTH_APP_CONNECTED,
   // 보낼 대기열의 메일 발송 실패(WP-1786) — 보낸 본인 1명, 계정 알림이라 설정 없이 늘 보냄, message=메일 제목, mail_draft_id=그 임시보관.
   // 행위자는 없다(null). 발송 중 멈춰 결과를 모르면 mail_send_unknown=true 로 「보냈는지 확인하지 못함」 변형을 표시한다
-  MAIL_SEND_FAILED
+  MAIL_SEND_FAILED,
+  // 워크플로우 실행이 한 노드에 되돌림이 아닌 방문으로 maxVisits 번 이상 들어감(WP-1985, 설계 §10) — 이동은 그대로 하고 프로젝트의 활성 사람
+  // OWNER(행위자 제외)에게 알린다. 설정 줄·푸시 분류는 AI_WORK_FAILED 와 같다(「내가 맡긴 AI 작업이 막혔다」는 같은 성격)
+  WORKFLOW_VISIT_LIMIT
 }

@@ -106,6 +106,12 @@ public final class TenantPurgePlan {
           // CASCADE,
           // workflow.active_version_id→version SET NULL) 어느 순서든 막히지 않는다. 버전을 먼저 지우면 정의의 활성 버전이 SET
           // NULL 된다.
+          // 워크플로우 실행(WP-1985) — 멱등 → 이벤트 → 노드 방문 → 실행 순으로 자식부터. 실행은 issue(CASCADE)·version(NO
+          // ACTION)을 참조하므로 version 보다 먼저 지워야 한다(이슈는 위에서 이미 지워져 CASCADE 로 비었을 수 있다).
+          WORKFLOW_MOVE_IDEMPOTENCY,
+          WORKFLOW_RUN_EVENT,
+          NODE_RUN,
+          WORKFLOW_RUN,
           WORKFLOW_VERSION,
           WORKFLOW,
           ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)

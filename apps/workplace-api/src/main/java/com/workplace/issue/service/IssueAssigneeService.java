@@ -2,11 +2,13 @@ package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.AssigneeInfo;
@@ -90,6 +92,62 @@ public class IssueAssigneeService {
     Set<Long> toRemove = new HashSet<>(current);
     toRemove.removeAll(target);
 
+    writeDiff(callerId, project, issue, toAdd, toRemove, wakeAgent, true);
+
+    return repo.findByIssue(issue.id());
+  }
+
+  /**
+   * 워크플로우 이동의 담당 변경(WP-1985) — 호출자가 이슈 행을 잠근 트랜잭션 안에서, 쓰기 권한을 본 뒤 부른다. 구성원·활성 검사, 이력, 워처, 갱신 알림, 담당
+   * 변경 이벤트는 {@link #replace} 와 같고, 내부 AI 실행(이벤트 wakeAgent=false)과 agent_work 생성·종료만 하지 않는다(설계 §3
+   * B).
+   *
+   * <p>add 는 지금 담당이 아닌 사람만, remove 는 지금 담당인 사람만 실제로 반영한다 — diff 가 0 이면 {@code replace} 처럼
+   * 이력·알림·이벤트가 없다(단계 화면 새로고침용 알림은 호출자가 낸다). 프로젝트 구성원 검사는 새로 넣는 사람만 본다 — 지금 담당 중 프로젝트를 떠난 사람이 있어도
+   * 이동이 막히지 않게.
+   *
+   * <p>잠금 순서(이슈 → 구성원 → 실행): 넣는 사람의 구성원 행을 여기서 잠그므로, 실행 서비스는 이 메서드를 실행 행 revision 갱신·node_run 쓰기보다
+   * 먼저 부른다.
+   *
+   * @throws IllegalArgumentException add 와 remove 에 같은 사람이 있을 때(호출자의 계산 오류)
+   * @throws com.workplace.issue.exception.InvalidAssigneeForProjectException 새로 넣는 사람이 프로젝트 구성원이 아닐
+   *     때
+   * @throws com.workplace.issue.exception.InactiveAssigneeException 새로 넣는 사람이 이 워크스페이스에서 활성이 아닐 때
+   */
+  public void applyWorkflowChange(
+      long callerId, ProjectRow project, IssueRow lockedIssue, Set<Long> add, Set<Long> remove) {
+    Set<Long> overlap = new HashSet<>(add);
+    overlap.retainAll(remove);
+    if (!overlap.isEmpty()) {
+      throw new IllegalArgumentException("같은 사람을 담당에 넣고 빼려 했습니다: " + overlap);
+    }
+    // 지금 담당 기준으로 실제 diff 를 만든다 — 이미 담당인 사람을 다시 넣거나, 담당이 아닌 사람을 빼는 것은 아무 일도 아니다.
+    Set<Long> current = new HashSet<>(repo.findUserIdsByIssue(lockedIssue.id()));
+    Set<Long> toAdd = new HashSet<>(add);
+    toAdd.removeAll(current);
+    Set<Long> toRemove = new HashSet<>(remove);
+    toRemove.retainAll(current);
+    if (!toAdd.isEmpty()) {
+      AssigneePolicy.requireMembers(project, toAdd, memberRepository);
+    }
+    writeDiff(callerId, project, lockedIssue, toAdd, toRemove, false, false);
+  }
+
+  /**
+   * 계산한 담당 diff 를 쓰고 부수효과를 낸다 — {@link #replace} 와 {@link #applyWorkflowChange} 가 같은 순서(활성 검사 → 쓰기
+   * → agent_work → 이력·갱신 알림 → 워처 → 이벤트)를 쓰게 한 곳에 둔다.
+   *
+   * @param wakeAgent 담당 변경 이벤트에 실을 값 — false 면 ai-agent issue.assigned 발사만 건너뛴다
+   * @param manageAgentWork 외부 AI 의 "시작 전" 작업 생성과 빠진 사람의 작업 종료를 할지 — 워크플로우 경로는 false
+   */
+  private void writeDiff(
+      Long callerId,
+      ProjectRow project,
+      IssueRow issue,
+      Set<Long> toAdd,
+      Set<Long> toRemove,
+      boolean wakeAgent,
+      boolean manageAgentWork) {
     // 2-b) 신규 추가 대상은 이 워크스페이스에서 활성이어야 한다 — 전역 비활성(#624)·워크스페이스 정지(WP-417) 모두 거부. 이슈 생성과 같은
     // 규칙(AssigneePolicy). 기존 담당자는 유지(제거만 허용)하도록 추가분만 본다.
     // 추가 대상 사용자는 한 번만 읽어 활성 검사·외부 AI 작업 생성·이력 요약에 함께 쓴다. 테넌트는 요청 컨텍스트(이 프로젝트는 RLS 로 그
@@ -108,11 +166,16 @@ public class IssueAssigneeService {
 
     for (Long uid : toAdd) repo.add(issue.id(), uid, callerId);
     for (Long uid : toRemove) repo.remove(issue.id(), uid);
-    // 외부 실행 AI 구성원이 새로 담당자가 되면 "시작 전" 작업을 만든다(WP-377) — 종료 이슈는 서비스가 거른다.
-    agentWorkService.submitForAssignees(issue.id(), issue.status(), addedUsers);
-    // 담당에서 빠진 사람의 AI 작업은 끝낸다(WP-377 §4.3) — 변경 알림 전에 닫아 화면 갱신이 최신 상태를 보게 한다.
-    if (!toRemove.isEmpty()) {
-      agentWorkService.cancelForWorkers(issue.id(), toRemove);
+    // 워크플로우 경로(manageAgentWork=false, WP-1985)는 agent_work 를 만들거나 닫지 않는다 — 이동으로 바뀐 담당의 작업 상태는
+    // WP-1986 이 맡는다. 반복 회수도 cancelForWorkers 안에 있어 함께 건너뛴다 — AI 작업 수명은 WP-1986 몫이고, 회차 발행이 담당
+    // 여부를 확인하므로 빠진 AI 의 반복이 실제로 돌지는 않는다.
+    if (manageAgentWork) {
+      // 외부 실행 AI 구성원이 새로 담당자가 되면 "시작 전" 작업을 만든다(WP-377) — 종료 이슈는 서비스가 거른다.
+      agentWorkService.submitForAssignees(issue.id(), issue.status(), addedUsers);
+      // 담당에서 빠진 사람의 AI 작업은 끝낸다(WP-377 §4.3) — 변경 알림 전에 닫아 화면 갱신이 최신 상태를 보게 한다.
+      if (!toRemove.isEmpty()) {
+        agentWorkService.cancelForWorkers(issue.id(), toRemove);
+      }
     }
 
     // 4) history — diff 0 이면 미기록
@@ -124,7 +187,7 @@ public class IssueAssigneeService {
       // 담당자만 바뀌어도 이슈 수정 시각을 올린다 — 최근 수정 순 정렬·최근 변동에 반영(WP-1930). version 은 그대로.
       issueRepository.touchUpdatedAt(issue.id());
       // 실시간 무효화 — diff 가 있을 때만
-      changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
+      changeNotifier.updatedWithoutTouch(project, issue.number(), issue.id(), callerId);
     }
 
     // 5) 신규 추가 사용자 watcher 자동 등록
@@ -149,7 +212,5 @@ public class IssueAssigneeService {
               Instant.now(),
               wakeAgent));
     }
-
-    return repo.findByIssue(issue.id());
   }
 }

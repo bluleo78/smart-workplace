@@ -202,6 +202,17 @@ public class WorkflowRepository {
         .map(this::toVersionRow);
   }
 
+  /**
+   * 버전이 속한 정의 id 와 게시 번호만 id 로 읽는다(WP-1985) — 실행 view 는 이 둘만 쓰고 모델은 캐시에서 꺼내므로 원문·모델을 나르지 않는다. 다른
+   * 테넌트의 것은 RLS 로 보이지 않는다.
+   */
+  public Optional<WorkflowVersionRef> findVersionRefById(long id) {
+    return dsl.select(WORKFLOW_VERSION.WORKFLOW_ID, WORKFLOW_VERSION.VERSION_NO)
+        .from(WORKFLOW_VERSION)
+        .where(WORKFLOW_VERSION.ID.eq(id))
+        .fetchOptional(r -> new WorkflowVersionRef(id, r.value1(), r.value2()));
+  }
+
   /** 버전 요약을 id 로 읽는다 — 상세 응답은 번호·시각·게시자만 쓰므로 원문·모델(합쳐 수 MB 까지)을 나르지 않는다. */
   public Optional<WorkflowVersionSummaryRow> findVersionSummaryById(long id) {
     return selectVersionSummary()

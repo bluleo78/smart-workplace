@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static com.workplace.jooq.Tables.WORKFLOW;
+import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.workflow.repository.WorkflowRepository;
+import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectMemberGroupService;
@@ -75,6 +77,7 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberGroupService memberGroupService;
   @Autowired WorkflowRepository repo;
+  @Autowired WorkflowRunRepository runRepository;
   @Autowired UserRepository userRepository;
 
   private long ownerId;
@@ -394,6 +397,44 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
     assertThat(first.get("runningRunsOnOlderVersions").asInt()).isZero();
     assertThat(second.get("versionNo").asInt()).isEqualTo(2);
     assertThat(ok(get(path(id)), ownerId).get("activeVersion").get("no").asInt()).isEqualTo(2);
+  }
+
+  @Test
+  @DisplayName("게시 응답의 runningRunsOnOlderVersions 는 새 버전 밖 버전의 활성 실행만 센다(끝난 실행 제외)")
+  void publish_countsRunsOnOlderVersions() {
+    long id = create("흐름", valid());
+    publish(id);
+    long v1 = versionId(id, 1);
+    // v1: RUNNING·WAITING·SUSPENDED 각 하나(활성), COMPLETED·CANCELED 각 하나(끝남)
+    seedRuns(v1, "RUNNING", "WAITING", "SUSPENDED", "COMPLETED", "CANCELED");
+
+    JsonNode second = ok(publishReq(id, null), ownerId);
+    assertThat(second.get("versionNo").asInt()).isEqualTo(2);
+    assertThat(second.get("runningRunsOnOlderVersions").asInt()).isEqualTo(3);
+
+    // v2 의 활성 실행은 v3 게시에서 옛 버전으로 센다 — 게시한 버전 자신의 것은 세지 않는다.
+    seedRuns(versionId(id, 2), "RUNNING", "COMPLETED");
+    JsonNode third = ok(publishReq(id, null), ownerId);
+    assertThat(third.get("runningRunsOnOlderVersions").asInt()).isEqualTo(4);
+  }
+
+  @Test
+  @DisplayName("버전 목록의 activeRuns 는 그 버전의 활성 실행 수 — 끝난 실행은 세지 않는다")
+  void versions_countActiveRuns() {
+    long id = create("흐름", valid());
+    publish(id);
+    publish(id);
+    publish(id);
+    seedRuns(versionId(id, 1), "RUNNING", "CANCELED", "COMPLETED");
+    seedRuns(versionId(id, 2), "COMPLETED", "CANCELED");
+    seedRuns(versionId(id, 3), "WAITING", "SUSPENDED");
+
+    JsonNode list = ok(get(path(id) + "/versions"), memberId);
+
+    assertThat(list.get(0).get("versionNo").asInt()).isEqualTo(3);
+    assertThat(list.get(0).get("activeRuns").asInt()).isEqualTo(2);
+    assertThat(list.get(1).get("activeRuns").asInt()).isZero();
+    assertThat(list.get(2).get("activeRuns").asInt()).isEqualTo(1);
   }
 
   @Test
@@ -1145,6 +1186,40 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
   }
 
   // ───────────────────────── 시험 도우미 ─────────────────────────
+
+  /** 정의의 그 번호 버전 id. */
+  private long versionId(long workflowId, int no) {
+    return repo.findVersion(workflowId, no).orElseThrow().id();
+  }
+
+  /**
+   * 버전에 실행 행을 직접 심는다 — 상태마다 이슈 하나(활성 실행은 이슈당 하나라). 끝난 상태는 RUNNING 으로 넣은 뒤 상태·끝난 시각을 바꾼다(CANCELED 는
+   * 아직 API 로 만들 수 없다).
+   */
+  private void seedRuns(long versionId, String... statuses) {
+    for (String status : statuses) {
+      Res res =
+          send(post(API + "/projects/" + key + "/issues").content(body("title", "실행 이슈")), ownerId);
+      assertThat(res.status()).as("%s", res.text()).isBetween(200, 201);
+      long issue = res.body().get("id").asLong();
+      long run =
+          runRepository
+              .insertRun(issue, versionId, "RUNNING", "work", "{}", ownerId, Instant.now())
+              .orElseThrow()
+              .id();
+      if (!"RUNNING".equals(status)) {
+        dsl.update(WORKFLOW_RUN)
+            .set(WORKFLOW_RUN.STATUS, status)
+            .set(
+                WORKFLOW_RUN.ENDED_AT,
+                "COMPLETED".equals(status) || "CANCELED".equals(status)
+                    ? OffsetDateTime.now(ZoneOffset.UTC)
+                    : null)
+            .where(WORKFLOW_RUN.ID.eq(run))
+            .execute();
+      }
+    }
+  }
 
   /** 응답 하나(상태·본문 글·읽은 JSON). */
   private record Res(int status, String text, JsonNode body) {}

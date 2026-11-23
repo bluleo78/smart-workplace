@@ -46,6 +46,14 @@ describe('notifSection', () => {
     expect(notifSection(notif({ type: 'AI_WORK_FAILED' }))).toBe('mine')
   })
 
+  it('워크플로우 되돌림 한도는 내 차례, 델타는 「되돌림 한도」, 이슈 상세로 (WP-1985)', () => {
+    expect(notifSection(notif({ type: 'WORKFLOW_VISIT_LIMIT' }))).toBe('mine')
+    const { mine } = groupNotifications([notif({ id: 1, type: 'WORKFLOW_VISIT_LIMIT' })])
+    expect(mine).toHaveLength(1)
+    expect(mine[0].deltaSummary).toBe('되돌림 한도')
+    expect(mine[0].target).toBe('/projects/WP/issues/7')
+  })
+
   it('코멘트 멘션도 내 차례, 델타는 「코멘트 멘션」 (WP-650)', () => {
     expect(notifSection(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe('mine')
     const { mine } = groupNotifications([
@@ -81,6 +89,7 @@ const ALL_TYPES = Object.keys({
   PERSONAL_ASSISTANT_REVOKED: true,
   OAUTH_APP_CONNECTED: true,
   MAIL_SEND_FAILED: true,
+  WORKFLOW_VISIT_LIMIT: true,
 } satisfies Record<NotificationResponse['type'], true>) as NotificationResponse['type'][]
 
 describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
@@ -99,6 +108,7 @@ describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
         'PERSONAL_ASSISTANT_REVOKED',
         'REPORTER_ASSIGNED',
         'WIKI_SHARE_ACCESS_REQUESTED',
+        'WORKFLOW_VISIT_LIMIT',
       ].sort(),
     )
   })

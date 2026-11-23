@@ -17,6 +17,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowVisitLimitReached;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessApprovedEvent;
@@ -342,6 +343,30 @@ class NotificationDispatcherTest {
     dispatcher.onWikiShareAccessApproved(new WikiShareAccessApprovedEvent(9L, 10L, 1L, 2L));
 
     assertThat(seen).containsExactly(7L, 7L, 8L, 9L);
+    assertThat(TenantContext.get()).isNull();
+  }
+
+  /**
+   * 워크플로우 되돌림 한도(WP-1985) — 이슈·행위자를 그대로 서비스에 넘기고, 커밋 뒤 비동기 스레드라 이벤트의 테넌트로 부른 뒤 되돌린다. 수신자(활성 사람
+   * OWNER) 계산은 서비스 트랜잭션 안이라 WorkflowRunApiTest 가 실제 DB 로 본다.
+   */
+  @Test
+  void onWorkflowVisitLimitReached_delegatesUnderEventTenant() {
+    java.util.List<Long> seen = new java.util.ArrayList<>();
+    Mockito.doAnswer(
+            inv -> {
+              seen.add(TenantContext.get());
+              return null;
+            })
+        .when(service)
+        .createWorkflowVisitLimitAndFanOut(Mockito.anyLong(), Mockito.anyLong());
+
+    TenantContext.clear();
+    dispatcher.onWorkflowVisitLimitReached(
+        new WorkflowVisitLimitReached(7L, 30L, 40L, "review", 3, 5L));
+
+    verify(service).createWorkflowVisitLimitAndFanOut(40L, 5L);
+    assertThat(seen).containsExactly(7L);
     assertThat(TenantContext.get()).isNull();
   }
 }

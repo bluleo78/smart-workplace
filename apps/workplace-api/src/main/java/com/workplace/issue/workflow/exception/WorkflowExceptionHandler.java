@@ -3,6 +3,7 @@ package com.workplace.issue.workflow.exception;
 import com.workplace.issue.workflow.dto.WorkflowErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -28,9 +29,17 @@ public class WorkflowExceptionHandler {
                 e.status().value(),
                 e.status().getReasonPhrase(),
                 e.getMessage(),
-                Map.of("code", e.code()),
+                errors(e),
                 Instant.now().toString(),
                 request.getRequestURI(),
                 e.problems()));
+  }
+
+  /** errors 맵 — code 를 먼저, 그다음 실행 오류의 칸(STALE 의 currentNode·revision 등). code 칸은 덮지 않는다. */
+  private static Map<String, String> errors(WorkflowException e) {
+    Map<String, String> errors = new LinkedHashMap<>();
+    errors.put("code", e.code());
+    e.details().forEach(errors::putIfAbsent);
+    return errors;
   }
 }
