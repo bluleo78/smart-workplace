@@ -15,7 +15,18 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  */
 public final class AfterCommit {
 
+  /**
+   * 커밋 콜백 안에서 실행 중임 표지(WP-1973 리뷰 5) — {@link #run} 의 afterCommit 안에서 다시 발행이 들어오면 이미 커밋됐으므로 그 자리에서
+   * 보내야, afterCompletion 으로 밀려 다른 발행보다 늦게(혹은 먼저) 나가는 일이 없다(WP-874 순서).
+   */
+  private static final ThreadLocal<Boolean> IN_COMMIT_CALLBACK = new ThreadLocal<>();
+
   private AfterCommit() {}
+
+  /** 커밋 콜백(afterCommit) 안에서 실행 중인지 — 발행 구현이 이 값을 보고 미루지 않고 바로 보내는지 정한다. 콜백 밖에서는 언제나 false. */
+  public static boolean inCommitCallback() {
+    return Boolean.TRUE.equals(IN_COMMIT_CALLBACK.get());
+  }
 
   /** 커밋 뒤에 {@code task} 를 실행한다. 트랜잭션 밖이면 즉시 실행한다. */
   public static void run(Runnable task) {
@@ -27,7 +38,16 @@ public final class AfterCommit {
         new TransactionSynchronization() {
           @Override
           public void afterCommit() {
-            task.run();
+            Boolean previous = IN_COMMIT_CALLBACK.get();
+            IN_COMMIT_CALLBACK.set(true);
+            try {
+              task.run();
+            } finally {
+              // 표지를 지우지 않고 이전 값으로 복원한다 — afterCommit 안에서 다시 afterCommit 이 돌면(중첩)
+              // 바깥 표지를 지워, 그 뒤의 발행이 afterCompletion 으로 밀려 순서(WP-874)가 깨진다(WP-1973 리뷰).
+              if (previous == null) IN_COMMIT_CALLBACK.remove();
+              else IN_COMMIT_CALLBACK.set(previous);
+            }
           }
         });
   }

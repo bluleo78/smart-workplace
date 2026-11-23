@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.agentruntime.realtime.RunnerSseRegistry;
+import com.workplace.global.realtime.relay.NoopSseEventRelay;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -52,7 +53,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_whileRunnerOutputIsInFlight_deliversEndedFrameBeforeClosing() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     // 닫힘 기록을 검증할 수 있게 서비스를 넣는다 — 안 넣으면 NPE 경고만 남고 검증도 못 한다.
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -143,7 +145,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_whenBrowserSendNeverFinishes_stillClosesAfterTimeout() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     // 닫힘 기록을 검증할 수 있게 서비스를 넣는다 — 안 넣으면 NPE 경고만 남고 검증도 못 한다.
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -230,7 +233,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_whenNoBrowserAttached_stillClosesRunnerAndRecordsClosed() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -259,7 +263,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_whenBrowserAlreadyClosed_doesNotWaitForDrain() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -348,7 +353,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_whenInterruptedWhileWaiting_stillCloses() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -451,7 +457,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_withoutStalledSend_returnsWithoutWaiting() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
 
@@ -600,7 +607,8 @@ class AgentScreenRelayEndedFrameTest {
   void tick_whenEndedFrameDrainIsStalled_returnsAtOnceAndStillDelivers() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     // 실제 1초 타이머가 테스트 중에 끼어들지 않게 끄고 tick 을 직접 부른다.
     relay.stopTimerForTest();
     AgentScreenService screenService = mock(AgentScreenService.class);
@@ -694,7 +702,8 @@ class AgentScreenRelayEndedFrameTest {
   void close_whenEndedFrameRejected_skipsDrainOnStuckBuffer() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     relay.stopTimerForTest();
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);
@@ -754,7 +763,8 @@ class AgentScreenRelayEndedFrameTest {
   void browserClosed_whileRunnerOutputInFlight_skipsDrain() throws Exception {
     ObjectMapper om = new ObjectMapper();
     AgentScreenRelay relay =
-        new AgentScreenRelay(new RunnerSseRegistry(om), new AgentScreenTickets(), om);
+        new AgentScreenRelay(
+            new RunnerSseRegistry(new NoopSseEventRelay()), new AgentScreenTickets(), om);
     relay.stopTimerForTest();
     AgentScreenService screenService = mock(AgentScreenService.class);
     relay.setService(screenService);

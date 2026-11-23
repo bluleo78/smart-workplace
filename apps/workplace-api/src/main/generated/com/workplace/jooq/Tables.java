@@ -160,6 +160,7 @@ import com.workplace.jooq.tables.SharedAiMemory;
 import com.workplace.jooq.tables.SharedAiMemoryChange;
 import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
+import com.workplace.jooq.tables.SseRelayEvent;
 import com.workplace.jooq.tables.StagedUploadLink;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
@@ -989,6 +990,11 @@ public class Tables {
      * The table <code>public.shedlock</code>.
      */
     public static final Shedlock SHEDLOCK = Shedlock.SHEDLOCK;
+
+    /**
+     * SSE 파드 사이 중계 아웃박스 — 7000 바이트를 넘는 페이로드를 행으로 남긴다
+     */
+    public static final SseRelayEvent SSE_RELAY_EVENT = SseRelayEvent.SSE_RELAY_EVENT;
 
     /**
      * The table <code>public.staged_upload_link</code>.

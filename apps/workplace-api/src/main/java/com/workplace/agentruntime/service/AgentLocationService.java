@@ -232,7 +232,8 @@ public class AgentLocationService {
 
   /**
    * 커밋 뒤 이 위치의 runner 변경 스트림을 닫는다(WP-1249) — 회수된 옛 토큰으로 연 스트림이 계속 신호를 받지 않게. runner 는 다시 붙으며 토큰을 다시
-   * 검증받는다. 이 인스턴스의 연결만 닫히고, 다른 인스턴스의 연결은 연결 수명(30분)이 지나면 끊긴다.
+   * 검증받는다. 파드 사이 중계(WP-1973)를 켠 상태에서는 다른 인스턴스의 연결까지 같은 신호로 즉시 닫히고, 중계를 끈 상태에서는 자기 인스턴스의 연결만 즉시 닫히고
+   * 나머지는 연결 수명(30분)이 지나면 끊긴다.
    */
   private void closeRunnerStreams(long locationId) {
     long tenantId = TenantContext.require();

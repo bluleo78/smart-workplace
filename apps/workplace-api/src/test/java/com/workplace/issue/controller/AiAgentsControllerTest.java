@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.workplace.global.realtime.AgentConnectionRepository;
 import com.workplace.global.realtime.AgentConnectionTracker;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.relay.NoopSseEventRelay;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.domain.IssueKeys;
 import com.workplace.issue.dto.AgentWorkPatch;
@@ -91,7 +92,8 @@ class AiAgentsControllerTest extends IntegrationTestBase {
 
   @BeforeEach
   void seedUsersAndProjects() {
-    podA = new SseRegistry(om);
+    // 다른 파드 흉내 — 중계 없이 자기 파드 연결만 다룬다(WP-1973 뒤 생성자가 중계를 받는다).
+    podA = new SseRegistry(new NoopSseEventRelay());
     podATracker = new AgentConnectionTracker(podA, agentConnectionRepository);
     // 요청 토큰이 테넌트#1 을 싣으므로 호출자는 그 테넌트의 ACTIVE 멤버여야 한다.
     me = withMembership(createUser("ag-me"));

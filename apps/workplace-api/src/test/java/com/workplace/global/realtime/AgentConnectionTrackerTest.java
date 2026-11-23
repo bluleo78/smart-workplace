@@ -14,6 +14,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.workplace.global.realtime.relay.NoopSseEventRelay;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,7 +23,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import tools.jackson.databind.json.JsonMapper;
 
 /** AgentConnectionTracker 단위 테스트 — 진짜 SseRegistry 와 목 저장소로 쓰기 시점·재시도·잊기를 확인한다. */
 class AgentConnectionTrackerTest {
@@ -35,7 +35,7 @@ class AgentConnectionTrackerTest {
 
   @BeforeEach
   void setUp() {
-    registry = spy(new SseRegistry(JsonMapper.builder().build()));
+    registry = spy(new SseRegistry(new NoopSseEventRelay()));
     repository = mock(AgentConnectionRepository.class);
     tracker = new AgentConnectionTracker(registry, repository);
   }
