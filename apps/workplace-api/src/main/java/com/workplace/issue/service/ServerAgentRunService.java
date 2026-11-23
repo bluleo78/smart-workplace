@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  * WorkflowAgentWorkBridge#onServerRunSuccess}. 이동 없이 끝났으면 실행 id 로 그 AI 의 마지막 도는 실행의 끝인지 가려({@link
  * AgentServerRunRepository}) 그때만 작업 중 행을 대기 중(WAITING + {@link
  * AgentWorkState#NOTE_FINISHED_WITHOUT_MOVE})으로 내린다 — 「일했고 쉬는 중」이라 이슈 완료 때 COMPLETED 로 닫히고 알림도 없다.
- * 다른 실행이 도는 중의 실패 끝은 미뤘다가 마지막 실행이 끝날 때 따른다(agent_server_run 의 V338 COMMENT).
+ * 다른 실행이 도는 중의 실패 끝은 미뤘다가 마지막 실행이 끝날 때 따른다(agent_server_run 의 V339 COMMENT).
  *
  * <p>방문: 실패 끝·미룬 실패는 지금 노드 방문(node_run.entered_at) 뒤에 시작한 실행의 것만 따른다. 앞 방문(앞 노드·다시 시도 전의 멈춘 방문)에서
  * 시작한 실행의 실패는 지금 방문과 상관없어 노드를 멈추지 않는다.

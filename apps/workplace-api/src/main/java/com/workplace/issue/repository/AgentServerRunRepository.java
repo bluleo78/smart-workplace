@@ -18,7 +18,7 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * 서버 AI 의 이슈 실행(agent_server_run, WP-1986) — 끝 보고가 그 (이슈, AI) 의 마지막 도는 실행의 것인지 가른다(열의 뜻은 V338
+ * 서버 AI 의 이슈 실행(agent_server_run, WP-1986) — 끝 보고가 그 (이슈, AI) 의 마지막 도는 실행의 것인지 가른다(열의 뜻은 V339
  * COMMENT).
  *
  * <p>시각: started_at 만 앱 시계(Instant.now())로 쓴다 — 노드 방문의 node_run.entered_at 도 앱 시계로 쓰여, 「이 실행이 지금 방문
