@@ -26,13 +26,19 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  *   기획 WP-1697 의 네 도구를 둘로 합치고 상한을 올리기로 정했다(2026-11-18 dh.yang 승인).
  * 18,300 → 18,450: 2026-11-19 WP-1766 내 최근·즐겨찾기 노트 도구(list_my_wiki_pages)로 늘었다(직전 18,296, 늘어 18,444). 상한 맞추려 다른 도구 설명을 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
  * 18,450 → 18,550: 2026-11-20 WP-1816 add_issue_chat 에 선택 fileIds(스키마 한 필드)가 늘었다(직전 약 18,42x, 늘어 18,476). 상한 맞추려 다른 도구 설명을 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
+ * 18,550 → 19,350: 2026-11-23 WP-1988 워크플로우 도구 6종(실행 get/start/move_issue_workflow·정의 get/validate/update_workflow)으로 늘었다
+ *   (직전 18,476, 늘어 19,309). 새 도구 설명을 한 번 줄여 본 뒤의 값이고, 다른 도구 설명은 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
+ * 19,350 → 19,400: 2026-11-23 WP-1988 리뷰 후속 — move_issue_workflow 의 runId·update_workflow 의 expectedDraftUpdatedAt(실행·초안 충돌 방지)
+ *   입력과 설명 한 구절로 늘었다(직전 19,309, 늘어 19,357). 설명을 줄여 본 뒤의 값이고, 다른 도구 설명은 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
  */
-const DEFINITION_TOKEN_CAP = 18_550;
+const DEFINITION_TOKEN_CAP = 19_400;
 /**
  * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
  * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).
+ * 19 → 22: 2026-11-23 WP-1988 워크플로우 도구 6종 중 이슈 앱 실행 3종(get/start/move_issue_workflow)으로 이슈 앱이 22개가 됐다.
+ *   상한 맞추려 다른 도구를 합치지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
  */
-const APP_TOOL_CAP = 19;
+const APP_TOOL_CAP = 22;
 
 // 도구 구성 시점에는 클라이언트 메서드를 부르지 않으므로 빈 객체로 충분하다.
 const tools = buildSharedTools({} as unknown as SharedToolClient);

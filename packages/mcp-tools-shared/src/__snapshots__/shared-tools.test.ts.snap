@@ -35,6 +35,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_home_overview": "read",
   "get_issue_chat": "read",
   "get_issue_detail": "read",
+  "get_issue_workflow": "read",
   "get_mail": "read",
   "get_mail_summary": "read",
   "get_member": "read",
@@ -42,6 +43,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_project": "read",
   "get_user_group": "read",
   "get_wiki_page": "read",
+  "get_workflow": "read",
   "hide_dm": "write",
   "import_attachment_to_drive": "write",
   "join_channel": "write",
@@ -73,6 +75,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "mark_mail_read": "write",
   "mark_notification_read": "write",
   "move_drive_item": "write",
+  "move_issue_workflow": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
   "react": "write",
@@ -91,6 +94,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "search_members": "read",
   "search_wiki": "read",
   "star_drive_item": "write",
+  "start_issue_workflow": "write",
   "sync_mail": "write",
   "unlink_event_note": "write",
   "update_channel_message": "write",
@@ -103,7 +107,9 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "update_project_meta": "write",
   "update_user_group": "write",
   "update_wiki_page": "write",
+  "update_workflow": "write",
   "upload_file": "write",
+  "validate_workflow": "read",
   "watch_issue": "write",
 }
 `;
@@ -1357,6 +1363,23 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "get_issue_workflow",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "get_mail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1484,6 +1507,34 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "pageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_workflow",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
       ],
       "type": "object",
     },
@@ -2429,6 +2480,89 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "move_issue_workflow",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "assignees": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "fromNode": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "outcome": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "outputs": {
+          "anyOf": [
+            {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string",
+              },
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "runId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "issueKey",
+        "fromNode",
+        "outcome",
+        "expectedRevision",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "move_wiki_page",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3151,6 +3285,34 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "starred",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "start_issue_workflow",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "workflowName": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "issueKey",
       ],
       "type": "object",
     },
@@ -3922,6 +4084,53 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "update_workflow",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "expectedDraftUpdatedAt": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "publish": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "yaml": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "name",
+        "yaml",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "upload_file",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4012,6 +4221,27 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           ],
         },
       },
+      "type": "object",
+    },
+  },
+  {
+    "name": "validate_workflow",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "yaml": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "yaml",
+      ],
       "type": "object",
     },
   },

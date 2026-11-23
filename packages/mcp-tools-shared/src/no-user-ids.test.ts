@@ -12,6 +12,7 @@ import { buildMemberTools } from './member-tools.js';
 import { buildMessagingTools } from './messaging-tools.js';
 import { buildProjectTools } from './project-tools.js';
 import { buildWikiTools } from './wiki-tools.js';
+import { buildWorkflowTools } from './workflow-tools.js';
 
 /** 사용자 ID 를 담는 서버 필드 이름. 응답 어디에도 없어야 한다. */
 const USER_ID_KEYS = new Set([
@@ -553,5 +554,60 @@ describe('첨부 읽기 (WP-358)', () => {
     expect(res.attachmentId).toBe(args.attachmentId);
     // 본문 텍스트는 첨부 원문이라 그대로 둔다 — 멘션 토큰 검사는 여기서 제외한다.
     expect(userIdLeaks({ ...res, text: undefined })).toEqual([]);
+  });
+});
+
+// WP-1988: 워크플로우 실행 도구 — 서버 IssueWorkflowView 의 사람(UserSummary: id·username·name·kind)은 담당·후보·지나온 길의 actor 에 실린다.
+describe('워크플로우 (WP-1988)', () => {
+  const kim = { id: 42, username: 'kim', name: '김개발', kind: 'HUMAN' };
+  const lee = { id: 43, username: 'lee', name: '이검토', kind: 'AGENT' };
+  const view = {
+    runId: 11, status: 'RUNNING', revision: 3, workflowId: 5, versionNo: 2,
+    currentNode: { key: 'dev', name: '개발', type: 'task', roleKey: 'developer', assignees: [kim], enteredAt: 't', nodeRunStatus: 'ACTIVE', instructions: '지시' },
+    outcomes: [{ key: 'done', toNode: 'review', requiredOutputs: [{ key: 'prUrl', type: 'string' }], requireComment: false, assignTo: 'reviewer', candidateAssignees: [lee], assigneeRequired: true }],
+    path: [{ key: 'plan', name: '계획', outcome: 'ok', actor: kim, enteredAt: 't', leftAt: 't' }],
+    remainingNodeKeys: ['review'],
+    // 질문·답 기록(서버 withQa) — askedBy·answeredBy 는 숫자 사용자 id, 본문에는 멘션 토큰.
+    context: { _qa: [{ askNode: 'dev', answerNode: 'plan', question: '<@42> 확인?', askedBy: 42, answer: '네', answeredBy: 43 }] },
+  };
+  const client = {
+    getIssueWorkflow: vi.fn().mockResolvedValue(view),
+    startIssueWorkflow: vi.fn().mockResolvedValue(view),
+    moveIssueWorkflow: vi.fn().mockResolvedValue(view),
+    listWorkflows: vi.fn().mockResolvedValue([{ id: 5, name: '개발', enabled: true, activeVersionNo: 2, draftChanged: false }]),
+    getProjectMembers: vi.fn().mockResolvedValue([{ userId: 43, username: 'lee', name: '이검토', role: 'MEMBER' }]),
+    getMe: vi.fn(),
+    // _qa 의 사람 id 풀이 — 42 는 찾고 43 은 못 찾는다(못 찾아도 숫자가 남지 않아야 한다).
+    getMember: vi.fn().mockImplementation(async (id: number) => {
+      if (id === 42) return { userId: 42, username: 'kim', name: '김개발', kind: 'HUMAN', active: true };
+      throw { response: { status: 404 } };
+    }),
+    // 정의 조회 — 서버 WorkflowDetail 의 게시한 사람(WorkflowActor: id·username·name).
+    getWorkflow: vi.fn().mockResolvedValue({
+      id: 5, projectId: 9, name: '개발', enabled: true,
+      activeVersion: { no: 2, createdAt: 't', createdBy: kim },
+      draftYaml: 'y', draftUpdatedAt: 't', draftProblems: [],
+    }),
+  };
+  const tools = buildWorkflowTools(client as never) as never as Parameters<typeof find>[0];
+
+  it('목 점검: 가공 전 view 에는 숫자 사용자 ID 가 실제로 들어 있다', () => {
+    expect(userIdLeaks(view).length).toBeGreaterThan(0);
+  });
+
+  it('get·start·move_issue_workflow·get_workflow 는 담당·후보·actor·게시한 사람을 username·name 으로만 둔다', async () => {
+    for (const [name, args] of [
+      ['get_issue_workflow', { issueKey: 'WP-7' }],
+      ['start_issue_workflow', { issueKey: 'WP-7' }],
+      ['move_issue_workflow', { issueKey: 'WP-7', fromNode: 'dev', outcome: 'done', expectedRevision: 3, assignees: ['lee'] }],
+      ['get_workflow', { projectKey: 'WP', name: '개발' }],
+    ] as const) {
+      const body = out(await find(tools, name).handler(args));
+      expect(userIdLeaks(body), name).toEqual([]);
+      expect(JSON.stringify(body), name).toContain('kim');
+      expect(JSON.stringify(body), name).not.toMatch(/"id":/);
+      // context._qa 의 askedBy·answeredBy 숫자와 <@id> 토큰도 남지 않는다.
+      expect(JSON.stringify(body), name).not.toMatch(/"(askedBy|answeredBy)":\d/);
+    }
   });
 });

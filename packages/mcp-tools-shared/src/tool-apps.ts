@@ -50,9 +50,11 @@ export interface ToolAppGuide {
 // 전체 연결의 instructions 가 2,048자(workplace-mcp INSTRUCTIONS_MAX_LENGTH) 안에 들어와야 한다 — WP-421 에서 첨부 문구를 더하며 여러 앱의 "A and B" 를 "A/B" 로, 나열 끝의 "and" 를 쉼표로 줄였다.
 // WP-1510: 도움말(help) 앱 한 줄을 더하며 같은 방식으로 issue·project·wiki·drive·mail·notify 문구를 다시 줄였다(뜻은 그대로, 앱 이름이 이미 말하는 낱말·"A and B" 정리).
 // WP-1689: notify 쓰기에 「archive」(읽은 알림 보관)를 더하며 wiki·calendar 의 "A and B" 를 다시 줄였다.
+// WP-1988: issue 쓰기에 「workflows」(워크플로우 시작·이동, 정의는 project 앱 도구) 한 낱말을 더하며 2,048자 상한 안에 두려고
+// issue 읽기의 "and attachments"·member 읽기의 "and their contact cards" 를 쉼표로 줄였다(뜻은 그대로).
 // WP-1741: mail 쓰기에 「star」(별표 flag_mail)를 더하며 mail 읽기의 "mail and attachments"·"replies and issues" 를 쉼표·"/" 로 줄였다.
 export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
-  issue: { label: 'Issues (이슈)', read: 'find/read issues (incl. watched) and attachments', write: 'create/update issues, comment, link, watch, attach files, report work', entry: ['list_issues', 'get_issue_detail'] },
+  issue: { label: 'Issues (이슈)', read: 'find/read issues (incl. watched), attachments', write: 'create/update issues, comment, link, watch, attach files, report work, workflows', entry: ['list_issues', 'get_issue_detail'] },
   project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles, custom fields', write: 'create/rename projects, add members, create/edit labels, milestones, cycles', entry: ['list_projects', 'get_project'] },
   wiki: { label: 'Wiki (노트)', read: 'search/read pages, summaries, revision history, backlinks', write: 'create, edit, move pages, attach files, restore revisions', entry: ['search_wiki', 'get_wiki_page'] },
   drive: { label: 'Drive (드라이브)', read: 'find, summarize, read files, versions, backlinks, trash', write: 'create folders; rename/move/copy; upload files or text; download links; import attachments; restore from trash', entry: ['list_drive_items', 'search_drive'] },
@@ -62,7 +64,7 @@ export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
   calendar: { label: 'Calendar (캘린더)', read: 'events', write: 'create/update events, attendees, RSVP', entry: ['list_events', 'get_event'] },
   contacts: { label: 'Contacts (연락처)', read: 'contacts and user groups', write: 'favorites, user groups, external contacts', entry: ['list_contacts', 'list_user_groups'] },
   notify: { label: 'Notifications (알림)', read: 'inbox, home overview (priorities, mail/chat summaries, activity, thread inbox)', write: 'mark read/archive', entry: ['list_notifications', 'get_home_overview'] },
-  member: { label: 'Members (구성원)', read: 'find members and their contact cards', write: '', entry: ['search_members', 'get_member'] },
+  member: { label: 'Members (구성원)', read: 'find members, contact cards', write: '', entry: ['search_members', 'get_member'] },
   // WP-1510: 제품 매뉴얼(사용법) — 읽기 전용이라 write 는 비운다.
   help: { label: 'Help (도움말)', read: 'how-to manual for this app', write: '', entry: ['manual'] },
 };

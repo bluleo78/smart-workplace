@@ -24,6 +24,10 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   add_issue_relation: { label: '이슈 관계 추가', icon: '🔗' }, // WP-887: 관련·중복·복제·원인 등(차단 제외)·외부 링크
   remove_issue_relation: { label: '이슈 관계 제거', icon: '🔗' },
   claim_issue: { label: '이슈 가져가기', icon: '🙋' }, // WP-800: 대기열 라벨 이슈를 AI 가 한 동작으로 담당
+  // WP-1988: 이슈 워크플로우 실행 — 지금 단계 보기·시작·다음 단계로 넘기기
+  get_issue_workflow: { label: '워크플로우 보기', icon: '🔀' },
+  start_issue_workflow: { label: '워크플로우 시작', icon: '▶️' },
+  move_issue_workflow: { label: '워크플로우 넘기기', icon: '⏭️' },
   watch_issue: { label: '이슈 구독 변경', icon: '👀' }, // WP-421: watch_issue·unwatch_issue 통합(watching)
   // 프로젝트
   list_projects: { label: '프로젝트 목록', icon: '🗂️' },
@@ -33,6 +37,10 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   add_project_member: { label: '프로젝트 멤버 추가', icon: '👥' },
   create_project_meta: { label: '라벨·마일스톤·사이클·버전 생성', icon: '🏷️' },
   update_project_meta: { label: '라벨·마일스톤·사이클·버전 수정', icon: '✏️' },
+  // WP-1988: 워크플로우 정의 — 조회·검증·저장(게시)
+  get_workflow: { label: '워크플로우 정의 조회', icon: '🔀' },
+  validate_workflow: { label: '워크플로우 검증', icon: '✅' },
+  update_workflow: { label: '워크플로우 저장', icon: '💾' },
   // 노트
   search_wiki: { label: '노트 검색', icon: '🔍' },
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },

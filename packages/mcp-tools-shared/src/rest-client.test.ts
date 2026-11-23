@@ -939,3 +939,83 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     expect(err.message.length).toBeLessThan(400);
   });
 });
+
+describe('createSharedToolClient 워크플로우 경로(WP-1988)', () => {
+  it('getIssueWorkflow_callsIssueIdPath — 이슈 id 를 조회한 뒤 GET /issues/{id}/workflow', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { summary: { id: 77 } } }).mockResolvedValueOnce({ data: { runId: 5 } });
+    expect(await client.getIssueWorkflow('WP-7')).toEqual({ runId: 5 });
+    expect(http.get).toHaveBeenNthCalledWith(1, '/projects/WP/issues/7');
+    expect(http.get).toHaveBeenNthCalledWith(2, '/issues/77/workflow');
+  });
+
+  it('startIssueWorkflow 는 workflowId 를 본문으로 POST', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { summary: { id: 77 } } });
+    await client.startIssueWorkflow('WP-7', 4);
+    expect(http.post).toHaveBeenCalledWith('/issues/77/workflow/start', { workflowId: 4 });
+  });
+
+  it('moveIssueWorkflow_postsBody — 본문을 그대로 보낸다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { summary: { id: 77 } } });
+    const body = { fromNode: 'dev', outcome: 'done', outputs: { a: 1 }, assigneeIds: [2], comment: 'c', expectedRevision: 3, idempotencyKey: 'WP-7:dev:3:done' };
+    await client.moveIssueWorkflow('WP-7', body);
+    expect(http.post).toHaveBeenCalledWith('/issues/77/workflow/move', body);
+  });
+
+  it('listWorkflows 는 프로젝트 id 를 조회해 /projects/{id}/workflows 를 GET, 빈 응답은 []', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { id: 3 } });
+    expect(await client.listWorkflows('WP')).toEqual([]);
+    expect(http.get).toHaveBeenNthCalledWith(1, '/projects/WP');
+    expect(http.get).toHaveBeenNthCalledWith(2, '/projects/3/workflows');
+  });
+
+  it('getWorkflow·createWorkflow 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.getWorkflow(9);
+    expect(http.get).toHaveBeenCalledWith('/workflows/9');
+    http.get.mockResolvedValueOnce({ data: { id: 3 } });
+    await client.createWorkflow('WP', 'n', 'y: 1');
+    expect(http.post).toHaveBeenCalledWith('/projects/3/workflows', { name: 'n', yaml: 'y: 1' });
+  });
+
+  it('getWorkflowVersionYaml_returnsSourceYaml', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { versionNo: 2, sourceYaml: 'a: b', model: '{}' } });
+    expect(await client.getWorkflowVersionYaml(9, 2)).toBe('a: b');
+    expect(http.get).toHaveBeenCalledWith('/workflows/9/versions/2');
+  });
+
+  it('saveWorkflowDraft 는 PUT /workflows/{id}/draft', async () => {
+    const { http, client } = mockHttp();
+    await client.saveWorkflowDraft(9, 'y');
+    expect(http.put).toHaveBeenCalledWith('/workflows/9/draft', { yaml: 'y' });
+  });
+
+  it('saveWorkflowDraft_withExpectedDraftUpdatedAt: 초안 시각을 주면 본문에 함께 보낸다', async () => {
+    const { http, client } = mockHttp();
+    await client.saveWorkflowDraft(9, 'y', '2026-11-23T01:02:03Z');
+    expect(http.put).toHaveBeenCalledWith('/workflows/9/draft', { yaml: 'y', expectedDraftUpdatedAt: '2026-11-23T01:02:03Z' });
+  });
+
+  it('validateWorkflow_sendsProjectId — projectKey WP → projectId 3', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { id: 3 } });
+    await client.validateWorkflow('WP', 'y');
+    expect(http.post).toHaveBeenCalledWith('/workflows/validate', { projectId: 3, yaml: 'y' });
+  });
+
+  it('publishWorkflow_withExpectedDraftUpdatedAt_postsBody: 초안 시각을 주면 본문으로 보낸다', async () => {
+    const { http, client } = mockHttp();
+    await client.publishWorkflow(9, '2026-11-23T01:02:03Z');
+    expect(http.post).toHaveBeenCalledWith('/workflows/9/publish', { expectedDraftUpdatedAt: '2026-11-23T01:02:03Z' });
+  });
+
+  it('publishWorkflow_postsWithoutBody', async () => {
+    const { http, client } = mockHttp();
+    await client.publishWorkflow(9);
+    expect(http.post).toHaveBeenCalledWith('/workflows/9/publish', undefined);
+  });
+});

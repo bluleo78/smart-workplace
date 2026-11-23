@@ -1045,3 +1045,116 @@ export interface CreateProjectBody {
   description?: string;
   type?: string;
 }
+
+// ── 워크플로우(WP-1988) ──
+
+/** 워크플로우에 나오는 사람 — 서버 WorkflowActor. 도구 응답에는 숫자 id 를 싣지 않고 {username, name} 만 쓴다(id 는 이동 때 담당 지정 해석용). */
+export interface WorkflowUserRow {
+  id?: number;
+  username: string;
+  name?: string;
+}
+
+/** YAML 검증 문제 한 건 — 서버 WorkflowProblem. line·column 은 YAML 위치. */
+export interface WorkflowProblemRow {
+  severity: 'ERROR' | 'WARNING';
+  code: string;
+  message: string;
+  line: number;
+  column: number;
+  nodeKey: string | null;
+}
+
+/** GET /issues/{id}/workflow — 이슈의 워크플로우 진행 상태(현재 노드·선택 가능한 결과·지나온 길). 실행이 없으면 runId 등이 null. */
+export interface IssueWorkflowViewRow {
+  runId: number | null;
+  status: string | null;
+  /** 이동 때 expectedRevision 으로 되돌려 보내는 낙관적 잠금 값. */
+  revision: number;
+  workflowId: number | null;
+  versionNo: number | null;
+  currentNode: {
+    key: string;
+    name: string;
+    type: string;
+    roleKey: string | null;
+    assignees: WorkflowUserRow[];
+    enteredAt: string;
+    nodeRunStatus: string;
+    instructions: string | null;
+  } | null;
+  outcomes: {
+    key: string;
+    toNode: string;
+    requiredOutputs: { key: string; type: string }[];
+    requireComment: boolean;
+    assignTo: string | null;
+    candidateAssignees: WorkflowUserRow[];
+    assigneeRequired: boolean | null;
+  }[];
+  path: { key: string; name: string; outcome: string | null; actor: WorkflowUserRow | null; enteredAt: string; leftAt: string | null }[];
+  remainingNodeKeys: string[];
+  context: Record<string, unknown>;
+}
+
+/** GET /projects/{id}/workflows 한 행. */
+export interface WorkflowSummaryRow {
+  id: number;
+  name: string;
+  enabled: boolean;
+  activeVersionNo: number | null;
+  /** 초안이 게시본과 달라졌는지. */
+  draftChanged: boolean;
+}
+
+/** GET /workflows/{id} — 활성 버전 요약과 초안 YAML·초안 문제. */
+export interface WorkflowDetailRow {
+  id: number;
+  projectId: number;
+  name: string;
+  enabled: boolean;
+  activeVersion: { no: number; createdAt: string; createdBy: WorkflowUserRow | null } | null;
+  draftYaml: string;
+  draftUpdatedAt: string;
+  draftProblems: WorkflowProblemRow[];
+}
+
+/** POST /issues/{id}/workflow/move 본문 — 서버 MoveRequest 와 1:1. */
+export interface MoveWorkflowBody {
+  fromNode: string;
+  outcome: string;
+  outputs?: Record<string, unknown>;
+  assigneeIds?: number[];
+  comment?: string;
+  expectedRevision: number;
+  /** 같은 이동의 재시도를 한 번으로 만드는 키. */
+  idempotencyKey: string;
+  /** 겨눈 실행(view 의 runId). 빠지면 서버가 지금 실행을 겨눈 것으로 본다. */
+  runId?: number;
+}
+
+export interface WorkflowToolClient {
+  /** GET /issues/{id}/workflow — 이슈 키 → 이슈 id 를 조회해 쓴다. */
+  getIssueWorkflow(issueKey: string): Promise<IssueWorkflowViewRow>;
+  /** POST /issues/{id}/workflow/start { workflowId }. */
+  startIssueWorkflow(issueKey: string, workflowId: number): Promise<IssueWorkflowViewRow>;
+  /** POST /issues/{id}/workflow/move. */
+  moveIssueWorkflow(issueKey: string, body: MoveWorkflowBody): Promise<IssueWorkflowViewRow>;
+  /** GET /projects/{pid}/workflows — 프로젝트 키 → id 는 getProject 로 얻는다. */
+  listWorkflows(projectKey: string): Promise<WorkflowSummaryRow[]>;
+  /** GET /workflows/{id}. */
+  getWorkflow(workflowId: number): Promise<WorkflowDetailRow>;
+  /** GET /workflows/{id}/versions/{no} 의 sourceYaml. */
+  getWorkflowVersionYaml(workflowId: number, versionNo: number): Promise<string>;
+  /** POST /projects/{pid}/workflows. */
+  createWorkflow(projectKey: string, name: string, yaml: string): Promise<WorkflowDetailRow>;
+  /**
+   * PUT /workflows/{id}/draft { yaml, expectedDraftUpdatedAt? } — 문제가 있어도 초안으로 저장된다.
+   * expectedDraftUpdatedAt 을 주면 그사이 초안이 바뀐 경우 409 WORKFLOW_DRAFT_CONFLICT.
+   */
+  saveWorkflowDraft(workflowId: number, yaml: string, expectedDraftUpdatedAt?: string): Promise<{ draftUpdatedAt: string; problems: WorkflowProblemRow[] }>;
+  /** POST /workflows/validate { projectId, yaml } — 저장하지 않는 검증. */
+  validateWorkflow(projectKey: string, yaml: string): Promise<{ problems: WorkflowProblemRow[] }>;
+  /** POST /workflows/{id}/publish — expectedDraftUpdatedAt 을 주면 그사이 초안이 바뀐 경우 409 WORKFLOW_DRAFT_CONFLICT. */
+  publishWorkflow(workflowId: number, expectedDraftUpdatedAt?: string): Promise<{ versionNo: number; runningRunsOnOlderVersions: number }>;
+}

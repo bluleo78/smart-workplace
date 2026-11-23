@@ -18,6 +18,14 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   add_issue_relation: ['write', false, true, false],
   add_user_group_member: ['write', false, true, false],
   claim_issue: ['write', false, false, false],
+  // WP-1988: 시작은 두 번째 호출이 ALREADY_ACTIVE 라 멱등 아님, 이동은 idempotencyKey 로 서버가 같은 응답을 돌려줘 멱등.
+  start_issue_workflow: ['write', false, false, false],
+  move_issue_workflow: ['write', false, true, false],
+  get_issue_workflow: ['read', R, R, R],
+  // WP-1988: 정의 저장은 publish 가 부를 때마다 새 버전을 만들어 멱등 아님, 게시본·지난 버전이 남아 비파괴.
+  update_workflow: ['write', false, false, false],
+  get_workflow: ['read', R, R, R],
+  validate_workflow: ['read', R, R, R],
   create_channel: ['write', false, false, false],
   create_drive_folder: ['write', false, false, false],
   create_external_contact: ['write', false, false, false],
