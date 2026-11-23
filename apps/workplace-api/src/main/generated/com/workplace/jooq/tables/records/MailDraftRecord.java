@@ -371,6 +371,22 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
         return (JSONB) get(24);
     }
 
+    /**
+     * Setter for <code>public.mail_draft.confidential</code>. WP-2029: 임시저장 시점의
+     * 기밀 발송 선택
+     */
+    public void setConfidential(Boolean value) {
+        set(25, value);
+    }
+
+    /**
+     * Getter for <code>public.mail_draft.confidential</code>. WP-2029: 임시저장 시점의
+     * 기밀 발송 선택
+     */
+    public Boolean getConfidential() {
+        return (Boolean) get(25);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -394,7 +410,7 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
     /**
      * Create a detached, initialised MailDraftRecord
      */
-    public MailDraftRecord(Long id, Long tenantId, Long userId, Long accountId, String mode, String[] toAddrs, String[] ccAddrs, String[] bccAddrs, String subject, String bodyHtml, String preview, Long sourceMessageId, Boolean quoteRemoved, Integer version, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime sendAt, String sendState, String sendError, OffsetDateTime sendingStartedAt, Boolean sentBySchedule, String bodyText, Long inReplyToMessageId, JSONB inlineImages, JSONB inlineUploads) {
+    public MailDraftRecord(Long id, Long tenantId, Long userId, Long accountId, String mode, String[] toAddrs, String[] ccAddrs, String[] bccAddrs, String subject, String bodyHtml, String preview, Long sourceMessageId, Boolean quoteRemoved, Integer version, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime sendAt, String sendState, String sendError, OffsetDateTime sendingStartedAt, Boolean sentBySchedule, String bodyText, Long inReplyToMessageId, JSONB inlineImages, JSONB inlineUploads, Boolean confidential) {
         super(MailDraft.MAIL_DRAFT);
 
         setId(id);
@@ -422,6 +438,7 @@ public class MailDraftRecord extends UpdatableRecordImpl<MailDraftRecord> {
         setInReplyToMessageId(inReplyToMessageId);
         setInlineImages(inlineImages);
         setInlineUploads(inlineUploads);
+        setConfidential(confidential);
         resetTouchedOnNotNull();
     }
 }

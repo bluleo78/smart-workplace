@@ -40,6 +40,8 @@ import java.util.List;
  * <p>sendAt(WP-1787, 선택): 예약 보내기 시각(ISO). 있으면 되돌리기 유예(10초) 대신 이 시각에 보낸다 — 지금부터 1분 뒤 이후여야 하고 한 사용자당
  * 100건까지다. 없으면(null) 지금처럼 즉시 보내기(10초 되돌리기).
  *
+ * <p>confidential(WP-2029, 선택): 기밀로 보내기 — 제목에 「[기밀]」 머리말과 Sensitivity 헤더를 붙인다. 생략(null)은 false.
+ *
  * <p>inlineImages·inlineUploads 는 요청 단계에서 100개 상한(임시저장 요청과 같다, 코드 리뷰) — 보내기 컨트롤러가 {@code @Valid} 로
  * 건다. 실제 발송 상한(인라인 합쳐 20개)은 서비스 검증이 사용자 문구로 따로 본다.
  */
@@ -59,7 +61,8 @@ public record MailSendRequest(
     String mode,
     Long sourceMessageId,
     Boolean quoteRemoved,
-    OffsetDateTime sendAt) {
+    OffsetDateTime sendAt,
+    Boolean confidential) {
 
   /**
    * 인라인 참조(inlineImages·inlineUploads) 요청 단계 상한 — 보내기와 임시저장 요청({@link MailDraftSaveRequest})이 같은 값을
@@ -118,7 +121,51 @@ public record MailSendRequest(
         null,
         null,
         null,
+        null,
         null);
+  }
+
+  /** 기밀 필드(WP-2029) 없는 발송 — 기존 호출처 호환(기밀 아님). */
+  public MailSendRequest(
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      String subject,
+      String bodyHtml,
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<Long> attachmentIds,
+      List<Long> forwardAttachmentIds,
+      Long draftId,
+      List<InlineUploadRef> inlineUploads,
+      String mode,
+      Long sourceMessageId,
+      Boolean quoteRemoved,
+      OffsetDateTime sendAt) {
+    this(
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyHtml,
+        bodyText,
+        inReplyToMessageId,
+        inlineImages,
+        attachmentIds,
+        forwardAttachmentIds,
+        draftId,
+        inlineUploads,
+        mode,
+        sourceMessageId,
+        quoteRemoved,
+        sendAt,
+        null);
+  }
+
+  /** 기밀 발송 여부(WP-2029) — 생략(null)은 기밀 아님. */
+  public boolean isConfidential() {
+    return Boolean.TRUE.equals(confidential);
   }
 
   /** 붙여 넣은 본문 이미지 없는 발송(WP-577 호출처 호환). */

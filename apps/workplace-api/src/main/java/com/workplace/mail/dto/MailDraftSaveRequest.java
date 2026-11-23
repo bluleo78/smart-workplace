@@ -24,6 +24,7 @@ import java.util.Set;
  * @param inlineImages 답장·전달 인용이 cid 로 참조하는 원본 메일 첨부(WP-1786, 보내기 요청 전체를 담는다)
  * @param inlineUploads 본문에 붙여 넣은 이미지 업로드(WP-1786)
  * @param inReplyToMessageId 답장 원본 메일 id — 스레딩 헤더용(WP-1786)
+ * @param confidential 기밀 표시(WP-2029) — 보낼 때 제목 머리말·Sensitivity 헤더로 이어진다. null 이면 false
  * @param version 수정(PUT) 때 필수 — 마지막으로 받은 버전(낙관적 잠금). 생성(POST)은 무시한다
  */
 public record MailDraftSaveRequest(
@@ -43,7 +44,8 @@ public record MailDraftSaveRequest(
     // 인라인 참조도 첨부 id 목록과 같은 상한 — 자동 저장 한 번에 거대한 JSON 배열이 행에 쌓이지 않게(코드 리뷰).
     @Size(max = MailSendRequest.MAX_INLINE_REFS) @Valid List<InlineImageRef> inlineImages,
     @Size(max = MailSendRequest.MAX_INLINE_REFS) @Valid List<InlineUploadRef> inlineUploads,
-    Long inReplyToMessageId) {
+    Long inReplyToMessageId,
+    Boolean confidential) {
 
   /** 작성 모드 패턴(new·reply·forward) — 요청 검증(@Pattern)과 {@link #MODES} 가 같은 정의를 쓴다. */
   public static final String MODE_PATTERN = "new|reply|forward";

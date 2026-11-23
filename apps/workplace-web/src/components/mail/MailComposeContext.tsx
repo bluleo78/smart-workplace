@@ -61,6 +61,8 @@ export interface ComposeDraft {
   sourceMessageId?: number | null;
   /** 작성 중 인용문을 지웠는가(WP-577) — 임시보관함에서 다시 열 때 이어받아 다음 저장에도 그대로 싣는다. 생략하면 false. */
   quoteRemoved?: boolean;
+  /** 기밀 표시(WP-2029) — 작성창 「기밀」 토글의 처음 값. 임시저장을 다시 열 때 이어받는다. 생략하면 false. */
+  confidential?: boolean;
   /** 저장에 실패해 「다시 열기」로 연 작성 — 처음부터 저장 안 된 상태라 곧 다시 저장하고, 그냥 닫아도 저장한다. */
   unsaved?: boolean;
   /** 이 작성의 임시저장 id — 임시보관함에서 열었거나 첫 자동 저장(POST)이 끝나면 생긴다. */

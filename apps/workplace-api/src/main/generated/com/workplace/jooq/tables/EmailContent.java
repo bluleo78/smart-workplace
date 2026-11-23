@@ -195,6 +195,12 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
      */
     public final TableField<EmailContentRecord, Boolean> SENT_BY_GENIA_WORKS = createField(DSL.name("sent_by_genia_works"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "WP-1364: X-Mailer 가 Gen:iA Works 로 시작하는 메일(우리 앱 발송) 여부");
 
+    /**
+     * The column <code>public.email_content.confidential</code>. WP-2029: 기밀로
+     * 보낸 메일 여부(보낸 사본에만 기록 — 받은 메일 헤더 판정은 범위 밖)
+     */
+    public final TableField<EmailContentRecord, Boolean> CONFIDENTIAL = createField(DSL.name("confidential"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "WP-2029: 기밀로 보낸 메일 여부(보낸 사본에만 기록 — 받은 메일 헤더 판정은 범위 밖)");
+
     private EmailContent(Name alias, Table<EmailContentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

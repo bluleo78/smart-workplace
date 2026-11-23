@@ -157,7 +157,12 @@ public class MailSendQueueService {
         row.boundFileIds(),
         row.forwardAttachmentIds(),
         row.id(),
-        row.inlineUploads());
+        row.inlineUploads(),
+        null,
+        null,
+        null,
+        null,
+        row.confidential());
   }
 
   /**

@@ -13,6 +13,8 @@ import java.util.List;
  *
  * <p>attachments(WP-574): 일반 첨부 파일(작성창 업로드 + 전달 원본 첨부, 바이트 확보 완료). 비어 있지 않으면 MIME 바깥을
  * multipart/mixed 로 감싼다.
+ *
+ * <p>confidential(WP-2029): 기밀 발송 — MIME 에 제목 머리말·Sensitivity 헤더를 붙이고 보낸 사본에 기록한다.
  */
 public record OutgoingMail(
     String messageId,
@@ -30,12 +32,51 @@ public record OutgoingMail(
     String snippet,
     Instant sentAt,
     List<InlineImagePart> inlineImages,
-    List<AttachmentPart> attachments) {
+    List<AttachmentPart> attachments,
+    boolean confidential) {
 
   /** inlineImages·attachments null 은 빈 목록으로 정규화. */
   public OutgoingMail {
     inlineImages = inlineImages == null ? List.of() : List.copyOf(inlineImages);
     attachments = attachments == null ? List.of() : List.copyOf(attachments);
+  }
+
+  /** 기밀 여부(WP-2029) 없는 구성 — 기존 호출처 호환(기밀 아님). */
+  public OutgoingMail(
+      String messageId,
+      String threadId,
+      String fromAddress,
+      String fromName,
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      String subject,
+      String bodyText,
+      String bodyHtml,
+      String inReplyTo,
+      String references,
+      String snippet,
+      Instant sentAt,
+      List<InlineImagePart> inlineImages,
+      List<AttachmentPart> attachments) {
+    this(
+        messageId,
+        threadId,
+        fromAddress,
+        fromName,
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyText,
+        bodyHtml,
+        inReplyTo,
+        references,
+        snippet,
+        sentAt,
+        inlineImages,
+        attachments,
+        false);
   }
 
   /**
@@ -60,7 +101,8 @@ public record OutgoingMail(
         snippet,
         sentAt,
         inlineImages,
-        attachments);
+        attachments,
+        confidential);
   }
 
   /**
@@ -84,7 +126,8 @@ public record OutgoingMail(
         snippet,
         sentAt,
         List.of(),
-        List.of());
+        List.of(),
+        confidential);
   }
 
   /**

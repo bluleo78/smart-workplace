@@ -107,6 +107,19 @@ describe('buildMailTools', () => {
     expect(JSON.parse(resultText(out))).toEqual([{ id: 1, subject: '메일', flagged: true, folderName: 'Projects' }]);
   });
 
+  it('WP-2029: list_mail 행의 confidential 은 true 일 때만 싣고 false 는 뺀다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listMail).mockResolvedValue([
+      { id: 1, subject: '일반', confidential: false },
+      { id: 2, subject: '기밀', confidential: true },
+    ]);
+    const out = await tool(c, 'list_mail').handler({ accountId: 1 });
+    expect(JSON.parse(resultText(out))).toEqual([
+      { id: 1, subject: '일반' },
+      { id: 2, subject: '기밀', confidential: true },
+    ]);
+  });
+
   it('WP-357: list_mail 은 분류 enum 밖의 값을 거부한다(서버는 검증하지 않아 오타가 조용히 빈 목록이 된다)', async () => {
     const c = mockClient();
     await expect(tool(c, 'list_mail').handler({ accountId: 1, category: '업무용' })).rejects.toThrow();

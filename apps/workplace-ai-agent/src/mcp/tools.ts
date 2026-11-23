@@ -191,8 +191,22 @@ const proposeSendMailInput = z.object({
   bodyText: z.string().optional(),
   bodyHtml: z.string().optional(),
   inReplyToMessageId: z.number().int().positive().optional(),
+  // WP-2029: 기밀 표시 — 제목 머리말 「[기밀] 」과 Sensitivity 헤더는 API 가 붙인다(제목을 직접 고치지 않는다).
+  confidential: z
+    .boolean()
+    .optional()
+    .describe('기밀 메일이면 true. 사용자가 「기밀로」라고 하거나 기밀 표시를 요청할 때만 쓰고, 제목에 [기밀] 을 직접 적지 마세요(서버가 붙입니다).'),
   summary: z.string().min(1),
 });
+
+/**
+ * WP-2029: 기밀 메일이면 확인카드 요약 앞에 「[기밀] 」을 붙인다 — 사용자가 카드에서 기밀 발송임을 바로 알아보게 하려는 것.
+ * 요약에 이미 「[기밀]」 머리말이 있으면 중복해서 붙이지 않는다(「기밀 해제 안내」처럼 낱말만 든 요약에는 붙인다). 제목은 API 가 따로 처리하므로 여기서는 건드리지 않는다.
+ */
+export function confidentialSummary(summary: string, confidential?: boolean): string {
+  if (!confidential || summary.includes('[기밀]')) return summary;
+  return `[기밀] ${summary}`;
+}
 
 // #333 M4: 일정 수정 제안 입력 — CalendarEventRequest 미러 + id/scope/occurrenceDate(경로/쿼리 상당) + summary.
 // #852: attendees 제거 — 서버 일정 수정은 참석자를 바꾸지 않는다(로컬·외부 모두). 받아 두면 승인해도 반영되지 않는 거짓 약속이 된다.
@@ -1026,7 +1040,7 @@ export function buildTools(
     inputSchema: proposeSendMailInput,
     async handler(args) {
       const { summary, ...params } = proposeSendMailInput.parse(args);
-      return await writeProposal('mail.send', summary, params);
+      return await writeProposal('mail.send', confidentialSummary(summary, params.confidential), params);
     },
   };
 

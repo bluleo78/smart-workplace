@@ -80,12 +80,14 @@ type Raw = Record<string, unknown>;
  */
 export function toMailListItem(row: Raw): Raw {
   // WP-1742: folderId·folderRole 은 웹 화면의 옮기기 판정용 내부 값이라 AI 에 내지 않는다 — 원래 메일함은 folderName(표시 이름)으로 충분하다.
-  const { categoryPending, flagged, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed', 'folderId', 'folderRole');
+  const { categoryPending, flagged, confidential, ...rest } = omitKeys(row, 'accountId', 'threadId', 'categoryFailed', 'folderId', 'folderRole');
   return dropEmpty({
     ...rest,
     ...(categoryPending === true && { categoryPending: true }),
     // WP-1741: 별표도 대부분 false 라 true 일 때만 싣는다(categoryPending 과 같은 이유).
     ...(flagged === true && { flagged: true }),
+    // WP-2029: 기밀 표시도 true 일 때만 싣는다(대부분 false 라 반복 노이즈).
+    ...(confidential === true && { confidential: true }),
   });
 }
 

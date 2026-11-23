@@ -11,6 +11,7 @@ import java.util.List;
  * @param categoryByMe WP-1341 사용자가 직접 바꾼 분류인지(분류 메뉴의 「AI 분류로 되돌리기」 표시)
  * @param flagged WP-1741 별표(서버 플래그 — IMAP \Flagged, Graph flag)
  * @param sentByGeniaWorks WP-1364 받은 원본의 X-Mailer 가 Gen:iA Works 인지(본문 검증 전 사본은 false)
+ * @param confidential WP-2029 기밀로 보낸 메일인지(보낸 사본에만 기록 — 받은 메일은 false)
  */
 public record EmailMessageDetail(
     long id,
@@ -32,7 +33,8 @@ public record EmailMessageDetail(
     CalendarInvite calendarInvite,
     String aiCategory,
     boolean categoryByMe,
-    boolean sentByGeniaWorks) {
+    boolean sentByGeniaWorks,
+    boolean confidential) {
 
   /** 초대 카드를 붙인 사본. */
   public EmailMessageDetail withCalendarInvite(CalendarInvite invite) {
@@ -56,7 +58,8 @@ public record EmailMessageDetail(
         invite,
         aiCategory,
         categoryByMe,
-        sentByGeniaWorks);
+        sentByGeniaWorks,
+        confidential);
   }
 
   /** 읽음 상태만 바꾼 사본(열람 시 읽음 처리 — 분류·초대 카드는 그대로). */
@@ -81,7 +84,8 @@ public record EmailMessageDetail(
         calendarInvite,
         aiCategory,
         categoryByMe,
-        sentByGeniaWorks);
+        sentByGeniaWorks,
+        confidential);
   }
 
   /** 첨부 목록만 바꾼 사본(저장소가 첨부 메타를 따로 읽어 붙인다 — 다른 필드는 그대로). */
@@ -106,6 +110,7 @@ public record EmailMessageDetail(
         calendarInvite,
         aiCategory,
         categoryByMe,
-        sentByGeniaWorks);
+        sentByGeniaWorks,
+        confidential);
   }
 }

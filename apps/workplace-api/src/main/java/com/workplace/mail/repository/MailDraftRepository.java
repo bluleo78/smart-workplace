@@ -62,7 +62,8 @@ public class MailDraftRepository {
       String bodyHtml,
       String preview,
       Long sourceMessageId,
-      boolean quoteRemoved) {}
+      boolean quoteRemoved,
+      boolean confidential) {}
 
   /**
    * 대기열(WP-1786)에서 보낼 때 필요한데 임시저장에는 없던 값 — 스케줄러가 요청 없이 행만으로 보낼 수 있게 {@link Fields} 와 함께 저장한다.
@@ -91,7 +92,8 @@ public class MailDraftRepository {
       List<InlineImageRef> inlineImages,
       List<InlineUploadRef> inlineUploads,
       List<Long> boundFileIds,
-      List<Long> forwardAttachmentIds) {}
+      List<Long> forwardAttachmentIds,
+      boolean confidential) {}
 
   /** 오래 SENDING 에 머물러 실패로 돌린 행 — 알림을 만들 때 필요한 값만. */
   public record StuckRow(long id, long userId, String subject) {}
@@ -115,7 +117,8 @@ public class MailDraftRepository {
       List<InlineImageRef> inlineImages,
       List<InlineUploadRef> inlineUploads,
       String sendState,
-      String sendError) {}
+      String sendError,
+      boolean confidential) {}
 
   /**
    * 새 임시저장 — 버전 1. 본문 평문·답장 원본·인라인 참조(WP-1786 대기열 보조 값)도 같은 INSERT 한 문장에 담는다(코드 리뷰: 저장마다 UPDATE 를 한
@@ -162,6 +165,7 @@ public class MailDraftRepository {
         .set(MAIL_DRAFT.PREVIEW, f.preview())
         .set(MAIL_DRAFT.SOURCE_MESSAGE_ID, f.sourceMessageId())
         .set(MAIL_DRAFT.QUOTE_REMOVED, f.quoteRemoved())
+        .set(MAIL_DRAFT.CONFIDENTIAL, f.confidential())
         .set(MAIL_DRAFT.BODY_TEXT, q.bodyText())
         .set(MAIL_DRAFT.IN_REPLY_TO_MESSAGE_ID, q.inReplyToMessageId())
         .set(MAIL_DRAFT.INLINE_IMAGES, toJsonb(q.inlineImages()))
@@ -224,6 +228,7 @@ public class MailDraftRepository {
         .set(MAIL_DRAFT.PREVIEW, f.preview())
         .set(MAIL_DRAFT.SOURCE_MESSAGE_ID, f.sourceMessageId())
         .set(MAIL_DRAFT.QUOTE_REMOVED, f.quoteRemoved())
+        .set(MAIL_DRAFT.CONFIDENTIAL, f.confidential())
         .set(MAIL_DRAFT.BODY_TEXT, q.bodyText())
         .set(MAIL_DRAFT.IN_REPLY_TO_MESSAGE_ID, q.inReplyToMessageId())
         .set(MAIL_DRAFT.INLINE_IMAGES, toJsonb(q.inlineImages()))
@@ -496,7 +501,8 @@ public class MailDraftRepository {
                     fromJsonb(r.getInlineImages(), new TypeReference<List<InlineImageRef>>() {}),
                     fromJsonb(r.getInlineUploads(), new TypeReference<List<InlineUploadRef>>() {}),
                     boundFileIds(r.getId()),
-                    forwardIds(r.getId())));
+                    forwardIds(r.getId()),
+                    r.getConfidential()));
   }
 
   /**
@@ -631,7 +637,8 @@ public class MailDraftRepository {
                         r.get(MAIL_DRAFT.INLINE_UPLOADS),
                         new TypeReference<List<InlineUploadRef>>() {}),
                     r.get(MAIL_DRAFT.SEND_STATE),
-                    r.get(MAIL_DRAFT.SEND_ERROR)));
+                    r.get(MAIL_DRAFT.SEND_ERROR),
+                    r.get(MAIL_DRAFT.CONFIDENTIAL)));
   }
 
   /** 임시저장에 묶인 업로드 file id — 묶은 순서. */

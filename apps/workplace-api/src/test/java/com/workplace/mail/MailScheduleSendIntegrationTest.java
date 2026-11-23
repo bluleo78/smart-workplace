@@ -1,10 +1,16 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.EMAIL_CONTENT;
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.MAIL_DRAFT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,19 +28,28 @@ import com.workplace.mail.exception.MailAlreadySendingException;
 import com.workplace.mail.exception.MailDraftNotFoundException;
 import com.workplace.mail.exception.MailDraftSendingException;
 import com.workplace.mail.exception.MailValidationException;
+import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.MailDraftRepository;
+import com.workplace.mail.service.GraphTokenService;
+import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailDraftService;
 import com.workplace.mail.service.MailSendQueueService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
+import java.io.ByteArrayInputStream;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Properties;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -51,6 +66,9 @@ class MailScheduleSendIntegrationTest extends ExternalClientMockedTestBase {
   @Autowired MailDraftService draftService;
   @Autowired MailDraftRepository draftRepo;
   @Autowired EncryptionService encryption;
+  @Autowired MailComposeService composeService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   private final List<Long> users = new ArrayList<>();
 
@@ -151,6 +169,68 @@ class MailScheduleSendIntegrationTest extends ExternalClientMockedTestBase {
         .from(MAIL_DRAFT)
         .where(MAIL_DRAFT.ID.eq(id))
         .fetchOne(MAIL_DRAFT.SEND_STATE);
+  }
+
+  /**
+   * 기밀 예약(WP-2029) — 예약 행에 표시가 남고, 스케줄러가 하듯 행을 요청으로 되돌려 실제 전송하면 나간 MIME 의 Subject 에 「[기밀] 」 머리말과
+   * Sensitivity 헤더가 실린다(전송 캡처는 MailComposeServiceTest 와 같은 GraphApiClient 목).
+   */
+  @Test
+  void confidentialScheduleSendsWithPrefixAndSensitivityHeader() throws Exception {
+    long me = user();
+    long acc = account(me);
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn("FAKE_TOKEN");
+    MailSendRequest base = req(null, in(2));
+    MailSendRequest conf =
+        new MailSendRequest(
+            base.to(),
+            base.cc(),
+            base.bcc(),
+            base.subject(),
+            base.bodyHtml(),
+            base.bodyText(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            base.sendAt(),
+            true);
+
+    QueuedSend q = queueService.enqueue(me, acc, conf);
+    dsl.update(MAIL_DRAFT)
+        .set(MAIL_DRAFT.SEND_STATE, "SENDING")
+        .where(MAIL_DRAFT.ID.eq(q.draftId()))
+        .execute();
+    var row = draftRepo.startSend(q.draftId()).orElseThrow();
+    MailSendRequest back = queueService.toSendRequest(row);
+    assertThat(back.isConfidential()).isTrue();
+    composeService.send(me, acc, back);
+
+    ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+    verify(graphApiClient).sendMail(eq("FAKE_TOKEN"), cap.capture());
+    MimeMessage sent =
+        new MimeMessage(
+            Session.getInstance(new Properties()),
+            new ByteArrayInputStream(Base64.getDecoder().decode(cap.getValue())));
+    assertThat(sent.getSubject()).isEqualTo("[기밀] 제목");
+    assertThat(sent.getHeader("Sensitivity", null)).isEqualTo("Company-Confidential");
+
+    // 실제 발송 경로(composeService.send)가 보낸 사본에도 머리말 적용 제목과 기밀 표시를 저장한다
+    var stored =
+        dsl.select(EMAIL_CONTENT.SUBJECT, EMAIL_CONTENT.CONFIDENTIAL)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(acc))
+            .fetchOne();
+    assertThat(stored).isNotNull();
+    assertThat(stored.get(EMAIL_CONTENT.SUBJECT)).isEqualTo("[기밀] 제목");
+    assertThat(stored.get(EMAIL_CONTENT.CONFIDENTIAL)).isTrue();
   }
 
   @Test

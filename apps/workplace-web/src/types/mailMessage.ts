@@ -44,6 +44,8 @@ export interface EmailMessageSummary {
   folderId?: number | null;
   /** WP-1742: 원래 메일함 역할 — 'INBOX'·'SENT'·'ARCHIVE'·'USER' 등(서버 email_folder.role, 받은·보낸편지함은 서버가 판정해 채움). 별표 목록만. */
   folderRole?: string | null;
+  /** 기밀 표시(WP-2029) — 기밀로 보낸 메일이면 true. 없으면 false 취급. */
+  confidential?: boolean;
 }
 
 /** WP-965 목록 다음 페이지 커서 — 앞 페이지 마지막 행의 receivedAt·id(서버 정렬 키). */
@@ -100,6 +102,8 @@ export interface EmailMessageDetail {
   categoryByMe?: boolean;
   /** WP-1364 Gen:iA Works 에서 보낸 메일(발신 헤더 표지)이면 true — 보낸 사람 옆 작은 표시. 없으면 false 취급. */
   sentByGeniaWorks?: boolean;
+  /** 기밀 표시(WP-2029) — 기밀로 보낸 메일이면 true. 없으면 false 취급. */
+  confidential?: boolean;
 }
 
 /** WP-986 초대 메일의 내 응답 — 백엔드 CalendarInvite.myResponse 와 1:1(캘린더 RsvpStatus 와 같은 값). */
@@ -201,6 +205,8 @@ export interface MailSendRequest {
   quoteRemoved?: boolean;
   /** 예약 보내기(WP-1787) — 이 시각(ISO-8601)에 보낸다. 생략하면 바로(10초 되돌리기) 보낸다. 지금부터 1분 뒤 이후여야 한다. */
   sendAt?: string;
+  /** 기밀 표시(WP-2029) — 켜면 서버가 제목 앞에 「[기밀] 」을 붙이고 Sensitivity 헤더를 싣는다. 생략하면 false. */
+  confidential?: boolean;
 }
 
 /**
