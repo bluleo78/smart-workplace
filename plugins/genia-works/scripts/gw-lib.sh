@@ -304,6 +304,14 @@ gw_tenant() {
   printf '%s' "$GENIA_WORKS_TENANT"
 }
 
+# Pod 정체(컨테이너 metadata.uid) — runner 가 downward API 로 넣는 env GENIA_AGENT_POD_UID 를 한 줄로 낸다(WP-1968).
+# 정체는 시계와 무관해서 옛/새 Pod 를 가른다 — 옛 Pod 의 늦은 보고도 지금 Pod 의 정체와 다르면 걸러진다(시각이 어긋나도 정체는 어긋나지 않는다).
+# 없으면 빈 값(아무것도 내지 않는다) — 서버는 없는 값을 그대로 믿는다(옛 이미지). 늘 종료 0 이다 — gw-pod-start 와 같은 약속이라,
+# 부르는 쪽(gw-status·gw-boot)의 「보고 실패해도 일을 계속」을 깨지 않는다.
+gw_pod_uid() {
+  printf '%s' "${GENIA_AGENT_POD_UID:-}"
+}
+
 # curl 설정(표준 입력으로 넘김) — 인증 헤더를 명령줄 인자(ps 에 보인다)·출력에 드러내지 않는다. 사용: gw_curl_auth "$key" | curl --config - …
 # GENIA_WORKS_TENANT 가 있으면 워크스페이스 헤더 줄을 덧붙인다(없으면 지금과 같다).
 gw_curl_auth() {

@@ -66,6 +66,8 @@ export interface RunnerObservedAgent {
   cpuMillicores: number | null;
   memoryBytes: number | null;
   startedAt: string | null;
+  /** 지금 떠 있는 Pod 의 `metadata.uid` — 서버가 지금 Pod 판정에 쓴다(WP-1968). Pod 없으면 null. */
+  podUid: string | null;
 }
 
 export interface AgentKeyResponse {

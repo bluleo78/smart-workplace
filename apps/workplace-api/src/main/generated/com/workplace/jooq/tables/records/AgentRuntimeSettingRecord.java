@@ -513,6 +513,34 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (Long) get(33);
     }
 
+    /**
+     * Setter for <code>public.agent_runtime_setting.observed_pod_uid</code>.
+     */
+    public void setObservedPodUid(String value) {
+        set(34, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.observed_pod_uid</code>.
+     */
+    public String getObservedPodUid() {
+        return (String) get(34);
+    }
+
+    /**
+     * Setter for <code>public.agent_runtime_setting.previous_pod_uid</code>.
+     */
+    public void setPreviousPodUid(String value) {
+        set(35, value);
+    }
+
+    /**
+     * Getter for <code>public.agent_runtime_setting.previous_pod_uid</code>.
+     */
+    public String getPreviousPodUid() {
+        return (String) get(35);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -536,7 +564,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -573,6 +601,8 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setReportedPodStartedAt(reportedPodStartedAt);
         setPaneBlockedPodStartedAt(paneBlockedPodStartedAt);
         setFailedGeneration(failedGeneration);
+        setObservedPodUid(observedPodUid);
+        setPreviousPodUid(previousPodUid);
         resetTouchedOnNotNull();
     }
 }

@@ -291,8 +291,63 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
   }
 
   /**
+   * 관찰 generation 이 하나 뒤처진 사이 도는 Pod 의 진입점 차단은, 「즉시 적용」(apply_mode=NOW)에서는 설정 generation 으로 견주어
+   * 감추고(다음 관찰까지 옛 Pod 차단이 「오류」로 남지 않는다 — WP-1913 회귀 복구, WP-1968 6차 반려 ②), 「쉴 때
+   * 적용」(apply_mode=IDLE)에서는 그 차단이 지금 도는 Pod(관찰 generation)의 것이라 그대로 「오류」로 보인다(5차 반려 ③). 목록과 상세가 같은
+   * 판정을 써야 화면이 어긋나지 않는다.
+   *
+   * <p>가르는 기준은 {@code apply_mode} 열이다 — {@code RolloutPolicy} 의 유효 판정(일이 없으면 NOW 로 넓어지는 값)이 아니다. 그
+   * 쪽으로 가르면 {@code get_whenBlockedRunningPodAndNoWork_pendingNowAndFailed} 가 깨지고, 반대로 늘 NOW 면 관찰이
+   * 뒤처진 한 주기 동안 옛 사유가 「오류」로 남는다.
+   */
+  @Test
+  void paneBlocked_observedBehind_showsErrorOnlyWhileIdleApply() throws Exception {
+    long agent = fx.runningAgent(null);
+    long gen = fx.generationOf(agent);
+    observed(agent, gen, "RUNNING", 10);
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_GENERATION, gen - 1)
+        .set(AGENT_RUNTIME_SETTING.OBSERVED_MESSAGE, "러너가 남긴 관찰 메시지")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE, "시작 실패")
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_AT, OffsetDateTime.now())
+        .set(AGENT_RUNTIME_SETTING.PANE_BLOCKED_GENERATION, gen - 1)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "NOW")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    // 즉시 적용 — 설정 generation 으로 견주어 옛 사유를 감춘다(관찰이 뒤처진 동안 「오류」가 남지 않는다).
+    JsonNode nowList =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    assertThat(summaryOf(nowList, agent).get("status").asString()).isNotEqualTo("FAILED");
+    assertThat(summaryOf(nowList, agent).get("message").asString()).isEqualTo("러너가 남긴 관찰 메시지");
+    call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("APPLY_PENDING"))
+        .andExpect(jsonPath("$.observed.message").value("러너가 남긴 관찰 메시지"));
+
+    // 쉴 때 적용 — 저장한 차단이 지금 도는 Pod 의 것이라 그대로 「오류」로 보인다.
+    TenantContext.set(1L);
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.APPLY_MODE, "IDLE")
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+
+    JsonNode idleList =
+        fx.json(
+            call(admin, get("/api/v1/admin/agent-runtime-summaries")).andExpect(status().isOk()));
+    assertThat(summaryOf(idleList, agent).get("status").asString()).isEqualTo("FAILED");
+    assertThat(summaryOf(idleList, agent).get("message").asString()).isEqualTo("시작 실패");
+    call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("FAILED"))
+        .andExpect(jsonPath("$.observed.message").value("시작 실패"));
+  }
+
+  /**
    * 공백만 남은 차단 메시지는 없다고 본다(WP-1913) — 상태는 차단이 아닌 걸로 계산하고(리졸버와 같은 판정), 사유 자리도 빈 칸 대신 runner 관찰 메시지를
-   * 보여 준다. 합치기 네 곳이 같은 공백 판정을 쓰지 않으면 화면이 FAILED 는 아닌데 사유만 비게 된다.
+   * 보여 준다. 합치기 네 곳이 같은 공백 판정을 쓰지 않으면 화면은 FAILED 는 아닌데 사유만 비게 된다.
    */
   @Test
   void paneBlocked_blankMessage_keepsStatusAndObservedReason() throws Exception {

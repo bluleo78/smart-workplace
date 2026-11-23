@@ -882,7 +882,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     observedRaw(report);
     setAgentState(a1, "WORKING", OffsetDateTime.now());
     // 시작 시각보다 한참 앞선 칸 — 같은 Pod 의 되풀이 보고는 칸을 읽지도 지우지도 않으므로 그대로 남는다(WP-1409).
-    slotRepo.upsert(a1, "WP", AgentState.IDLE, null, null, started.minusMinutes(10), null);
+    slotRepo.upsert(a1, "WP", AgentState.IDLE, null, null, started.minusMinutes(10), null, null);
 
     observedRaw(report);
 
@@ -898,8 +898,8 @@ class RunnerSecretApiTest extends IntegrationTestBase {
   void observed_newPodStartedAt_dropsOldPodSlotsAndReaggregates() throws Exception {
     long g = fx.generationOf(a1);
     OffsetDateTime started = OffsetDateTime.now().minusMinutes(1);
-    slotRepo.upsert(a1, "", AgentState.WORKING, "WP-0", null, started.minusMinutes(10), null);
-    slotRepo.upsert(a1, "WP", AgentState.IDLE, null, null, OffsetDateTime.now(), null);
+    slotRepo.upsert(a1, "", AgentState.WORKING, "WP-0", null, started.minusMinutes(10), null, null);
+    slotRepo.upsert(a1, "WP", AgentState.IDLE, null, null, OffsetDateTime.now(), null, null);
     // 두 칸을 합친 지금 값(옛 칸의 WORKING) — 새 Pod 칸의 보고가 시작 뒤라 관찰 UPDATE 는 지우지 않는다.
     dsl.update(AGENT_RUNTIME_SETTING)
         .set(AGENT_RUNTIME_SETTING.AGENT_STATE, "WORKING")
@@ -931,7 +931,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
     long g = fx.generationOf(a1);
     OffsetDateTime started = OffsetDateTime.now();
     // 옛 Pod 칸(5분 전)만 있으면 지워지고 AI 상태도 빈 채로 남는다.
-    slotRepo.upsert(a1, "", AgentState.IDLE, null, null, started.minusMinutes(5), null);
+    slotRepo.upsert(a1, "", AgentState.IDLE, null, null, started.minusMinutes(5), null, null);
     setAgentState(a1, "IDLE", started.minusMinutes(5));
 
     observedRaw(
@@ -1015,7 +1015,7 @@ class RunnerSecretApiTest extends IntegrationTestBase {
             .map(
                 id ->
                     new RunnerObservedAgent(
-                        id, fx.generationOf(id), "RUNNING", null, null, null, null, null))
+                        id, fx.generationOf(id), "RUNNING", null, null, null, null, null, null))
             .toList());
   }
 

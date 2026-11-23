@@ -94,6 +94,7 @@ describe('toObserved', () => {
     expect(observed).toEqual({
       observedGeneration: 7,
       startedAt: '2026-11-01T00:58:00.000Z',
+      podUid: null,
       ...expected,
     });
   });
@@ -104,11 +105,22 @@ describe('toObserved', () => {
       phase: 'STOPPED',
       message: null,
       startedAt: null,
+      podUid: null,
     });
   });
 
   it('noPodForDesiredAgentIsStarting', () => {
     expect(toObserved(undefined, false).phase).toBe('STARTING');
+  });
+
+  // WP-1968 — 서버가 관찰 보고의 Pod 정체(metadata.uid)로 지금 Pod 를 판정한다
+  it('podUidComesFromMetadataUid', () => {
+    const p = pod({ phase: 'Pending', startTime: START }, { uid: 'pod-uid-1' });
+    expect(toObserved(p, false).podUid).toBe('pod-uid-1');
+  });
+
+  it('podUidIsNullWhenNoPod', () => {
+    expect(toObserved(undefined, false).podUid).toBeNull();
   });
 
   it('acceptsStringTimestampsFromFakes', () => {

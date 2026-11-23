@@ -243,6 +243,16 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, Long> FAILED_GENERATION = createField(DSL.name("failed_generation"), SQLDataType.BIGINT, this, "runner 실패 기록이 있을 때 그 실패가 난 desired generation(WP-2019). 보고마다 그대로 덮어쓴다 — 없으면 NULL");
 
+    /**
+     * The column <code>public.agent_runtime_setting.observed_pod_uid</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> OBSERVED_POD_UID = createField(DSL.name("observed_pod_uid"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.agent_runtime_setting.previous_pod_uid</code>.
+     */
+    public final TableField<AgentRuntimeSettingRecord, String> PREVIOUS_POD_UID = createField(DSL.name("previous_pod_uid"), SQLDataType.CLOB, this, "");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

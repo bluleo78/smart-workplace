@@ -5,7 +5,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,7 +59,7 @@ function run(cmd, args, { input, env = {} } = {}) {
   });
 }
 
-/** 가짜 칸 차단 보고 서버 — status·body 를 내고 받은 요청(메서드·주소·헤더·본문)을 모은다. */
+/** 가짜 칸 차단 보고 서버 — status·body 를 내고 받은 요청(메서드·주소·헤더·본문)을 모은다. status 가 배열이면 요청마다 순서대로 쓴다(409 후 재시도 흐름 — WP-1968). */
 async function fakePaneServer({ status = 204, body = '' } = {}) {
   const reqs = [];
   const server = createServer((req, res) => {
@@ -67,7 +67,8 @@ async function fakePaneServer({ status = 204, body = '' } = {}) {
     req.on('data', (d) => (data += d));
     req.on('end', () => {
       reqs.push({ method: req.method, url: req.url, headers: req.headers, body: data });
-      res.writeHead(status, { 'Content-Type': 'application/json' });
+      const code = Array.isArray(status) ? status[Math.min(reqs.length - 1, status.length - 1)] : status;
+      res.writeHead(code, { 'Content-Type': 'application/json' });
       res.end(body);
     });
   });
@@ -235,6 +236,65 @@ test('서버가 거절해도(500) 종료 1 — 출력이 아니라 종료 코드
     assert.match(r.stderr, /^gw-boot: /);
     assert.equal(r.stderr.trim().split('\n').length, 1);
     assert.doesNotMatch(r.stderr, /ak_FAKE_DEV/);
+  } finally {
+    srv.close();
+  }
+});
+
+test('blocked/ok 본문에 podUid 를 싣고, 없으면 뺀다 (WP-1968)', async () => {
+  addKey();
+  const srv = await fakePaneServer();
+  try {
+    // 정체가 있으면 두 본문 모두에 싣는다 — 서버가 관찰 정체와 견려 지금 Pod 의 보고인지 가른다(시계가 아니라 정체로).
+    const env = { ...WORKS, GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_POD_UID: 'uid-1' };
+    await runAsync('gw-boot', ['blocked', '막힘'], env);
+    await runAsync('gw-boot', ['ok'], env);
+    assert.equal(srv.reqs.length, 2);
+    for (const q of srv.reqs) assert.equal(JSON.parse(q.body).podUid, 'uid-1');
+
+    // 없으면 필드 자체를 뺀다 — 빈 문자열은 다른 값이라 정체를 모르는 옛 이미지와의 호환을 깬다.
+    await runAsync('gw-boot', ['ok'], { ...WORKS, GENIA_WORKS_API_URL: srv.url });
+    assert.equal('podUid' in JSON.parse(srv.reqs[2].body), false);
+  } finally {
+    srv.close();
+  }
+});
+
+test('서버가 409 로 답하면 gw-boot ok 는 종료 1 — 표식·차단 파일을 남겨 다음 회차에 다시 보낸다 (WP-1968)', async () => {
+  addKey();
+  // 첫 회차는 409(서버가 보고를 저장하지 않았다), 다음 회차는 204 — 재시도가 실제로 다시 보내는지 본다.
+  const srv = await fakePaneServer({ status: [409, 204] });
+  const dir = mkdtempSync(join(tmpdir(), 'gw-sup-'));
+  const marker = join(dir, 'pane-boot-ok-sent');
+  const blockedFile = join(dir, 'pane-blocked');
+  writeFileSync(blockedFile, '설정 오류');
+  try {
+    const env = { ...WORKS, GENIA_WORKS_API_URL: srv.url, GENIA_AGENT_POD_UID: 'uid-1' };
+    // 감독 회차(계약 문서 「칸 차단 보고」): gw-boot 가 종료 0 일 때만 표식을 남기고 차단 파일을 지운다.
+    const tick = async () => {
+      const r = await runAsync('gw-boot', ['ok'], env);
+      if (r.status === 0) {
+        writeFileSync(marker, 'sent');
+        rmSync(blockedFile, { force: true });
+      }
+      return r;
+    };
+
+    // 첫 회차: 409 → 실패(종료 1) → 표식·차단 파일이 그대로다 — 서버가 받지 않았으니 지우면 안 된다.
+    const first = await tick();
+    assert.equal(first.status, 1);
+    assert.equal(first.stdout, '');
+    assert.match(first.stderr, /^gw-boot: /);
+    assert.equal(existsSync(marker), false);
+    assert.equal(existsSync(blockedFile), true);
+
+    // 다음 회차: 남아 있는 차단 파일 때문에 다시 보내고, 이번엔 204 성공 → 표식을 남기고 차단 파일을 지운다.
+    const second = await tick();
+    assert.equal(second.status, 0);
+    assert.equal(existsSync(marker), true);
+    assert.equal(existsSync(blockedFile), false);
+    assert.equal(srv.reqs.length, 2);
+    for (const q of srv.reqs) assert.equal(JSON.parse(q.body).podUid, 'uid-1');
   } finally {
     srv.close();
   }

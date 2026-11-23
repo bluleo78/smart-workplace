@@ -100,6 +100,11 @@ public class AgentRuntimeSlotState extends TableImpl<AgentRuntimeSlotStateRecord
      */
     public final TableField<AgentRuntimeSlotStateRecord, OffsetDateTime> POD_STARTED_AT = createField(DSL.name("pod_started_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.agent_runtime_slot_state.pod_uid</code>.
+     */
+    public final TableField<AgentRuntimeSlotStateRecord, String> POD_UID = createField(DSL.name("pod_uid"), SQLDataType.CLOB, this, "");
+
     private AgentRuntimeSlotState(Name alias, Table<AgentRuntimeSlotStateRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

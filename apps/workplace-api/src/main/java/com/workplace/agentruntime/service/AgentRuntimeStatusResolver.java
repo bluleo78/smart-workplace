@@ -1,6 +1,7 @@
 package com.workplace.agentruntime.service;
 
 import com.workplace.agentruntime.dto.AgentRuntimeStatus;
+import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.repository.AgentRuntimeSettingRepository.Row;
 import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository;
@@ -117,16 +118,57 @@ public final class AgentRuntimeStatusResolver {
   /**
    * 지금 Pod 의 차단 사유인지 — 저장 행({@link Row})에서 지금 반영할 차단 사유를 고른다. 읽는 셋(목록·상세·화면 중계)이 한 판정을 쓰게 여기만
    * 정의한다(WP-1913 리뷰 반려 ①).
+   *
+   * <p>차단 generation 은 저장할 때 보고한 값 그대로인데(WP-1969) 화면 판정이 설정 generation 만 견주면, 「쉴 때 적용」 대기 중 설정이 오르는
+   * 동안 지금 도는 Pod(관찰 generation)의 BLOCKED 가 204 로 받아지고도 「오류」가 안 뜬다(WP-1968 5차 반려 ③). 그래서 **쉴 때 적용 대기
+   * 중에만** 저장한 차단이 지금 도는 Pod 의 것(관찰 generation)이면 그 generation 으로 견준다 — 실패를 감추면 관리자가 시작 실패 사유를 보지
+   * 못한다. 즉시 적용(NOW)에서는 관찰이 뒤처진 동안만 옛 Pod 차단을 보여 주게 설정 generation 으로 견준다(6차 반려 ②) — 다음 관찰까지 옛 Pod 의
+   * 차단이 「오류」로 남던 WP-1913 회귀를 되돌린다. 그 밖(앞 세대 옛 Pod · 관찰 전)은 지금 설정 generation 으로 견주어 옛 사유를 그대로 가린다.
+   *
+   * <p>가르는 기준은 설정의 {@code apply_mode} 열이다 — {@code RolloutPolicy} 의 유효 판정(일이 없거나 관찰이 없는 동안은 NOW 로
+   * 넓어지는 값)이 아니라. 열과 함께 갈리면 「하던 일 때문에 적용을 쉴 때로 미룬」 상태에서도 옛 사유가 감춰져 WP-2000 이 무너지고(파생: {@code
+   * get_whenBlockedRunningPodAndNoWork_pendingNowAndFailed}), 반대로 열이 늘 NOW 면 관찰이 뒤처진 한 관찰 주기 동안 옛
+   * Pod 차단이 「오류」로 남아 WP-1913 회귀가 되살아난다(6차 반려 ② — 게이트를 잠그는 대조 테스트는 {@code
+   * AgentRuntimeAdminViewApiTest#paneBlocked_observedBehind_showsErrorOnlyWhileIdleApply}).
    */
   public static String currentPaneBlocked(Row r) {
     return currentPaneBlocked(
         r.paneBlockedMessage(),
         r.paneBlockedGeneration(),
-        r.generation(),
+        expectedPaneBlockGeneration(
+            r.paneBlockedGeneration(),
+            r.generation(),
+            r.observedGeneration(),
+            r.applyMode() != ApplyMode.NOW),
         r.paneBlockedAt(),
         r.startedAt(),
         r.paneBlockedPodStartedAt(),
         r.reportedPodStartedAt());
+  }
+
+  /**
+   * 화면이 견줄 차단 generation(WP-1968 5차 반려 ③·6차 반려 ②) — 차단 저장은 늘 보고한 generation 그대로인데(WP-1969) 화면 판정이
+   * 설정 generation 만 견주면, 「쉴 때 적용」 대기 중 설정이 오르는 동안 지금 도는 Pod(관찰 generation)의 BLOCKED 가 204 로 받아지고도
+   * 「오류」가 안 뜬다. 그래서 쉴 때 적용 대기 중에만(atIdleApply) 저장한 차단이 지금 도는 Pod 의 것(관찰 generation)이면 그 generation
+   * 으로 견준다 — 실패를 감추면 관리자가 시작 실패 사유를 보지 못한다. 즉시 적용(NOW)에서는 관찰 generation 을 견주지 않고 설정 generation 으로만
+   * 가린다(6차 반려 ②) — 관찰이 뒤처진 동안(다음 관찰까지) 옛 Pod 의 차단이 「오류」로 남던 WP-1913 회귀를 되돌린다. 그 밖(앞 세대 옛 Pod · 관찰
+   * 전)은 지금 설정 generation 으로 견주어 옛 사유를 그대로 가린다. 저장 원문은 건드리지 않고 읽는 판정만 넓힌다.
+   *
+   * @param storedGeneration 저장한 차단의 generation — null(모르는 값)은 아래 규칙도 못 박는다(그대로 믿는다)
+   * @param generation 지금 설정 generation
+   * @param observedGeneration 지금 도는 Pod 의 관찰 generation — null(관찰 전)이면 설정 generation 쪽
+   * @param atIdleApply 지금 「쉴 때 적용」 대기 중인지 — 지금 적용(NOW)이면 관찰 generation 을 견주지 않는다
+   * @return 화면이 견줄 generation
+   */
+  public static long expectedPaneBlockGeneration(
+      Long storedGeneration, long generation, Long observedGeneration, boolean atIdleApply) {
+    if (atIdleApply
+        && observedGeneration != null
+        && storedGeneration != null
+        && storedGeneration.longValue() == observedGeneration.longValue()) {
+      return observedGeneration;
+    }
+    return generation;
   }
 
   /**
@@ -171,10 +213,10 @@ public final class AgentRuntimeStatusResolver {
   /**
    * 지금 도는 Pod 의 컨테이너가 시작에 실패했는지(WP-1969).
    *
-   * <p>화면용 {@link #currentPaneBlocked(Row)} 는 원하는 generation 과 견주므로, 쉴 때 적용이 미뤄진 동안에는 한 단계 앞
-   * generation 으로 도는 Pod 의 차단을 가린다. 이 메서드는 같은 신선도 규칙을 관찰 generation 으로 적용한다 — 적용 판정용이고 표시에는 쓰지 않는다.
-   * 화면과 달리 차단 generation 을 모르는 값(null — 옛 플러그인)은 어느 Pod 의 것인지 알 수 없어 믿지 않는다 — 잘못 믿으면 일하는 AI 를 다시
-   * 띄운다. 관찰 generation 을 모르면(뜬 적 없음) false 다.
+   * <p>화면용 {@link #currentPaneBlocked(Row)} 는 쉴 때 적용 대기 중에만 관찰 generation 으로 견주어 지금 도는 Pod 의 차단을 보여
+   * 주고(5차 반려 ③), 그 밖(즉시 적용·앞 세대 옛 Pod)에는 원하는 generation 과 견준다(6차 반려 ②). 이 메서드는 표시와 달리 적용 판정용이라 같은
+   * 신선도 규칙을 늘 관찰 generation 으로 적용한다. 화면과 달리 차단 generation 을 모르는 값(null — 옛 플러그인)은 어느 Pod 의 것인지 알 수
+   * 없어 믿지 않는다 — 잘못 믿으면 일하는 AI 를 다시 띄운다. 관찰 generation 을 모르면(뜬 적 없음) false 다.
    */
   public static boolean blocksRunningPod(Row r) {
     if (r.observedGeneration() == null || r.paneBlockedGeneration() == null) return false;

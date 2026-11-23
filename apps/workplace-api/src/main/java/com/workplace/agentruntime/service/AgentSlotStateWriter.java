@@ -32,8 +32,9 @@ public class AgentSlotStateWriter {
    * 칸을 다시 합쳐 쓴다.
    *
    * @param agentSlots 그 AI 의 칸(이미 읽은 것 — 순서 무관)
-   * @param observedStartedAt runner 가 관찰한 지금 Pod 의 시작 시각(모르면 null) — Pod 시각 없는 칸을 가르는 기준
-   * @param currentPodStart 관찰값과 칸 보고가 올린 Pod 시작 시각 중 늦은 쪽(모르면 null) — Pod 시각 있는 칸을 가르는 기준(WP-1958)
+   * @param currentPodUid 지금 Pod 정체(모르면 null) — 정체를 아는 칸을 가르는 기준(WP-1968 반려 ③)
+   * @param observedStartedAt runner 가 관찰한 지금 Pod 의 시작 시각(모르면 null) — 정체를 모르는 칸을 가르는 기준
+   * @param currentPodStart 관찰값과 칸 보고가 올린 Pod 시작 시각 중 늦은 쪽(모르면 null) — 정체를 모르는 칸을 가르는 기준(WP-1958)
    * @param now 지금 시각(오래된 칸 판정 기준)
    * @param reportingSlotKey 방금 보고한 칸 키(보고 흐름) — 옛 Pod 칸으로 보지 않는다. runner 정리 흐름은 null
    * @return 쓴 뒤 행
@@ -41,6 +42,7 @@ public class AgentSlotStateWriter {
   public Row write(
       long agentUserId,
       List<Slot> agentSlots,
+      String currentPodUid,
       OffsetDateTime observedStartedAt,
       OffsetDateTime currentPodStart,
       OffsetDateTime now,
@@ -54,14 +56,15 @@ public class AgentSlotStateWriter {
                 s ->
                     s.slotKey().equals(reportingSlotKey)
                         || !AgentRuntimeSlotRepository.isFromOldPod(
-                            s, observedStartedAt, currentPodStart))
+                            s, currentPodUid, observedStartedAt, currentPodStart))
             .toList();
     // 옛 Pod 칸이 있었을 때만 지운다 — 평소 보고는 DELETE 를 보내지 않는다.
     if (current.size() < agentSlots.size()) {
       slots.deleteReportedBeforePodStart(
           Map.of(
               agentUserId,
-              new AgentRuntimeSlotRepository.PodStarts(observedStartedAt, currentPodStart)),
+              new AgentRuntimeSlotRepository.PodStarts(
+                  observedStartedAt, currentPodStart, currentPodUid)),
           reportingSlotKey);
     }
     AgentSlotAggregate agg = AgentSlotAggregate.of(current, now, properties.slotStaleAfter());

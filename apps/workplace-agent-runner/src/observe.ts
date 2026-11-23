@@ -9,8 +9,8 @@ export const MESSAGE_MAX = 500;
 /** 이 사유로 기다리는 컨테이너는 스스로 낫지 않는다 — FAILED 로 알린다. */
 const FAILING_WAIT_REASONS = new Set(['CrashLoopBackOff', 'ImagePullBackOff', 'ErrImagePull']);
 
-/** Pod 하나의 관찰 값(AI id·사용량은 부르는 쪽이 붙인다). */
-export type ObservedState = Pick<RunnerObservedAgent, 'observedGeneration' | 'phase' | 'message' | 'startedAt'>;
+/** Pod 하나의 관찰 값(AI id·사용량은 부르는 쪽이 붙인다). podUid — 지금 떠 있는 Pod 의 정체(WP-1968). */
+export type ObservedState = Pick<RunnerObservedAgent, 'observedGeneration' | 'phase' | 'message' | 'startedAt' | 'podUid'>;
 
 /** Date·문자열 어느 쪽이 와도 ISO-8601 로 — 생성 타입은 Date 지만 가짜·직렬화된 값은 문자열이다. */
 function iso(v: Date | string | undefined): string | null {
@@ -97,9 +97,10 @@ export function restartNotice(pod: V1Pod, now: Date): string | null {
  */
 export function toObserved(pod: V1Pod | undefined, stopping: boolean, now: Date = new Date()): ObservedState {
   if (!pod) {
-    return { observedGeneration: null, phase: stopping ? 'STOPPED' : 'STARTING', message: null, startedAt: null };
+    return { observedGeneration: null, phase: stopping ? 'STOPPED' : 'STARTING', message: null, startedAt: null, podUid: null };
   }
-  const base = { observedGeneration: podGeneration(pod), startedAt: iso(pod.status?.startTime) };
+  // 지금 떠 있는 Pod 의 정체 — 서버가 이 값으로 지금 Pod 인지 판정한다(WP-1968). 없으면 null(구형 클러스터 응답 대비).
+  const base = { observedGeneration: podGeneration(pod), startedAt: iso(pod.status?.startTime), podUid: pod.metadata?.uid ?? null };
 
   if (pod.metadata?.deletionTimestamp) return { ...base, phase: 'STOPPING', message: null };
 

@@ -7,7 +7,9 @@ import com.workplace.agentruntime.dto.ApplyMode;
 import com.workplace.agentruntime.dto.Desired;
 import com.workplace.agentruntime.dto.RunnerObservedAgent;
 import com.workplace.agentruntime.dto.RuntimeVersion;
+import com.workplace.agentruntime.repository.AgentRuntimeSlotRepository.PodIdentity;
 import com.workplace.global.json.JsonMappers;
+import com.workplace.jooq.tables.AgentRuntimeSetting;
 import com.workplace.jooq.tables.records.AgentRuntimeSettingRecord;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -78,6 +80,8 @@ public class AgentRuntimeSettingRepository {
       Integer cpuMillicores,
       Long memoryBytes,
       OffsetDateTime startedAt,
+      String observedPodUid,
+      String previousPodUid,
       OffsetDateTime observedAt,
       String agentState,
       String agentIssueKey,
@@ -120,6 +124,8 @@ public class AgentRuntimeSettingRepository {
         r.get(AGENT_RUNTIME_SETTING.CPU_MILLICORES),
         r.get(AGENT_RUNTIME_SETTING.MEMORY_BYTES),
         r.get(AGENT_RUNTIME_SETTING.STARTED_AT),
+        r.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID),
+        r.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID),
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_STATE),
         r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY),
@@ -265,9 +271,11 @@ public class AgentRuntimeSettingRepository {
    * <ul>
    *   <li>observed_generation 은 줄지 않는다(GREATEST — Postgres 는 NULL 을 무시한다). 늦게 도착한 옛 Pod 보고가 값을 되돌려
    *       이미 적용한 generation 을 다시 적용하게 하거나 키 정리 판정을 흔들지 않게. 보고에 generation 이 없으면 그대로 둔다.
-   *   <li>새 Pod 가 보이면(phase STARTING, 시작 시각이 바뀜, 관찰 generation 이 오름) 옛 Pod 가 보고한 AI 상태(agent_*)를
-   *       지운다 — 옛 Pod 의 「쉬는 중」으로 새 Pod 를 바로 갈아치우지 않게. 단 AI 보고가 새 Pod 시작 뒤에 왔으면(agent_reported_at ≥
-   *       보고한 startedAt) 그 보고는 새 Pod 의 것이라 남긴다.
+   *   <li>새 Pod 가 보이면(phase STARTING, 시작 시각이 바뀜, 관찰 generation 이 오름, 보고 Pod 정체가 바뀜 — WP-1968) 옛 Pod
+   *       가 보고한 AI 상태(agent_*)를 지운다 — 옛 Pod 의 「쉬는 중」으로 새 Pod 를 바로 갈아치우지 않게. 단 AI 보고가 새 Pod 시작 뒤에
+   *       왔으면(agent_reported_at ≥ 보고한 startedAt) 그 보고는 새 Pod 의 것이라 남긴다.
+   *   <li>observed_pod_uid 는 보고의 podUid 를 coalesce 로 적는다 — 없는 보고(옛 runner·일시 오류)는 지난 값을 지우지 않고, 다음
+   *       작업이 이 값으로 보고의 주인을 가린다(WP-1968).
    * </ul>
    *
    * <p>SET 의 오른쪽은 모두 고치기 전 값을 본다(Postgres UPDATE 규칙) — 새 Pod 판정이 옛 started_at·observed_generation 과
@@ -285,8 +293,8 @@ public class AgentRuntimeSettingRepository {
     for (RunnerObservedAgent o : reports) last.put(o.agentUserId(), o);
 
     var s = AGENT_RUNTIME_SETTING;
-    List<org.jooq.Row8<Long, Long, String, String, Integer, Long, OffsetDateTime, Long>> rows =
-        new ArrayList<>();
+    List<org.jooq.Row9<Long, Long, String, String, Integer, Long, OffsetDateTime, Long, String>>
+        rows = new ArrayList<>();
     for (RunnerObservedAgent o : last.values()) {
       rows.add(
           DSL.row(
@@ -297,11 +305,16 @@ public class AgentRuntimeSettingRepository {
               DSL.cast(o.cpuMillicores(), s.CPU_MILLICORES.getDataType()),
               DSL.cast(o.memoryBytes(), s.MEMORY_BYTES.getDataType()),
               DSL.cast(o.startedAt(), s.STARTED_AT.getDataType()),
-              DSL.cast(o.failedGeneration(), s.FAILED_GENERATION.getDataType())));
+              DSL.cast(o.failedGeneration(), s.FAILED_GENERATION.getDataType()),
+              // 빈 정체(공백)는 null 로 — 메모리 판정이 공백을 「모른다」로 보는 것처럼 SQL 도 지난 정체로 보지 않고
+              // COALESCE · 새 Pod 판정이 갈리지 않게 한다(WP-1968 2차 반려 ⑤).
+              DSL.cast(
+                  AgentRuntimeSlotRepository.nullIfNoIdentity(o.podUid()),
+                  s.OBSERVED_POD_UID.getDataType())));
     }
     @SuppressWarnings("unchecked")
     Table<?> v =
-        DSL.values(rows.toArray(new org.jooq.Row8[0]))
+        DSL.values(rows.toArray(new org.jooq.Row9[0]))
             .as(
                 "v",
                 "agent_user_id",
@@ -311,7 +324,8 @@ public class AgentRuntimeSettingRepository {
                 "cpu",
                 "mem",
                 "started_at",
-                "failed_gen");
+                "failed_gen",
+                "pod_uid");
     Field<Long> vId = v.field("agent_user_id", Long.class);
     Field<Long> vGen = v.field("gen", Long.class);
     Field<String> vPhase = v.field("phase", String.class);
@@ -320,6 +334,7 @@ public class AgentRuntimeSettingRepository {
     Field<Long> vMem = v.field("mem", Long.class);
     Field<OffsetDateTime> vStart = v.field("started_at", OffsetDateTime.class);
     Field<Long> vFailedGen = v.field("failed_gen", Long.class);
+    Field<String> vUid = v.field("pod_uid", String.class);
 
     // 받을 행 — 이 위치의 AI, 그리고 정지 보고(STOPPING·STOPPED)를 보낸 꺼진 AI(desired STOP)는 위치와 무관하게(WP-1751). 위치가
     // 바뀐 뒤
@@ -349,14 +364,27 @@ public class AgentRuntimeSettingRepository {
             .asTable("before");
     Field<Long> beforeId = before.field(cur.AGENT_USER_ID.getName(), Long.class);
 
+    // 정체가 같은 관찰 — 지금 Pod 가 밝힌 정체를 그대로 보는 것이라 시작 시각이 조금 달라도(칸 보고가 대신 적어 둔 근사값) 새 Pod 로
+    // 세지 않는다. 보고가 정체를 먼저 받아들인 뒤의 관찰은 같은 Pod 의 정확한 시각이기 때문이다(WP-1968 반려 ⑥ — 관찰과 보고가
+    // 엇갈려 상태가 되풀이로 비워지지 않게).
+    Condition identitySame =
+        vUid.isNotNull().and(s.OBSERVED_POD_UID.isNotNull()).and(s.OBSERVED_POD_UID.eq(vUid));
     // 새 Pod 판정(보고 값이 없으면 그 근거는 보지 않는다) — 예전 건별 문장과 같은 규칙을 보고 값 칸으로 쓴다.
     Condition newPod =
         vPhase
             .eq("STARTING")
-            .or(vStart.isNotNull().and(s.STARTED_AT.isDistinctFrom(vStart)))
+            .or(vStart.isNotNull().and(s.STARTED_AT.isDistinctFrom(vStart)).andNot(identitySame))
             .or(
                 vGen.isNotNull()
-                    .and(s.OBSERVED_GENERATION.isNull().or(s.OBSERVED_GENERATION.lt(vGen))));
+                    .and(s.OBSERVED_GENERATION.isNull().or(s.OBSERVED_GENERATION.lt(vGen))))
+            // WP-1968: 보고의 Pod 정체(podUid)가 지난 정체와 다르면 새 Pod — 노드 시계가 어긋나도
+            // 시작 시각·generation 없이도 정체로 새 Pod 를 잡아 옛 Pod 의 agent_* 를 지운다.
+            // 다만 지난 정체를 아직 모르는 첫 관찰(→uid)은 새 Pod 가 아니다 — 배포 뒤 모든 AI 를 새 Pod 로 봐 상태를 비웠다(WP-1968 반려
+            // ⑥).
+            .or(
+                vUid.isNotNull()
+                    .and(s.OBSERVED_POD_UID.isNotNull())
+                    .and(s.OBSERVED_POD_UID.ne(vUid)));
     // AI 보고가 새 Pod 시작 뒤에 왔으면 새 Pod 의 보고라 지우지 않는다.
     Condition reportedByNewPod =
         vStart.isNotNull().and(s.AGENT_REPORTED_AT.isNotNull()).and(s.AGENT_REPORTED_AT.ge(vStart));
@@ -378,7 +406,12 @@ public class AgentRuntimeSettingRepository {
         .set(s.CPU_MILLICORES, vCpu)
         .set(s.MEMORY_BYTES, vMem)
         .set(s.STARTED_AT, vStart)
-        // WP-1958 보고값이 새 started_at 보다 시계 여유를 넘게 앞설 때만 비운다(null 관찰이면 그대로).
+        // WP-1968: 지금 관찰한 Pod 정체를 적는다 — 보고에 없으면(옛 runner) 지난 값을 그대로 둔다(coalesce 와 같은 뜻). 달라질 때만
+        // 지금 정체를 갈아끼우고, 지난 정체는 다음 칸으로 미룬다 — 관찰이 끝나는 중인 옛 Pod 를 늦게 봐 지금 정체를 되돌리지 않게(WP-1968 반려 ②).
+        .set(s.OBSERVED_POD_UID, observedPodUid(vUid, s))
+        .set(s.PREVIOUS_POD_UID, previousPodUid(vUid, s))
+        // WP-1958 새 started_at 이 null 이 아니고 보고한 값보다 늦을 때만 비운다.
+        // null·옛 Pod 관찰이 새 Pod 가 올린 값을 지우면 안 된다.
         // 여유가 없으면 초 단위로 내린 보고값을 관찰마다 비우고 다음 보고가 다시 올린다.
         // started_at 이 바뀐 것만으로 비우면 낡은 관찰이나 새 Pod 자신의 startTime 이 새 Pod 의 보고값을 지운다.
         .set(
@@ -396,6 +429,9 @@ public class AgentRuntimeSettingRepository {
         .where(s.AGENT_USER_ID.eq(vId))
         // 받을 행은 before(위 curAt 으로 잠가 읽은 행)가 정한다 — 잠근 행이라 그 사이 조건이 바뀌지 않는다.
         .and(s.AGENT_USER_ID.eq(beforeId))
+        // 지난 정체의 관찰(지금 정체와 다른 옛 Pod 를 늦게 본 것)은 아예 받지 않는다 — 정체를 갈아끼우지도, 그 옛 Pod 의 시작
+        // 시각·phase·agent_* 를 지금 Pod 로 덮지도 않는다. 지금 정체를 아직 모르던 첫 관찰(→)은 여기 걸리지 않는다(WP-1968 반려 ②).
+        .andNot(staleObservation(vUid, vPhase, vStart, s))
         .returningResult(returning)
         .fetch()
         .forEach(
@@ -428,6 +464,130 @@ public class AgentRuntimeSettingRepository {
   /** {@code when} 이면 NULL, 아니면 지금 값 그대로. */
   private static <T> Field<T> clearedIf(Condition when, Field<T> column) {
     return DSL.when(when, DSL.castNull(column.getDataType())).otherwise(column);
+  }
+
+  /**
+   * 관찰 보고로 바뀐 지금 Pod 정체(WP-1968 반려 ①) — 보고에 정체가 없으면 지난 값, 아직 몰랐으면 처음 보는 값, 같으면 그대로, 다르면 갈아끼운다. 지난
+   * 정체를 늦게 보는 관찰은 WHERE 에 걸러져 여기까지 오지 않는다.
+   */
+  private static Field<String> observedPodUid(Field<String> vUid, AgentRuntimeSetting s) {
+    return DSL.when(vUid.isNull(), s.OBSERVED_POD_UID)
+        .when(s.OBSERVED_POD_UID.isNull(), vUid)
+        .when(vUid.eq(s.OBSERVED_POD_UID), s.OBSERVED_POD_UID)
+        .otherwise(vUid);
+  }
+
+  /** 바로 앞 Pod 정체(WP-1968 반려 ①·②) — 지금 정체가 바뀔 때만 미루고, 지금 정체와 같거나 보고가 없으면 그대로. */
+  private static Field<String> previousPodUid(Field<String> vUid, AgentRuntimeSetting s) {
+    return DSL.when(vUid.isNull(), s.PREVIOUS_POD_UID)
+        .when(s.OBSERVED_POD_UID.isNull(), s.PREVIOUS_POD_UID)
+        .when(vUid.eq(s.OBSERVED_POD_UID), s.PREVIOUS_POD_UID)
+        .otherwise(s.OBSERVED_POD_UID);
+  }
+
+  /**
+   * 지난 정체의 관찰인지(WP-1968 반려 ②·2차 반려 ①·3차 반려 ①②) — 지금 정체를 아는 상태에서 정체가 다른 관찰이 ① 보고 정체가 바로 앞 정체일 때(끝나는
+   * 중인 옛 Pod 를 늦게 본 것), ② 시작 시각이 지금 알던 Pod 시작보다 시계 차이 여유({@link
+   * AgentRuntimeSlotRepository#isOlderPod} 와 같은 30초)만큼 넘게 이른 때(두 세대 넘게 지연된 옛 Pod), ③ 끝나는 중
+   * phase(STOPPING·STOPPED)이거나 (FAILED 면서 관찰한 시작 시각이 있어 지금 알던 시작보다 이르지 않은 — 새로 뜬 Pod 이 아닌 — 경우)면 지난
+   * 것이다. 네 경우 모두 지금 Pod 의 정체·시각·agent_* 를 되돌리지 않으므로 UPDATE 자체에서 뺀다.
+   *
+   * <p>①·②·③ 은 previous 가 비어 있어도 걸린다(2차 반려 ①) — 배포 직후 observed 가 NULL 일 때 새 Pod B 가 ADOPT 로 정체를
+   * 채우면(previous 는 비어 있고 시작 시각만 B 의 것으로 바뀐다)끝나는 중인 옛 Pod A 관찰이 ① 에 걸리지 않아 통과해,
+   * observed=A·previous=B 로 뒤집힌다. 그러면 B 의 보고는 영영 OTHER(상태 버림·칸 409 무한)이고 B 관찰은 previous=B 라 ① 로 걸려
+   * 회복되지 않는다.
+   *
+   * <p>FAILED 는 관찰한 시작이 지금 알던 시작보다 뒤(새로 뜬 Pod)일 때만 지난 정체로 보지 않는다(3차 반려 ①) — 처음 관찰될 때 이미 실패한 새
+   * Pod(ImagePullBackOff 등)의 관찰이 매번 버려져 「오류」가 화면에 안 뜬다. 지금 Pod 시작이 비어 있으면(끝나는 중 STOPPED 관찰이 지운 경우 —
+   * 정체는 남고 시각만 비어 있다) 견딜 기준이 없으므로 뒤인지 아닌지 가를 수 없어 받아들인다(4차 반려) — 기준 없음을 옛 Pod 로 단정하면, 꺼졌다 켠 AI 의 첫
+   * 관찰이 이미 FAILED 인 동안 「오류」가 영영 화면에 안 뜬다. 반대로 그보다 이르거나 같은 FAILED 관찰은 끝나는 중인 옛 Pod 로 보아 previous 가
+   * 비어 있어도 지난 것이다 — 배포 직후 observed 가 비어 있을 때 옛 Pod A 의 FAILED 관찰이 통과하면 observed=A 로 뒤집혀 지금 Pod B 의
+   * 보고가 영영 OTHER 로 남기 때문이다(2차 반려 ① 교착 창). 다만 관찰한 시작 시각이 없으면(vStart null) ③ 을 쓰지 않는다(6차 반려 ③) — 정체가
+   * 다르고 시작 시각이 없는 FAILED 관찰을 지난 것으로 버리면 그 실패가 화면에 계속 안 뜬다. 그 경우 지난 여부는 ①(previous 정체)만 본다 — 시각을 견줘
+   * 이르지 않은 것만 골라낼 수 있기 때문이다.
+   *
+   * <p>② 의 여유(30초)는 일부러 넓은 판정이다 — 지금 알던 시작보다 30초 안에 이른 정체가 다른 관찰은 지금 Pod 로 받아 정체를 갈아끼운다. 죽은 빠른 시계
+   * Pod 가 올려 둔 기준보다 조금 이른 새 Pod 관찰이 지난 것으로 걸려, 관찰이 정체를 밝히는 회복 경로(약 60초)가 막히지 않게 하려는 선택이다.
+   *
+   * <p>기준 없음으로 받는 대가도 있다 — 정체가 다른 FAILED 관찰을 그대로 받아 정체를 갈아끼우면(previous 가 지금 정체로 밀려나)방금까지 지금으로 보던 그
+   * Pod 의 보고가 잠시 OTHER 로 거절된다. 관찰에 시작 시각이 없는 FAILED 는 정체 불일치·previous 불일치여도 받아들인다(6차 반려 ③) — 그 실패를
+   * 지난 옛 Pod 로 단정해 버리면 「오류」가 화면에 영영 안 뜬다.
+   *
+   * <p>다만 그 뒤에 스스로 회복하지 못하는 한이 남는다 — 받아들인 관찰이 실제로는 **끝나는 죽은 Pod 의 마지막 FAILED 관찰**이어 정체가 스왑되면
+   * (observed=그 죽은 Pod, previous=살아 있는 Pod)살아 있는 Pod 의 다음 관찰은 ①(previous 정체)에 걸려 계속 버려져 되돌아오지 않는다.
+   * 그때 우회는 미적중 generation 이 남아 있어 Pod 가 다시 생기는 경우(이름이 고정이라 곧 재시작)뿐이고, Pod 이름이 고정이라 신구 동시 존재가 없어 걸리는
+   * 자리는 관찰 주기·informer lag 창뿐이다(6차 반려 ③). 「오류」가 영영 안 뜨는 것보다 낮은 확률의 영구 스왑이 낫다고 본 선택이다 — 스왑을 스스로 풀려면
+   * observed·previous 갱신에 별도 재정렬 감지가 필요하다(남은 위험).
+   *
+   * <p>정체가 같은 관찰(첫 인식·근사한 시작 시각)은 위에서 걸러지므로 시작 시각 비교의 영향을 받지 않는다.
+   *
+   * @param vUid 관찰이 실은 Pod 정체
+   * @param vPhase 관찰한 phase
+   * @param vStart 관찰한 Pod 시작 시각
+   * @param s 갱신할 설정 행(지금 정체·바로 앞 정체·지금 Pod 시작)
+   */
+  private static Condition staleObservation(
+      Field<String> vUid,
+      Field<String> vPhase,
+      Field<OffsetDateTime> vStart,
+      AgentRuntimeSetting s) {
+    Condition differentIdentity =
+        vUid.isNotNull().and(s.OBSERVED_POD_UID.isNotNull()).and(s.OBSERVED_POD_UID.ne(vUid));
+    Condition previousIdentity = s.PREVIOUS_POD_UID.isNotNull().and(s.PREVIOUS_POD_UID.eq(vUid));
+    // 3차 반려 ②: 메모리 판정 isOlderPod 와 같은 30초 시계 차이 여유를 쓴다 — 여유 없이 비교하면 부풀려진 기준(죽은 빠른 시계 Pod 가 올린 값)보다
+    // 조금 이른 새 Pod 관찰이 지난 정체로 걸려 관찰이 정체를 밝히는 회복 경로가 막힌다.
+    Field<OffsetDateTime> olderThan =
+        DSL.field(
+            "{0} - make_interval(secs => {1})",
+            OffsetDateTime.class,
+            s.STARTED_AT,
+            DSL.val(AgentRuntimeSlotRepository.POD_START_CLOCK_SKEW_GRACE.toSeconds() / 1.0));
+    Condition olderPod = vStart.isNotNull().and(s.STARTED_AT.isNotNull()).and(vStart.lt(olderThan));
+    Condition endingPhase = vPhase.isNotNull().and(vPhase.in("STOPPING", "STOPPED"));
+    // 3차 반려 ①: FAILED 는 관찰한 시작이 지금 알던 시작보다 뒤(새로 뜬 Pod)일 때만 지난 정체로 보지 않는다 — 위 javadoc 의 교착 창 때문이다.
+    // 4차 반려: 지금 Pod 시작이 비어 있으면(끝나는 중 STOPPED 관찰이 시각만 비운 경우) 뒤인지 가를 수 없어 받아들인다 — 기준 없음을 옛 Pod 로
+    // 단정하면 꺼졌다 켠 AI 의 첫 관찰이 이미 FAILED 인 동안 「오류」가 영영 화면에 안 뜬다.
+    Condition newerStart =
+        vStart.isNotNull().and(s.STARTED_AT.isNull().or(vStart.gt(s.STARTED_AT)));
+    // 6차 반려 ③: 관찰에 시작 시각이 없으면(vStart null) 정체가 다른 FAILED 를 지난 정체로 단정하지 않는다 — 지난 것으로 보면 「오류」가
+    // 화면에 계속 안 뜬다. 이 경우 지난 여부는 previous 정체일 때(①)만 본다 — 아래 반환에서 previousIdentity 가 그대로 남아 있기 때문이다.
+    // 시각이 있는 FAILED 만 끝나는 중 판정에 쓴다(시각을 견줘 이르지 않은 것만 골라낼 수 있다).
+    Condition failedEnding =
+        vPhase.isNotNull().and(vPhase.eq("FAILED")).andNot(newerStart).and(vStart.isNotNull());
+    return differentIdentity.and(previousIdentity.or(olderPod).or(endingPhase).or(failedEnding));
+  }
+
+  /**
+   * 보고가 처음 밝힌 Pod 정체를 지금 Pod 로 받아들인다(WP-1968 반려 ①) — runner 관찰(약 60초)을 기다리지 않고, 재시작 직후 새 Pod 의 첫
+   * 보고가 {@link PodIdentity#OTHER} 로 버려지지 않게 한다. 지금 정체가 이미 있던(진짜 재시작인) 경우에만 바로 앞 정체를 갈아끼우고, 아직 없던 첫
+   * 인식은 {@code previous} 를 비운 채 쓴다 — 배포 뒤 첫 보고를 새 Pod 로 오판해 상태를 비우지 않기 때문이다(WP-1968 반려 ⑥).
+   *
+   * <p>보고에 시작 시각이 있으면 지금 Pod 시작({@link Row#startedAt})과 기준({@link Row#reportedPodStartedAt})을 그 값으로
+   * 고쳐, 끝나는 중인 옛 Pod 가 올려 둔 높은 시각이 남아 새 Pod 의 보고·차단이 옛 Pod 로 오판되지 않는다(WP-1968 반려 ②·④). 시각이 없으면 기존
+   * 값을 그대로 두고 다음 관찰이 고친다. 호출자가 이 행을 이미 잠겼다고 가정한다({@link #findForUpdate}).
+   *
+   * @param before 잠긴 설정 행 — 지금까지 알던 정체와 사용자 id 를 읽는다
+   * @param podUid 보고가 밝힌 정체
+   * @param podStartedAt 보고한 Pod 시작 시각(시계 이상이 이미 걸러진 값 — {@link
+   *     AgentRuntimeSlotRepository#acceptedPodStart})
+   * @return 받아들인 뒤의 행(뒤의 판정·합치기가 이 행 기준으로 잇게)
+   */
+  public Row adoptPodIdentity(Row before, String podUid, OffsetDateTime podStartedAt) {
+    var s = AGENT_RUNTIME_SETTING;
+    return dsl.update(s)
+        .set(s.PREVIOUS_POD_UID, before.observedPodUid())
+        .set(s.OBSERVED_POD_UID, podUid)
+        .set(
+            s.STARTED_AT,
+            podStartedAt == null ? s.STARTED_AT : DSL.val(podStartedAt, s.STARTED_AT.getDataType()))
+        .set(
+            s.REPORTED_POD_STARTED_AT,
+            podStartedAt == null
+                ? s.REPORTED_POD_STARTED_AT
+                : DSL.val(podStartedAt, s.REPORTED_POD_STARTED_AT.getDataType()))
+        .where(s.AGENT_USER_ID.eq(before.agentUserId()))
+        .returning()
+        .fetchOne(this::map);
   }
 
   /**
@@ -505,6 +665,58 @@ public class AgentRuntimeSettingRepository {
             DSL.greatest(s.REPORTED_POD_STARTED_AT, DSL.val(podStartedAt)))
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .execute();
+  }
+
+  /**
+   * 보고가 알려 준 Pod 시작 시각을 **그대로** 쓴다(WP-1968) — 정체가 관찰 정체와 같은 보고의 값은 지금 Pod 기준이라 max({@link
+   * #raiseReportedPodStart})로 올리면 안 된다. 빠른 시계를 가진 죽은 Pod 가 올려 둔 높은 값이 남으면 새 Pod 의 시작 시각이 옛 Pod 로
+   * 오판되어 새 Pod 의 보고가 영영 거절된다. 값이 이전 기준보다 낮아도 내려 덮어쓰고, null 을 넘기면 칸을 비운다 — 다만 지금 호출자({@link
+   * #refreshReportedPodStart})는 보고에 시각이 없으면 아예 이 메서드를 부르지 않아 기존 기준이 그대로다. 호출자가 이 행을 이미 잠겼다고
+   * 가정한다({@link #findForUpdate}).
+   */
+  public void setReportedPodStart(long agentUserId, OffsetDateTime podStartedAt) {
+    var s = AGENT_RUNTIME_SETTING;
+    dsl.update(s)
+        .set(s.REPORTED_POD_STARTED_AT, podStartedAt)
+        .where(s.AGENT_USER_ID.eq(agentUserId))
+        .execute();
+  }
+
+  /**
+   * 이번 보고로 기준(reported_pod_started_at)을 갱신하고 갱신 뒤의 기준을 돌려준다(WP-1968) — 상태·칸 두 보고가 같은 규칙으로 기준을 다루도록
+   * 한 곳에 모았다.
+   *
+   * <p>정체가 같은 보고({@link PodIdentity#MATCH})의 시각은 지금 Pod 기준이라 기준을 그 값으로 내려 덮어쓴다 — 올리기만 하는 {@link
+   * #raiseReportedPodStart} 를 쓰면 시계 차이 여유({@link
+   * AgentRuntimeSlotRepository#POD_START_CLOCK_SKEW_GRACE}) 안에서 올라간 높은 기준이 남아 같은 정체의 다음 보고가 옛 Pod 로
+   * 오판되기 때문이다. 기준보다 여유를 넘게 이른 보고는 두 보고 서비스가 이 메서드를 부르기 전에 이미 거절하므로(5차 반려 ② — 정체가 같아도 시각 비교), 여기서 내려
+   * 덮는 값은 기준과 여유 안에서만 어긋난다. 보고에 시각이 없으면 기존 기준을 그대로 두고 비우지 않는다.
+   *
+   * <p>돌려준 값은 이 보고 뒤의 기준 — 화면·합치기가 쓰는 지금 Pod 시작 계산의 근거다. 덮어쓴 뒤에도 옛 기준과 max 로 합치면 정체가 같은 보고의 결과가 옛
+   * Pod 로 오판된다: 칸 차단 보고에서는 지금 Pod 의 차단이 화면에 안 보여 알림이 빠지고, 상태 보고에서는 같은 정체의 형제 칸이 매 보고에서 지워진다. 호출자가 이
+   * 행을 이미 잠겼다고 가정한다({@link #findForUpdate}).
+   *
+   * @param before 잠긴 설정 행 — agentUserId 와 이전 기준을 읽는다
+   * @param identity 보고 정체 판정({@link AgentRuntimeSlotRepository#podIdentity})
+   * @param podStartedAt 보고한 Pod 시작 시각(시계 이상이 이미 걸러진 값 — {@link
+   *     AgentRuntimeSlotRepository#acceptedPodStart}), null 이면 기준을 만지지 않는다
+   * @return 갱신 뒤의 기준
+   */
+  public OffsetDateTime refreshReportedPodStart(
+      Row before, PodIdentity identity, OffsetDateTime podStartedAt) {
+    // 정체가 같은 보고는 지금 Pod 기준 — 기준을 보고 값으로 내려 덮고 그 값을 그대로 돌려준다.
+    if (identity == PodIdentity.MATCH && podStartedAt != null) {
+      setReportedPodStart(before.agentUserId(), podStartedAt);
+      return podStartedAt;
+    }
+    // 정체가 같지 않은 보고(정체를 모르는 옛 이미지 — UNKNOWN)는 지금처럼 기준을 올리기만 한다.
+    // 시계 이상이라 걸러진 값이나 없는 값은 기준을 만지지 않는다.
+    if (podStartedAt != null
+        && (before.reportedPodStartedAt() == null
+            || podStartedAt.isAfter(before.reportedPodStartedAt()))) {
+      raiseReportedPodStart(before.agentUserId(), podStartedAt);
+    }
+    return AgentRuntimeSlotRepository.laterOf(before.reportedPodStartedAt(), podStartedAt);
   }
 
   /**

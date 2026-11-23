@@ -18,6 +18,15 @@ import java.time.OffsetDateTime;
  * @param podStartedAt 보고한 Pod 의 시작 시각(WP-1958, 플러그인 {@code gw-pod-start} 가 /proc 으로 계산) — 같은
  *     generation 재시작 뒤 옛 Pod 의 늦은 BLOCKED·OK 가 새 Pod 의 차단을 덮지 않게 서버가 지금 Pod 시작과 견준다. 없으면(null) 거르지
  *     않고 지금처럼 믿는다
+ * @param podUid 보고하는 Pod 의 {@code metadata.uid}(WP-1968) — runner 가 관찰해 둔 정체와 견겨 정체가 달면 저장 없이 409 로
+ *     버린다. 정체가 같아도 시작 시각은 견본다(같은 Pod 안 컨테이너 재시작의 이른 보고가 기준을 되돌리지 못하게 — 5차 반려 ②). 없으면(옛 이미지) 시각 규칙
+ *     그대로다. 옛 클라이언트와 호환되도록 맨 끝에 둔다
  */
 public record AgentPaneReportRequest(
-    String state, @Size(max = 500) String message, Long generation, OffsetDateTime podStartedAt) {}
+    String state,
+    @Size(max = 500) String message,
+    Long generation,
+    OffsetDateTime podStartedAt,
+    // 상한 255 는 관찰 보고(RunnerObservedAgent.podUid)와 같은 계약 — 정체는 짧은 고정 값이라 긴 값은 로그·비교에 넘치기 전에
+    // 400 으로 미리 막는다.
+    @Size(max = 255) String podUid) {}

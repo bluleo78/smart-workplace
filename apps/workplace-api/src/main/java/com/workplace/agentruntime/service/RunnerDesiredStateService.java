@@ -330,7 +330,14 @@ public class RunnerDesiredStateService {
       OffsetDateTime current =
           AgentRuntimeSlotRepository.currentPodStart(observed, u.row().reportedPodStartedAt());
       Row written =
-          slotWriter.write(id, slotsOf.getOrDefault(id, List.of()), observed, current, now, null);
+          slotWriter.write(
+              id,
+              slotsOf.getOrDefault(id, List.of()),
+              u.row().observedPodUid(),
+              observed,
+              current,
+              now,
+              null);
       out.put(id, new ObservedUpdate(written, u.before()));
     }
     return out;

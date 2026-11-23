@@ -23,7 +23,7 @@ class AgentSlotAggregateTest {
 
   /** 칸 하나 — 보고 시각은 합치기에 쓰지 않으므로 고정값. */
   private static Slot slot(String key, AgentState state, String issue, OffsetDateTime next) {
-    return new Slot(key, state, issue, next, T1, null);
+    return new Slot(key, state, issue, next, T1, null, null);
   }
 
   /** 한 칸이라도 일하면 작업 중 — 다음 확인 시각은 쉬는 칸에서 따로 계산한다. */
@@ -87,8 +87,8 @@ class AgentSlotAggregateTest {
     var a =
         AgentSlotAggregate.of(
             List.of(
-                new Slot("HR", WORKING, "HR-2", null, now.minusHours(7), null),
-                new Slot("WP", IDLE, null, T2, now, null)),
+                new Slot("HR", WORKING, "HR-2", null, now.minusHours(7), null, null),
+                new Slot("WP", IDLE, null, T2, now, null, null)),
             now,
             Duration.ofHours(6));
     assertThat(a.state()).isEqualTo(AgentState.IDLE);
@@ -100,8 +100,8 @@ class AgentSlotAggregateTest {
     var b =
         AgentSlotAggregate.of(
             List.of(
-                new Slot("HR", WORKING, "HR-2", null, now.minusHours(5), null),
-                new Slot("WP", IDLE, null, T2, now, null)),
+                new Slot("HR", WORKING, "HR-2", null, now.minusHours(5), null, null),
+                new Slot("WP", IDLE, null, T2, now, null, null)),
             now,
             Duration.ofHours(6));
     assertThat(b.state()).isEqualTo(AgentState.WORKING);
@@ -115,8 +115,8 @@ class AgentSlotAggregateTest {
     var a =
         AgentSlotAggregate.of(
             List.of(
-                new Slot("HR", WORKING, "HR-1", null, last, null),
-                new Slot("WP", IDLE, null, now.plusHours(1), now.minusHours(7), null)),
+                new Slot("HR", WORKING, "HR-1", null, last, null, null),
+                new Slot("WP", IDLE, null, now.plusHours(1), now.minusHours(7), null, null)),
             now,
             Duration.ofHours(6));
     assertThat(a.state()).isNull();
@@ -131,7 +131,7 @@ class AgentSlotAggregateTest {
     var now = T2;
     var a =
         AgentSlotAggregate.of(
-            List.of(new Slot("WP", IDLE, null, null, now.minusHours(7), null)),
+            List.of(new Slot("WP", IDLE, null, null, now.minusHours(7), null, null)),
             now,
             Duration.ofHours(6));
     assertThat(a.state()).isNull();
