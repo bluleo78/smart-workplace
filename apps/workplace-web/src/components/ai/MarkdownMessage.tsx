@@ -165,8 +165,10 @@ const BASE_COMPONENTS: Components = {
   ul: ({ children, className }) => (
     <ul className={markdownListClass(className, 'list-disc')}>{children}</ul>
   ),
-  ol: ({ children, className }) => (
-    <ol className={markdownListClass(className, 'list-decimal')}>{children}</ol>
+  // 끊긴 번호 목록(사이사이 들여쓰지 않은 글머리 줄)도 CommonMark 처럼 처음 쓴 번호에서 이어 그린다(WP-2027) —
+  // react-markdown 은 start !== 1 일 때만 이 prop 을 주므로 1번 목록은 속성 없이 그대로다.
+  ol: ({ children, className, start }) => (
+    <ol start={start} className={markdownListClass(className, 'list-decimal')}>{children}</ol>
   ),
   // 항목 안 줄바꿈(「3. 항목\n이어지는 문장」)은 p 처럼 pre-wrap 으로 보존한다 — tight list 의 li 는 p 없이 글자를 바로 담는다.
   // 체크리스트 항목 — 체크박스를 왼쪽 여백에 절대배치해, 긴 항목이 줄바꿈돼도 둘째 줄이 체크박스 밑으로 파고들지 않고
