@@ -7,6 +7,7 @@ describe('projectTabPath', () => {
   it('이슈 탭은 프로젝트 길, 나머지는 하위 길', () => {
     expect(projectTabPath('WP', 'issues')).toBe('/projects/WP')
     expect(projectTabPath('WP', 'overview')).toBe('/projects/WP/overview')
+    expect(projectTabPath('WP', 'workflow')).toBe('/projects/WP/workflow')
   })
 })
 
@@ -14,6 +15,7 @@ describe('tabFromPath', () => {
   it('탭 길을 해석하고 탭이 아닌 길은 null', () => {
     expect(tabFromPath('/projects/WP/', 'WP')).toBe('issues')
     expect(tabFromPath('/projects/WP/cycles', 'WP')).toBe('cycles')
+    expect(tabFromPath('/projects/WP/workflow', 'WP')).toBe('workflow')
     expect(tabFromPath('/projects/WP/notes', 'WP')).toBe('notes')
     expect(tabFromPath('/projects/WP/notes/12', 'WP')).toBe('notes')
     expect(tabFromPath('/projects/WP/notes/12/x', 'WP')).toBeNull()
@@ -39,6 +41,8 @@ describe('parseTab', () => {
     expect(parseTab('cycles')).toBe('cycles')
     expect(parseTab('notes')).toBeNull()
     expect(parseTab('notes', true)).toBe('notes')
+    expect(parseTab('workflow', true)).toBeNull()
+    expect(parseTab('workflow', false, true)).toBe('workflow')
     expect(parseTab('foo')).toBeNull()
     expect(parseTab(null)).toBeNull()
   })
@@ -67,6 +71,7 @@ describe('shouldRememberTab', () => {
 
 describe('PROJECT_TABS', () => {
   it('보이는 탭 라벨 순서', () => {
+    expect(visibleProjectTabs(false, true).map((t) => t.label)).toEqual(['개요', '이슈', '타임라인', '사이클', '워크플로우', '버전'])
     expect(visibleProjectTabs(false).map((t) => t.label)).toEqual(['개요', '이슈', '타임라인', '사이클', '버전'])
     expect(visibleProjectTabs(true).map((t) => t.label)).toEqual(['개요', '이슈', '노트', '타임라인', '사이클', '버전'])
   })

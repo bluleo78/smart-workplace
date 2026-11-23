@@ -1,7 +1,7 @@
 // 개인 프로젝트 전용 상세 셸 — 팀과 동일 레이아웃으로 재수렴.
 // 상단 팀 툴바(IssueFilterBar, 개인 옵션) + 공유 보드(IssueBoardView, 개인 컬럼·drawer cardTo)
 // + 그룹핑 연동 체크리스트. URL = single source of truth: /projects/:key?view=&group=&task=
-import { ListChecks, Plus } from 'lucide-react';
+import { ListChecks, Plus, Workflow } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
@@ -20,6 +20,7 @@ import { IssueFilterBar } from '../components/IssueFilterBar';
 import { MobileIssueToolbar } from '../components/mobile/MobileIssueToolbar';
 import { ProjectStatusesGate } from '../components/ProjectStatusesGate';
 import type { IssueFilterBarOptions } from '../hooks/useIssueFilterControls';
+import { projectTabPath } from '../tabs/projectTabs';
 import { PersonalChecklistView } from './PersonalChecklistView';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
 
@@ -50,7 +51,7 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
 };
 
 // 개인 프로젝트 상세 본체. 프로젝트 탭 레이아웃(ProjectTabsLayout)이 개인 프로젝트의 이슈 길에서 바로 그린다(WP-1477).
-export function PersonalProjectDetail({ project }: { project: ProjectResponse }) {
+export function PersonalProjectDetail({ project, workflowVisible = false }: { project: ProjectResponse; workflowVisible?: boolean }) {
   const isMobile = useIsMobile();
   const key = project.key;
   const [params] = useSearchParams();
@@ -68,6 +69,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   // 설정 화면 주소(WP-1362) — 데스크톱 버튼과 모바일 헤더 링크가 같은 곳으로 간다.
   const settingsTo = `/projects/${key}/settings`;
+  // 개인 프로젝트에는 탭 줄이 없어 워크플로우는 머리줄의 링크로 연다.
+  const workflowTo = projectTabPath(key, 'workflow');
   // 빠른 추가 — 처음 상태 없이(기본 상태로) 만들기 창을 연다. 데스크톱 버튼·모바일 ＋·체크리스트 빈 상태가 함께 쓴다.
   const openQuickAdd = () => { setCreateStatusId(undefined); setCreateOpen(true); };
 
@@ -92,11 +95,21 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
             <Button asChild variant="outline">
               <Link to={settingsTo}>설정</Link>
             </Button>
+            {workflowVisible && <Button asChild variant="outline"><Link to={workflowTo}>워크플로우</Link></Button>}
             <Button onClick={openQuickAdd}>+ 빠른 추가</Button>
           </>
         }
-        // 모바일: 빠른 추가는 ＋, 설정은 항목 하나라 ⋯ 없이 인라인(U3-R7) — Link 하나, Button 중첩 없음(U3-C3).
-        mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={openQuickAdd}><Plus /></HeaderIconAction>}
+        // 모바일: 워크플로우는 아이콘 링크, 설정은 기존처럼 바로 누르는 링크를 유지한다.
+        mobilePrimaryAction={
+          <>
+            {workflowVisible && (
+              <Button asChild variant="ghost" size="icon" className="size-11">
+                <Link to={workflowTo} aria-label="워크플로우" title="워크플로우"><Workflow className="size-5" /></Link>
+              </Button>
+            )}
+            <HeaderIconAction label="빠른 추가" onClick={openQuickAdd}><Plus /></HeaderIconAction>
+          </>
+        }
         mobileActions={<Link to={settingsTo}>설정</Link>}
       />
       <Page.Body padded={false} className="overflow-hidden">

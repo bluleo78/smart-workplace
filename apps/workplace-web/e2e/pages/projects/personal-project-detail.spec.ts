@@ -61,6 +61,18 @@ test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더�
   await expect(page.getByTestId('quick-filter-more-facet-closedIn')).toHaveCount(0);
 });
 
+test('개인 프로젝트 소유자는 머리줄에서 워크플로우를 열고 돌아올 수 있다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
+  await mockPersonal(page);
+  await page.goto(`/projects/${KEY}`);
+
+  await page.getByTestId('page-header').getByRole('link', { name: '워크플로우' }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/workflow$`));
+  await expect(page.getByRole('button', { name: '워크플로우 만들기' })).toBeVisible();
+
+  await page.getByRole('button', { name: '프로젝트로 돌아가기' }).click();
+  await expect(page.getByTestId('personal-project-detail')).toBeVisible();
+});
+
 // 상세 진입 공통 — 단건 + chat 모킹. number 기본값=1.
 async function mockTaskDetail(page: import('@playwright/test').Page, number = 1) {
   const label = createLabel({ id: 5, name: '긴급' });

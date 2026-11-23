@@ -281,6 +281,7 @@ test('제목 편집 — 하단이 [취소·저장] 바로 바뀌고, Esc 는 편
 test('헤더에 「설정」 링크가 ⋯ 없이 바로 있고, 누르면 /projects/<키>/settings 로 간다', async () => {
   const p = stubPersonal()
   const { user, location } = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  expect(await screen.findByRole('link', { name: '워크플로우' })).toHaveAttribute('href', `/projects/${KEY}/workflow`)
   const inline = await screen.findByTestId('mobile-header-inline-action')
   expect(screen.queryByTestId('mobile-header-more')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '빠른 추가' })).toBeInTheDocument()

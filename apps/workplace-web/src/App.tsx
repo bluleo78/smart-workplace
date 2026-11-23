@@ -38,6 +38,7 @@ const ProjectOverviewTab = lazy(() => import('./pages/projects/tabs/ProjectOverv
 const ProjectNotesTab = lazy(() => import('./pages/projects/tabs/ProjectNotesTab'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const CyclesPage = lazy(() => import('./pages/projects/CyclesPage'))
+const WorkflowTab = lazy(() => import('./pages/projects/workflow/WorkflowTab'))
 const TimelinePage = lazy(() => import('./pages/projects/timeline/TimelinePage'))
 const VersionsPage = lazy(() => import('./pages/projects/versions/VersionsPage'))
 const VersionDetailPage = lazy(() => import('./pages/projects/versions/VersionDetailPage'))
@@ -241,7 +242,7 @@ export default function App() {
                   {/* /tasks — 작업 모듈 허브. 데스크톱은 기존 진입점으로, 모바일은 IssueModuleLayout 이 rootPath 에서 사이드바 목록을 그려 본문 불필요. */}
                   <Route path="tasks" element={<DesktopOnly><Navigate to="/me/tasks" replace /></DesktopOnly>} />
                   <Route path="projects" element={<ProjectListPage />} />
-                  {/* 프로젝트 화면 탭(WP-1477) — 머리줄·탭 줄을 함께 쓰는 개요·이슈(index)·타임라인·사이클·버전. */}
+                  {/* 프로젝트 화면 탭(WP-1477) — 머리줄·탭 줄을 함께 쓰는 개요·이슈(index)·타임라인·사이클·워크플로우·버전. */}
                   <Route path="projects/:key" element={<ProjectTabsLayout />}>
                     <Route index element={<ProjectDetailPage />} />
                     <Route path="overview" element={<ProjectOverviewTab />} />
@@ -249,6 +250,7 @@ export default function App() {
                     <Route path="notes/:pageId" element={<ProjectNotesTab />} />
                     <Route path="timeline" element={<TimelinePage />} />
                     <Route path="cycles" element={<CyclesPage />} />
+                    <Route path="workflow" element={<WorkflowTab />} />
                     <Route path="versions" element={<VersionsPage />} />
                   </Route>
                   {/* 탭이 아닌 프로젝트 하위 화면 — 자기 머리줄을 쓴다. */}

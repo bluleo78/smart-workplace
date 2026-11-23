@@ -159,10 +159,10 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
  * 프로젝트 화면은 개인 프로젝트면 PersonalProjectDetail 로 갈라지므로 그것만 띄운다(같은 project props).
  * 풀페이지 이슈 주소의 리다이렉트(#207)는 이슈 상세 화면이 하므로 그 라우트도 둔다 — 상세는 AI 패널 모드를 읽어 Provider 로 감싼다.
  */
-async function open(path: string, api: ReturnType<typeof personalApi>, waitForTestId: string) {
+async function open(path: string, api: ReturnType<typeof personalApi>, waitForTestId: string, workflowVisible = false) {
   const view = renderScreen(
     <Routes>
-      <Route path="/projects/:key" element={<PersonalProjectDetail project={PROJECT} />} />
+      <Route path="/projects/:key" element={<PersonalProjectDetail project={PROJECT} workflowVisible={workflowVisible} />} />
       <Route
         path="/projects/:key/issues/:number"
         element={
@@ -180,6 +180,11 @@ async function open(path: string, api: ReturnType<typeof personalApi>, waitForTe
 
 /** 주소의 쿼리 파라미터. */
 const paramsOf = (location: string) => new URL(location, 'http://x').searchParams
+
+test('워크플로우를 볼 수 있는 개인 프로젝트의 머리줄에서 워크플로우로 갈 수 있다', async () => {
+  await open(`/projects/${KEY}`, personalApi([createIssue({ projectKey: KEY, number: 1 })]), 'personal-task-row-1', true)
+  expect(screen.getByRole('link', { name: '워크플로우' })).toHaveAttribute('href', `/projects/${KEY}/workflow`)
+})
 
 describe('뷰 토글·목록/보드 표시', () => {
   // 공유 툴바 setView 는 URL 을 필터+view+group 으로 다시 짠다 — list 는 기본값이라 view= 를 생략한다.
