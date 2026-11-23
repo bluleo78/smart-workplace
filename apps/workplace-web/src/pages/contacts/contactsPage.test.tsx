@@ -524,6 +524,47 @@ test('외부 연락처 생성 — 중복 409 면 확인 창 뒤 force=true 로 �
   expect(await screen.findByTestId('contact-row-EXTERNAL-201')).toBeInTheDocument()
 })
 
+// WP-1936: 편집에서 뜨는 중복 확인 창 본문이 단추(「그래도 수정」)와 같은 동작을 말해야 한다 — 생성 문구 고정 문자열이 편집까지 그대로 나와 모순됐었다.
+test('외부 연락처 편집 — 중복 409 확인 창 본문이 「그래도 수정하시겠습니까?」 다', async () => {
+  const patches: Recorded[] = []
+  const { user } = renderContacts('/contacts?contact=external:100', {
+    handlers: [
+      emptyTree(),
+      listHandler([], () => [external()]),
+      http.get('/api/v1/contacts/external/100', () => HttpResponse.json(externalDetail())),
+      // 편집 저장은 PATCH 다(기존 편집 테스트와 같은 규약) — force 없이 409 를 돌려 확인 창을 띄우고, 강행이면 force=true 로 다시 보낸다.
+      http.patch('/api/v1/contacts/external/100', async ({ request }) => {
+        await record(patches, request)
+        if (new URL(request.url).searchParams.get('force') !== 'true') {
+          return HttpResponse.json(
+            { status: 409, error: 'Conflict', message: '이미 존재하는 연락처입니다', errors: null, path: '/api/v1/contacts/external/100' },
+            { status: 409 },
+          )
+        }
+        return HttpResponse.json(externalDetail({ name: '김민수' }), { status: 200 })
+      }),
+    ],
+  })
+  await screen.findByTestId('contact-detail-external')
+  await user.click(screen.getByTestId('contact-edit'))
+  await screen.findByTestId('external-contact-dialog')
+  fill('c-name', '김민수')
+  fill('c-email', 'kim@test.com')
+  await user.click(screen.getByTestId('c-save'))
+
+  const warning = await screen.findByTestId('contact-duplicate-dialog')
+  expect(warning).toHaveTextContent('그래도 수정하시겠습니까?')
+  expect(warning).not.toHaveTextContent('그래도 추가하시겠습니까?')
+  // 단추는 원래부터 분기돼 있었다 — 본문과 같은 동작을 말하는지 함께 고정한다.
+  expect(screen.getByTestId('contact-duplicate-confirm')).toHaveTextContent('그래도 수정')
+  await waitFor(() => expect(patches).toHaveLength(1))
+
+  // 강행을 누르면 force=true 로 다시 요청한다(생성 409 테스트와 같은 흐름).
+  await user.click(screen.getByTestId('contact-duplicate-confirm'))
+  await waitFor(() => expect(patches).toHaveLength(2))
+  expect(patches.map((p) => p.url.searchParams.get('force') === 'true')).toEqual([false, true])
+})
+
 // 편집 권한이 없는(editable=false) 외부 연락처는 수정·삭제 버튼이 없다.
 test('editable=false 면 수정/삭제 미노출', async () => {
   renderContacts('/contacts?contact=external:100', {
