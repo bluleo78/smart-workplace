@@ -25,7 +25,7 @@ import tools.jackson.databind.ObjectMapper;
  *     locationId]}
  * @param publisher 보낸 파드의 식별자 — 닫힘 신호에만 싣는다({@link #withPublisher}). 자기 파드로 돌아온 닫힘 신호를 그 파드가 제외해,
  *     발행 직후 재연결한 스트림이 다시 닫히지 않게 한다(WP-1973 리뷰 3차 선택). 중계({@code PostgresSseEventRelay}) 안에서만 쓰고
- *     수신자에게는 넘기지 않는다 — 받는 쪽의 메시지는 언제나 null 이다. null 이면 옛 버전 파드가 보낸 것이다
+ *     수신자에게는 넘기지 않는다 — 받는 쪽의 메시지는 언제나 null 이다. <b>닫힘 신호만 pub 를 싣는다 — 이벤트이거나 옛 버전이면 null</b>
  */
 public record RelayMessage(
     String target, String event, String payloadJson, String keysJson, String publisher) {

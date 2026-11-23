@@ -18,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.postgresql.PGConnection;
@@ -176,6 +177,12 @@ public class PostgresSseEventRelay implements SseEventRelay {
 
   /** 첫 LISTEN 시도(성공·실패 모두)가 끝나면 열리는 래치 — 테스트가 {@link #awaitFirstListen} 으로 수신 시작을 기다리는 데 쓴다. */
   private final CountDownLatch firstListenAttempt = new CountDownLatch(1);
+
+  /**
+   * {@link #deliver} 를 끝낸(조기 반환까지 모두 처리한) 통지 수 — 리스너 스레드가 그 통지를 손에서 놓았는지 세는 카운터다. 테스트가 {@link
+   * #completedDelivers} 로 이 값이 오르는 것을 기다려(잠시 자는 대신) 전달 제출이 끝났는지 확인한다(WP-1973 리뷰 후속 3).
+   */
+  private final AtomicInteger completedDelivers = new AtomicInteger();
 
   /** 커넥션 정보로 중계를 만든다 — 생존 확인 주기 기본값(30초)을 쓴다. 자세한 동작은 아래 패키지 전용 생성자를 본다. */
   public PostgresSseEventRelay(String url, String username, String password) {
@@ -342,6 +349,14 @@ public class PostgresSseEventRelay implements SseEventRelay {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
+  }
+
+  /**
+   * {@link #deliver} 를 끝낸 통지 개수 — 테스트가 전달 제출이 끝났는지 기다리는 패키지 전용 도구다(WP-1973 리뷰 후속 3). 제출이 끝나야 유실 경고
+   * 유무가 확정되므로, 값을 기다려 시간에 기댄 대기를 없앤다.
+   */
+  int completedDelivers() {
+    return completedDelivers.get();
   }
 
   /** 수신 리스너의 백엔드 pid — LISTEN 성공 후 갱신, 연결이 없으면 -1. 테스트가 강제 종료로 재연결을 겨눌 때 쓴다(패키지 전용). */
@@ -524,8 +539,21 @@ public class PostgresSseEventRelay implements SseEventRelay {
    * <p>자기 파드가 보낸 닫힘 신호는 제외한다 — 발행 파드는 로컬을 발행 직전에 이미 닫았는데(리뷰 2차), NOTIFY 왕복 중 재연결한 스트림을 되돌아온 유선 닫힘이
    * 다시 닫는다. 파드 id({@link RelayMessage#publisher()})는 이 골라내기에만 쓰고 수신자에는 넘기지 않는다 — 받는 쪽의 메시지 모양은 예전
    * 그대로다. 수신자 실패·큐 넘침은 로그로 끝난다(중계 best-effort), 그중 닫힘 신호의 유실만 error 로 남겨 발행 쪽 계약과 레벨을 맞춘다.
+   *
+   * <p><b>트레이드오프(WP-1973 리뷰 후속)</b> — 되돌아온 자기 닫힘을 건너뛰는 대신, 발행 파드에서는 그 닫힘 신호가 스트림을 한 번 더 닫지 못한다. 그래서
+   * 닫기 직전에 그 사람에게 보낸 이벤트가 NOTIFY 왕복 동안 그 사이 재연결한 스트림에 그대로 닿을 수 있다. 발행 파드의 로컬은 {@code closeAll} 이 발행
+   * 직전에 닫아(정지 토큰은 401 로 재연결이 막힌다) 영향은 그 파드 한 곳에 그치고, 다른 파드는 유선 닫힘을 그대로 받는다.
    */
   private void deliver(RelayMessage message) {
+    try {
+      submitToStripes(message);
+    } finally {
+      completedDelivers.incrementAndGet(); // 제출 완료 카운트 — 테스트가 이 값으로 제출이 끝났는지 확인한다(WP-1973 리뷰 후속 3)
+    }
+  }
+
+  /** {@link #deliver} 의 본체 — 전달 스트라이프로 제출만 한다(제출 완료를 세기 위해 분리). */
+  private void submitToStripes(RelayMessage message) {
     Consumer<RelayMessage> target = receiver;
     if (target == null) return;
     Map<Integer, List<RelayMessage>> byStripe = new LinkedHashMap<>();
@@ -555,13 +583,17 @@ public class PostgresSseEventRelay implements SseEventRelay {
     }
   }
 
-  /** 줄 하나에 묶인 부분집합을 순서대로 수신자에게 넘긴다 — 한 메시지의 실패가 그 줄의 뒤를 멈추지 않는다(중계 best-effort). */
+  /**
+   * 줄 하나에 묶인 부분집합을 순서대로 수신자에게 넘긴다 — 한 메시지의 실패가 그 줄의 뒤를 멈추지 않는다(중계 best-effort). 잡는 것을 {@code
+   * Throwable} 로 넓힌다(WP-1973 리뷰 후속 2) — {@code Exception} 만 잡으면 한 받는 사람에게서 {@code Error} 가 나면 그 줄의
+   * 남은 받는 사람 전원이 전달에서 떨어지기 때문이다.
+   */
   private void deliverGroup(Consumer<RelayMessage> target, List<RelayMessage> group) {
     for (RelayMessage part : group) {
       try {
         target.accept(part);
-      } catch (Exception e) {
-        log.warn("SSE 중계 로컬 전달 실패 — 건너뛴다(target {}): {}", part.target(), e.getMessage());
+      } catch (Throwable e) {
+        log.warn("SSE 중계 로컬 전달 실패 — 건너뛴다(target {}): {}", part.target(), String.valueOf(e));
       }
     }
   }
