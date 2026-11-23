@@ -247,15 +247,14 @@ public class WorkflowRunService {
     // 요청자는 A 의 응답을 받고 B 는 움직이지 않으며, 다른 요청자는 맞는 revision 이어도 늘 STALE 이다.
     // runId 가 없거나 지금 실행이면 지금 실행을 겨눈 것이다(하위 호환). 옛 실행을 겨누면 그 실행의 첫 응답을 돌려주는 재시도만 받는다 — A 를 끝낸
     // 이동의 응답을 잃은 사이 B 가 시작돼도 재시도가 B 의 새 이동이 되지 않게. 다른 이슈의 runId·없는 runId 는 존재를 드러내지 않게 404 가 아니라
-    // 같은 STALE 이다(저장소가 issue_id 로 거른다).
+    // 같은 STALE 이다(실행의 issue_id 를 비교한다).
     boolean targetsCurrent = req.runId() == null || req.runId() == run.id();
-    long targetRunId =
-        targetsCurrent
-            ? run.id()
-            : runRepository
-                .findRunOfIssue(issue.id(), req.runId())
-                .orElseThrow(() -> staleNow(run))
-                .id();
+    if (!targetsCurrent
+        && runRepository.findRun(req.runId()).filter(r -> r.issueId() == issue.id()).isEmpty()) {
+      // 이 이슈의 실행이 아니다 — 다른 이슈의 실행 멱등 응답을 읽거나 존재를 알아내지 못하게 STALE.
+      throw staleNow(run);
+    }
+    long targetRunId = targetsCurrent ? run.id() : req.runId();
     Optional<IdempotentRow> stored =
         runRepository.findIdempotent(targetRunId, req.idempotencyKey());
     if (stored.isPresent()) {
