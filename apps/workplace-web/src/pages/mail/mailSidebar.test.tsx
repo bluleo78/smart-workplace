@@ -959,6 +959,8 @@ test('이전 메일이 아직 가져올 수 없음(running)이면 빈 목록에 
   expect(emptyBox.querySelector('svg')).not.toBeNull()
   expect(within(emptyBox).getByText('받은 메일이 없어요')).toBeInTheDocument()
   expect(within(emptyBox).getByText('새로고침 단추를 눌러보세요.')).toBeInTheDocument()
+  // 문구가 가리키는 단추가 실제로 그려진다 — 가리키는데 없던 것이 WP-1864 의 원래 실패 모드다.
+  expect(screen.getByTestId('mail-sync')).toBeInTheDocument()
   await waitFor(() => expect(olders.calls).toHaveLength(1))
   await waitFor(() => expect(screen.queryByText('불러오는 중…')).not.toBeInTheDocument())
   await act(() => new Promise((r) => setTimeout(r, 300)))
@@ -987,9 +989,14 @@ test('보낸편지함이 비어 있으면 「보낸 메일이 없어요」와 �
   expect(within(emptyBox).getByText('보낸 메일이 없어요')).toBeInTheDocument()
   expect(within(emptyBox).getByText('메일을 보내면 여기에 모여요.')).toBeInTheDocument()
   expect(within(emptyBox).queryByText('새로고침 단추를 눌러보세요.')).not.toBeInTheDocument()
+  // 검색을 안 건 상태에서 mail-list-empty 를 그리고 동기화 단추(showSyncControls)가 없는 실제 보기는 보낸편지함뿐이다
+  // (별표 모아 보기+검색도 이 빈 상태에 오지만 검색 문구로 간다 — 2026-11-23 실측). 단추가 없으니 단추 문구도 없다(WP-1864 리뷰 후속 ①).
+  expect(screen.queryByTestId('mail-sync')).not.toBeInTheDocument()
 })
 
-// 동기화 단추가 없는 보기(서버 메일함·별표 모아 보기) — 단추를 가리키는 문구를 쓰지 않는다(WP-1864 재반려 1).
+// 서버 메일함·별표 모아 보기는 각각 자기 빈 상태(mail-box-empty·mail-flagged-empty)를 그려 mail-list-empty 로
+// 오지 않는다 — 두 테스트는 그 두 보기에 단추 문구가 따라오지 않음을 지키는 회귀 가드다(WP-1864 재반려 1).
+// 단추가 없는 갈래의 문구 자체는 mailEmptyCopy.test.ts 가 단위로 지킨다(WP-1864 리뷰 후속 ① — 렌더로는 닿지 않는다).
 
 test('서버 메일함 보기는 동기화 단추가 없고 그 안내 문구도 없다 (WP-1864)', async () => {
   const list = record('get', LIST, () => HttpResponse.json([]))
