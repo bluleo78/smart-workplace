@@ -57,6 +57,20 @@ function readOutput(o: RequiredOutput, raw: string | boolean | undefined): { val
   return { valid: s !== '', value: s }
 }
 
+/**
+ * 결과를 고른 뒤 스크린리더에 읽힐 안내 — 고른 결과와 아래 폼에서 할 일.
+ * 넘기기 단추를 막는 조건(필수 출력·필수 담당·후보 없음)도 함께 알린다 — 안내대로 했는데 단추가 막혀 이유를 모르는 일이 없게.
+ */
+function announceText(outcome: WorkflowOutcomeView | undefined, noCandidate: boolean): string {
+  if (!outcome) return ''
+  const head = `「${outcome.key}」 결과를 골랐어요.`
+  if (noCandidate) return `${head} 넘길 수 있는 담당 후보가 없어 넘길 수 없어요.`
+  const required = [...outcome.requiredOutputs.map((o) => o.key), ...(outcome.assigneeRequired ? ['다음 담당'] : [])]
+  const fields = required.length > 0 ? `필수 항목(${required.join('·')})을 채우고 ` : ''
+  const comment = outcome.requireComment ? '의견(필수)' : '의견'
+  return `${head} 아래에서 ${fields}${comment}을 적고 넘기기를 누르세요.`
+}
+
 export function IssueWorkflowBanner({ issueId, projectKey, meId, posted, onPostedBodyUsed }: Props) {
   const view = useIssueWorkflow(issueId)
   const run = view.data
@@ -111,6 +125,10 @@ function BannerBody({
   // 필수 담당인데 고를 후보가 없으면 넘길 수 없다 — 이유를 보인다.
   const noCandidate = outcome?.assigneeRequired === true && outcome.candidateAssignees.length === 0
 
+  // 스크린리더용 안내 — 고른 결과와 아래에 폼이 붙었음을 알린다(보이는 모양은 그대로, 초점도 옮기지 않는다).
+  // 왜: 폼은 단추 뒤에 조용히 붙어 스크린리더 사용자가 알 수 없었다. status 는 고르기 전에도 있어야 변경이 낭독된다.
+  const announce = announceText(outcome, noCandidate)
+
   // 결과를 바꾸면 이전 결과에서 채운 담당·출력은 비운다 — 다른 결과의 후보 밖 사람이 그대로 실려 가지 않게.
   function pick(key: string) {
     if (key !== picked) {
@@ -155,6 +173,10 @@ function BannerBody({
 
   return (
     <div className="space-y-3 rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm" data-testid="issue-workflow-banner">
+      {/* 첫 자식으로 둔다 — space-y 가 마지막 자식이 아닌 요소 아래에 여백을 넣어, 마지막이면 결과 단추 줄에 12px 여백이 새로 생긴다. */}
+      <p role="status" className="sr-only">
+        {announce}
+      </p>
       <div className="font-medium text-warning-text">{`${cur.name ?? cur.key} — 내 차례`}
         {cur.enteredAt && <span className="ml-1 text-xs font-normal">{`· ${formatRelativeTime(cur.enteredAt)}`}</span>}
       </div>
@@ -162,7 +184,7 @@ function BannerBody({
       {cur.instructions && <p className="text-xs text-muted-foreground">{cur.instructions}</p>}
       <div className="flex flex-wrap gap-2">
         {run.outcomes.map((o) => (
-          <Button key={o.key} type="button" size="sm" variant={picked === o.key ? 'default' : 'outline'} onClick={() => pick(o.key)}>
+          <Button key={o.key} type="button" size="sm" variant={picked === o.key ? 'default' : 'outline'} aria-pressed={picked === o.key} onClick={() => pick(o.key)}>
             {o.key}
           </Button>
         ))}
@@ -173,7 +195,7 @@ function BannerBody({
         </Button>
       )}
       {outcome && (
-        <div className="space-y-2">
+        <div role="group" aria-label={`「${outcome.key}」 결과 입력`} className="space-y-2">
           {outcome.requiredOutputs.map((o) => (
             <label key={o.key} className="flex items-center gap-2">
               <span className="w-24 shrink-0 text-xs text-muted-foreground">{o.key}</span>

@@ -212,6 +212,38 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(moves[0].assigneeIds).toEqual([5])
   })
 
+  // WP-2060 — 결과를 고르면 스크린리더가 고른 결과·아래 폼을 듣는다(aria-pressed·status·group).
+  test('outcome_pick_announcesFormAndPressedState', async () => {
+    setup(run({ outcomes: [outcome({ key: 'a', requireComment: true }), outcome({ key: 'b' })] }))
+    const user = userEvent.setup()
+    const banner = await screen.findByTestId('issue-workflow-banner')
+    const status = within(banner).getByRole('status')
+    expect(status).toHaveTextContent(/^$/)
+    expect(screen.getByRole('button', { name: 'a' })).toHaveAttribute('aria-pressed', 'false')
+    await user.click(screen.getByRole('button', { name: 'a' }))
+    expect(screen.getByRole('button', { name: 'a' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'b' })).toHaveAttribute('aria-pressed', 'false')
+    expect(status).toHaveTextContent('「a」 결과를 골랐어요. 아래에서 의견(필수)을 적고 넘기기를 누르세요.')
+    expect(screen.getByRole('group', { name: '「a」 결과 입력' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'b' }))
+    expect(status).toHaveTextContent('「b」 결과를 골랐어요. 아래에서 의견을 적고 넘기기를 누르세요.')
+    expect(screen.getByRole('group', { name: '「b」 결과 입력' })).toBeInTheDocument()
+  })
+
+  test('outcome_pick_announcesRequiredFieldsAndNoCandidate', async () => {
+    const cand = { id: 5, username: 'dev', name: '개발자', kind: 'HUMAN' }
+    setup(run({ outcomes: [
+      outcome({ key: 'a', requiredOutputs: [{ key: 'link', type: 'url' }], assigneeRequired: true, candidateAssignees: [cand] }),
+      outcome({ key: 'b', assigneeRequired: true }),
+    ] }))
+    const user = userEvent.setup()
+    const status = within(await screen.findByTestId('issue-workflow-banner')).getByRole('status')
+    await user.click(screen.getByRole('button', { name: 'a' }))
+    expect(status).toHaveTextContent('「a」 결과를 골랐어요. 아래에서 필수 항목(link·다음 담당)을 채우고 의견을 적고 넘기기를 누르세요.')
+    await user.click(screen.getByRole('button', { name: 'b' }))
+    expect(status).toHaveTextContent('「b」 결과를 골랐어요. 넘길 수 있는 담당 후보가 없어 넘길 수 없어요.')
+  })
+
   test('header_showsElapsedSinceEntered', async () => {
     setup(run())
     expect(await screen.findByText('· 방금 전')).toBeInTheDocument()
