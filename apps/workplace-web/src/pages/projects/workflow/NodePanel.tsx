@@ -1,5 +1,6 @@
 import { GitBranch, Play, Square, User, X } from 'lucide-react'
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useId, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 
 import { AiIcon } from '@/components/ai/AiIcon'
 import { Button } from '@/components/ui/button'
@@ -8,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
 import {
-  connectOutcome, nextOutcomeKey, type NodeDetail, parseMaxVisits, readNodeDetail, removeNode, updateNode, type WorkflowGraph,
+  connectOutcome, countContextRefs, nextOutcomeKey, type NodeDetail, parseMaxVisits, readNodeDetail, removeNode, updateNode, type WorkflowGraph,
 } from './graphYaml'
 import { NODE_FIELDS, type PanelField } from './nodeFields'
 import { workflowSelectClass } from './WorkflowVersions'
@@ -83,42 +84,60 @@ function OutputRow({ output, others, readOnly, onChange, onRemove }: {
     setSyncedKey(output.key)
     setKeyDraft(output.key)
   }
-  // 입력 중인 키가 쓸 수 있는 값(비지 않고 다른 줄과 안 겹침)이면 그 키, 아니면 YAML 의 키
-  const validKey = (k: string) => (k.trim() && !others.includes(k) ? k : null)
+  // 키를 쓸 수 없는 까닭(비었음·다른 줄과 겹침) — 없으면 null
+  const keyProblem = (k: string) => (!k.trim() ? '키를 비울 수 없어 저장하지 않았습니다' : others.includes(k) ? '같은 키가 있어 저장하지 않았습니다' : null)
+  // 입력 중인 키가 쓸 수 있으면 그 키, 아니면 YAML 의 키
+  const validKey = (k: string) => (keyProblem(k) ? null : k)
+  // 입력이 YAML 과 다를 때만 까닭을 줄 아래에 알린다 — 알림이 없으면 입력이 저장된 줄로 오해한다.
+  // 읽기 전용이거나 문서에 원래 그렇게 적힌 키는 사람이 고친 것이 아니라 알리지 않는다
+  const pending = !readOnly && keyDraft !== output.key
+  const keyError = pending ? keyProblem(keyDraft) : null
+  const errorId = useId()
+  // 겹쳐서 못 쓴 키가 다른 줄이 바뀌어(이름 바꿈·지움) 쓸 수 있게 되면 그때 YAML 에 옮긴다 — 알림만 사라지고 입력이 저장되지 않은 채 남지 않게.
+  // 옮기면 output.key 가 따라와 pending 이 풀리므로 한 번만 쓴다
+  const commitKey = pending && !keyError ? keyDraft : null
+  useEffect(() => {
+    if (commitKey !== null) onChange({ ...output, key: commitKey })
+  }, [commitKey, output, onChange])
   return (
-    <div className="flex items-center gap-1">
-      <Input
-        aria-label="값 키"
-        className="h-8 min-w-0 flex-1"
-        value={keyDraft}
-        disabled={readOnly}
-        onChange={(event) => {
-          const next = event.target.value
-          setKeyDraft(next)
-          if (validKey(next)) onChange({ ...output, key: next })
-        }}
-      />
-      <select
-        aria-label="값 종류"
-        className={workflowSelectClass}
-        value={output.type}
-        disabled={readOnly}
-        onChange={(event) => onChange({ ...output, key: validKey(keyDraft) ?? output.key, type: event.target.value })}
-      >
-        {OUTPUT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-      </select>
-      <label className="flex items-center gap-1 text-xs">
-        <Checkbox
-          aria-label="필수"
-          checked={output.required}
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <Input
+          aria-label="값 키"
+          aria-invalid={keyError ? true : undefined}
+          aria-describedby={keyError ? errorId : undefined}
+          className="h-8 min-w-0 flex-1"
+          value={keyDraft}
           disabled={readOnly}
-          onCheckedChange={(v) => onChange({ ...output, required: v === true })}
+          onChange={(event) => {
+            const next = event.target.value
+            setKeyDraft(next)
+            if (validKey(next)) onChange({ ...output, key: next })
+          }}
         />
-        필수
-      </label>
-      <Button type="button" variant="ghost" size="icon-sm" aria-label="값 지우기" disabled={readOnly} onClick={onRemove}>
-        <X />
-      </Button>
+        <select
+          aria-label="값 종류"
+          className={workflowSelectClass}
+          value={output.type}
+          disabled={readOnly}
+          onChange={(event) => onChange({ ...output, key: validKey(keyDraft) ?? output.key, type: event.target.value })}
+        >
+          {OUTPUT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+        </select>
+        <label className="flex items-center gap-1 text-xs">
+          <Checkbox
+            aria-label="필수"
+            checked={output.required}
+            disabled={readOnly}
+            onCheckedChange={(v) => onChange({ ...output, required: v === true })}
+          />
+          필수
+        </label>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="값 지우기" disabled={readOnly} onClick={onRemove}>
+          <X />
+        </Button>
+      </div>
+      {keyError && <p id={errorId} role="alert" className="text-xs text-destructive">{keyError}</p>}
     </div>
   )
 }
@@ -272,7 +291,12 @@ export function NodePanel({ yaml, graph, nodeKey, readOnly, onChange, onClose }:
               others={outputKeys.filter((_, i) => i !== index)}
               readOnly={readOnly}
               onChange={(next) => setOutputs(detail.outputs.map((o, i) => (i === index ? next : o)))}
-              onRemove={() => setOutputs(detail.outputs.filter((_, i) => i !== index))}
+              onRemove={() => {
+                // 이 값을 보던 분기 조건은 함께 지워진다(graphYaml.syncContextRefs) — 조용히 사라지지 않게 몇 개인지 알린다
+                const refs = countContextRefs(yaml, nodeKey, output.key)
+                setOutputs(detail.outputs.filter((_, i) => i !== index))
+                if (refs > 0) toast.info(`「${output.key}」를 보던 분기 조건 ${refs}개도 함께 지웠습니다`)
+              }}
             />
           ))}
         </Section>

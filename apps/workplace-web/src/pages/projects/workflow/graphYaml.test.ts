@@ -7,6 +7,7 @@ import {
   autoLayout,
   connectFromFlow,
   connectOutcome,
+  countContextRefs,
   moveManyFromDrag,
   moveNode,
   nextOutcomeKey,
@@ -420,5 +421,60 @@ describe('graphYaml 코드 리뷰 지적', () => {
     expect(doc(out).nodes.dev.outputs).toEqual({ a: { type: 'string' }, b: { type: 'string', required: true } })
     const out2 = updateNode(out, 'dev', { outputs: [{ key: 'a', type: 'string', required: false }, { key: 'b', type: 'string', required: false }] })
     expect(doc(out2).nodes.dev.outputs.b).toEqual({ type: 'string' })
+  })
+
+  // 리뷰 후속 ① — 시작 노드에서 끌 때 도착 노드의 역할이 roles 에 없으면 첫 역할로 적는다(서버가 없는 역할을 거절한다)
+  it('connectFromFlow_start_undeclaredRole_fallsBackToFirstRole', () => {
+    // dev 의 role 은 developer 인데 roles 에는 없다
+    const out = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'dev' })
+    expect(doc(out).start.at(-1)).toEqual({ when: { assigneeRole: 'lead' }, to: 'dev' })
+    // 선언된 역할이면 그 역할을 쓴다
+    const out2 = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'plan_ok' })
+    expect(doc(out2).start.at(-1)).toEqual({ when: { assigneeRole: 'owner' }, to: 'plan_ok' })
+  })
+
+  // 리뷰 후속 ② — 문자열이 아닌 결과 키(1:·true:)도 그 쌍을 찾아 고친다(지우거나 겹쳐 붙이지 않는다)
+  it('updateNode_outcomes_nonStringKeys_editInPlace', () => {
+    const y = 'nodes:\n  a:\n    type: human_task\n    outcomes:\n      1: { to: b, assignTo: r }\n      true: { to: b }\n  b: { type: end }\n  c: { type: end }\n'
+    const detail = readNodeDetail(y, 'a')!
+    expect(detail.outcomes.map((o) => o.key)).toEqual(['1', 'true'])
+    const out = updateNode(y, 'a', { outcomes: detail.outcomes.map((o) => (o.key === '1' ? { ...o, to: 'c' } : o)) })
+    expect(out).toContain('1: { to: c, assignTo: r }')
+    expect(out.match(/^ {6}1:/gm)).toHaveLength(1)
+    expect(out).toContain('true: { to: b }')
+    // 하나를 빼면 그 쌍만 지운다
+    const out2 = updateNode(y, 'a', { outcomes: detail.outcomes.filter((o) => o.key !== 'true') })
+    expect(Object.keys(doc(out2).nodes.a.outcomes)).toEqual(['1'])
+  })
+
+  // 리뷰 후속 ③ — 내놓을 값 이름을 바꾸면 분기 조건의 context 를 따라 고치고, 지우면 그 조건을 지운다
+  it('updateNode_outputs_renameOrRemove_syncsContextRefs', () => {
+    const y = 'nodes:\n  a:\n    type: agent_task\n    outputs:\n      ok: { type: boolean }\n      url: { type: url }\n  d:\n    type: decision\n    conditions:\n      # 통과 여부\n      - { when: { context: a.ok, equals: true }, to: b }\n      - { when: { context: a.url, equals: x }, to: b }\n      - { when: { context: z.ok, equals: true }, to: b }\n    default: b\n  b: { type: end }\n'
+    const renamed = updateNode(y, 'a', { outputs: [{ key: 'passed', type: 'boolean', required: false }, { key: 'url', type: 'url', required: false }] })
+    expect(doc(renamed).nodes.d.conditions.map((c: { when: { context: string } }) => c.when.context)).toEqual(['a.passed', 'a.url', 'z.ok'])
+    expect(renamed).toContain('# 통과 여부')
+    const removed = updateNode(y, 'a', { outputs: [{ key: 'ok', type: 'boolean', required: false }] })
+    expect(doc(removed).nodes.d.conditions.map((c: { when: { context: string } }) => c.when.context)).toEqual(['a.ok', 'z.ok'])
+    const cleared = updateNode(y, 'a', { outputs: [] })
+    expect(doc(cleared).nodes.d.conditions.map((c: { when: { context: string } }) => c.when.context)).toEqual(['z.ok'])
+    expect(countContextRefs(y, 'a', 'ok')).toBe(1)
+    expect(countContextRefs(y, 'a', 'none')).toBe(0)
+  })
+
+  // 조건이 모두 빠지면 빈 conditions: [] 를 남기지 않는다
+  it('updateNode_outputs_removeLastRef_dropsEmptyConditions', () => {
+    const y = 'nodes:\n  a:\n    type: agent_task\n    outputs:\n      ok: { type: boolean }\n  d:\n    type: decision\n    conditions:\n      - { when: { context: a.ok, equals: true }, to: b }\n    default: b\n  b: { type: end }\n'
+    const out = updateNode(y, 'a', { outputs: [] })
+    expect(doc(out).nodes.d).toEqual({ type: 'decision', default: 'b' })
+  })
+
+  // 리뷰 후속 — 정수 꼴 키가 있어도 패널 줄은 문서 순서라, 자리로 가리는 이름 바뀜이 엉뚱한 값을 고치지 않는다
+  it('readNodeDetail_outputs_documentOrder_renameHitsRightPair', () => {
+    const y = 'nodes:\n  a:\n    type: agent_task\n    outputs:\n      ok: { type: boolean }\n      1: { type: string }\n  d:\n    type: decision\n    conditions:\n      - { when: { context: a.ok, equals: true }, to: b }\n  b: { type: end }\n'
+    const detail = readNodeDetail(y, 'a')!
+    expect(detail.outputs.map((o) => o.key)).toEqual(['ok', '1'])
+    const out = updateNode(y, 'a', { outputs: detail.outputs.map((o) => (o.key === '1' ? { ...o, key: 'x' } : o)) })
+    expect(Object.keys(doc(out).nodes.a.outputs)).toEqual(['ok', 'x'])
+    expect(doc(out).nodes.d.conditions[0].when.context).toBe('a.ok')
   })
 })

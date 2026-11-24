@@ -56,6 +56,10 @@ function WorkflowNodeCard({ data, selected }: NodeProps<Node<FlowNodeData>>) {
 // 컴포넌트 밖에 두어야 ReactFlow 가 매 렌더마다 노드를 다시 만들지 않는다.
 const nodeTypes = { workflow: WorkflowNodeCard }
 
+/**
+ * 그래프 선을 ReactFlow 선으로 바꾼다. 양 끝 노드가 그려지는 것(keys)만 남긴다 — 없는 노드를 가리키는 선(YAML 의 오타 등)을
+ * 넘기면 ReactFlow 가 경고를 내고 그리지 못한다. 오류·되돌림·질문 경로는 점선으로 정상 흐름과 구분한다.
+ */
 function toFlowEdges(edges: GraphEdge[], keys: Set<string>): Edge[] {
   return edges
     .filter((e) => keys.has(e.from) && keys.has(e.to))
@@ -100,6 +104,11 @@ function WarningBar({ yaml, problems, onChange, onOpenYaml }: {
   )
 }
 
+/**
+ * 그래프 편집 화면의 본체 — 도구 줄(+ 노드·자동 정렬), ReactFlow 캔버스, 고른 노드의 편집 패널, 경고 줄.
+ * 노드·선은 매번 graph(YAML 을 읽은 것)에서 만들고, 끌기·연결·추가는 graphYaml 함수로 YAML 을 고쳐 onChange 로 올린다.
+ * 지역 상태는 고른 노드와 드래그 중 좌표뿐이다 — 원본을 둘로 들지 않으려는 것이다.
+ */
 function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   yaml: string
   problems: WorkflowProblem[]
