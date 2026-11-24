@@ -1,5 +1,5 @@
 import { GitBranch, Play, Square, User, X } from 'lucide-react'
-import { type ReactNode, useEffect, useId, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { AiIcon } from '@/components/ai/AiIcon'
@@ -164,6 +164,14 @@ export function NodePanel({ yaml, graph, nodeKey, readOnly, onChange, onClose }:
   const sameKeys = rowIds.keys.length === currentKeys.length && rowIds.keys.every((k, i) => k === currentKeys[i])
   const rows = sameKeys ? rowIds : reconcileRowIds(rowIds, currentKeys)
   if (rows !== rowIds) setRowIds(rows)
+  // 좁은 폭에서는 패널이 캔버스 아래로 쌓여 뷰포트 바깥(이슈 재현: y 855 / 뷰포트 844)에 열릴 수 있다 —
+  // 그 자리에서는 아무 일도 안 일어난 것처럼 보여 노드를 누른 것이 티가 나지 않는다.
+  // 패널이 열릴 때(nodeKey 바뀜 — 부모가 key 로 다시 그리므로 새로 마운트될 때마다) 보이는 자리로 스크롤한다.
+  // block: 'nearest' 라 이미 보이는 패널은 움직이지 않는다(넓은 폭의 나란한 배치는 영향 없음).
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [nodeKey])
   if (!detail) return null
   const patch = (p: Parameters<typeof updateNode>[2]) => onChange(updateNode(yaml, nodeKey, p))
   const fields = NODE_FIELDS[detail.type] ?? new Set<PanelField>()
@@ -172,7 +180,13 @@ export function NodePanel({ yaml, graph, nodeKey, readOnly, onChange, onClose }:
   const setOutputs = (outputs: NodeDetail['outputs']) => patch({ outputs })
 
   return (
-    <aside aria-label="노드 편집" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l bg-card text-sm">
+    // 좁으면 폭 전체로 아래에 쌓이고(세로로 쌓일 때는 선이 패널 위쪽, 곧 캔버스 바로 아래에 놓이고 가로일 때는 왼쪽 경계가 된다), @3xl 이상에서만 지금처럼 캔버스 오른쪽 18rem — 판단 기준은 부모 @container(뷰포트 아님)
+    // 세로로 쌓일 때는 높이를 60vh 로 막아 overflow-y-auto 가 안쪽에서 돈다 — 막지 않으면 패널이 늘어날 때마다 페이지가 아래로 길어져 스크롤이 두 겹이 된다.
+    <aside
+      ref={panelRef}
+      aria-label="노드 편집"
+      className="flex max-h-[60vh] w-full shrink-0 flex-col overflow-y-auto border-t bg-card text-sm @3xl:max-h-none @3xl:w-72 @3xl:border-t-0 @3xl:border-l"
+    >
       <div className="flex items-center gap-2 p-3">
         <NodeKindIcon type={detail.type} />
         <Input

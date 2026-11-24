@@ -5,7 +5,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 
 /** 실제 라우터가 읽는 등록된 초안과 검증 응답을 스텁한다. */
 async function mockWorkflow(page: Page) {
-  const yaml = 'name: 작업 정리\nnodes:\n  review: {}'
+  const yaml = 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task'
   await page.route('**/api/v1/projects/WP', (route) => route.fulfill({
     json: createProject({ id: 7, key: 'WP', viewerRole: 'OWNER' }),
   }))
@@ -82,4 +82,47 @@ test('workflowTab_desktopShowsProblemsBesideEditor_mobileStacksProblems', { tag:
     const currentProblems = await problems.boundingBox()
     return !!currentEditor && !!currentProblems && currentProblems.y >= currentEditor.y + currentEditor.height
   }).toBe(true)
+})
+
+test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  await page.getByRole('button', { name: '그래프' }).click()
+  const canvas = page.getByTestId('workflow-graph-canvas')
+  const panel = page.getByRole('complementary', { name: '노드 편집' })
+  // 노드 하나를 눌러 편집 패널을 연다 — 노드 카드 제목은 YAML 의 노드 키다
+  await page.locator('.react-flow__node').filter({ hasText: 'review' }).click()
+  await expect(panel).toBeVisible()
+
+  const canvasWide = (await canvas.boundingBox())!
+  const panelWide = (await panel.boundingBox())!
+  expect(panelWide.x).toBeGreaterThanOrEqual(canvasWide.x + canvasWide.width)
+  expect(canvasWide.width).toBeGreaterThanOrEqual(300)
+  expect(canvasWide.height).toBeGreaterThanOrEqual(400)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(async () => {
+    const c = await canvas.boundingBox()
+    const p = await panel.boundingBox()
+    return !!c && !!p && p.y >= c.y + c.height
+  }).toBe(true)
+  const canvasNarrow = (await canvas.boundingBox())!
+  expect(canvasNarrow.width).toBeGreaterThanOrEqual(300)
+  expect(canvasNarrow.height).toBeGreaterThanOrEqual(400)
+  await expect(page.getByRole('button', { name: '+ 노드' })).toBeVisible()
+
+  // 좁은 폭에서 처음부터 열어 보면(390 에서 노드를 누르면) 패널이 뷰포트 안으로 들어와야 한다 —
+  // 캔버스 아래 바깥에 열리면 노드를 누른 것이 티가 나지 않아 아무 일도 안 일어난 것처럼 보인다(WP-2041 리뷰 지적 1)
+  await page.reload()
+  await page.getByRole('button', { name: '그래프' }).click()
+  await page.locator('.react-flow__node').filter({ hasText: 'review' }).click()
+  await expect(panel).toBeVisible()
+  await expect(panel).toBeInViewport()
+
+  // 세로로 쌓일 때는 패널 높이가 60vh 로 막혀 안쪽(overflow-y-auto)에서 스크롤된다 —
+  // 막지 않으면 패널이 길어질 때마다 페이지가 아래로 늘어나 스크롤이 두 겹이 된다(WP-2041 리뷰 지적 2)
+  const panelNarrow = (await panel.boundingBox())!
+  expect(panelNarrow.height).toBeLessThanOrEqual(844 * 0.6 + 1)
+  expect(await panel.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
 })
