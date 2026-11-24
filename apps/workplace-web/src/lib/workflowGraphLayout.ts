@@ -2,6 +2,7 @@
 // 왜: 그리기는 SVG·HTML 로 직접 하므로 자리 계산이 순수 함수여야 jsdom(vitest)에서 칠하기·배지를 셀 단위로 검사할 수 있다.
 import dagre from '@dagrejs/dagre'
 
+import { groupByEndpoints, joinEdgeLabels } from './parallelEdges'
 import type { WorkflowModel, WorkflowModelNode } from './workflows'
 
 export const GRAPH_NODE_WIDTH = 160
@@ -43,32 +44,22 @@ export function layoutWorkflowGraph(model: WorkflowModel): WorkflowGraphLayout {
   for (const n of model.nodes) g.setNode(n.key, { width: GRAPH_NODE_WIDTH, height: GRAPH_NODE_HEIGHT })
 
   // 같은 (출발, 도착) 간선은 한 줄로 합친다(WP-2048) — 질문 노드의 returnTo 와 answered outcome 처럼
-  // 평행 간선이 같은 자리에 겹쳐 그려지면 라벨이 포개져 읽히지 않기 때문이다. 처음 나온 순서를 유지하고 라벨은 " · " 로 잇는다.
-  const groups = new Map<string, { from: string; to: string; labels: string[] }>()
-  for (const n of model.nodes) {
-    for (const e of outgoingEdges(n, model)) {
-      if (!keys.has(e.to)) continue
-      const key = `${n.key}\u0000${e.to}`
-      let group = groups.get(key)
-      if (!group) {
-        group = { from: n.key, to: e.to, labels: [] }
-        groups.set(key, group)
-        // dagre 에는 묶음마다 한 번만 넣어 평행 간선 자체를 만들지 않는다 — (출발, 도착)이 하나뿐이라 multigraph 이름도 필요 없다.
-        g.setEdge(n.key, e.to, {})
-      }
-      group.labels.push(e.label)
-    }
-  }
+  // 평행 간선이 같은 자리에 겹쳐 그려지면 라벨이 포개져 읽히지 않기 때문이다. 규칙은 편집 그래프와 같은 groupByEndpoints 를 쓴다.
+  const groups = groupByEndpoints(
+    model.nodes.flatMap((n) => outgoingEdges(n, model).filter((e) => keys.has(e.to)).map((e) => ({ from: n.key, ...e }))),
+  )
+  // dagre 에는 묶음마다 한 번만 넣어 평행 간선 자체를 만들지 않는다 — (출발, 도착)이 하나뿐이라 multigraph 이름도 필요 없다.
+  for (const group of groups) g.setEdge(group.from, group.to, {})
   dagre.layout(g)
 
   const nodes = model.nodes.map((n) => {
     const p = g.node(n.key)
     return { key: n.key, x: p.x - GRAPH_NODE_WIDTH / 2, y: p.y - GRAPH_NODE_HEIGHT / 2, width: GRAPH_NODE_WIDTH, height: GRAPH_NODE_HEIGHT }
   })
-  const edges = [...groups.values()].map((e) => ({
+  const edges = groups.map((e) => ({
     from: e.from,
     to: e.to,
-    label: e.labels.join(' · '),
+    label: joinEdgeLabels(e.members.map((m) => m.label)),
     points: (g.edge(e.from, e.to)?.points ?? []).map((pt: { x: number; y: number }) => ({ x: pt.x, y: pt.y })),
   }))
   const info = g.graph()
