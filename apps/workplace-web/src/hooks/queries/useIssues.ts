@@ -42,7 +42,12 @@ export function useCreateIssue(projectKey: string) {
 
 // 이슈 soft-delete. 부모면 자식 SUBTASK 도 cascade (백엔드 처리).
 // 권한: reporter 또는 OWNER. 성공 시 호출자가 라우팅 처리.
-export function useDeleteIssue(projectKey: string, number: number) {
+// messages 로 토스트 문구를 바꿀 수 있다(개인 작업은 「작업」 용어) — 생략하면 팀 이슈의 기존 문구(WP-2036).
+export function useDeleteIssue(
+  projectKey: string,
+  number: number,
+  messages?: { success?: string; error?: string },
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => issuesApi.remove(projectKey, number).then((r) => r.data),
@@ -51,8 +56,8 @@ export function useDeleteIssue(projectKey: string, number: number) {
       qc.invalidateQueries({ queryKey: issueKeys.detail(projectKey, number) });
       // 지운 뒤 개요의 열린 이슈 수·활동이 바로 바뀌게 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
-      toast.success('태스크를 삭제했습니다');
+      toast.success(messages?.success ?? '태스크를 삭제했습니다');
     },
-    onError: (e) => handleApiError(e, '태스크 삭제에 실패했습니다'),
+    onError: (e) => handleApiError(e, messages?.error ?? '태스크 삭제에 실패했습니다'),
   });
 }

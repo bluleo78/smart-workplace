@@ -4,7 +4,7 @@
 // 셸 배선(@wiring)·새로고침 유지(@platform)·Esc 겹침·날짜 칸 키 입력(@input)·모달/서랍 기하와
 // 스크롤·무한 로드·글자 변환(@layout)은 E2E 에 남는다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
@@ -58,6 +58,14 @@ type ApiOptions = {
   canEditContent?: boolean
   /** 다음 PATCH 들이 차례로 돌려줄 오류 상태(예: [500]) — 비면 정상 처리. 테스트가 저장 실패를 만든다. */
   patchFailures?: number[]
+  /** 상세의 삭제 권한(viewerCanDelete) — 기본 true(WP-2036). */
+  canDelete?: boolean
+  /** 상세의 하위 작업 수(summary.childCount) — 기본 0. */
+  childCount?: number
+  /** DELETE 가 돌려줄 오류 — 없으면 204. */
+  deleteError?: { status: number; message: string }
+  /** DELETE 응답 지연(ms) — pending 구간을 만들어 연타를 본다. */
+  deleteDelayMs?: number
 }
 
 /** 반복 응답 — 매주 월·수 08:30, 다음 실행 10/29(목) 08:30. */
@@ -77,11 +85,17 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
   // 작업별 메모(본문) — PATCH { body } 가 바꾸고 재조회에 반영된다(WP-1374). 기본은 「서론은 짧게」.
   const bodies = new Map<number, string>()
   const detailOf = (it: IssueResponse) =>
-    createIssueDetail({ summary: it, body: bodies.get(it.number) ?? '서론은 짧게', viewerCanEditContent: opts.canEditContent ?? true })
+    createIssueDetail({
+      summary: { ...it, childCount: opts.childCount ?? it.childCount },
+      body: bodies.get(it.number) ?? '서론은 짧게',
+      viewerCanEditContent: opts.canEditContent ?? true,
+      viewerCanDelete: opts.canDelete ?? true,
+    })
   const searches: URLSearchParams[] = []
   const patches: Patch[] = []
   const posts: Record<string, unknown>[] = []
   const detailGets: number[] = []
+  const deleteCalls: number[] = []
   const recurrencePuts: Record<string, unknown>[] = []
   let recurrenceDeletes = 0
   let recurrence = opts.recurrence ?? null
@@ -133,6 +147,14 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
       if (!it) return HttpResponse.json({ message: 'not found' }, { status: 404 })
       return HttpResponse.json(detailOf(it))
     }),
+    // 삭제(WP-2036) — 호출 횟수를 기록하고, 성공이면 메모리 db 에서 지운다.
+    http.delete(`${BASE}/issues/:num`, async ({ params }) => {
+      deleteCalls.push(Number(params.num))
+      if (opts.deleteDelayMs) await delay(opts.deleteDelayMs)
+      if (opts.deleteError) return HttpResponse.json({ status: opts.deleteError.status, message: opts.deleteError.message }, { status: opts.deleteError.status })
+      db.delete(Number(params.num))
+      return new HttpResponse(null, { status: 204 })
+    }),
     // 풀페이지 이슈 화면이 리다이렉트 전에 구독자를 부른다.
     http.get(`${BASE}/issues/:num/watchers`, () => HttpResponse.json([])),
     http.patch(`${BASE}/issues/:num`, async ({ request, params }) => {
@@ -151,7 +173,7 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
       return HttpResponse.json(detailOf(it))
     }),
   ]
-  return { handlers, db, searches, patches, posts, detailGets, recurrencePuts, deletes: () => recurrenceDeletes }
+  return { handlers, db, searches, patches, posts, detailGets, deleteCalls, recurrencePuts, deletes: () => recurrenceDeletes }
 }
 
 /**
@@ -492,6 +514,100 @@ describe('작업 상세 모달(?task=, WP-1374)', () => {
     await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     const trigger = await screen.findByTestId('assignee-picker-trigger')
     expect(trigger.querySelector('img') ?? within(trigger).queryByText('테')).not.toBeNull()
+  })
+})
+
+describe('개인 작업 삭제 (WP-2036)', () => {
+  const openDetail = async (opts: ApiOptions = {}) => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: 'Test' })], opts)
+    const view = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await waitFor(() => expect(screen.getByTestId('personal-task-panel-title')).toHaveTextContent('Test'))
+    return { api, ...view }
+  }
+
+  test('삭제 → 확인 → DELETE 1회 → ?task 사라짐 → 성공 토스트', async () => {
+    const { api, user, location } = await openDetail()
+    await user.click(await screen.findByTestId('personal-task-delete'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('작업 삭제')).toBeInTheDocument()
+    expect(within(dialog).getByText('"Test" 작업을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '취소' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '삭제' })).toBeInTheDocument()
+    await user.click(screen.getByTestId('personal-task-delete-confirm'))
+    expect(await screen.findByText('작업을 삭제했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(paramsOf(location()).get('task')).toBeNull())
+    expect(api.deleteCalls).toEqual([1])
+  })
+
+  // 확인 연타 — 같은 틱에 두 번 눌러도 삭제 요청은 한 번만 나간다(되돌릴 수 없는 작업의 이중 요청 방지).
+  // fireEvent 는 매번 다시 그려 두 번째 클릭이 disabled 에 막히므로 act 안에서 dispatchEvent 로 같은 틱에 보낸다.
+  test('확인을 같은 틱에 두 번 눌러도 DELETE 는 한 번만 간다', async () => {
+    const { api, user, location } = await openDetail({ deleteDelayMs: 100 })
+    await user.click(await screen.findByTestId('personal-task-delete'))
+    const confirm = await screen.findByTestId('personal-task-delete-confirm')
+    act(() => {
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(await screen.findByText('작업을 삭제했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(paramsOf(location()).get('task')).toBeNull())
+    expect(api.deleteCalls).toEqual([1])
+  })
+
+  test('취소하면 요청 없음·상세 그대로', async () => {
+    const { api, user } = await openDetail()
+    await user.click(await screen.findByTestId('personal-task-delete'))
+    await user.click(await screen.findByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(api.deleteCalls).toHaveLength(0)
+    expect(screen.getByTestId('personal-task-panel-title')).toHaveTextContent('Test')
+  })
+
+  test('404 이면 오류 토스트·상세 유지', async () => {
+    const { api, user, location } = await openDetail({ deleteError: { status: 404, message: '이슈를 찾을 수 없습니다' } })
+    await user.click(await screen.findByTestId('personal-task-delete'))
+    const fetched = api.detailGets.length
+    await user.click(await screen.findByTestId('personal-task-delete-confirm'))
+    expect(await screen.findByText('이슈를 찾을 수 없습니다')).toBeInTheDocument()
+    expect(paramsOf(location()).get('task')).toBe('1')
+    expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
+    // 실패 뒤 확인 창은 닫힌다.
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    // 404 면 상세를 다시 읽어 이미 지워진 작업이면 「찾을 수 없음」으로 바뀌게 한다.
+    await waitFor(() => expect(api.detailGets.length).toBeGreaterThan(fetched))
+  })
+
+  // 메모를 고치던 중 삭제해도 「버리고 닫을까요」를 다시 묻지 않고 상세를 닫고 초안을 지운다.
+  test('고친 메모가 있어도 삭제하면 버림 확인 없이 상세가 닫히고 메모 초안이 지워진다', async () => {
+    const { user, location } = await openDetail()
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    // 메모 편집칸 원문을 바꾼다(편집 칸 헬퍼는 다른 describe 안이라 여기서 직접 부른다).
+    setRichBody(within(screen.getByTestId('personal-task-memo')).getByTestId('issue-body-textarea'), '서론은 짧게 고침', KEY)
+    const draft = () => Object.keys(window.localStorage).filter((k) => k.endsWith(`:${KEY}:1`)).map((k) => window.localStorage.getItem(k))[0] ?? null
+    await waitFor(() => expect(draft()).toBe('서론은 짧게 고침'), { timeout: 3000 })
+    await user.click(screen.getByTestId('personal-task-delete'))
+    await user.click(await screen.findByTestId('personal-task-delete-confirm'))
+    expect(await screen.findByText('작업을 삭제했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(paramsOf(location()).get('task')).toBeNull())
+    expect(screen.queryByTestId('personal-task-discard-dialog')).not.toBeInTheDocument()
+    expect(draft()).toBeNull()
+  })
+
+  test('하위 작업이 있으면 함께 삭제 안내, 없으면 안내 없음', async () => {
+    const { user, unmount } = await openDetail({ childCount: 2 })
+    await user.click(await screen.findByTestId('personal-task-delete'))
+    expect(await screen.findByText('하위 작업 2개도 함께 삭제됩니다.')).toBeInTheDocument()
+    unmount()
+    const zero = await openDetail({ childCount: 0 })
+    await zero.user.click(await screen.findByTestId('personal-task-delete'))
+    await screen.findByRole('alertdialog')
+    expect(screen.queryByText(/하위 작업 .*개도 함께 삭제됩니다/)).not.toBeInTheDocument()
+  })
+
+  test('viewerCanDelete 가 거짓이면 삭제 단추가 없다', async () => {
+    await openDetail({ canDelete: false })
+    await screen.findByTestId('personal-task-memo')
+    expect(screen.queryByTestId('personal-task-delete')).not.toBeInTheDocument()
   })
 })
 

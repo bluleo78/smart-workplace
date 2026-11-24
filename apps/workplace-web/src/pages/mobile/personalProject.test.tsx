@@ -3,9 +3,9 @@
 // 속성 칩 저장(상태 PATCH·라벨/담당자 PUT·라벨 만들기 POST), 제목 편집 Esc 취소·저장은 요청·조건부 렌더라
 // e2e/pages/mobile/personal-project.spec.ts 에서 옮겼다. 전체 화면 레이어·토스트 겹침·입력줄 위치·행 폭 같은 기하와 시스템 뒤로가기는 그 E2E 가 지킨다.
 // 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다(WP-1002).
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { spyScrollTo } from '@/test/kits/layout'
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
@@ -26,12 +26,12 @@ const TITLE = '연말정산 증빙서류 정리 및 회사 제출'
  * 개인 프로젝트 + 작업 1건. 쓰기(PATCH 이슈·PUT 라벨·PUT 담당자·POST 라벨)와 저장 뷰 요청을 seen 에 모은다.
  * E2E personal-project.spec 의 stubPersonal 과 같은 구성.
  */
-function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
+function stubPersonal(opts: { failRecurrence?: boolean; canDelete?: boolean; deleteDelayMs?: number } = {}) {
   // id 3 — 이관 전에 만든 쉼표 라벨(WP-1386). 대소문자만 다르게 쳐도 이미 있는 라벨로 본다.
   const labels = [createLabel({ id: 1, name: '세금' }), createLabel({ id: 2, name: '긴급' }), createLabel({ id: 3, name: 'Tax,Fee' })]
   const issue = createIssue({ projectKey: KEY, number: 1, title: TITLE, status: 'TODO', labels: [toLabelSummary(labels[0])] })
   const thread = createChatThread()
-  const seen = { patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], putRecurrence: [] as unknown[], savedViews: 0 }
+  const seen = { deletes: [] as number[], patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], putRecurrence: [] as unknown[], savedViews: 0 }
   const handlers = [
     http.get(`/api/v1/projects/${KEY}/saved-views`, () => {
       seen.savedViews++
@@ -49,8 +49,14 @@ function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
     }),
     http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, name: '양동희' })])),
     http.get(`/api/v1/projects/${KEY}/issues/1`, () =>
-      HttpResponse.json(createIssueDetail({ summary: issue, body: '영수증은 드라이브 「2026 연말정산」 폴더에 있음' })),
+      HttpResponse.json(createIssueDetail({ summary: issue, body: '영수증은 드라이브 「2026 연말정산」 폴더에 있음', viewerCanDelete: opts.canDelete ?? true })),
     ),
+    // 삭제(WP-2036) — 호출 횟수를 기록하고 204.
+    http.delete(`/api/v1/projects/${KEY}/issues/1`, async () => {
+      seen.deletes.push(1)
+      if (opts.deleteDelayMs) await new Promise((r) => setTimeout(r, opts.deleteDelayMs))
+      return new HttpResponse(null, { status: 204 })
+    }),
     http.patch(`/api/v1/projects/${KEY}/issues/1`, async ({ request }) => {
       seen.patches.push(await request.json())
       return HttpResponse.json(createIssueDetail({ summary: issue }))
@@ -84,7 +90,7 @@ function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
 }
 
 /** 작업 상세(?task=1, query 로 더 붙일 수 있다)를 띄운다. */
-async function openTask(opts: { failRecurrence?: boolean; query?: string } = {}) {
+async function openTask(opts: { failRecurrence?: boolean; query?: string; canDelete?: boolean; deleteDelayMs?: number } = {}) {
   const p = stubPersonal(opts)
   const view = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?task=1${opts.query ?? ''}`, handlers: p.handlers })
   await screen.findByTestId('personal-task-mobile')
@@ -317,4 +323,42 @@ test('상단 바 채팅 버튼 → 상세 스크롤 칸을 움직이고, 하단 
   await waitFor(() => expect(within(bottom).getByTestId('chat-composer-input')).toHaveFocus())
   expect(scrolled).toContain(within(layer).getByTestId('personal-task-scroll'))
   expect(location()).toBe(`/projects/${KEY}?task=1`)
+})
+
+describe('모바일 개인 작업 삭제 (WP-2036)', () => {
+  test('작업 삭제 → 확인 → DELETE 1회 → 상세 닫힘·성공 토스트', async () => {
+    const { user, seen } = await openTask()
+    await user.click(screen.getByRole('button', { name: '작업 삭제' }))
+    await user.click(await screen.findByTestId('personal-task-delete-confirm'))
+    expect(await screen.findByText('작업을 삭제했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('personal-task-mobile')).not.toBeInTheDocument())
+    expect(seen.deletes).toEqual([1])
+  })
+
+  // 확인 연타 — 같은 틱에 두 번 눌러도 DELETE 는 한 번만 간다(데스크톱 테스트와 같은 방식).
+  test('확인을 같은 틱에 두 번 눌러도 DELETE 는 한 번만 간다', async () => {
+    const { user, seen } = await openTask({ deleteDelayMs: 100 })
+    await user.click(screen.getByRole('button', { name: '작업 삭제' }))
+    const confirm = await screen.findByTestId('personal-task-delete-confirm')
+    act(() => {
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(await screen.findByText('작업을 삭제했습니다')).toBeInTheDocument()
+    expect(seen.deletes).toEqual([1])
+  })
+
+  test('취소하면 DELETE 없음·상세 그대로', async () => {
+    const { user, seen } = await openTask()
+    await user.click(screen.getByRole('button', { name: '작업 삭제' }))
+    await user.click(await screen.findByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('personal-task-mobile')).toBeInTheDocument()
+    expect(seen.deletes).toEqual([])
+  })
+
+  test('viewerCanDelete 가 false 면 삭제 단추가 없다', async () => {
+    await openTask({ canDelete: false })
+    expect(screen.queryByTestId('personal-task-delete')).not.toBeInTheDocument()
+  })
 })
