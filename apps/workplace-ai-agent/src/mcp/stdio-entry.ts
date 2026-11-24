@@ -15,7 +15,8 @@ import { inputSchemaKeepingUnknownArgs, replaceImagesWithNotice, toMcpContent, u
 import { createWorkplaceApiClient, type WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge, type McpProfile, type McpTool } from './tools.js';
 
-const MCP_PROFILES: readonly McpProfile[] = ['issue', 'issue-workflow', 'chat', 'home', 'messaging', 'assistant', 'recurring', 'recurring-test'];
+/** 허용 MCP 프로필 전체 — 테스트도 같은 목록을 쓰도록 export 한다(부팅은 isMain 일 때만이라 import 부작용 없음). */
+export const MCP_PROFILES: readonly McpProfile[] = ['issue', 'issue-workflow', 'chat', 'home', 'messaging', 'assistant', 'recurring', 'recurring-test'];
 
 export interface StdioEntryConfig {
   baseURL?: string;

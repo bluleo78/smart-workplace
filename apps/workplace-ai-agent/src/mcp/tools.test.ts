@@ -13,6 +13,9 @@ import { z } from 'zod';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, confidentialSummary, RECURRING_RUN_DIRECT_ACTIONS, RECURRING_RUN_ISSUE_CHAT_TOOLS, RECURRING_RUN_SELF_WRITE_TOOLS, RECURRING_RUN_TOOLS, RECURRING_RUN_WRITE_TOOLS, RECURRING_TEST_GATED_TOOLS, RECURRING_TEST_PAUSED_MESSAGE, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
+/** 반복·테스트 전용을 뺀 핵심 프로필 — 프로필별 도구 단언이 공통으로 도는 목록. */
+const CORE_PROFILES: McpProfile[] = ['issue', 'issue-workflow', 'chat', 'home', 'messaging', 'assistant'];
+
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
   return Object.assign(new Error(message), { response: { status } });
@@ -878,7 +881,7 @@ describe('공유 도구 패리티 (#846)', () => {
   const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
   // imageInput: 그 변형이 buildTools 에 넘긴 이미지 입력 옵션(WP-250) — 공유본도 같은 옵션으로 만들어 비교한다(미지정 = 공유 기본 true).
   const variants: { label: string; imageInput?: boolean; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
-    ...(['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]).map((p) => ({
+    ...(CORE_PROFILES).map((p) => ({
       label: p,
       build: (c: TestClient) => buildTools(c, AGENT_ID, p),
     })),
@@ -1042,7 +1045,7 @@ describe('도구 표시 라벨 (#879)', () => {
   const c = client();
   const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
   const allNames = new Set(buildSharedTools(c.sc).map((t) => t.name));
-  for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+  for (const p of CORE_PROFILES) {
     const tools = buildTools(c, AGENT_ID, p, { channelId: 9, parentMessageId: 1 }, { actorId: 7, channelId: 9, parentMessageId: 1 }, bridge);
     for (const t of tools) allNames.add(t.name);
   }
@@ -1076,7 +1079,7 @@ describe('ai-agent 전용 도구 명명 규칙 (WP-347)', () => {
   const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
   const sharedNames = new Set(buildSharedTools(c.sc).map((t) => t.name));
   const localNames = new Set<string>();
-  for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+  for (const p of CORE_PROFILES) {
     const tools = buildTools(c, AGENT_ID, p, { channelId: 9, parentMessageId: 1 }, { actorId: 7, channelId: 9, parentMessageId: 1 }, bridge);
     for (const t of tools) if (!sharedNames.has(t.name)) localNames.add(t.name);
   }
@@ -1158,7 +1161,7 @@ describe('read_file 프로필 (WP-346)', () => {
   });
 
   it('옛 이름 read_attachment_text 는 어느 프로필에도 없다(read_chat_thread_attachment 로 바뀜)', () => {
-    for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+    for (const p of CORE_PROFILES) {
       expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_attachment_text');
     }
   });
@@ -2304,7 +2307,7 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
       // WP-421: watch_issue·react 로 합쳐진 이름, WP-812: 의존관계 추가·제거는 link_issues 로, react_to_message 는 react 로
       'unwatch_issue', 'add_reaction', 'remove_reaction', 'add_issue_dependency', 'remove_issue_dependency', 'react_to_message',
     ];
-    for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+    for (const p of CORE_PROFILES) {
       const names = buildTools(client(), AGENT_ID, p).map((t) => t.name);
       expect(names.filter((n) => old.includes(n)), p).toEqual([]);
     }

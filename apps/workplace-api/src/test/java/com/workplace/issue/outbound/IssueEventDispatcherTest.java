@@ -145,7 +145,7 @@ class IssueEventDispatcherTest {
                     // 이슈 담당의 첫 내부 AI 는 AGENT_ASSIGNEE(201) 지만 노드 AI(301)가 실행 주체여야 한다.
                     List.of(AGENT_ASSIGNEE, nodeAgent, externalAgent),
                     List.of(nodeAgent, externalAgent),
-                    List.of(301L))));
+                    301L)));
 
     dispatcher.onWorkflowNodeWake(event);
 
@@ -157,6 +157,34 @@ class IssueEventDispatcherTest {
     // WP-1994: 노드 표지 — ai-agent 가 노드 지시로 돌게 하는 선택 칸.
     assertThat(captor.getValue().payload())
         .containsEntry("workflow", java.util.Map.of("runId", 7L, "nodeKey", "dev"));
+  }
+
+  /** WP-1994: 노드의 내부 AI 가 둘이어도 하나(이벤트 순서의 첫 AI)만 깨운다 — 같은 노드 일의 중복 실행·비용 방지. */
+  @Test
+  void 워크플로우_깨우기는_내부_AI_가_둘이면_첫_하나만_발사한다() {
+    dispatcher = build(true);
+    var first = new UserSummary(301L, "node-bot", "Node Bot", "AGENT");
+    var second = new UserSummary(303L, "node-bot2", "Node Bot2", "AGENT");
+    var event =
+        new WorkflowNodeWakeEvent(
+            1L, 42L, 7L, "dev", List.of(301L, 303L), Set.of(), HUMAN_ACTOR.id());
+    when(wakeReader.read(event))
+        .thenReturn(
+            Optional.of(
+                new WakeContext(
+                    "WP",
+                    "WP-42",
+                    "분석",
+                    HUMAN_ACTOR,
+                    List.of(first, second),
+                    List.of(first, second),
+                    301L)));
+
+    dispatcher.onWorkflowNodeWake(event);
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    assertThat(captor.getValue().payload()).containsEntry("actingAgentId", 301L);
   }
 
   /** WP-1986: AI 연동이 꺼져 있으면 워크플로우 깨우기도 읽지도 보내지도 않는다. */

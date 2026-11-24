@@ -34,6 +34,12 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('이슈를 닫으면 워크플로우가 취소됩니다');
   });
 
+  // WP-1994 검토 후속: 실행 없음·끝난 실행은 진행 중이 아니고, 응답의 시작 안내는 따르지 않는다.
+  it('실행이 없거나 끝난 워크플로우는 진행 중이 아니며 시작 안내를 따르지 않게 한다', () => {
+    expect(SYSTEM_PROMPT).toContain('COMPLETED·CANCELED');
+    expect(SYSTEM_PROMPT).toContain('start_issue_workflow');
+  });
+
   // update_issue 는 실패해도 throw 하지 않고 {ok, results} 로 돌려준다 — 실패를 성공으로 보고하지 않도록 확인을 지시한다.
   it('update_issue 결과의 ok·results.content 를 확인해 상태 변경 실패를 성공으로 말하지 않도록 지시한다', () => {
     expect(SYSTEM_PROMPT).toContain('{ok, results}');

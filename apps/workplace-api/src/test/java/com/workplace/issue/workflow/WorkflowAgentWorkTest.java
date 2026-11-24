@@ -971,6 +971,36 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("내부 AI 가 둘인 노드 — 재진입 때 깨우는 첫 AI 의 행만 SUBMITTED 로 리셋하고 둘째 AI 의 행은 그대로 둔다")
+  void internalTwoAgents_reentry_resetsOnlyWokenFirst() {
+    long first = agent("INTERNAL");
+    long second = agent("INTERNAL");
+    // work 노드의 역할 bot 에 내부 AI 둘 — 노드 담당이 둘이 된다(입력 순서 = 깨우는 첫 AI 가 first).
+    String twoBots =
+        yaml(first, agent("INTERNAL"))
+            .replace(
+                "bot: { members: [\"" + username(first) + "\"] }",
+                "bot: { members: [\"" + username(first) + "\", \"" + username(second) + "\"] }");
+    long wf = publish(twoBots);
+    // 시작하려면 노드 역할의 사람이 이슈 담당에 있어야 한다 — 둘 다 담당에 넣는다.
+    long issue = issue(lead, first, second);
+    ok(startReq(issue, wf), pm);
+    serverRun(first, issue, "STARTED", true, null);
+    serverRun(second, issue, "STARTED", true, null);
+    long secondRow = activeRowId(issue, second);
+    ok(move(issue, "work", "ask", "어느 쪽으로 할까요?", 0, "k1"), pm);
+    assertThat(activeStates(issue, first)).containsExactly("INPUT_REQUIRED");
+    assertThat(activeStates(issue, second)).containsExactly("INPUT_REQUIRED");
+
+    ok(move(issue, "work_ask", "answered", "A 로 해 주세요", 1, "k2"), pm);
+
+    assertThat(activeStates(issue, first)).containsExactly("SUBMITTED");
+    // 깨우지 않는 둘째 AI 의 행은 건드리지 않는다 — 리셋하면 깨우지 않은 행이 SUBMITTED 로 남는다.
+    assertThat(activeStates(issue, second)).containsExactly("INPUT_REQUIRED");
+    assertThat(activeRowId(issue, second)).isEqualTo(secondRow);
+  }
+
+  @Test
   @DisplayName("내부 AI 의 질문 왕복 — 답으로 노드에 돌아오면 답변 필요 행이 SUBMITTED 로 돌아가 뒤의 챗 답이 다시 깨우지 않는다(코드 리뷰 I3)")
   void internalAgent_askRoundTrip_resetsInputRequired() {
     long bot = agent("INTERNAL");

@@ -9,7 +9,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildTools, type McpProfile, type McpTool } from '../mcp/tools.js';
+import { MCP_PROFILES } from '../mcp/stdio-entry.js';
+import { buildTools, type McpTool } from '../mcp/tools.js';
 import { adaptMcpTool, buildInProcessWorkplaceMcpServer, type ToolUseLine } from './sdk-mcp-server.js';
 
 /** SDK 서버 인스턴스에 메모리 전송으로 MCP 클라이언트를 붙인다(CLI 가 인-프로세스 서버와 주고받는 JSON-RPC 와 같은 요청). */
@@ -80,7 +81,7 @@ describe('adaptMcpTool — 모르는 인자 이름 (WP-1568)', () => {
 // 모델은 SDK 서버의 tools/list 로 도구 입력 스키마를 본다. 전에는 shape 를 넘겼으므로, 프로필마다 shape 로 만든 서버의 목록과 같아야
 // 모델에 보이는 정의(토큰 포함)가 바뀌지 않은 것이다 — 특히 .loose() 가 더하는 additionalProperties 가 새지 않는지.
 describe('모델에 보이는 도구 정의는 shape 를 넘기던 때와 같다 (WP-1568)', () => {
-  const profiles: McpProfile[] = ['issue', 'chat', 'home', 'messaging', 'assistant', 'recurring', 'recurring-test'];
+  const profiles = MCP_PROFILES;
   // 도구 구성 시점에는 API 를 부르지 않는다 — 공유 도구 클라이언트 생성만 받아 준다.
   const client = { toolClient: () => ({}) } as unknown as WorkplaceApiClient;
   const ctx = {
