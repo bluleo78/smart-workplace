@@ -59,7 +59,12 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
   // 주소의 run 이 다른 워크플로우의 실행이면(링크·주소 편집) 이 정의의 화면으로 그리지 않는다.
   if (run.workflowId !== workflowId) return <p role="alert" className="text-sm">이 실행은 다른 워크플로우의 실행입니다</p>
   // 지금 방문 — 지금 노드의 아직 떠나지 않은 가장 늦은 방문.
-  const visit = [...detail.nodeRuns].reverse().find((v) => v.nodeKey === run.currentNode && v.leftAt == null) ?? null
+  const atCurrent = [...detail.nodeRuns].reverse().filter((v) => v.nodeKey === run.currentNode)
+  // 열린 방문이 없는 SUSPENDED 실행(연쇄 한도 초과 — 서버가 닫힌 FAILED 방문을 씀)은 가장 늦은 방문이 멈춘 방문(FAILED·BLOCKED)일 때만
+  // 거기서 이유를 찾는다 — 정상으로 끝난 앞 회차 방문의 낡은 사유를 이번 멈춤의 이유로 보이지 않게.
+  const latest = atCurrent[0]
+  const latestStopped = latest?.status === 'FAILED' || latest?.status === 'BLOCKED'
+  const visit = atCurrent.find((v) => v.leftAt == null) ?? (run.status === 'SUSPENDED' && latestStopped ? latest : null)
 
   return (
     <div className="min-w-0 space-y-3" data-testid="run-detail">
