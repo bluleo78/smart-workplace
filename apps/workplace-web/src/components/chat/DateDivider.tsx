@@ -11,6 +11,8 @@ interface DateDividerProps {
 
 export function DateDivider({ date }: DateDividerProps) {
   const d = parseUtcDate(date)
+  // 읽지 못하는 시각이면 그리지 않는다 — Intl.format 의 RangeError 로 화면 전체가 깨지지 않게(WP-2046).
+  if (Number.isNaN(d.getTime())) return null
   const label = new Intl.DateTimeFormat('ko-KR', {
     year: 'numeric',
     month: 'long',

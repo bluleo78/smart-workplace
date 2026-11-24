@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.cfg.DateTimeFeature;
 
 /**
  * 유저당 SSE emitter 레지스트리. chat·messaging 등 도메인에 관계없이 공유되는 범용 레지스트리.
@@ -37,8 +38,19 @@ public class SseRegistry {
   private static final long EMITTER_TIMEOUT = 3_600_000L; // 1h
   private static final int MAX_EMITTERS_PER_USER = 5; // 탭/기기 다중 허용
 
-  /** payload 직렬화 전용 공유 매퍼 — 중계 메시지와 로컬 전달이 같은 문자열을 쓰게 한 곳에서 만든다(WP-1609). */
-  private static final ObjectMapper JSON = JsonMappers.JACKSON2;
+  /**
+   * payload 직렬화 전용 공유 매퍼 — 중계 메시지와 로컬 전달이 같은 문자열을 쓰게 한 곳에서 만든다(WP-1609).
+   *
+   * <p>시각은 REST 응답(Boot 매퍼)처럼 ISO 문자열로 쓴다(WP-2046). Jackson 2 기본값은 {@code Instant} 를 epoch 숫자로 써서,
+   * 채널 메시지 생성 이벤트의 createdAt 이 숫자로 나가 웹이 날짜로 읽지 못하고 채팅 화면 전체가 오류로 깨졌다. Boot 매퍼와 같게 날짜와 Duration 둘 다
+   * 숫자가 아닌 문자열(ISO-8601)로 쓴다.
+   */
+  private static final ObjectMapper JSON =
+      JsonMappers.jackson2Builder()
+          .disable(
+              DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS,
+              DateTimeFeature.WRITE_DURATIONS_AS_TIMESTAMPS)
+          .build();
 
   /** AI 키로 연 emitter 가 어느 사용자·키에서 왔는지(WP-2008). 키 없는(JWT 등) 연결은 넣지 않는다. 연결이 빠지면 같이 지운다. */
   private final ConcurrentHashMap<SseEmitter, KeyRef> keyRefs = new ConcurrentHashMap<>();

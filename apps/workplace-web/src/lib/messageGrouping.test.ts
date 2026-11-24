@@ -36,6 +36,18 @@ describe('shouldStartNewGroup', () => {
 
 // 이전 E2E chat.spec(멀티데이 메시지 → 날짜 구분선 #338)를 대체(WP-412). 구분선 렌더 자체는 MessageList 가 이 판정만 따른다.
 describe('startsNewDay', () => {
+  // WP-2046: 시각을 날짜로 읽지 못한 행(예: SSE 로 epoch 숫자가 온 행)이 있어도 RangeError 로 화면 전체가 깨지지 않는다.
+  it('시각을 읽지 못한 행에서는 던지지 않고 구분선을 넣지 않는다', () => {
+    const ok = msg({ createdAt: '2026-06-01T01:00:00Z' })
+    const bad = msg({ createdAt: 1795518215.835331 as unknown as string })
+    expect(() => startsNewDay(ok, bad)).not.toThrow()
+    expect(startsNewDay(ok, bad)).toBe(false)
+    expect(startsNewDay(null, bad)).toBe(false)
+  })
+  it('직전 행 시각을 읽지 못해도 다음 정상 행 앞에는 구분선을 넣는다', () => {
+    const bad = msg({ createdAt: 'not-a-date' })
+    expect(startsNewDay(bad, msg({ createdAt: '2026-06-01T01:00:00Z' }))).toBe(true)
+  })
   it('첫 메시지 앞에는 항상 구분선', () => {
     expect(startsNewDay(null, msg({ createdAt: '2026-06-01T01:00:00Z' }))).toBe(true)
   })

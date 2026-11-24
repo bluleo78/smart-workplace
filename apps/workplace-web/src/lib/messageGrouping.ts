@@ -27,5 +27,8 @@ export function startsNewDay(
   prev: Pick<MessageResponse, 'createdAt'> | null,
   curr: Pick<MessageResponse, 'createdAt'>,
 ): boolean {
-  return !prev || getDateKey(curr.createdAt) !== getDateKey(prev.createdAt)
+  const key = getDateKey(curr.createdAt)
+  // 시각을 읽지 못한 행에는 구분선을 넣지 않는다 — 날짜를 알 수 없고, 구분선을 그리다 화면이 깨지지 않게(WP-2046).
+  if (!key) return false
+  return !prev || key !== getDateKey(prev.createdAt)
 }
