@@ -273,7 +273,8 @@ export function IssueListView({
       {/* 테이블 스크롤 영역 — thead 가 이 컨테이너 기준 sticky 로 붙는다(래퍼가 overflow-x 만 가지면 sticky 가 무력화됨).
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
       <RefreshingResults refreshing={refreshing} className="min-h-0 flex-1">
-        <div ref={setScrollEl} className="h-full overflow-auto" data-testid="issue-list-scroll">
+        <div ref={setScrollEl} className="h-full overflow-auto lg:scroll-pt-9" data-testid="issue-list-scroll">
+          {/* lg:scroll-pt-9 — 키보드 초점이 sticky thead(32px) 뒤로 가려지지 않게 머리글 + 초점 링(36px)만큼 위 여백(WP-2068). 머리 칸(LIST_HEAD_CELL_CLASS) 높이를 바꾸면 함께 바꾼다. */}
           {/* table-fixed — 칸 폭을 머리 행의 열 폭이 정하고 내용(긴 값·헤더 이름·칩)이 넓히지 못한다(WP-1143).
               자동 레이아웃에선 열 폭이 하한일 뿐이라 칸 상한(max-width)에 기대야 했는데, 표 칸의 max-width 는 명세상 정의되지 않아
               브라우저마다 다르다. 모바일은 한 칸 행의 메타 줄(nowrap truncate)이 표를 넓히던 것을 같은 이유로 막는다(WP-194).
