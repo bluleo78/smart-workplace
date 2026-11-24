@@ -2,10 +2,10 @@ import '@xyflow/react/dist/style.css'
 
 import {
   Background, type Connection, type Edge, Handle, type Node, type NodeProps, Position, ReactFlow,
-  ReactFlowProvider, useNodesState, useReactFlow, useViewport,
+  ReactFlowProvider, useNodesInitialized, useNodesState, useReactFlow, useViewport,
 } from '@xyflow/react'
 import { Minus, Plus } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -19,6 +19,7 @@ import {
   parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
 import { NodeKindIcon, NodePanel } from './NodePanel'
+import { revealOffset } from './viewportReveal'
 
 interface FlowNodeData extends Record<string, unknown> {
   node: GraphNode
@@ -119,6 +120,11 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   graph: WorkflowGraph
 }) {
   const [selected, setSelected] = useState<string | null>(null)
+  // 「+ 노드」로 방금 더한 노드가 화면에 들어올 때까지 기다리는 키 — 비면 더 옮길 것이 없어 멈춘다.
+  const [pendingReveal, setPendingReveal] = useState<string | null>(null)
+  const flow = useReactFlow()
+  // 캔버스 컨테이너 자체의 화면 사각형을 재기 위한 ref — 노드와 캔버스를 같은 기준으로 비교한다.
+  const canvasRef = useRef<HTMLDivElement>(null)
   const roleNames = useMemo(() => new Map(graph.roles.map((r) => [r.key, r.name ?? r.key])), [graph.roles])
   const positions = useMemo(() => placeNodes(graph), [graph])
   const derivedNodes: Node<FlowNodeData>[] = useMemo(() => graph.nodes.map((n) => ({
@@ -135,6 +141,38 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   // YAML 에서 만든 노드가 바뀌면 지역 상태를 다시 맞춘다 — 드래그가 끝나면 moveManyFromDrag 가 YAML 을 고쳐 같은 좌표로 수렴한다.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(derivedNodes)
   useEffect(() => { setNodes(derivedNodes) }, [derivedNodes, setNodes])
+  // 노드 크기·좌표가 준비되었는지 — 준비 전에 재면 틀린 위치를 본다.
+  const nodesInitialized = useNodesInitialized()
+  // 「+ 노드」로 더한 노드가 보이지 않으면 최소한만큼 시야를 옮긴다 — ReactFlow 의 fitView 는 처음 그릴 때 한 번뿐이라 그 뒤로는 화면을 따라가지 않는다.
+  useEffect(() => {
+    if (!pendingReveal || !nodesInitialized) return // 노드 크기가 측정되기 전 좌표를 재면 틀린다
+    const node = derivedNodes.find((n) => n.id === pendingReveal)
+    const canvas = canvasRef.current
+    // yaml·derivedNodes 어디에도 없으면 끝내 안 오는 노드다(추가가 실제로 실패했거나 이미 지워진 경우) — 영구 대기를 막기 위해 비운다.
+    if (!node || !canvas) { setPendingReveal(null); return }
+    // 같은 커밋의 효과 시점에는 새 노드가 아직 스토어에 없다 — nodes 상태 동기(setNodes)와 StoreUpdater 가 effects 에서
+    // 뒤에야 채우기 때문이다. 그 시절의 nodesInitialized 는 지난 노드들만 본 거라(참) 게이트도 막지 못한다.
+    const stored = flow.getInternalNode(pendingReveal)
+    if (!stored) return // 스토어에 들어올 때까지 — 소진하지 말고 기다린다
+    // 스토어에 들어와도 측정 전 크기는 0이라 원점 기준으로 헛이동하고 pendingReveal 를 소진한다 — 측정이 끝나길 기다린다.
+    // 새 노드 추가로 nodesInitialized 가 false 로 갔다가 측정되면 true 로 바뀌며 그때 효과가 다시 돌아 계산한다.
+    if (!stored.measured?.width || !stored.measured.height) return
+    const canvasRect = canvas.getBoundingClientRect()
+    const bounds = flow.getNodesBounds([pendingReveal])
+    // 화면 좌표는 두 점 다 flowToScreenPosition 으로 받아야 한다 — bounds 는 그래프 단위라 배율이 1 이 아니면
+    // 크기에 배율이 빠져 모자란 만큼만 옮기고 노드 오른쪽이 캔버스 밖에 남는다(WP-2039, 배율 2 에서 142px 부족).
+    const topLeft = flow.flowToScreenPosition({ x: bounds.x, y: bounds.y })
+    const bottomRight = flow.flowToScreenPosition({ x: bounds.x + bounds.width, y: bounds.y + bounds.height })
+    const nodeRect = { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y }
+    const { dx, dy } = revealOffset(canvasRect, nodeRect)
+    if (dx !== 0 || dy !== 0) {
+      const { x, y, zoom } = flow.getViewport()
+      void flow.setViewport({ x: x + dx, y: y + dy, zoom }, { duration: 250 })
+    }
+    // 스토어·측정 상태를 확인한 뒤에야 소진할 수 있어 렌더·핸들러로 옮길 수 없다 — 계산이 끝난 이 시점에서만 비운다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 영구 대기를 막는 소진(pendingReveal 비움)은 effect 안에서만 가능하다.
+    setPendingReveal(null)
+  }, [pendingReveal, nodesInitialized, derivedNodes, flow])
   const edges = useMemo(() => toFlowEdges(graph.edges, new Set(graph.nodes.map((n) => n.key))), [graph])
   // YAML 에 실제로 있는 노드의 키(가상 노드 제외)
   const realKeys = useMemo(() => new Set(graph.nodes.filter((n) => !n.virtual).map((n) => n.key)), [graph])
@@ -165,6 +203,9 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
                   const added = addNode(yaml, item.type, { x: (xs.length ? Math.max(...xs) : -240) + 240, y: 0 })
                   onChange(added.yaml)
                   setSelected(added.key)
+                  // addNode 가 실패하면(yaml·layout 없음 등) 새 키가 없다 — 앞서 기다리던 노드도 그 시점에 대체된 것이므로
+                  // 측정되지 못한 채 계속 기다리는 pendingReveal 을 남기지 않기 위해 통째로 비운다.
+                  setPendingReveal(added.key || null)
                 }}
               >{item.label}</DropdownMenuItem>
             ))}
@@ -178,7 +219,7 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
             부모 높이가 확정(definite)이 아니면 0 으로 풀려 캔버스가 통째로 사라진다.
             세로 쌓기(main 축 = 높이)에서 `flex-1`(flex-basis 0%) 을 쓰면 부모 높이가 내용 기준이 되어 그렇게 되므로,
             가로 배치일 때만(폭이 main 축) flex-1 을 건다. min-h 는 눌리지 않게 하는 안전판. */}
-        <div className="relative h-[28rem] min-h-[28rem] min-w-0 @3xl:flex-1" data-testid="workflow-graph-canvas">
+        <div ref={canvasRef} className="relative h-[28rem] min-h-[28rem] min-w-0 @3xl:flex-1" data-testid="workflow-graph-canvas">
           <ReactFlow
             nodes={nodes}
             onNodesChange={onNodesChange}

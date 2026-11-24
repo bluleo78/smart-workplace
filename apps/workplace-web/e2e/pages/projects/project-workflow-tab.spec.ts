@@ -142,3 +142,30 @@ test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '
     return box !== null && box.height <= Math.round(664 * 0.6) + 1
   }).toBe(true)
 })
+
+/** 「+ 노드」로 더한 노드가 캔버스 안에 들어온다(WP-2039) — jsdom 이 못 재는 기하라 브라우저에서 본다. */
+test('workflowGraph_addNode_keepsNewNodeInsideCanvas', { tag: ['@layout'] }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.route('**/api/v1/workflows/42/draft', (route) => route.fulfill({ json: { draftUpdatedAt: '2026-11-24T10:00:00Z', problems: [] } }))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  await page.getByRole('button', { name: '그래프' }).click()
+  await page.getByRole('button', { name: '+ 노드' }).click()
+  await page.getByRole('menuitem', { name: '시작' }).click()
+  await page.getByRole('button', { name: '+ 노드' }).click()
+  await page.getByRole('menuitem', { name: 'AI 작업' }).click()
+  const canvas = page.locator('.react-flow')
+  const added = page.locator('.react-flow__node', { hasText: '새 AI 작업' })
+  await added.waitFor()
+  // 시야 이동은 250ms 애니메이션으로 끝나서, 노드가 나타난 직후의 한 번 읽기는 전 중간 좌표다 — 캔버스 안에 들어올 때까지 조건 대기한다(고정 대기 지양).
+  // 캔버스 상자도 매번 안에서 다시 읽는다 — 레이아웃이 그 사이 바뀌어도 지난 좌표로 판정하지 않게.
+  await expect.poll(async () => {
+    const box = await canvas.boundingBox()
+    const node = await added.boundingBox()
+    if (!box || !node) return false
+    return node.x >= box.x
+      && node.y >= box.y
+      && node.x + node.width <= box.x + box.width
+      && node.y + node.height <= box.y + box.height
+  }, { timeout: 5000, message: '새 노드가 캔버스 안에 들어와야 한다' }).toBe(true)
+})
