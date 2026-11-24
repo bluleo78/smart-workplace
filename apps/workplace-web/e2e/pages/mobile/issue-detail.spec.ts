@@ -192,6 +192,34 @@ test.describe('＋ 속성 시트', () => {
     });
     expect(onTop).toBe(true);
   });
+
+  // WP-2057 — 시트가 열리면 초점이 시트 안으로 들어와 Tab 이 시트 밖으로 새지 않고, 닫으면 연 단추로 돌아온다.
+  // 실제 Tab 순환은 jsdom 이 재현하지 못한다.
+  test('「＋ 속성」 시트를 키보드로 열면 초점이 시트 안에서만 돌고 닫으면 「속성」 단추로 돌아온다', { tag: ['@input'] }, async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    await openDetail(page);
+    const trigger = page.getByTestId('mobile-prop-more');
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const sheet = page.getByTestId('issue-more-props-sheet');
+    await expect(sheet).toBeVisible();
+    const inSheet = () => sheet.evaluate((el) => el.contains(document.activeElement));
+    // 열린 직후 초점이 시트 안으로 옮겨져 있다(조건 대기).
+    await expect.poll(inSheet).toBe(true);
+    // Tab 으로 한 바퀴 이상 돌아도 매번 시트 안에 머문다.
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press('Tab');
+      expect(await inSheet()).toBe(true);
+    }
+    // Shift+Tab 역방향도 마찬가지.
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press('Shift+Tab');
+      expect(await inSheet()).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
 });
 
 test.describe('첨부·하위 태스크', () => {
