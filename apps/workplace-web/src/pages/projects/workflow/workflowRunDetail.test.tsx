@@ -68,6 +68,15 @@ describe('실행 상세', () => {
     expect(paint('end')).toBe('unvisited')
   })
 
+  // 사람 차례(WAITING) 상태 배지가 warning 색을 갖는지 본다 — 색 매핑이 빠지면 목록·상세에서 상태가 눈에 안 띈다.
+  it('runDetail_waitingBadgeUsesWarningTone', async () => {
+    setup(detail('WAITING'))
+    await screen.findByText(/실행 #7 · 버전 2/)
+    // 같은 글자가 그래프 노드에도 있어 배지(data-slot)만 골라낸다.
+    const badge = screen.getAllByText('사람 차례').find((el) => el.getAttribute('data-slot') === 'badge')
+    expect(badge).toHaveClass('bg-warning-subtle', 'text-warning-text')
+  })
+
   it('waitingBanner_answerMovesRun', async () => {
     const { user, posts, gets } = setup(detail('WAITING'), { meId: 4 })
     await user.click(await screen.findByRole('button', { name: 'approve' }))

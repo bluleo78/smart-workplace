@@ -14,7 +14,7 @@ import {
   type IssueWorkflowView,
   isWorkflowEnabledProject,
   RUN_STATUS_LABEL,
-  type RunStatus,
+  RUN_STATUS_TONE,
   useIssueWorkflow,
   useIssueWorkflowCardVisible,
 } from '@/lib/workflow'
@@ -22,15 +22,6 @@ import { useProjectWorkflows, useWorkflowVersion, type WorkflowModel } from '@/l
 
 import { RecoverDialog } from '../workflow/RecoverDialog'
 import { IssuePropertyGroup } from './IssuePropertyGroup'
-
-/** 상태 칩 색 — 시맨틱 토큰만(조치 필요는 경고, 완료는 성공, AI 작업 중은 AI 강조색). */
-const CHIP_CLASS: Record<RunStatus, string> = {
-  RUNNING: 'bg-ai-accent-subtle text-ai-accent',
-  WAITING: 'bg-info/10 text-info-text',
-  SUSPENDED: 'bg-destructive/10 text-destructive',
-  COMPLETED: 'bg-success/10 text-success',
-  CANCELED: 'bg-muted text-muted-foreground',
-}
 
 /** 사람 이름을 쉼표로 잇고 AI 는 이름 옆에 AI 표식 — 카드의 행위자·담당과 시작 창의 담당 줄이 함께 쓴다. */
 export function UserNames({ users }: { users: { id: number; name: string; kind?: 'HUMAN' | 'AGENT' }[] }) {
@@ -157,7 +148,7 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
           {defName ?? '워크플로우'} v{versionNo}
         </span>
         {status && (
-          <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', CHIP_CLASS[status])}>
+          <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', RUN_STATUS_TONE[status])}>
             {RUN_STATUS_LABEL[status]}
           </span>
         )}

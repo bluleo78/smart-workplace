@@ -85,6 +85,13 @@ it('runs_filterByStatusNodeAssignee', async () => {
   expect(await screen.findByText('조건에 맞는 실행이 없습니다')).toBeVisible()
 })
 
+// 목록의 사람 차례 칩도 이슈 카드와 같은 경고색(WP-2049). 상태 필터 option 과 구분하려고 줄 안에서 찾는다.
+it('runsList_waitingChipUsesSameToneAsCard', async () => {
+  setup()
+  const row = (await screen.findByText('WP-1')).closest('li')!
+  expect(within(row).getByText('사람 차례')).toHaveClass('bg-warning-subtle', 'text-warning-text')
+})
+
 it('runs_noFilterNoRuns_showsEmptyMessage', async () => {
   setup(() => ({ items: [], nextCursor: null }))
   expect(await screen.findByText('아직 실행이 없습니다')).toBeVisible()

@@ -74,6 +74,19 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   CANCELED: '취소됨',
 }
 
+/**
+ * 상태 칩·배지 색 — 같은 상태는 모든 화면에서 같은 색(WP-2049). 시맨틱 토큰만 쓴다.
+ * 사람 차례는 내가 처리할 일이라 warning. 작은 글자라 완료는 대비를 맞춘 success-text, 취소는 outline 기본 테두리를 그대로 둔다.
+ * 카드 칩은 테두리 폭이 없어 border 색은 보이지 않고, 목록·상세 Badge(outline)에서만 보인다.
+ */
+export const RUN_STATUS_TONE: Record<RunStatus, string> = {
+  RUNNING: 'border-ai-accent/40 bg-ai-accent-subtle text-ai-accent',
+  WAITING: 'border-warning/40 bg-warning-subtle text-warning-text',
+  SUSPENDED: 'border-destructive/40 bg-destructive/10 text-destructive',
+  COMPLETED: 'border-success/40 bg-success/10 text-success-text',
+  CANCELED: 'bg-muted text-muted-foreground',
+}
+
 export const issueWorkflowKey = issueWorkflowKeys.detail
 
 /** 멈춘 실행의 조치 종류 — 서버 recover 의 action. 카드의 메뉴·확인 창과 훅이 함께 쓴다. */
