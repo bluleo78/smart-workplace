@@ -9,7 +9,7 @@ import { useWorkflowRun } from '@/hooks/queries/useWorkflowRuns'
 import { isNotFoundError } from '@/lib/api-error'
 import { issuePath } from '@/lib/appUrl'
 import { formatDateTimeMinute } from '@/lib/formatters'
-import { RUN_STATUS_LABEL } from '@/lib/workflow'
+import { RUN_STATUS_LABEL, RUN_STATUS_TONE } from '@/lib/workflow'
 import { nodeDurationsMs, paintRun, pendingQuestion, runMoveRows, type WorkflowRunDetail as RunDetail } from '@/lib/workflowRuns'
 import { IssueWorkflowBanner } from '@/pages/projects/components/IssueWorkflowBanner'
 
@@ -73,7 +73,7 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
     <section aria-labelledby={headingId} className="min-w-0 space-y-3" data-testid="run-detail">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{RUN_STATUS_LABEL[run.status]}</Badge>
+          <Badge variant="outline" className={RUN_STATUS_TONE[run.status]}>{RUN_STATUS_LABEL[run.status]}</Badge>
           <h2 id={headingId} className="flex min-w-0 flex-1 items-center gap-2 text-base font-normal">
             {/* 두 span 사이 공백 — 없으면 영역 이름이 「WP-1제목 1」로 붙어 읽힌다(WP-2053 리뷰). */}
             <span className="font-medium">{run.issueKey}</span>{' '}

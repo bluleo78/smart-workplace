@@ -78,6 +78,14 @@ describe('AI 작업 단계 카드', () => {
     expect(screen.getByRole('link', { name: '실행 보기 ↗' })).toHaveAttribute('href', '/projects/WP/workflow?view=runs&workflow=3&run=5')
   })
 
+  // 사람 차례 칩은 배너·실행 목록과 같은 경고색이어야 한다(WP-2049) — 예전엔 info 파랑.
+  test('statusChip_waitingUsesWarningTone', async () => {
+    renderScreen(card(), { path: '/projects/WP/issues/1', handlers: handlers(runningView) })
+    const chip = await screen.findByText('사람 차례')
+    expect(chip).toHaveClass('bg-warning-subtle', 'text-warning-text')
+    expect(chip).not.toHaveClass('text-info-text')
+  })
+
   test('enteredAtSecondsAgo_showsJustNowWithoutSuffix', async () => {
     const view = { ...runningView, currentNode: { ...runningView.currentNode, enteredAt: new Date(Date.now() - 5000).toISOString() } }
     renderScreen(card(), { handlers: handlers(view) })

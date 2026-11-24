@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
 import { useWorkflowRun, useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
 import { formatRelativeTime } from '@/lib/formatters'
-import { RUN_STATUS_LABEL, type RunStatus } from '@/lib/workflow'
+import { RUN_STATUS_LABEL, RUN_STATUS_TONE, type RunStatus } from '@/lib/workflow'
 import { runDetailOpenedText, type RunFilters, type WorkflowRunItem } from '@/lib/workflowRuns'
 import { useWorkflowVersion, type WorkflowModel } from '@/lib/workflows'
 
@@ -18,15 +18,6 @@ import { WorkflowRunDetail } from './WorkflowRunDetail'
 import { workflowSelectClass } from './WorkflowVersions'
 
 const STATUSES: RunStatus[] = ['SUSPENDED', 'WAITING', 'RUNNING', 'COMPLETED', 'CANCELED']
-
-/** 상태 칩 색 — 시맨틱 토큰만. 조치 필요는 destructive, 사람 차례는 warning 계열. */
-const chipClass: Record<RunStatus, string> = {
-  SUSPENDED: 'border-destructive/40 bg-destructive/10 text-destructive',
-  WAITING: 'border-warning/40 bg-warning-subtle',
-  RUNNING: 'border-primary/40 bg-primary/10',
-  COMPLETED: 'bg-muted text-muted-foreground',
-  CANCELED: 'bg-muted text-muted-foreground',
-}
 
 interface Props {
   workflowId: number
@@ -160,7 +151,7 @@ function RunRow({ item, selected, onSelect }: { item: WorkflowRunItem; selected:
         type="button" aria-current={selected || undefined} onClick={onSelect}
         className={'flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-md border p-2 text-left text-sm hover:bg-muted/50 ' + (selected ? 'bg-muted' : '')}
       >
-        <Badge variant="outline" className={chipClass[item.status]}>{RUN_STATUS_LABEL[item.status]}</Badge>
+        <Badge variant="outline" className={RUN_STATUS_TONE[item.status]}>{RUN_STATUS_LABEL[item.status]}</Badge>
         <span className="font-medium">{item.issueKey}</span>
         <span className="min-w-0 flex-1 truncate">{item.title}</span>
         <span className="text-xs text-muted-foreground">{item.currentNodeName ?? item.currentNode}</span>
