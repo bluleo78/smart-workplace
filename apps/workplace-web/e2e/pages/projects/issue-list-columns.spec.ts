@@ -55,7 +55,7 @@ const ISSUE: IssueResponse = createIssue({
 });
 
 /** 공통 목 — 사이클 유무에 따라 기본 그룹이 달라진다(사이클 있으면 사이클 그룹). */
-async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE, fields = FIELD_DEFS } = {}) {
+async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE, issues = [] as IssueResponse[], fields = FIELD_DEFS } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(`**/api/v1/projects/${KEY}`, (route) => route.fulfill(json(createProject())));
@@ -71,7 +71,8 @@ async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE
       if (route.request().method() !== 'GET') return route.fallback();
       // 사이클 그룹은 구간별(cycle=3·null) 요청 — 진행 중 구간에만 이슈를 둔다.
       const cycle = new URL(route.request().url()).searchParams.get('cycle');
-      return route.fulfill(json(createIssueSearchResponse(cycle === 'null' ? [] : [issue], null)));
+      // issues 를 주면 그 목록(긴 목록 스크롤용, WP-2068), 아니면 이슈 하나.
+      return route.fulfill(json(createIssueSearchResponse(cycle === 'null' ? [] : issues.length ? issues : [issue], null)));
     },
   );
 }
@@ -337,5 +338,45 @@ test.describe('이슈 목록 열 고르기 — 개인 저장 (WP-270)', { tag: '
     await page.reload();
     await expect(page.getByTestId('issue-row-1')).toBeVisible();
     await expect.poll(() => visibleHeaders(page, 'thead')).toEqual(['ID', '제목', '담당자', '마감']);
+  });
+});
+
+test.describe('이슈 목록 키보드 초점과 sticky 머리글 (WP-2068)', () => {
+  test('키보드로 위로 이동해도 초점이 sticky 머리글에 가려지지 않는다(WP-2068)', { tag: ['@layout', '@input'] }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // 이슈 40개 — 표 본문이 세로로 스크롤되는 길이.
+    const issues = Array.from({ length: 40 }, (_, i) =>
+      createIssue({ id: i + 1, number: i + 1, title: `키보드 이동 이슈 ${i + 1}` }),
+    );
+    await setup(page, { issues });
+    await page.goto(`/projects/${KEY}?group=none`);
+    const last = page.getByTestId('issue-row-40');
+    await expect(last).toBeVisible(FIRST_LOAD);
+    await last.getByRole('link').first().focus();
+
+    // Shift+Tab 으로 위로 거슬러 오르며, 표 안 초점의 위쪽이 머리글에 덮이는지 매번 잰다(완전 가림도 위쪽 덮임에 든다).
+    // 행마다 탭 정지가 넷(행·선택 칸·제목 링크·작업 메뉴)이라 40행 전체를 오르도록 넉넉히 누르고, 초점이 표를 벗어나면 멈춘다.
+    let inTable = 0;
+    const covered: string[] = [];
+    for (let i = 0; i < 170; i++) {
+      await page.keyboard.press('Shift+Tab');
+      const r = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement;
+        const scroll = document.querySelector('[data-testid="issue-list-scroll"]')!;
+        if (!el || !scroll.querySelector('tbody')?.contains(el)) return null;
+        const head = scroll.querySelector('thead')!.getBoundingClientRect();
+        return { covered: el.getBoundingClientRect().top < head.bottom - 0.5, name: el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '' };
+      });
+      if (!r) {
+        if (inTable > 0) break;
+        continue;
+      }
+      inTable++;
+      if (r.covered) covered.push(r.name);
+    }
+    expect(inTable).toBeGreaterThan(10);
+    expect(covered, '위쪽이 머리글에 덮인 초점 요소').toEqual([]);
   });
 });
