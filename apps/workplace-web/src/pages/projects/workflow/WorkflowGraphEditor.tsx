@@ -105,7 +105,6 @@ function WarningBar({ yaml, problems, onChange, onOpenYaml }: {
   )
 }
 
-
 /**
  * 그래프 편집 화면의 본체 — 도구 줄(+ 노드·자동 정렬), ReactFlow 캔버스, 고른 노드의 편집 패널, 경고 줄.
  * 노드·선은 매번 graph(YAML 을 읽은 것)에서 만들고, 끌기·연결·추가는 graphYaml 함수로 YAML 을 고쳐 onChange 로 올린다.

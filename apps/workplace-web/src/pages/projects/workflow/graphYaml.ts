@@ -19,6 +19,8 @@ export interface GraphNode {
   virtual?: boolean
   /** 가상 노드를 만든 실제 노드의 키 — 배치할 때 부모 아래로 놓는 데 쓴다 */
   virtualParent?: string
+  /** decision 의 default 칸에 사람이 적은(null 이 아닌) 값이 있다 — 형식이 어긋나 선으로 그리지 못한 값(`{ to: ~ }`·`3`·`''`)도 든다 */
+  hasDefault?: boolean
 }
 
 export type GraphEdgeKind = 'outcome' | 'start' | 'condition' | 'default' | 'onError' | 'returnTo' | 'ask'
@@ -194,6 +196,8 @@ function readGraph(doc: Document): WorkflowGraph {
       ...(isPlain(pos) && typeof pos.x === 'number' && typeof pos.y === 'number'
         ? { position: { x: pos.x, y: pos.y } }
         : {}),
+      // 별칭은 js() 가 풀어 둔다 — 별칭이 null 이면 `default: ~` 처럼 빈 것이다
+      ...(n.default != null ? { hasDefault: true } : {}),
     })
     // 선택 이동 — 결과 키가 ask 면 질문 경로 선
     if (isPlain(n.outcomes)) {
@@ -700,9 +704,11 @@ export function connectFromFlow(yaml: string, graph: WorkflowGraph, c: { source:
   }
   if (from.type === 'decision') {
     // 이미 정한 기본 도착지가 있으면 거절한다 — 단 같은 도착지로 다시 끈 선은 바랄 것이 이미 있는 상태라 조용히 둔다.
-    // 판정은 읽은 그래프의 default 선으로 한다(편집 결과가 같은지로 보면 다른 실패도 「이미 있음」으로 오인한다).
+    // 판정은 읽은 그래프로 한다(편집 결과가 같은지로 보면 다른 실패도 「이미 있음」으로 오인한다).
+    // 선으로 그리지 못한 형식이 어긋난 default 도 사람이 적은 값이라 hasDefault 로 함께 거절한다 — 비었다고 보는 것은 칸이 없거나 null 일 때뿐이다
     const current = graph.edges.find((e) => e.from === from.key && e.kind === 'default')
-    if (current) return current.to === to.key ? { yaml } : { yaml, refused: REFUSE_DECISION_DEFAULT }
+    if (current?.to === to.key) return { yaml }
+    if (from.hasDefault) return { yaml, refused: REFUSE_DECISION_DEFAULT }
     return { yaml: setDecisionDefault(yaml, from.key, to.key) }
   }
   return { yaml: connectOutcome(yaml, from.key, nextOutcomeKey(yaml, from.key), to.key) }
@@ -733,7 +739,7 @@ function setDecisionDefault(yaml: string, key: string, to: string): string {
   return editDoc(yaml, (doc) => {
     if (!doc.hasIn(['nodes', key])) return false
     const node = mapAt(doc, ['nodes', key])
-    // 이미 있는 default 의 판정·거절은 부르는 쪽(connectFromFlow)이 그래프의 default 선으로 한다 — 같은 판정을 두 곳에 두지 않는다
+    // 이미 있는 default 의 판정·거절은 부르는 쪽(connectFromFlow)이 읽은 그래프(default 선·hasDefault)로 한다 — 같은 판정을 두 곳에 두지 않는다
     if (!node) return false
     node.set('default', to)
   })
