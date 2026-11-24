@@ -161,6 +161,11 @@ tasks.withType<Test> {
         .withPropertyName("workflowSchemaSource")
         .withPathSensitivity(PathSensitivity.NONE)
         .optional()
+    // AiDevFlowDefinitionTest 가 저장소의 AI 개발 흐름 정의 파일을 읽는다(WP-1992) — 파일만 바뀌어도 다시 돌게 입력으로 알린다.
+    inputs.files(rootProject.file("../../docs/workflows/ai-dev-flow.yaml"))
+        .withPropertyName("aiDevFlowDefinition")
+        .withPathSensitivity(PathSensitivity.NONE)
+        .optional()
     // 운영·bootRun 과 같은 UTC 기본 시간대로 테스트 JVM 을 띄운다(WP-939) — 테스트는 WorkplaceApplication.main 을
     // 거치지 않아 거기서 고정한 시간대가 적용되지 않는다. pgjdbc 가 이 값으로 DB 세션 TimeZone 을 맞춘다.
     systemProperty("user.timezone", "UTC")
