@@ -1570,6 +1570,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-a");
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isNull();
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW)).isNull();
   }
 
   /**
@@ -1590,6 +1591,7 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNotNull();
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isNull();
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW)).isNull();
 
     // 3) 뒤에 온 관찰이 더 늦은 시작을 비춰 보고 기준을 비워도 — 표시가 이미 없어 새로운 정체(pod-a)의 정상 시각 보고를 막지 않는다.
     observe(null, POD_NEW.plusSeconds(120), "RUNNING");
@@ -1718,5 +1720,81 @@ class AgentStatusReportApiTest extends IntegrationTestBase {
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
     assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT).toInstant())
         .isEqualTo(POD_NEW.toInstant());
+  }
+
+  /**
+   * 기준 없이 밝힌 정체 자리에서 Pod 가 다시 뜨면(시계 이상 다른 정체) 저장으로 회복한다(WP-2032) — 옛 runner 는 관찰에 podUid 를 싣지 않아 관찰
+   * 회복 경로가 없어, 이 자리에서는 새 Pod 의 보고가 영구 OTHER 로 남았다. 표시 잠금(서버 시각 60초) 안에서는 근거가 있어도 막고(2단계), 지난 뒤에는
+   * <b>표시를 남긴 그 보고의 걸리기 전 시작(같은 노드 시계)보다 늦을 때</b>만 정체를 갈아끼운다(4단계) — 6차 반려 ① 교착 방지 유지. 근거 없는 죽은 옛
+   * Pod 늦은 보고는 잠금이 지난 뒤에도 거절된다(3단계, WP-2032 리뷰 반려 ①).
+   *
+   * <p>값은 <b>노드 시계가 5분 빠른 상황</b>의 현실 값이다 — 시작 시각은 k8s 관찰값이라 과거이고(pod-b 는 10초 전), 보고에 실린 Pod
+   * 시작(raw)만 노드 시계 때문에 미래다. 앞 리뷰는 시작 시각을 미래(now+60)로 두어 회복 근거 검사가 망가져도 테스트가 통과하는 문제를 잡았다(2차 반려 ②).
+   */
+  @Test
+  void status_기준_없이_밝힌_정체_자리의_재시작_보고는_저장한다() throws Exception {
+    OffsetDateTime now = OffsetDateTime.now().withNano(0); // DB 는 마이크로초 저장(timestamp(6))
+    // 노드 시계가 5분 빠르다 — raw 는 실제 시작 시각 + 300초.
+    OffsetDateTime markRaw = now.plusSeconds(290); // pod-b: 실제 10초 전 시작
+    OffsetDateTime oldPodRaw = now.plusSeconds(230); // pod-old: 실제 70초 전 시작(표시보다 옛 Pod)
+    OffsetDateTime newPodRaw = now.plusSeconds(300); // pod-c: 실제 방금 시작
+
+    // 1) 시계 이상 첫 보고로 정체를 밝힌다 — 기준(시각)은 비어 있고 표시와 그 보고의 걸리기 전 시작만 남는다(WP-2026·WP-2032 리뷰 반려 ①).
+    report(key, slotReportWithIdentity("WORKING", "X", "WP-9", null, markRaw, "pod-b"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW).toInstant())
+        .isEqualTo(markRaw.toInstant());
+
+    // 표시 잠금 창을 시각으로 고정한다 — 1번~2번 사이가 실수로 60초를 넘겨도 잠금이 풀리지 않게.
+    setBasislessMarkedAt(now.minusSeconds(55));
+
+    // 2) 표시 잠금(60초) 안의 재시작 보고 — 근거가 있어도 정체를 갈아끼우지 않는다(barBasislessAdopt 가 막는다 — 기존 방어 유지).
+    //    관찰한 시작(started_at)은 아직 없다 — 잠금 조건 (b) 가 서지 않아 (a) 창으로만 막힌다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, newPodRaw, "pod-c"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(slotState("X")).isEqualTo("WORKING");
+
+    // runner 가 지금 Pod 시작을 관찰해 둔 자리 — k8s 관찰값이라 과거다(노드 시계 raw 와 다른 기준).
+    setStartedAt(now.minusSeconds(10));
+    // 표시 잠금 지난 뒤.
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(61));
+
+    // 3) 표시 잠금이 지난 뒤의 죽은 옛 Pod 늦은 보고 — 표시를 남긴 보고의 걸리기 전 시작(290초)보다 이르므로 근거가 없어 회복하지 않는다
+    // (WP-2032 리뷰 반려 ①). 관찰한 시작이 과거(now-10)라 옛 검사(걸리기 전 raw ≥ 지금 시작)라면 늘 참이어서 정체를 가져갔을 값이다 —
+    // 정체를 가져가면 살아 있는 Pod 가 previous 로 박혀 영구 OTHER/409 가 된다.
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, oldPodRaw, "pod-old"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(slotState("X")).isEqualTo("WORKING");
+
+    // 관찰이 아직 Pod 시작을 못 비친 상태(기준 없는 자리는 reported 가 늘 비어 있다) — 시작을 몰라도 같은 시계 근거로 거절이 이어진다(지적 ③).
+    setStartedAt(null);
+
+    // 4) 표시 잠금이 지난 뒤의 재시작 보고 — 표시 근거(290초)보다 늦어 회복하고, 저장으로 정체를 갈아끼운다(WP-2032).
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, newPodRaw, "pod-c"))
+        .andExpect(status().isOk());
+    assertThat(slotKeysOf(agent)).containsExactly("X");
+    assertThat(slotState("X")).isEqualTo("IDLE");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-b");
+    // 회복 ADOPT 도 표시를 다시 남기므로(adoptPodIdentity), 그 뒤 보고는 다시 60초 표시 잠금에 걸린다(WP-2032) — 근거도 새 값으로
+    // 갱신된다.
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-c");
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT)).isNotNull();
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW).toInstant())
+        .isEqualTo(newPodRaw.toInstant());
+    // 회복은 정체만 갈아끼울 뿐 기준(시각)은 그대로 비어 있다.
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    // 5) 갱신된 근거로 다시 — 갈아끼운 뒤엔 표시 근거(300초)보다 이른 옛 Pod 보고는 그대로 거절된다.
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(61));
+    report(key, slotReportWithIdentity("IDLE", "X", null, null, oldPodRaw, "pod-old"))
+        .andExpect(status().isOk());
+    assertThat(settingOf(agent).get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+    assertThat(slotState("X")).isEqualTo("IDLE");
   }
 }

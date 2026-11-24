@@ -101,7 +101,10 @@ public class AgentStatusReportService {
     // 다시 열리지 않는다. 시각 없는 관찰 자리에는 표시가 없어 막지 않는다 — 거기서는 새 Pod 의 정상 시각 보고를 ADOPT 로 받아야 한다(2차
     // 반려 ②). 표시가 선 자리의 정체가 정상 시각 보고를 MATCH 로 이어 보고 기준(reported_pod_started_at)을 채우면 표시·표시 시각을 함께
     // 지우고 일반 규칙(이른 정체 C1·시각 없는 거절)으로 돌아간다(3차 반려 ②) — 정체 없는 관찰이 started_at 을 되살려도 그 시작이 표시 시각보다
-    // 늦지 않으면 창은 그대로다(2차 반려 ①의 다른 순서). 정체를 이미 아는 구간의 거절은 그대로다(6차 반려 ① 교착 유지).
+    // 늦지 않으면 창은 그대로다(2차 반려 ①의 다른 순서). 기준 없이 밝힌 정체 자리의 재시작만 회복한다(WP-2032) — 그 밖의 정체를 아는 구간의
+    // 거절은 그대로다(6차 반려 ① 교착 유지).
+    // 그 회복에도 근거가 필요하다 — 표시를 남긴 그 보고의 걸리기 전 시작(같은 노드 시계)보다 늦을 때(「표시 정체보다 새 Pod」)에만 받는다
+    // (WP-2032 리뷰 반려 ①) — 근거 없는 회복은 60초 표시 잠금이 지난 뒤 죽은 옛 Pod 늦은 보고에 정체를 내어줘 영구 교착이 되풀이된다.
     PodIdentity identity =
         AgentRuntimeSlotRepository.podIdentity(
             req.podUid(),
@@ -109,7 +112,12 @@ public class AgentStatusReportService {
             before.previousPodUid(),
             pod,
             current,
-            clockSkewFiltered);
+            clockSkewFiltered,
+            before.basislessPodUid(),
+            // 걸리기 전 보고 값 — 표시 자리 회복(WP-2032)이 「표시 정체보다 새 Pod」라는 근거를 여기서 갖는다(WP-2032 리뷰 반려 ①).
+            req.podStartedAt(),
+            // 표시를 남긴 그 보고의 걸리기 전 시작 — 회복 근거를 같은 시계로 견보는 기준(WP-2032 리뷰 반려 ①).
+            before.basislessPodStartedRaw());
     // 5차 반려 ④: 낮은 generation 보고는 정체를 ADOPT 하지 않는다 — 몇 초만 살았던 옛 Pod 의 늦은 보고가 정체를 되돌리면(observed=옛
     // Pod,
     // previous=지금 Pod) 살아 있는 지금 Pod 가 영원히 previous 로 남아 이 뒤의 상태 보고가 계속 무시된다. 막힌 보고는 OTHER 로 바뀌어
@@ -139,7 +147,7 @@ public class AgentStatusReportService {
           key,
           req.podUid(),
           before.observedPodUid());
-      before = settings.adoptPodIdentity(before, req.podUid(), pod);
+      before = settings.adoptPodIdentity(before, req.podUid(), pod, req.podStartedAt());
       identity = PodIdentity.MATCH;
     }
     if (identity == PodIdentity.OTHER) {

@@ -1007,6 +1007,17 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
   }
 
   /**
+   * 기준 없는 ADOPT 표시를 남긴 서버 시각(basisless_marked_at)을 직접 맞춘다 — 표시 잠금의 60초 창(서버 시각 기준)을 재현하기 위해(WP-2026
+   * 3차 반려 ①). 테스트가 창 밖·창 안을 각각 재현할 수 있게 시간을 되돌린다.
+   */
+  private void setBasislessMarkedAt(OffsetDateTime markedAt) {
+    dsl.update(AGENT_RUNTIME_SETTING)
+        .set(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT, markedAt)
+        .where(AGENT_RUNTIME_SETTING.AGENT_USER_ID.eq(agent))
+        .execute();
+  }
+
+  /**
    * **지난** Pod(바로 앞 정체)의 OK 는 저장 없이 409 로 거절하고 차단 칸을 비우지 못한다(WP-1968 반려 ①) — 끝나는 중인 옛 Pod 의 늦은 OK 가
    * 지금 Pod 의 차단을 지우면 관리자 화면의 「오류」가 사라져 진입점 오류가 영영 안 보이게 되고, 지금은 204 라 호출하는 감독 회차(gw-boot)가 성공으로 알아채
    * 다시 보내지 않기 때문이다. 지금 정체와 **다른** 보고(재시작 직후 새 Pod)는 409 가 아니라 지금 Pod 로 받아진다 — 아래 {@code
@@ -1282,6 +1293,106 @@ class AgentPaneReportApiTest extends IntegrationTestBase {
     assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
     assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isNull();
     assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+  }
+
+  /**
+   * 기준 없이 밝힌 정체 자리에서 Pod 가 다시 뜨면(시계 이상 다른 정체) 204 로 받아 저장으로 회복한다(WP-2032) — 옛 runner 는 관찰에 podUid 를
+   * 싣지 않아 관찰 회복 경로가 없어, 이 자리에서는 새 Pod 의 재시작 보고가 영구 409 로 남아 진입점 차단이 풀리지 않았다. 표시 잠금(서버 시각 60초) 안에서는
+   * 여전히 근거가 있어도 409 로 막고(2단계), 지난 뒤에는 <b>표시를 남긴 그 보고의 걸리기 전 시작(같은 노드 시계)보다 늦을 때</b>만 정체를 갈아끼운다(4단계)
+   * — 6차 반려 ① 교착 방지 유지. 근거 없는 죽은 옛 Pod 늦은 보고는 잠금이 지난 뒤에도 409 로 막는다(3단계). 상태 보고와 같은 판정(podIdentity
+   * 회복 분기)이 양쪽 보고에서 쓰임을 함께 고정한다(WP-2032 리뷰 반려 ①).
+   *
+   * <p>값은 <b>노드 시계가 5분 빠른 상황</b>의 현실 값이다 — k8s 관찰한 시작(started_at)은 과거이고, 보고에 실린 Pod 시작(raw)만 노드 시계
+   * 때문에 미래다. 앞 리뷰는 시작 시각을 미래(now+60)로 두어 회복 근거 검사가 망가져도 테스트가 통과하는 문제를 잡았다(지적 ②).
+   */
+  @Test
+  void 기준_없이_밝힌_정체_자리의_재시작_칸_보고는_204로_받는다() throws Exception {
+    OffsetDateTime now = OffsetDateTime.now().withNano(0); // DB 는 마이크로초 저장(timestamp(6))
+    OffsetDateTime markRaw = now.plusSeconds(290); // pod-b: 실제 10초 전 시작
+    OffsetDateTime oldPodRaw = now.plusSeconds(230); // pod-old: 실제 70초 전 시작(표시보다 옛 Pod)
+    OffsetDateTime newPodRaw = now.plusSeconds(300); // pod-c: 실제 방금 시작
+
+    // 1) 시계 이상 첫 보고로 정체를 밝힌다 — 기준(시각)은 비어 있고 표시와 그 보고의 걸리기 전 시작만 남는다(WP-2026·WP-2032 리뷰 반려 ①).
+    setObservedPodUid(null);
+    setPreviousPodUid(null);
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"로그인 오류\",\"podUid\":\"pod-b\",\"podStartedAt\":\""
+                + markRaw
+                + "\"}")
+        .andExpect(status().isNoContent());
+    Record row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW).toInstant())
+        .isEqualTo(markRaw.toInstant());
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+
+    // 표시 잠금 창을 시각으로 고정한다 — 1번~2번 사이가 실수로 60초를 넘겨도 잠금이 풀리지 않게(관찰한 시작은 아직 없다).
+    setBasislessMarkedAt(now.minusSeconds(55));
+
+    // 2) 표시 잠금(60초) 안의 재시작 보고 — 근거가 있어도 409 로 막아 정체도 차단 사유도 갈아끼우지 않는다(barBasislessAdopt — 기존 방어
+    // 유지).
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podUid\":\"pod-c\",\"podStartedAt\":\""
+                + newPodRaw
+                + "\"}")
+        .andExpect(status().isConflict());
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+
+    // k8s 관찰한 지금 Pod 시작 — 과거 값이다(노드 시계 raw 와 다른 기준).
+    setPodIdentity("pod-b", null, now.minusSeconds(10));
+    // 표시 잠금 지난 뒤.
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(61));
+
+    // 3) 표시 잠금이 지난 뒤의 죽은 옛 Pod 늦은 보고 — 표시를 남긴 보고의 걸리기 전 시작(290초)보다 이르므로 근거가 없어 409 로 막는다
+    // (WP-2032 리뷰 반려 ①). 관찰한 시작이 과거(now-10)라 옛 검사(걸리기 전 raw ≥ 지금 시작)라면 늘 참이어서 정체를 가져갔을 값이다.
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"옛 Pod 사유\",\"podUid\":\"pod-old\",\"podStartedAt\":\""
+                + oldPodRaw
+                + "\"}")
+        .andExpect(status().isConflict());
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("로그인 오류");
+
+    // 관찰이 아직 Pod 시작을 못 비친 상태(기준 없는 자리는 reported 가 늘 비어 있다) — 시작을 몰라도 같은 시계 근거로 거절이 이어진다(지적 ③).
+    setPodIdentity("pod-b", null, null);
+
+    // 4) 표시 잠금이 지난 뒤의 재시작 보고 — 표시 근거(290초)보다 늦어 204 로 받아 저장으로 회복한다(WP-2032).
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"설정 오류\",\"podUid\":\"pod-c\",\"podStartedAt\":\""
+                + newPodRaw
+                + "\"}")
+        .andExpect(status().isNoContent());
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID)).isEqualTo("pod-b");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("설정 오류");
+    // 회복 ADOPT 도 표시를 다시 남기고 근거도 새 값으로 갱신한다(WP-2032).
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID)).isEqualTo("pod-c");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW).toInstant())
+        .isEqualTo(newPodRaw.toInstant());
+    // 시계 이상 시각은 기준으로 오르지 않는다(acceptedPodStart 가 없는 자리) — 회복은 정체만 갈아끼운다.
+    assertThat(row.get(AGENT_RUNTIME_SETTING.REPORTED_POD_STARTED_AT)).isNull();
+
+    // 5) 갱신된 근거로 다시 — 갈아끼운 뒤엔 표시 근거(300초)보다 이른 옛 Pod 보고는 그대로 409 로 막힌다.
+    setBasislessMarkedAt(OffsetDateTime.now().minusSeconds(61));
+    report(
+            key,
+            "{\"state\":\"BLOCKED\",\"message\":\"옛 Pod 사유\",\"podUid\":\"pod-old\",\"podStartedAt\":\""
+                + oldPodRaw
+                + "\"}")
+        .andExpect(status().isConflict());
+    row = settingOf();
+    assertThat(row.get(AGENT_RUNTIME_SETTING.OBSERVED_POD_UID)).isEqualTo("pod-c");
+    assertThat(row.get(AGENT_RUNTIME_SETTING.PANE_BLOCKED_MESSAGE)).isEqualTo("설정 오류");
   }
 
   /** 지금 정체·바로 앞 정체·지금 Pod 시작을 한 번에 심는다 — 재시작이 여러 번 지난 상황을 재현하기 위해(WP-1968 반려 C1). */

@@ -633,6 +633,28 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         return (OffsetDateTime) get(40);
     }
 
+    /**
+     * Setter for
+     * <code>public.agent_runtime_setting.basisless_pod_started_raw</code>.
+     * basisless_pod_uid 표시를 남긴 그 보고의 걸리기 전 Pod 시작(raw) — 회복 근거다. 표시 자리의 재시작
+     * 회복(WP-2032)은 새 보고의 걸리기 전 시작이 이 값보다 늦을 때만 받는다(같은 노드 시계). 표시와 함께 지워지고, 회복
+     * ADOPT 때 새 값으로 갱신된다. null 이면 마이그레이션 전 표시라 첫 회복 보고로 값을 세운다.
+     */
+    public void setBasislessPodStartedRaw(OffsetDateTime value) {
+        set(41, value);
+    }
+
+    /**
+     * Getter for
+     * <code>public.agent_runtime_setting.basisless_pod_started_raw</code>.
+     * basisless_pod_uid 표시를 남긴 그 보고의 걸리기 전 Pod 시작(raw) — 회복 근거다. 표시 자리의 재시작
+     * 회복(WP-2032)은 새 보고의 걸리기 전 시작이 이 값보다 늦을 때만 받는다(같은 노드 시계). 표시와 함께 지워지고, 회복
+     * ADOPT 때 새 값으로 갱신된다. null 이면 마이그레이션 전 표시라 첫 회복 보고로 값을 세운다.
+     */
+    public OffsetDateTime getBasislessPodStartedRaw() {
+        return (OffsetDateTime) get(41);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -656,7 +678,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
     /**
      * Create a detached, initialised AgentRuntimeSettingRecord
      */
-    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid, String agentReportedPodUid, OffsetDateTime agentReportedPodStartedAt, String paneBlockedPodUid, String basislessPodUid, OffsetDateTime basislessMarkedAt) {
+    public AgentRuntimeSettingRecord(Long tenantId, Long agentUserId, String templateName, String templateVersion, Long locationId, JSONB config, String desired, String applyMode, Long generation, Long observedGeneration, String phase, String observedMessage, Integer cpuMillicores, Long memoryBytes, OffsetDateTime startedAt, OffsetDateTime observedAt, String agentState, String agentIssueKey, OffsetDateTime agentNextCheckAt, OffsetDateTime agentReportedAt, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String[] agentIssueKeys, Boolean acceptNewWork, String runtimeImage, String runtimePluginVersion, Short slotLimit, String paneBlockedMessage, OffsetDateTime paneBlockedAt, Long paneBlockedGeneration, OffsetDateTime reportedPodStartedAt, OffsetDateTime paneBlockedPodStartedAt, Long failedGeneration, String observedPodUid, String previousPodUid, String agentReportedPodUid, OffsetDateTime agentReportedPodStartedAt, String paneBlockedPodUid, String basislessPodUid, OffsetDateTime basislessMarkedAt, OffsetDateTime basislessPodStartedRaw) {
         super(AgentRuntimeSetting.AGENT_RUNTIME_SETTING);
 
         setTenantId(tenantId);
@@ -700,6 +722,7 @@ public class AgentRuntimeSettingRecord extends UpdatableRecordImpl<AgentRuntimeS
         setPaneBlockedPodUid(paneBlockedPodUid);
         setBasislessPodUid(basislessPodUid);
         setBasislessMarkedAt(basislessMarkedAt);
+        setBasislessPodStartedRaw(basislessPodStartedRaw);
         resetTouchedOnNotNull();
     }
 }

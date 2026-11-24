@@ -86,6 +86,8 @@ public class AgentRuntimeSettingRepository {
       String basislessPodUid,
       /** 위 표시를 남긴 서버 시각(WP-2026 3차 반려 ①) — 노드 시계가 아니라 서버 시각으로 창을 잰다. */
       OffsetDateTime basislessMarkedAt,
+      /** 위 표시를 남긴 그 보고의 걸리기 전 Pod 시작(WP-2032 리뷰 반려 ①) — 표시 자리 회복의 **같은 시계** 근거. 표시와 함께 갱신·지워진다. */
+      OffsetDateTime basislessPodStartedRaw,
       OffsetDateTime observedAt,
       String agentState,
       String agentIssueKey,
@@ -135,6 +137,7 @@ public class AgentRuntimeSettingRepository {
         r.get(AGENT_RUNTIME_SETTING.PREVIOUS_POD_UID),
         r.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_UID),
         r.get(AGENT_RUNTIME_SETTING.BASISLESS_MARKED_AT),
+        r.get(AGENT_RUNTIME_SETTING.BASISLESS_POD_STARTED_RAW),
         r.get(AGENT_RUNTIME_SETTING.OBSERVED_AT),
         r.get(AGENT_RUNTIME_SETTING.AGENT_STATE),
         r.get(AGENT_RUNTIME_SETTING.AGENT_ISSUE_KEY),
@@ -604,9 +607,12 @@ public class AgentRuntimeSettingRepository {
    * @param podUid 보고가 밝힌 정체
    * @param podStartedAt 보고한 Pod 시작 시각(시계 이상이 이미 걸러진 값 — {@link
    *     AgentRuntimeSlotRepository#acceptedPodStart}). null 이면 기준 없는 ADOPT 다
+   * @param rawPodStartedAt 보고가 들고 온 Pod 시작을 <b>걸리기 전 그대로</b> — 표시 자리 회복의 같은 시계 근거 ({@link
+   *     Row#basislessPodStartedRaw}, WP-2032 리뷰 반려 ①). 걸리지 않은 보고면 그 값이 그대로다
    * @return 받아들인 뒤의 행(뒤의 판정·합치기가 이 행 기준으로 잇게)
    */
-  public Row adoptPodIdentity(Row before, String podUid, OffsetDateTime podStartedAt) {
+  public Row adoptPodIdentity(
+      Row before, String podUid, OffsetDateTime podStartedAt, OffsetDateTime rawPodStartedAt) {
     var s = AGENT_RUNTIME_SETTING;
     return dsl.update(s)
         .set(s.PREVIOUS_POD_UID, before.observedPodUid())
@@ -614,6 +620,9 @@ public class AgentRuntimeSettingRepository {
         .set(s.BASISLESS_POD_UID, podStartedAt == null ? podUid : null)
         // 표시 시각은 서버 시각으로 — 노드 시계(이 이슈의 원인)로 재면 같은 구멍이 난다(WP-2026 3차 반려 ①).
         .set(s.BASISLESS_MARKED_AT, podStartedAt == null ? DSL.currentOffsetDateTime() : null)
+        // 표시 자리 회복의 근거도 표시와 함께 — 걸리기 전 시작(raw)을 남겨, 다음 회복은 그 값과 같은 시계로 견준다(WP-2032 리뷰 반려 ①).
+        // 이 값이 없으면(마이그레이션 전 표시) 첫 회복 보고가 값을 세우는 데까지만 허용된다.
+        .set(s.BASISLESS_POD_STARTED_RAW, podStartedAt == null ? rawPodStartedAt : null)
         // 관찰이 비친 지금 Pod 시작은 기준 없는 ADOPT 에서도 건드리지 않는다(3차 반려 ③) — 이른 Pod 거절(C1)의 근거라서다.
         .set(
             s.STARTED_AT,
@@ -727,6 +736,7 @@ public class AgentRuntimeSettingRepository {
         // 기준이 채워지면 기준 없는 ADOPT 표시도 함께 지운다(WP-2026 3차 반려 ② — 표시는 기준 없을 때만 의미가 있다).
         .set(s.BASISLESS_POD_UID, (String) null)
         .set(s.BASISLESS_MARKED_AT, (OffsetDateTime) null)
+        .set(s.BASISLESS_POD_STARTED_RAW, (OffsetDateTime) null)
         .where(s.AGENT_USER_ID.eq(agentUserId))
         .execute();
   }
@@ -745,7 +755,8 @@ public class AgentRuntimeSettingRepository {
     // 기준을 실제로 채울 때만 표시를 지운다 — 비우는 호출(null)에서는 표시가 남아 짧은 창 방어를 그대로 쓴다(WP-2026 3차 반려 ②).
     if (podStartedAt != null) {
       step.set(s.BASISLESS_POD_UID, (String) null)
-          .set(s.BASISLESS_MARKED_AT, (OffsetDateTime) null);
+          .set(s.BASISLESS_MARKED_AT, (OffsetDateTime) null)
+          .set(s.BASISLESS_POD_STARTED_RAW, (OffsetDateTime) null);
     }
     step.where(s.AGENT_USER_ID.eq(agentUserId)).execute();
   }

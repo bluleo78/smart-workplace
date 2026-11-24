@@ -231,12 +231,20 @@ public class AgentRuntimeSlotRepository {
    *     되돌리지 않는다
    * @param previousPodUid 바로 앞에 알던 정체 — 보고의 정체가 여기 있으면 끝나는 중인 옛 Pod ({@link PodIdentity#OTHER})
    * @param reportedPodStartedAt 보고에 실은 그 Pod 시작 — ADOPT 를 가르는 데 쓴다. null 이면 첫 인식을 포함해 {@link
-   *     PodIdentity#OTHER}(2차 반려 ②·6차 반려 ①) 단, 시계 이상으로 걸러진 값이고 정체 미확정이면 {@link
-   *     PodIdentity#ADOPT}(WP-2026)
-   * @param currentPodStartedAt 지금 알던 Pod 시작 — 이보다 30초 넘게 이른 정체는 두 세대 넘게 지연된 옛 Pod ({@link
-   *     PodIdentity#OTHER})
+   *     PodIdentity#OTHER}(2차 반려 ②·6차 반려 ①) 단, 시계 이상으로 걸러진 값이고 정체 미확정이거나 기준 없이 밝힌 정체 자리의 재시작이면
+   *     {@link PodIdentity#ADOPT}(WP-2026·WP-2032)
+   * @param currentPodStartedAt 지금 알던 Pod 시작({@code max(started_at, reported_pod_started_at)}) — 이보다
+   *     30초 넘게 이른 정체는 두 세대 넘게 지연된 옛 Pod ({@link PodIdentity#OTHER})
    * @param clockSkewFiltered 보고 시각이 시계 이상으로 {@link #acceptedPodStart} 가 null 로 만든 값인지 — 보고에 시각은
    *     있었으나 서버보다 30초 넘게 앞선 경우와 애초에 시각이 없는 보고를 가르는 데 쓴다(WP-2026)
+   * @param basislessPodUid 기준 없이 밝힌 정체의 표시({@code basisless_pod_uid}) — 지금 관찰 정체와 <b>같은 자리</b>에서만
+   *     시계 이상으로 걸러진 재시작 보고를 {@link PodIdentity#ADOPT} 로 회복한다(WP-2032). 표시가 없는 자리면 null 을 명시적으로
+   *     넘긴다(규칙을 모르는 자리를 만들지 말라는 위 계약 — 표시 유무가 조용히 바뀌지 않게)
+   * @param rawReportedPodStartedAt 보고에 실린 Pod 시작을 <b>걸리기 전 그대로</b> 넘긴 값 — {@code acceptedPodStart}
+   *     로 걸러 진 뒤에는 null 이라 위 {@code reportedPodStartedAt} 에서는 회복 근거를 만들 수 없다. 걸리지 않은 보고면 그 값이 그대로다
+   * @param basislessPodStartedRaw 표시({@code basisless_pod_uid})를 남긴 그 보고의 걸리기 전 시작 — 회복이 이 값과 <b>같은
+   *     시계</b>로 견주게 하는 기준(WP-2032 리뷰 반려 ①). 위 {@code currentPodStartedAt} 은 서버 시각이라 걸리기 전 raw 와 견주면
+   *     늘 참이 된다. null 이면(마이그레이션 전 표시) 첫 회복 보고로 값을 세우는 데까지만 허용한다
    */
   public static PodIdentity podIdentity(
       String reportPodUid,
@@ -244,7 +252,10 @@ public class AgentRuntimeSlotRepository {
       String previousPodUid,
       OffsetDateTime reportedPodStartedAt,
       OffsetDateTime currentPodStartedAt,
-      boolean clockSkewFiltered) {
+      boolean clockSkewFiltered,
+      String basislessPodUid,
+      OffsetDateTime rawReportedPodStartedAt,
+      OffsetDateTime basislessPodStartedRaw) {
     // 빈 문자열(공백뿐인 문자열 포함)은 null 과 같은 뜻 — 「모른다」로 두어 시각 규칙으로 가르게 한다. 지금 Pod 이 비어 있는 정체를
     // 보냈는데 OTHER 로 보면 관찰 정체와 달라져 지금 Pod 의 보고가 거절되고, 빈 정체끼리면 MATCH 로 시각 검사 없이 받아진다.
     if (isNoIdentity(reportPodUid)) return PodIdentity.UNKNOWN;
@@ -264,16 +275,36 @@ public class AgentRuntimeSlotRepository {
     // 다시 ADOPT 하면 previous 가 그 옛 Pod 로 박혀 살아 있는 지금 Pod 는 영구 OTHER(상태 미저장·칸 409)가 된다(6차 반려 ①).
     // 관찰(약 60초)이 정체와 시작 시각을 함께 밝힌 뒤 MATCH 로 잇는다.
     if (reportedPodStartedAt == null) {
-      // 시계 이상으로 걸러진 값이고 정체 미확정(관찰·앞 정체 모두 비어 있음)이면 첫 ADOPT 를 허용한다 — 보고에 시각은 있었으나 서버보다
+      // ① 시계 이상으로 걸러진 값이고 정체 미확정(관찰·앞 정체 모두 비어 있음)이면 첫 ADOPT 를 허용한다 — 보고에 시각은 있었으나 서버보다
       // 30초 넘게 앞선 경우, 관찰 보고에 정체를 싣지 못하는 구 runner 는 회복 경로가 없어 이 조합에서만 새 Pod 가 영구 OTHER 가 됐다
       // (WP-2026). 이 ADOPT 는 기준 없이 정체만 갈아끼우므로 adoptPodIdentity 가 표시(basisless_pod_uid)와 그 표시 시각
       // (basisless_marked_at)을 함께 남기고, 두 보고 서비스는 그 표시를 보는 barBasislessAdopt 로 **서버 시각 60초 창 안에서만**
-      // 다른
-      // 정체의 ADOPT 를 막는다 — 「관찰 정체 있는데 기준 없음」 전체가 아니라 **기준 없이 밝힌 정체에 한정**해서다(WP-2026 리뷰 반려 ①·②:
-      // 시각 없는 관찰 자리에서는 새 Pod 의 정상 시각 보고를 그대로 ADOPT 로 받아야 한다). 창 밖·관찰이 표시 뒤에 생긴 시작을 비춤·표시 정체가
-      // 지금 정체와 달라지면 막지 않는다 — 표시 잠금이 특정 미래 사건 하나에만 걸려 영구 교착이 되지 않게(3차 반려 ①). 정체를 이미 아는 구간은
-      // 애초에 이 분기에도 들지 않는다(6차 반려 ① 교착 유지).
-      if (clockSkewFiltered && isNoIdentity(observedPodUid) && isNoIdentity(previousPodUid)) {
+      // 다른 정체의 ADOPT 를 막는다 — 「관찰 정체 있는데 기준 없음」 전체가 아니라 **기준 없이 밝힌 정체에 한정**해서다(WP-2026 리뷰 반려
+      // ①·②: 시각 없는 관찰 자리에서는 새 Pod 의 정상 시각 보고를 그대로 ADOPT 로 받아야 한다). 창 밖·관찰이 표시 뒤에 생긴 시작을
+      // 비춤·표시 정체가 지금 정체와 달라지면 막지 않는다 — 표시 잠금이 특정 미래 사건 하나에만 걸려 영구 교착이 되지 않게(3차 반려 ①).
+      // ② 정체 미확정은 아니지만 지금 관찰 정체가 기준 없이 밝힌 정체(표시)와 같은 자리면, 그 자리의 재시작 보고도 ADOPT 로 받는다
+      // (WP-2032) — 그 자리는 애초에 시각 기준 없이 정체만 박힌 곳이라 C1({@link #isOlderPod})이 판정할 근거가 없고, 같은 노드에서
+      // Pod 가 다시 뜨면 새 Pod 의 시계 이상 보고가 여기에 닿지 못해 영구 OTHER(상태 미저장·칸 409)가 됐다.
+      // **기준 없는 자리만** 허용하는 이유: 관찰·시각으로 확인된 정체 자리는 시계 이상 다른 정체를 ADOPT 로 받으면 살아 있는 Pod 가
+      // previous 로 박혀 6차 반려 ① 교착이 다시 열리고, 거기서는 관찰(약 60초)이 정체와 시각을 밝혀 MATCH 로 잇는 경로가 이미 있다.
+      // 교착이 유지되는 이유: 이 분기는 위 previous 매칭 뒤에 나오므로 살아 있는 옛 Pod 의 늦은 보고는 계속 OTHER 이고, 회복 ADOPT 도
+      // adoptPodIdentity 가 표시를 다시 남아 이후 보고의 barBasislessAdopt(서버 시각 60초 창)·barStaleAdopt(generation
+      // 검사)가 잇는다.
+      // 표시 잠금은 **표시 직후 60초 안의 도약만** 막고, 그 뒤의 회복은 표시를 지나 즉시 일어난다 — 즉 잠금이 교착을 넓게 지키는 근거가 아니라,
+      // 표시 직후 곧바로 갈아끼우는 도약만 막는 마지막 요소다. 오래 지난 뒤 도착한 죽은 Pod 의 시계 이상 보고는 정체를 갈아끼울 수 있다(WP-2032).
+      // **그 구멍은 회복 근거로 막는다**(WP-2032 리뷰 반려 ①) — 위 C1 은 걸러진 보고에 시각이 없어 판정하지 못하고, 첫 기준 없는 ADOPT 는
+      // previous 가 비어 있어 previous 매칭도 서지 않는다. 그래서 ② 는 표시를 남긴 그 보고의 <b>걸리기 전 시작</b>(같은 노드 시계의
+      // basisless_pod_started_raw)보다 늦는 — 곧 「표시 정체보다 새 Pod」라는 근거가 있을 때만 회복한다. 지금 알던 Pod 시작
+      // (currentPodStartedAt)과 견보면 안 된다 — 그 값은 서버 시각 이하이고 걸리기 전 raw 는 서버보다 30초 넘게 앞서 늘 참이기
+      // 때문이다(2차 반려 ①). 근거가 없으면(걸리기 전 값을 아직 모르거나, 보고가 그보다 이르면) OTHER 로 두어 관찰(새 runner)이 정체를
+      // 밝힌 뒤 MATCH 로 잇게 한다. 표시 정체가 지금 관찰 정체와 다른 자리(관찰이 갈아끼운 뒤)는 회복하지 않는다.
+      if (clockSkewFiltered
+          && isRecoverySpot(
+              observedPodUid,
+              previousPodUid,
+              basislessPodUid,
+              rawReportedPodStartedAt,
+              basislessPodStartedRaw)) {
         return PodIdentity.ADOPT;
       }
       return PodIdentity.OTHER;
@@ -282,6 +313,44 @@ public class AgentRuntimeSlotRepository {
     // 배포 직후에라도 started_at 을 그 옛 Pod 값으로 되돌린다. 이제 첫 인식도 시작 시각을 요구하므로(위, 시계 이상 필터는 위 null 분기에서만
     // 예외) 기준 없는 ADOPT 는 없다.
     return PodIdentity.ADOPT;
+  }
+
+  /**
+   * 시계 이상으로 걸러진 보고를 ADOPT 로 받을 수 있는 자리인지 — 둘뿐이다(WP-2026 · WP-2032). 정체 미확정 자리(관찰·앞 정체가 모두 비어 있어 첫
+   * ADOPT 를 허용하는 자리)와, 정체 미확정 자리에서 기준 없이 밝힌 정체가 지금 관찰 정체와 같은 자리의 재시작(그 자리는 애초에 시각 기준 없이 정체만 박혀 있어
+   * 회복할 자리). 관찰·시각으로 확인된 정체 자리는 여기에 넣지 않는다 — 그쪽은 시계 이상 다른 정체를 ADOPT 로 받으면 살아 있는 Pod 가 previous 로 박혀
+   * 6차 반려 ① 교착이 다시 열린다.
+   *
+   * <p><b>표시 자리(②)의 회복은 근거가 있을 때만</b>(WP-2032 리뷰 반려 ①) — 표시를 남긴 그 보고의 <b>걸리기 전</b> 시작(같은 노드 시계의
+   * {@code basisless_pod_started_raw})보다 이번 보고의 걸리기 전 시작이 늦을 때, 곧 「표시 정체보다 새 Pod 라는 근거」가 있을 때만 true
+   * 다. 지금 알던 Pod 시작({@code max(started_at, reported_pod_started_at)})과 견보는 것은 쓰지 않는다 — 그 값은 서버 시각
+   * 이하이고 시계 이상으로 걸러진 보고의 걸리기 전 시작은 서버보다 30초 넘게 앞서, 견보면 늘 참이라 근거가 없는 옛 Pod 보고도 통과하기 때문이다. 근거 없이 받으면
+   * 60초 표시 잠금이 지난 뒤 죽은 옛 Pod 늦은 시계 이상 보고가 정체를 가져가(시각이 없어 C1 도, 빈 previous 도 막지 못한다) 살아 있는 Pod 가
+   * previous 로 박혀 영구 OTHER/409 가 된다. 근거가 없으면 관찰(새 runner)이 정체와 시각을 밝힌 뒤 MATCH 로 잇는다. 정체 미확정 자리(①)는
+   * 이 근거를 요구하지 않는다 — 거기는 아직 밝힌 정체가 없어 옮겨갈 살아 있는 Pod 가 없다(WP-2026 그대로).
+   *
+   * @param observedPodUid 지금 관찰 중인 Pod 정체
+   * @param previousPodUid 바로 앞에 쓰던 Pod 정체
+   * @param basislessPodUid 기준 없이 ADOPT 로만 밝힌 정체({@code basisless_pod_uid}) — 없으면 null
+   * @param rawReportedPodStartedAt 이번 보고에 실린 시작 시각(걸리기 전 그대로) — 근거로 견볼 값
+   * @param basislessPodStartedRaw 표시를 남긴 그 보고의 걸리기 전 시작({@code basisless_pod_started_raw}) — 같은 시계
+   *     기준. null 이면 마이그레이션 전 표시라 첫 회복 보고로 값을 세우는 데까지만 허용한다
+   * @return 정체 미확정 자리이거나, 표시 자리의 재시작이며 근거가 있으면 true
+   */
+  private static boolean isRecoverySpot(
+      String observedPodUid,
+      String previousPodUid,
+      String basislessPodUid,
+      OffsetDateTime rawReportedPodStartedAt,
+      OffsetDateTime basislessPodStartedRaw) {
+    if (isNoIdentity(observedPodUid)) return isNoIdentity(previousPodUid);
+    // 근거: 표시를 남긴 보고의 걸리기 전 시작(같은 노드 시계)보다 이번 보고의 걸리기 전 시작이 늦은 것 — 이른 시작의 보고는 표시
+    // 정체보다 옛 Pod 다. 두 값이 모두 걸리기 전 raw 라 노드 시계끼리 견줄 수 있다.
+    boolean newerPod =
+        rawReportedPodStartedAt != null
+            && (basislessPodStartedRaw == null
+                || rawReportedPodStartedAt.isAfter(basislessPodStartedRaw));
+    return observedPodUid.equals(basislessPodUid) && newerPod;
   }
 
   /**

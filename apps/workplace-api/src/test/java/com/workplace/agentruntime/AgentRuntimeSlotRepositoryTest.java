@@ -429,28 +429,43 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
    */
   @Test
   void podIdentity_comparesAgainstCurrentAndPrevious() {
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "pod-a", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "pod-a", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.MATCH);
     assertThat(
-            AgentRuntimeSlotRepository.podIdentity("pod-a", "pod-a", "pod-old", null, null, false))
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "pod-a", "pod-old", null, null, false, null, null, null))
         .isEqualTo(PodIdentity.MATCH);
     // 재시작 직후 — 관찰이 아직 옛 정체를 가리키는 동안에도 새 Pod 의 첫 보고는 지금 Pod 로 받는다(①). 보고에 실은 Pod 시작(T2)이
     // 지금 알던 시작(T0)보다 늦어야만 받는다(C1 — 더 이른 정체는 두 세대 넘게 지연된 옛 Pod 라 받지 않는다).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-b", "pod-a", null, T2, T0, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", "pod-a", null, T2, T0, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     // 끝나는 중인 옛 Pod 의 늦은 보고 — 지금도 바로 앞도 아니라야 한다(지금 Pod 가 밝힌 정체를 곧바로 옛 Pod 로 뒤집지 않기 위해).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "pod-b", "pod-a", null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "pod-b", "pod-a", null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 아직 한 번도 관찰·보고받지 못함 — 시작 시각이 있으면 첫 인식으로 받되(⑥) 상태는 비우지 않도록 서비스가 따로 본다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", null, null, T2, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", null, null, T2, null, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     // 시각 없는 첫 보고는 ADOPT 하지 않는다(6차 반려 ①) — 아래 {@link
     // #podIdentity_firstIdentificationRequiresStart()} 참고.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", null, null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity(null, "pod-a", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                null, "pod-a", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
-    assertThat(AgentRuntimeSlotRepository.podIdentity(null, null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                null, null, null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
   }
 
@@ -464,26 +479,34 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void podIdentity_olderPodStartIsNotAdopted() {
     // 지금 Pod(pod-b, 시작 T2)를 아는 상태에서 두 세대 전 정체(pod-a, 시작 T0)의 늦은 보고가 온다 — 받아들이지 않는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "pod-b", "pod-c", T0, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "pod-b", "pod-c", T0, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 죽은 빠른 시계 Pod 가 기준을 25초 부풀려 둔 상태의 정상 새 Pod 보고 — 시계 차이 여유(30초) 안이라 그대로 받는다(2차 반려 ④).
     assertThat(
             AgentRuntimeSlotRepository.podIdentity(
-                "pod-new", "pod-b", null, T2.minusSeconds(25), T2, false))
+                "pod-new", "pod-b", null, T2.minusSeconds(25), T2, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     assertThat(
             AgentRuntimeSlotRepository.podIdentity(
-                "pod-new", "pod-b", null, T2.minusSeconds(31), T2, false))
+                "pod-new", "pod-b", null, T2.minusSeconds(31), T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 지금 알던 Pod 시작을 아직 모르면(비어 있음) 시각으로 견볼 수 없다 — 다만 **표시 없는 자리**(시각 없는 관찰 자리)에서는 새 Pod 의
     // 정상 시각 보고를 ADOPT 로 받는다(기존 동작, WP-2026 리뷰 반려 ②). 기준 없이 밝힌 정체 자리에서는 표시를 보는
     // barBasislessAdopt 가 막는다(아래 barBasislessAdopt_locksOnlyBasislessAdoptedIdentity).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, T0, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, T0, null, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     // 재시작 직후 새 Pod — 시작이 지금 알던 것보다 늦으면(같으면) 그대로 받는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, T2, T0, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, T2, T0, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, T2, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, T2, T2, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
   }
 
@@ -495,25 +518,38 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void podIdentity_timelessUnknownIdentityIsNotAdopted() {
     // 지금 정체를 아는 동안, 시작 시각 없는 모르는 정체는 버린다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, null, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, null, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 지금 Pod 시작도 모르는 경우(둘 다 없음)도 같다 — 정체를 아는 동안엔 시각 없는 정체를 믿지 않는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 보고에 시각이 있으면(걸러지지 않았으면) 그대로 ADOPT — 재시작 직후 새 Pod 가 관찰을 기다리지 않고 받아진다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, T2, T0, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, T2, T0, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     // 시각 없는 보고는 첫 인식(정체를 아직 모르던 경우)도 ADOPT 하지 않는다(6차 반려 ①) — 기준 없이 박힌 정체가
     // 그 뒤 옛 Pod 의 ADOPT 에 previous 로 남아 살아 있는 Pod 을 영구 OTHER 로 만들기 때문이다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, null, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 바로 앞 정체(끝나는 중 옛 Pod)·지금 정체는 시각과 무관하게 그대로(OTHER·MATCH).
     assertThat(
-            AgentRuntimeSlotRepository.podIdentity("pod-old", "pod-b", "pod-old", null, T2, false))
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-old", "pod-b", "pod-old", null, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-b", "pod-b", null, null, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", "pod-b", null, null, T2, false, null, null, null))
         .isEqualTo(PodIdentity.MATCH);
   }
 
@@ -525,19 +561,27 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void podIdentity_observedEmptyStillRejectsOlderPod() {
     // 관찰 전이어도 지금 알던 시작(T2)보다 30초 넘게 이른 정체(T0)는 옛 Pod — ADOPT 하지 않는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-old", null, null, T0, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-old", null, null, T0, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 같거나 늦은 시작은 첫 인식으로 그대로 받는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, T2, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, T2, T2, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     assertThat(
             AgentRuntimeSlotRepository.podIdentity(
-                "pod-new", null, null, T2.minusSeconds(25), T2, false))
+                "pod-new", null, null, T2.minusSeconds(25), T2, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
     // 시각이 없는 첫 보고는 첫 인식이어도 받지 않는다(6차 반려 ①) — isOlderPod 는 null 에서 거짓이라 시각 검사로는 걸리지 않는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, null, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
   }
 
@@ -550,23 +594,39 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void podIdentity_firstIdentificationRequiresStart() {
     // 정체를 아직 모르는 첫 보고 — 시작 시각이 없으면 ADOPT 하지 않는다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-b", null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", null, null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-b", null, null, null, T2, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", null, null, null, T2, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
     // 시작 시각이 있으면 첫 인식으로 그대로 받는다(정체가 과거로 박히지 않는다).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-b", null, null, T2, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", null, null, T2, null, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-b", null, null, T2, T0, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", null, null, T2, T0, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
 
     // 교착 흐름 — 시각 없는 첫 보고는 정체를 못 박지 않으므로, 그 뒤 옛 Pod A 의 보고가 첫 인식이 되어 previous 가 비어 있다.
     Row first = settings.find(agent).orElseThrow();
     assertThat(
             AgentRuntimeSlotRepository.podIdentity(
-                "pod-b", first.observedPodUid(), first.previousPodUid(), null, null, false))
+                "pod-b",
+                first.observedPodUid(),
+                first.previousPodUid(),
+                null,
+                null,
+                false,
+                null,
+                null,
+                null))
         .isEqualTo(PodIdentity.OTHER);
-    Row adoptedA = settings.adoptPodIdentity(first, "pod-a", T0);
+    Row adoptedA = settings.adoptPodIdentity(first, "pod-a", T0, null);
     assertThat(adoptedA.previousPodUid()).isNull();
 
     // 살아 있는 B 가 시각과 함께 보고한다 — previous 가 A 라 교착 없이 ADOPT 로 정체를 되찾는다.
@@ -577,9 +637,12 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
                 adoptedA.previousPodUid(),
                 T2,
                 adoptedA.startedAt(),
-                false))
+                false,
+                null,
+                null,
+                null))
         .isEqualTo(PodIdentity.ADOPT);
-    Row alive = settings.adoptPodIdentity(adoptedA, "pod-b", T2);
+    Row alive = settings.adoptPodIdentity(adoptedA, "pod-b", T2, null);
     assertThat(alive.observedPodUid()).isEqualTo("pod-b");
     assertThat(alive.previousPodUid()).isEqualTo("pod-a");
     assertThat(
@@ -589,7 +652,10 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
                 alive.previousPodUid(),
                 T2,
                 alive.startedAt(),
-                false))
+                false,
+                null,
+                null,
+                null))
         .isEqualTo(PodIdentity.MATCH);
     assertThat(
             AgentRuntimeSlotRepository.podIdentity(
@@ -598,7 +664,10 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
                 alive.previousPodUid(),
                 T0,
                 alive.startedAt(),
-                false))
+                false,
+                null,
+                null,
+                null))
         .isEqualTo(PodIdentity.OTHER);
   }
 
@@ -609,45 +678,150 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
    */
   @Test
   void podIdentity_blankTreatedAsUnknown() {
-    assertThat(AgentRuntimeSlotRepository.podIdentity("", "pod-a", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "", "pod-a", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "", null, T0, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "", null, T0, null, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "", null, null, T0, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "", null, null, T0, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("", "", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "", "", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
-    assertThat(AgentRuntimeSlotRepository.podIdentity(" ", "pod-a", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                " ", "pod-a", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "\t\n", null, T0, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "\t\n", null, T0, null, false, null, null, null))
         .isEqualTo(PodIdentity.ADOPT);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "\t\n", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "\t\n", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("  ", "  ", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "  ", "  ", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
     // 공백이 아닌 실제 정체끼리의 판정은 그대로다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "pod-a", null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "pod-a", null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.MATCH);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("", null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "", null, null, null, null, false, null, null, null))
         .isEqualTo(PodIdentity.UNKNOWN);
   }
 
   /**
    * 시계 이상으로 걸러진 시각의 정체 미확정 첫 보고만 ADOPT 로 받는다(WP-2026) — 보고에 시각은 있었으나 서버보다 30초 넘게 앞선 경우, 관찰 보고에 정체를
-   * 싣지 못하는 구 runner 는 회복 경로가 없어 이 조합에서만 새 Pod 가 영구 OTHER 가 됐다. 정체를 이미 아는 구간은 그대로 거절한다(6차 반려 ① 교착
-   * 유지).
+   * 싣지 못하는 구 runner 는 회복 경로가 없어 이 조합에서만 새 Pod 가 영구 OTHER 가 됐다. 정체를 이미 아는 구간(표시 없는 자리는)도 그대로 거절한다(6차
+   * 반려 ① 교착 유지).
    */
   @Test
   void podIdentity_clockSkewedFirstIdentificationIsAdopted() {
     // 정체 미확정(관찰·앞 정체 모두 비어 있음) + 시계 이상으로 걸러진 시각 → 첫 ADOPT 를 허용한다(WP-2026).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, null, null, true))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, null, true, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.ADOPT);
-    // 정체를 이미 아는 구간은 그대로 거절한다(6차 반려 ① 교착 유지).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", "pod-b", null, null, null, true))
+    // 정체를 이미 아는 구간(표시 없는 자리는)도 그대로 거절한다(6차 반려 ① 교착 유지).
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", "pod-b", null, null, null, true, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.OTHER);
     // 앞 정체가 비어 있지 않아도 정체 미확정이 아니다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, "pod-old", null, null, true))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, "pod-old", null, null, true, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.OTHER);
+  }
+
+  /**
+   * 기준 없이 밝힌 정체 자리의 재시작 보고는 시계 이상이어도 ADOPT 로 받는다(WP-2032) — 정체 미확정 자리에서 기준 없이 ADOPT 된 정체를 아는 자리로 바뀐
+   * 뒤, 같은 노드에서 Pod 가 다시 뜨면 새 Pod 의 보고(시계가 앞서 걸러진)가 정체 미확정 분기에 닿지 않아 영구 OTHER 가 됐다. 살아 있는 Pod 를
+   * previous 로 박히게 하는 6차 반려 ① 교착은 회복 근거(표시 근거 `basisless_pod_started_raw` 보다 늦는 걸리기 전 시작)·표시
+   * 잠금(60초)·previous 매칭·generation 검사가 그대로 막는다.
+   */
+  @Test
+  void podIdentity_clockSkewedRestartAfterBasislessAdoptIsAdopted() {
+    // 관찰 정체가 기준 없이 밝힌 정체인 자리 + 시계 이상 다른 정체 + 표시 근거(T1)보다 늦는 걸리기 전 시작(T2)이라는 근거 → ADOPT(WP-2032).
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, T0, true, "pod-b", T2, T1))
+        .isEqualTo(PodIdentity.ADOPT);
+    // 기준 없는 표시가 없는 자리(관찰·시각으로 확인된 정체)는 그대로 거절한다(6차 반려 ① 유지).
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, T0, true, null, T2, null))
+        .isEqualTo(PodIdentity.OTHER);
+    // 표시 정체가 지금 정체와 다르면(관찰이 갈아끼운 뒤) 거절한다.
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, T0, true, "pod-x", T2, T1))
+        .isEqualTo(PodIdentity.OTHER);
+    // 바로 앞 정체(previous)의 늦은 보고는 위 매칭 분기에서 먼저 거절된다.
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-b", "pod-c", "pod-b", null, T0, true, "pod-c", T2, T1))
+        .isEqualTo(PodIdentity.OTHER);
+    // 시계 이상이 아니면(정상 시각) 새 조건과 무관하다 — ADOPT 가 아니라 기존 규칙(C1·시각 없음 거절).
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, T0, false, "pod-b", T2, T1))
+        .isEqualTo(PodIdentity.OTHER);
+  }
+
+  /**
+   * 표시 자리의 회복은 「표시 정체보다 새 Pod 라는 근거」가 있을 때만 — 60초 표시 잠금이 지난 뒤 죽은 옛 Pod 늦은 시계 이상 보고가 정체를 가져가 살아 있는
+   * Pod 가 previous 로 박혀 영구 OTHER/409 가 되던 경로를 막는다(WP-2032 리뷰 반려 ①). 시각이 없어 C1 도, 첫 기준 없는 ADOPT 후라
+   * 비어 있는 previous 도 그 보고를 막지 못한다 — 그래서 <b>표시를 남긴 그 보고의 걸리기 전 시작(같은 노드 시계)</b>으로만 가른다. 지금 알던 Pod
+   * 시작(max(started_at, reported))과 견보면 그 값은 서버 시각 이하이고 걸리기 전 raw 는 서버보다 30초 넘게 앞서 검사가 늘 참이기 때문이다(2차
+   * 반려 ①).
+   */
+  @Test
+  void podIdentity_basislessRestartNeedsNewerPodEvidence() {
+    // 표시를 남긴 보고의 걸리기 전 시작(T1) — 회복 근거 기준. 표시 정체(pod-b) 자리의 재시작 보고들.
+    // 회복하지 않는다 — 보고가 들고 온 걸리기 전 시작(T1)이 표시 근거(T2)보다 이르므로 표시 정체보다 옛 Pod 다.
+    // 지금 알던 시작(T0)은 훨씬 이르므로 옛 검사(걸리기 전 raw ≥ 지금 시작)라면 늘 참이어도 통과했을 값이다(2차 반려 ① 회귀 방지).
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-old", "pod-b", null, null, T0, true, "pod-b", T1, T2))
+        .isEqualTo(PodIdentity.OTHER);
+    // 지금 알던 시작을 모르고(관찰이 아직 started_at 을 비춤 — 기준 없는 자리는 reported 가 늘 비어 있다)도 같은 시계 근거로 막는다.
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-old", "pod-b", null, null, null, true, "pod-b", T1, T2))
+        .isEqualTo(PodIdentity.OTHER);
+    // 회복한다 — 보고가 들고 온 걸리기 전 시작(T2)이 표시 근거(T1)보다 늦으므로 「표시 정체보다 새 Pod」다. 지금 알던 시작을 모르는
+    // 동안에도 회복한다(지적 ③) — 시작을 모르는 동안 새 Pod 보고가 영구 OTHER/409 로 남지 않는다.
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, null, true, "pod-b", T2, T1))
+        .isEqualTo(PodIdentity.ADOPT);
+    // 보고에 걸리기 전 시각 자체가 없으면 회복하지 않는다(근거를 만들 수 없다).
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, T0, true, "pod-b", null, T1))
+        .isEqualTo(PodIdentity.OTHER);
+    // 표시가 마이그레이션 전 것이라 근거 칸이 비어 있으면, 첫 회복 보고로 근거를 세우고 그 보고를 받는다 — 그 뒤부터는 같은 시계로 견준다.
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-c", "pod-b", null, null, null, true, "pod-b", T2, null))
+        .isEqualTo(PodIdentity.ADOPT);
+    // 정체 미확정 자리(WP-2026 ①)는 근거를 요구하지 않는다 — 아직 밝힌 정체가 없어 옮겨갈 살아 있는 Pod 가 없다.
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, T2, true, null, T2, null))
+        .isEqualTo(PodIdentity.ADOPT);
   }
 
   /**
@@ -679,13 +853,27 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     // 5. 두 보고 서비스는 이 헬퍼를 podIdentity 판정 바로 다음에 건다 — 시계 이상 첫 ADOPT(표시 남길 자리)에서 실제로 막히는 조합인지 잇는다.
     assertThat(
             lock(
-                AgentRuntimeSlotRepository.podIdentity("pod-old", "pod-b", null, T0, null, false),
+                AgentRuntimeSlotRepository.podIdentity(
+                    "pod-old", "pod-b", null, T0, null, false, null, null, null),
                 "pod-b",
                 T0,
                 null,
                 null,
                 null,
                 T0))
+        .isEqualTo(PodIdentity.OTHER);
+    // 6. 회복 근거를 갖춘 표시 자리 재시작(ADOPT)도 창 안에서는 막는다 — 근거 검사와 표시 잠금이 서로 다른 두 방어라는 것을 잇는다
+    // (WP-2032 리뷰 반려 ①).
+    assertThat(
+            lock(
+                AgentRuntimeSlotRepository.podIdentity(
+                    "pod-c", "pod-b", null, null, T0, true, "pod-b", T2, null),
+                "pod-b",
+                T0,
+                null,
+                null,
+                null,
+                T0.plusSeconds(59)))
         .isEqualTo(PodIdentity.OTHER);
   }
 
@@ -757,7 +945,9 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void podIdentity_timelessReportWithoutClockSkewIsStillNotAdopted() {
     // 시계 이상이 아니라 애초에 시각이 없는 보고는 6차 반려 ① 대로 거절한다(WP-2026).
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-new", null, null, null, null, false))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-new", null, null, null, null, false, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.OTHER);
   }
 
@@ -768,12 +958,18 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void podIdentity_clockSkewFlagDoesNotBypassOtherRules() {
     // 걸러진 시각이어도 앞 정체 매칭·정체 일치·이른 시작은 그대로 판정한다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-old", null, "pod-old", null, T2, true))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-old", null, "pod-old", null, T2, true, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.OTHER);
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", "pod-a", null, T2, null, true))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", "pod-a", null, T2, null, true, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.MATCH);
     // 이른 시작(T1 은 지금 기준 T2 보다 30초 넘게 이르다)도 플래그와 무관하게 먼저 OTHER 로 막힌다.
-    assertThat(AgentRuntimeSlotRepository.podIdentity("pod-a", null, null, T1, T2, true))
+    assertThat(
+            AgentRuntimeSlotRepository.podIdentity(
+                "pod-a", null, null, T1, T2, true, null, null, null))
         .isEqualTo(AgentRuntimeSlotRepository.PodIdentity.OTHER);
   }
 
@@ -1044,7 +1240,7 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
   @Test
   void updateObserved_adoptedIdentityIsNotDemotedByOlderPodObservation() {
     // 배포 직후 — 정체가 아직 비어 있다. 새 Pod B 의 첫 보고가 ADOPT 로 정체를 밝힌다(previous 는 비어 있고 시작만 B 의 것으로 바뀐다).
-    Row adopted = settings.adoptPodIdentity(settings.find(agent).orElseThrow(), "pod-b", T2);
+    Row adopted = settings.adoptPodIdentity(settings.find(agent).orElseThrow(), "pod-b", T2, null);
     assertThat(adopted.observedPodUid()).isEqualTo("pod-b");
     assertThat(adopted.previousPodUid()).isNull();
 
@@ -1058,7 +1254,15 @@ class AgentRuntimeSlotRepositoryTest extends IntegrationTestBase {
     // 뒤집혔다면 B 의 보고는 OTHER 로 영구 교착 — 정체가 그대로라 MATCH 로 이어진다.
     assertThat(
             AgentRuntimeSlotRepository.podIdentity(
-                "pod-b", row.observedPodUid(), row.previousPodUid(), T2, row.startedAt(), false))
+                "pod-b",
+                row.observedPodUid(),
+                row.previousPodUid(),
+                T2,
+                row.startedAt(),
+                false,
+                null,
+                null,
+                null))
         .isEqualTo(PodIdentity.MATCH);
     // 걸러낸 게 아니라 행이 아예 없다는 뜻이 아님을 — B 의 관찰은 그대로 받아진다.
     assertThat(observeWithUid(T2, "pod-b")).containsKey(agent);
