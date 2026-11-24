@@ -166,11 +166,26 @@ export function NodePanel({ yaml, graph, nodeKey, readOnly, onChange, onClose }:
   if (rows !== rowIds) setRowIds(rows)
   // 좁은 폭에서는 패널이 캔버스 아래로 쌓여 뷰포트 바깥(이슈 재현: y 855 / 뷰포트 844)에 열릴 수 있다 —
   // 그 자리에서는 아무 일도 안 일어난 것처럼 보여 노드를 누른 것이 티가 나지 않는다.
-  // 패널이 열릴 때(nodeKey 바뀜 — 부모가 key 로 다시 그리므로 새로 마운트될 때마다) 보이는 자리로 스크롤한다.
-  // block: 'nearest' 라 이미 보이는 패널은 움직이지 않는다(넓은 폭의 나란한 배치는 영향 없음).
+  // 패널이 열릴 때(nodeKey 바뀜 — 부모가 key 로 다시 그리므로 새로 마운트될 때마다) 머리 줄만 보이는 자리로 스크롤한다.
+  //
+  // - 머리 줄만 맞추는 까닭: 패널 전체를 맞추면 짧은 화면(390×664)에서는 nearest 가 패널 높이를 모두 끌어당려
+  //   방금 누른 노드가 위로 밀려 사라진다. 머리 줄(아이콘·이름·닫기)이 보이면 그 자리에서 편집을 이어갈 수 있다.
+  // - 세로로 쌓였거나 머리 줄이 뷰포트 밖일 때만 도는 까닭: 넓은 폭의 나란한 배치에서 마운트마다 페이지를
+  //   내리면, 그래프가 화면 아래로 잘린 채 노드를 누를 때 노드가 커서 밑으로 밀려 움직인다(지적 1).
   const panelRef = useRef<HTMLElement>(null)
   useEffect(() => {
-    panelRef.current?.scrollIntoView({ block: 'nearest' })
+    const panel = panelRef.current
+    if (!panel) return
+    // 머리 줄 — 패널의 첫 자식(노드 종류 아이콘·이름 입력·닫기 단추가 있는 줄)
+    const head = panel.firstElementChild
+    if (!(head instanceof HTMLElement)) return
+    const headBox = head.getBoundingClientRect()
+    const headOutside = headBox.top < 0 || headBox.bottom > window.innerHeight
+    // 배치는 부모 flex 방향으로 본다 — @3xl 이상이면 캔버스 오른쪽(가로), 그 아래는 세로로 쌓임
+    const parent = panel.parentElement
+    const stacked = parent !== null && getComputedStyle(parent).flexDirection === 'column'
+    if (!stacked && !headOutside) return
+    head.scrollIntoView({ block: 'nearest' })
   }, [nodeKey])
   if (!detail) return null
   const patch = (p: Parameters<typeof updateNode>[2]) => onChange(updateNode(yaml, nodeKey, p))
@@ -181,11 +196,12 @@ export function NodePanel({ yaml, graph, nodeKey, readOnly, onChange, onClose }:
 
   return (
     // 좁으면 폭 전체로 아래에 쌓이고(세로로 쌓일 때는 선이 패널 위쪽, 곧 캔버스 바로 아래에 놓이고 가로일 때는 왼쪽 경계가 된다), @3xl 이상에서만 지금처럼 캔버스 오른쪽 18rem — 판단 기준은 부모 @container(뷰포트 아님)
-    // 세로로 쌓일 때는 높이를 60vh 로 막아 overflow-y-auto 가 안쪽에서 돈다 — 막지 않으면 패널이 늘어날 때마다 페이지가 아래로 길어져 스크롤이 두 겹이 된다.
+    // 세로로 쌓일 때는 높이를 60dvh 로 막아 overflow-y-auto 가 안쪽에서 돈다 — 막지 않으면 패널이 늘어날 때마다 페이지가 아래로 길어져 스크롤이 두 겹이 된다.
+    // dvh 로 잰 까닭: 60vh 는 모바일 주소창이 늘어나는 동안 화면보다 커 패널 바닥이 잘릴 수 있다(주소창 높이를 안 반영하는 vh 는 짧은 화면 경계에서 어긋난다).
     <aside
       ref={panelRef}
       aria-label="노드 편집"
-      className="flex max-h-[60vh] w-full shrink-0 flex-col overflow-y-auto border-t bg-card text-sm @3xl:max-h-none @3xl:w-72 @3xl:border-t-0 @3xl:border-l"
+      className="flex max-h-[60dvh] w-full shrink-0 flex-col overflow-y-auto border-t bg-card text-sm @3xl:max-h-none @3xl:w-72 @3xl:border-t-0 @3xl:border-l"
     >
       <div className="flex items-center gap-2 p-3">
         <NodeKindIcon type={detail.type} />
