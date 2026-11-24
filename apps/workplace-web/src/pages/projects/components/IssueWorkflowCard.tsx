@@ -88,7 +88,7 @@ function RecoverActions({
   projectKey: string
   run: IssueWorkflowView
   isManager: boolean
-  /** 게시 버전 모델 — 못 읽었으면 undefined(그래도 다시 시도·실행 취소는 보낼 수 있다). */
+  /** 실행이 고정한 버전(run.versionNo)의 모델 — 못 읽었으면 undefined(그래도 다시 시도·실행 취소는 보낼 수 있다). */
   model: WorkflowModel | undefined
 }) {
   // 창을 열 때의 revision — null 이면 닫힘.
@@ -118,9 +118,9 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
   const editable = canEdit && !closed
   const workflowId = run?.workflowId ?? null
   const versionNo = run?.versionNo ?? null
-  // 남은 단계 이름 — 게시 버전 모델의 노드 이름. 못 읽으면 키 그대로 보인다.
+  // 남은 단계 이름 — 실행이 고정한 버전(run.versionNo)의 모델의 노드 이름. 못 읽으면 키 그대로 보인다.
   const version = useWorkflowVersion(workflowId ?? 0, workflowId != null ? versionNo : null)
-  // 게시 버전 모델의 노드(키·이름) — 남은 단계 이름과 「옮기기」 후보에 쓴다. 모델이 바뀔 때만 다시 만든다.
+  // 실행이 고정한 버전(run.versionNo)의 모델의 노드(키·이름) — 남은 단계 이름과 「옮기기」 후보에 쓴다. 모델이 바뀔 때만 다시 만든다.
   const nodes = useMemo(
     () => (version.data?.model.nodes ?? []).map((n) => ({ key: n.key, name: n.name ?? n.key })),
     [version.data],

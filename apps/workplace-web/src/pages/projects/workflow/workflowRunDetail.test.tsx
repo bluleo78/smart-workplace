@@ -90,6 +90,33 @@ describe('실행 상세', () => {
     expect(await screen.findByText('빌드가 깨졌습니다')).toBeVisible()
   })
 
+  it('suspendedBanner_closedFailedVisit_showsItsError', async () => {
+    // 연쇄 한도 초과 — 서버가 이미 닫힌 FAILED 방문을 써서 열린 방문이 없다 (WP-1991 리뷰 후속).
+    const d = detail('SUSPENDED')
+    d.nodeRuns[1] = visit(2, 'b', '검토', { status: 'FAILED', error: '연쇄 한도 초과: 같은 노드를 너무 많이 지났습니다' })
+    setup(d)
+    expect(await screen.findByText('연쇄 한도 초과: 같은 노드를 너무 많이 지났습니다')).toBeVisible()
+    expect(screen.queryByText('멈춘 이유가 기록되지 않았습니다')).toBeNull()
+  })
+
+  // 가장 늦은 방문이 정상으로 끝난 앞 회차 방문이면 그 낡은 사유를 이번 멈춤의 이유로 쓰지 않는다 (WP-1991 리뷰 후속).
+  it('suspendedBanner_latestVisitCompleted_noStaleReason', async () => {
+    const d = detail('SUSPENDED')
+    d.nodeRuns[1] = visit(2, 'b', '검토', { status: 'COMPLETED', error: '지난번 사유' })
+    setup(d)
+    expect(await screen.findByText('멈춘 이유가 기록되지 않았습니다')).toBeVisible()
+    expect(screen.queryByText('지난번 사유')).toBeNull()
+  })
+
+  // 닫힌 방문으로 대신 찾는 것은 SUSPENDED 일 때뿐이다 — 사람 차례(WAITING)에 지금 노드의 방문이 닫혀 있으면 그 담당을 보이지 않는다.
+  it('waitingBanner_closedLatestVisit_showsNoAssignees', async () => {
+    const d = detail('WAITING')
+    d.nodeRuns[1] = visit(2, 'b', '검토', { status: 'FAILED', assignees: [park] })
+    setup(d, { meId: 1 })
+    expect(await screen.findByText('담당:')).toBeVisible()
+    expect(screen.queryByText('담당: 박')).toBeNull()
+  })
+
   it('suspendedBanner_recoverActions_managerOnlyMoveTo', async () => {
     const first = setup(detail('SUSPENDED', { status: 'BLOCKED', error: 'x' }))
     await first.user.click(await screen.findByRole('button', { name: '조치 고르기' }))

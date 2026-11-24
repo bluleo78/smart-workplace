@@ -22,7 +22,7 @@ interface Props {
   revision: number
   /** 지금 멈춘 노드 — onError 유무와 옮기기 후보 제외에 쓴다. 버전 모델을 못 읽었으면 undefined(오류 경로 숨김). */
   currentNode: WorkflowModelNode | undefined
-  /** 게시 버전 모델 — 못 읽었으면 undefined. 그때는 다시 시도·실행 취소만 가능하고 옮기기 자리에 안내가 보인다. */
+  /** 실행이 고정한 버전(run.versionNo)의 모델 — 못 읽었으면 undefined. 그때는 다시 시도·실행 취소만 가능하고 옮기기 자리에 안내가 보인다. */
   model: WorkflowModel | undefined
   /** 프로젝트 관리 권한 — 「다른 노드로 옮기기」는 관리자만. */
   canManage: boolean
