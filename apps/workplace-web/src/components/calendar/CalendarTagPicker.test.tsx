@@ -52,6 +52,11 @@ describe('CalendarTagPicker 저장 줄 세우기', () => {
     mutateAsync.mockClear()
   })
 
+  it('열면 팝오버(role=dialog)에 「태그 선택」 이름이 있다(WP-2067)', () => {
+    renderPicker()
+    expect(screen.getByRole('dialog', { name: '태그 선택' })).toBeInTheDocument()
+  })
+
   it('첫 PUT 이 끝나기 전 연달아 체크하면 마지막 선택만 이어서 보낸다(요청 2번)', async () => {
     renderPicker()
     fireEvent.click(box('A'))

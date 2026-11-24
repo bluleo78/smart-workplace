@@ -137,6 +137,8 @@ describe('이슈 상세 — OPEN reporter(비멤버)', () => {
     const hint = screen.getByTestId('issue-workflow-locked-hint')
     expect(hint).toHaveTextContent(/^멤버만 변경$/)
     await user.click(hint)
+    // WP-2067 — 안내 팝오버는 「변경 권한 안내」 대화상자로 읽힌다.
+    expect(await screen.findByRole('dialog', { name: '변경 권한 안내' })).toBe(await screen.findByTestId('issue-workflow-locked-popover'))
     expect(await screen.findByTestId('issue-workflow-locked-popover')).toHaveTextContent(
       '이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요. 바꿔야 하면 코멘트로 알려 주세요.',
     )

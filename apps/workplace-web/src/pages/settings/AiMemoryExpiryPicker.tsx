@@ -68,7 +68,7 @@ export function AiMemoryExpiryPicker({ value, onChange, testId, variant = 'field
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger()}</PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-2" data-testid={`${testId}-popover`}>
+      <PopoverContent aria-label="만료 기한 선택" align="start" className="w-auto p-2" data-testid={`${testId}-popover`}>
         <div className="flex gap-1 pb-2">
           {expiryQuickPicks(today, variant === 'field').map((q) => (
             <Button

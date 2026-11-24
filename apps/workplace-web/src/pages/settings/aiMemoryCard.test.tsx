@@ -428,6 +428,8 @@ describe('기한 (WP-380)', () => {
     await user.click(inRow(rows()[0]).getByTestId('ai-memory-edit'))
     expect(screen.getByTestId('ai-memory-edit-expiry')).toHaveTextContent('기한 없음')
     await user.click(screen.getByTestId('ai-memory-edit-expiry'))
+    // WP-2067 — 기한 팝오버는 「만료 기한 선택」 대화상자로 읽힌다.
+    expect(await screen.findByRole('dialog', { name: '만료 기한 선택' })).toBeInTheDocument()
     // data-day 는 day.date.toLocaleDateString()(en-US) — 어제는 막히고 내일은 열린다.
     await waitFor(() => expect(document.querySelector('button[data-day="10/13/2026"]')).toBeInTheDocument())
     expect(document.querySelector('button[data-day="10/13/2026"]')).toBeDisabled()

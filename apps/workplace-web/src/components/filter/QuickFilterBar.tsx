@@ -137,7 +137,7 @@ function QuickChip({
           </button>
         )}
       </div>
-      <PopoverContent className="w-64 p-2" align="start">
+      <PopoverContent className="w-64 p-2" align="start" aria-label={`${facet.label} 선택`}>
         <QuickFacetPanel facet={facet} selected={selected} onToggle={onToggle} onClear={onClear} />
       </PopoverContent>
     </Popover>
@@ -170,7 +170,7 @@ function MoreButton({ q, value }: { q: ReturnType<typeof useQuickFilter>; value:
           <Plus className="size-3.5" aria-hidden />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start">
+      <PopoverContent className="w-64 p-2" align="start" aria-label="필터 항목 선택">
         {active ? (
           <div className="space-y-1">
             <button

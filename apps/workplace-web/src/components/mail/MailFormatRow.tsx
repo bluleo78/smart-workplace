@@ -289,7 +289,7 @@ export function MailFormatRow({ editor, layout, id }: { editor: Editor; layout: 
             <Table />
           </TriggerButton>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-auto p-0" onCloseAutoFocus={keepEditorFocus}>
+        <PopoverContent align="start" aria-label="표 크기 선택" className="w-auto p-0" onCloseAutoFocus={keepEditorFocus}>
           <MailTableGridPicker
             max={MAIL_TABLE_GRID_MAX[layout]}
             touch={false}

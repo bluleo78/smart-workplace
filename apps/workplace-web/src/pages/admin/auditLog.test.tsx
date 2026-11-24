@@ -144,6 +144,8 @@ test('사용자 필터 — 열기 전엔 구성원을 받지 않고, 검색어�
   await user.click(screen.getByRole('combobox', { name: '사용자 필터' }))
   // cmdk 의 빈 label(aria-labelledby)이 jsdom 접근성 이름을 가려 placeholder 로 찾는다.
   await user.click(await screen.findByPlaceholderText('이름·아이디로 검색'))
+  // WP-2067 — 열린 팝오버는 「사용자 선택」 대화상자로 읽힌다.
+  expect(screen.getByRole('dialog', { name: '사용자 선택' })).toBeInTheDocument()
   await user.paste('구성원150')
   await waitFor(() => expect(memberUrls.at(-1)?.searchParams.get('search')).toBe('구성원150'))
   expect(memberUrls.at(-1)?.searchParams.get('includeInactive')).toBe('true')

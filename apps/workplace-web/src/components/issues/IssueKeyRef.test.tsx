@@ -154,6 +154,8 @@ describe('터치 — 탭 미리보기', () => {
     await user.click(trigger)
     expect(location()).toBe('/')
     const card = await screen.findByTestId('issue-key-ref-WP-12-preview')
+    // 미리보기 팝오버(role=dialog)에 접근 가능한 이름이 있다(WP-2067).
+    expect(screen.getByRole('dialog', { name: 'WP-12 이슈 미리보기' })).toBeInTheDocument()
     await waitFor(() => expect(card).toHaveAttribute('data-state', 'ready'))
     expect(card).toHaveTextContent('로그인 오류 고치기')
     await user.click(card)

@@ -39,7 +39,7 @@ export function WorkflowLockedHint({ message, variant }: { message: string; vari
           {variant === 'inline' && '멤버만 변경'}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-3 text-sm break-keep" data-testid="issue-workflow-locked-popover">
+      <PopoverContent aria-label="변경 권한 안내" className="w-64 p-3 text-sm break-keep" data-testid="issue-workflow-locked-popover">
         {message}
       </PopoverContent>
     </Popover>

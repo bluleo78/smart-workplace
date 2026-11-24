@@ -98,6 +98,7 @@ export function BoardColumnHeaderMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <PopoverContent
+        aria-label={`${status.name} 뒤에 상태 추가`}
         align="end"
         className="w-72 space-y-2 p-3"
         onCloseAutoFocus={(e) => {
