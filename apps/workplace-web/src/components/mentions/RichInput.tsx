@@ -20,7 +20,7 @@ import { Selection } from '@tiptap/pm/state';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import { ArrowUp, Loader2 } from 'lucide-react';
-import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { type Ref, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
@@ -39,7 +39,7 @@ import { BodyHistory } from './bodyHistory';
 import { bodyTextToSlice, sliceToBodyText } from './bodyModeClipboard';
 import { chatFormattingExtensions } from './chatFormatting';
 import { ChatFormatToggle, ChatFormatToolbar } from './ChatFormatToolbar';
-import { MentionList, type MentionListHandle } from './MentionList';
+import { MentionList, type MentionListHandle, mentionOptionId } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
 import {
   createRichBodyImage,
@@ -244,15 +244,24 @@ export function RichInput({
   // 멘션 팝업 활성 여부를 인스턴스-로컬로 추적. Enter 가드에서 DOM 전역 조회 대신 사용
   // (전역 조회 시 다른 인스턴스의 팝업까지 잡혀 Enter 전송이 잘못 차단됨).
   const popupOpenRef = useRef(false);
-  // 본문 모드 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음), dismissed: 이번 자동완성에서 Esc 로 닫았는가
-  // (닫은 뒤엔 다시 열지 않는다 — 코멘트의 popup.hide 와 같다), hide: 지금 팝업 숨기기(팝업이 없으면 null).
+  // 멘션 후보 팝업 aria(WP-2061): 목록 id 는 RichInput 마다 달라야 하고, 활성 후보 순번(null=팝업 없음)은 MentionList 가 알려 준다.
+  const mentionListId = useId();
+  const [mentionActive, setMentionActive] = useState<number | null>(null);
+  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음, 본문 모드만 읽음), dismissed: 이번 자동완성에서 Esc 로 닫았는가
+  // (닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
   // 본문에는 @Override·@media 처럼 멤버가 아닌 @단어가 흔한데 그때도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음), 키를 팝업에 넘기면
-  // Enter·Esc 가 아무 일도 하지 않았다 — 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅은 popupOpenRef·popup.hide 를 그대로 쓴다.
+  // Enter·Esc 가 아무 일도 하지 않았다 — 본문 모드는 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅은 popupOpenRef 를 그대로 쓴다.
   const bodyPopupRef = useRef<{ live: boolean; dismissed: boolean; hide: (() => void) | null }>({
     live: false,
     dismissed: false,
     hide: null,
   });
+  // MentionList 가 알려 주는 활성 후보 순번(WP-2061). Esc 로 숨긴 뒤(dismissed)에도 suggestion 은 onExit 까지 살아 있어
+  // 방향키·입력으로 순번이 다시 오는데, 숨긴 동안은 받지 않는다(보이지 않는 후보를 스크린리더가 읽지 않게).
+  // suggestion 콜백은 편집기를 만들 때 한 번만 잡히므로 안정 함수로 둔다.
+  const reportMentionActive = useCallback((index: number) => {
+    if (!bodyPopupRef.current.dismissed) setMentionActive(index);
+  }, []);
 
   // onChange 최신값을 onUpdate 콜백에서 참조 (membersRef 와 동일 패턴, 스테일 클로저 회피).
   const onChangeRef = useRef(onChange);
@@ -433,12 +442,27 @@ export function RichInput({
           render: () => {
             let component: ReactRenderer<MentionListHandle> | null = null;
             let popup: TippyInstance | null = null;
+            // 후보 목록 props — suggestion props 에 목록 id·활성 알림을 붙인다(updateProps 는 통째로 바꾸므로 매번 같이 넘긴다).
+            const listProps = (props: SuggestionProps<MentionCandidate>) => ({
+              ...props,
+              listId: mentionListId,
+              onActiveChange: reportMentionActive,
+            });
             return {
               onStart: (props: SuggestionProps<MentionCandidate>) => {
                 popupOpenRef.current = true;
-                bodyPopupRef.current = { live: props.items.length > 0, dismissed: false, hide: () => popup?.hide() };
+                bodyPopupRef.current = {
+                  live: props.items.length > 0,
+                  dismissed: false,
+                  hide: () => {
+                    popup?.hide();
+                    // 숨긴 목록을 편집칸이 가리키지 않게 aria 속성을 걷고, 다시 오는 활성 순번도 받지 않는다(reportMentionActive).
+                    bodyPopupRef.current.dismissed = true;
+                    setMentionActive(null);
+                  },
+                };
                 component = new ReactRenderer(MentionList, {
-                  props,
+                  props: listProps(props),
                   editor: props.editor,
                 });
                 // 모달 드로어(Sheet=role="dialog") 안에서는 body 로 portal 된 팝업이
@@ -459,7 +483,7 @@ export function RichInput({
               onUpdate: (props: SuggestionProps<MentionCandidate>) => {
                 const bodyPopup = bodyPopupRef.current;
                 bodyPopup.live = !bodyPopup.dismissed && props.items.length > 0;
-                component?.updateProps(props);
+                component?.updateProps(listProps(props));
                 popup?.setProps({ getReferenceClientRect: props.clientRect as () => DOMRect });
               },
               onKeyDown: (props: SuggestionKeyDownProps) => {
@@ -467,13 +491,15 @@ export function RichInput({
                 // (본문 모드 Esc·Cmd/Ctrl+Enter 는 이보다 먼저 불리는 handleBodyKeyDown 이 받아 여기 오지 않는다.)
                 if (bodyModeEnabled && !bodyPopupRef.current.live) return false;
                 if (props.event.key === 'Escape') {
-                  popup?.hide();
+                  // 팝업을 숨기고 aria 속성을 걷는다(suggestion 은 onExit 까지 살아 있을 수 있다 — hide 가 dismissed 를 세운다).
+                  bodyPopupRef.current.hide?.();
                   return true;
                 }
                 return component?.ref?.onKeyDown(props) ?? false;
               },
               onExit: () => {
                 popupOpenRef.current = false;
+                setMentionActive(null);
                 bodyPopupRef.current = { live: false, dismissed: false, hide: null };
                 popup?.destroy();
                 component?.destroy();
@@ -503,9 +529,19 @@ export function RichInput({
         // 본문 모드는 지금 본문 Textarea 와 같은 최소 160px(min-h-40) — 최대 높이는 바깥이 editorMaxHeightClass 로(데스크톱 70vh·모바일 없음).
         // 편집칸 접근성 상태(editorAria) — 지금 props 로 만든다. useEditor 는 다시 그릴 때마다 바뀐 editorProps 를 편집기에 다시 넣으므로
         // (@tiptap/react 의 setOptions) 값이 바뀌면 바로 반영된다. 그때 속성 묶음이 통째로 바뀌어 TipTap 이 처음에만 넣는 role 이 빠지므로
-        // 본문 모드는 role 도 여기서 단다. 코멘트·채팅은 그대로(editorAria 없음).
-        ...(bodyModeEnabled ? { role: 'textbox' } : {}),
+        // role 도 여기서 단다. 코멘트·채팅도 멘션 팝업 aria(WP-2061)가 다시 그리게 해 role 이 빠지면 aria-activedescendant·aria-autocomplete 가
+        // 붙을 역할이 없어지므로 모든 모드에 단다.
+        role: 'textbox',
         ...editorAriaAttributes(editorAria),
+        // 멘션 후보 팝업(WP-2061): 편집칸은 늘 목록형 자동완성이고, 후보가 보이는 동안만 목록·활성 후보를 가리킨다.
+        // aria-expanded 는 role=textbox 에 무효라 달지 않는다.
+        'aria-autocomplete': 'list',
+        ...(mentionActive !== null && mentionActive >= 0
+          ? {
+              'aria-controls': mentionListId,
+              'aria-activedescendant': mentionOptionId(mentionListId, mentionActive),
+            }
+          : {}),
         // 본문 모드 frame='bare'(WP-1657): 테두리·rounded·배경·px/py·포커스 링 없이 글자만 — 최소 3줄(4.5rem)·모바일 입력 확대 방지로 text-base(16px).
         // 'boxed'(기본)는 아래 기존 class 그대로.
         class: bodySetup?.bare
