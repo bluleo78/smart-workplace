@@ -289,6 +289,15 @@ public class AgentRuntimeSetting extends TableImpl<AgentRuntimeSettingRecord> {
      */
     public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> BASISLESS_MARKED_AT = createField(DSL.name("basisless_marked_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "basisless_pod_uid 를 남긴 서버 시각 — 그 뒤 60초(서버 시각 기준)가 지나면 다른 정체의 ADOPT 를 막지 않는다(WP-2026 3차 반려 ①). 표시와 함께 지워진다.");
 
+    /**
+     * The column
+     * <code>public.agent_runtime_setting.basisless_pod_started_raw</code>.
+     * basisless_pod_uid 표시를 남긴 그 보고의 걸리기 전 Pod 시작(raw) — 회복 근거다. 표시 자리의 재시작
+     * 회복(WP-2032)은 새 보고의 걸리기 전 시작이 이 값보다 늦을 때만 받는다(같은 노드 시계). 표시와 함께 지워지고, 회복
+     * ADOPT 때 새 값으로 갱신된다. null 이면 마이그레이션 전 표시라 첫 회복 보고로 값을 세운다.
+     */
+    public final TableField<AgentRuntimeSettingRecord, OffsetDateTime> BASISLESS_POD_STARTED_RAW = createField(DSL.name("basisless_pod_started_raw"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "basisless_pod_uid 표시를 남긴 그 보고의 걸리기 전 Pod 시작(raw) — 회복 근거다. 표시 자리의 재시작 회복(WP-2032)은 새 보고의 걸리기 전 시작이 이 값보다 늦을 때만 받는다(같은 노드 시계). 표시와 함께 지워지고, 회복 ADOPT 때 새 값으로 갱신된다. null 이면 마이그레이션 전 표시라 첫 회복 보고로 값을 세운다.");
+
     private AgentRuntimeSetting(Name alias, Table<AgentRuntimeSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
