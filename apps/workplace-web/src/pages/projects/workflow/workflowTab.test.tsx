@@ -615,6 +615,24 @@ it('workflowTab_managerGraphEditsDraft', async () => {
   await waitFor(() => expect(saved.yaml).toContain('task_1:'))
 })
 
+/** 문서의 제목 순서에서 앞 제목보다 두 단계 이상 깊어진 [앞, 뒤] 쌍 — 비어 있어야 제목 단계 건너뜀이 없다(WP-2054, WCAG 1.3.1) */
+function headingSkips() {
+  const levels = screen.getAllByRole('heading').map((h) => Number(h.tagName[1]))
+  return levels.flatMap((l, i) => (i > 0 && l > levels[i - 1] + 1 ? [[levels[i - 1], l]] : []))
+}
+
+it('tab_graphNodePanel_noHeadingLevelSkip', async () => {
+  renderWorkflow()
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
+  // 노드를 더하면 그 노드가 선택되어 노드 패널이 열린다 — 패널 절 제목이 h2 다음 h4 로 건너뛰지 않아야 한다(WP-2054)
+  await userEvent.click(await screen.findByRole('button', { name: '+ 노드' }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: 'AI 작업' }))
+  await screen.findByRole('button', { name: '노드 지우기' })
+  expect(headingSkips()).toEqual([])
+  expect(screen.getAllByRole('heading', { level: 3 }).length).toBeGreaterThan(0)
+})
+
 it('workflowTab_viewerSeesReadOnlyGraph', async () => {
   renderWorkflow({ manager: false })
   fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
@@ -652,4 +670,25 @@ it('publish_noReasonForFirstPublish_withEmptyDraft', async () => {
   // 첫 게시는 비교할 게시본이 없어 빈 초안이어도 「변경 없음」 안내를 띄우지 않는다(검증 때문에 꺼질 수는 있다).
   expect(screen.queryByText('바꾼 내용이 없어 게시할 것이 없습니다.')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '게시' })).not.toHaveAttribute('aria-describedby')
+})
+
+it('tab_panelsStartWithH2_noHeadingLevelSkip', async () => {
+  renderWorkflow()
+  server.use(
+    http.get('/api/v1/workflows/42/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  // 탭 패널 제목 — 페이지 h1 다음 h3 로 건너뛰지 않게 패널마다 h2 가 먼저 온다(WP-2054)
+  await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  for (const name of ['편집', '실행', '버전']) {
+    await userEvent.click(screen.getByRole('tab', { name: new RegExp('^' + name) }))
+    const first = within(screen.getByRole('tabpanel')).getAllByRole('heading')[0]
+    expect(first.tagName).toBe('H2')
+    expect(first).toHaveTextContent(name)
+    expect(headingSkips()).toEqual([])
+  }
+  await userEvent.click(screen.getByRole('tab', { name: /^편집/ }))
+  await userEvent.click(screen.getByRole('button', { name: 'YAML' }))
+  expect(await screen.findByRole('heading', { level: 3, name: '검증 결과' })).toBeInTheDocument()
+  expect(headingSkips()).toEqual([])
 })

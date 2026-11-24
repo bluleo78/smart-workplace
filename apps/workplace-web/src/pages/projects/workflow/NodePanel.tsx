@@ -60,7 +60,8 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
   return (
     <section aria-label={title} className="border-t">
       <div className="flex h-[34px] items-center justify-between px-3">
-        <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
+        {/* 편집 탭 h2 바로 아래 절이라 h3 — h4 면 제목 단계가 건너뛴다(WP-2054) */}
+        <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
         {action}
       </div>
       <div className="space-y-2 px-3 pb-3">{children}</div>
