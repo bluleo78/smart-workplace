@@ -40,10 +40,12 @@ interface Props {
   /** 실행 수 조회 실패 — 다시 불러오기를 보인다. */
   runningFailed: boolean
   onRetryRunning: () => void
+  /** 옛 버전 실행 안내 문구(lib/workflowRuns olderRunsNotice) — 그래프 모아 보기에서 빠지는 까닭을 그래프 위에 보인다. 없으면 안내 없음. */
+  olderNotice?: string | null
 }
 
 /** 실행 목록 + 고른 실행 자리. 목록 머리에 진행 중 수 문구를 두고 필터·모아 보기 단추를 둔다. */
-export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManage, canRecover, meId, runningCount, runningFailed, onRetryRunning }: Props) {
+export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManage, canRecover, meId, runningCount, runningFailed, onRetryRunning, olderNotice }: Props) {
   const [params, setParams] = useSearchParams()
   const runId = Number(params.get('run')) || null
   const graphView = params.get('runsView') === 'graph'
@@ -104,7 +106,8 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
         </Button>
       </div>
       {graphView ? (
-        <GraphBody model={model} activeVersionNo={activeVersionNo} isError={published.isError} onRetry={() => void published.refetch()} badges={counts.data} />
+        <GraphBody model={model} activeVersionNo={activeVersionNo} isError={published.isError} onRetry={() => void published.refetch()} badges={counts.data}
+          notice={olderNotice ?? null} onShowList={() => setParam('runsView', null)} />
       ) : (
         <div className="grid min-w-0 items-start gap-3 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <div className="min-w-0 space-y-2">
@@ -179,14 +182,30 @@ function FilterSelect({ id, label, allLabel, value, options, onChange }: {
 }
 
 /** 그래프에 모아 보기 본문 — 게시 모델이 있으면 그래프, 없으면 게시 없음·실패·로딩 안내를 early return 으로 가른다. */
-function GraphBody({ model, activeVersionNo, isError, onRetry, badges }: {
+function GraphBody({ model, activeVersionNo, isError, onRetry, badges, notice, onShowList }: {
   model: WorkflowModel | undefined
   activeVersionNo: number | null
   isError: boolean
   onRetry: () => void
   badges: Record<string, number> | undefined
+  notice: string | null
+  onShowList: () => void
 }) {
-  if (model) return <WorkflowGraphView model={model} readOnly badges={badges} />
+  if (model) {
+    // 옛 버전 실행은 그래프 단계에 셈하지 않으므로, 있으면 그 사실과 목록으로 가는 길을 그래프 위에 알린다.
+    // role="note" — 수가 다시 읽힐 때마다 스크린리더가 단추까지 되읽지 않게 라이브 영역(status)으로 두지 않는다.
+    return (
+      <div className="space-y-2">
+        {notice && (
+          <div role="note" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/40 bg-warning-subtle px-3 py-2 text-sm">
+            <span className="min-w-0">{notice}</span>
+            <Button variant="link" size="sm" onClick={onShowList}>목록에서 보기</Button>
+          </div>
+        )}
+        <WorkflowGraphView model={model} readOnly badges={badges} />
+      </div>
+    )
+  }
   if (activeVersionNo === null) return <p className="text-sm text-muted-foreground">게시된 버전이 없습니다</p>
   if (isError) {
     return (

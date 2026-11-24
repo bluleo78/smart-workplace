@@ -21,6 +21,7 @@ import {
   getWorkflowDraftGeneration, getWorkflowDraftSessions, subscribeWorkflowDraftSessions,
   updateWorkflowDraftSession, workflowDraftStorageKey,
 } from '@/lib/workflowDraftSessions'
+import { olderRunsNotice, olderVersionRuns } from '@/lib/workflowRuns'
 import {
   useWorkflow, useWorkflowVersion, useWorkflowVersions, workflowApi, type WorkflowDetail, workflowKeys, type WorkflowProblem,
 } from '@/lib/workflows'
@@ -273,6 +274,11 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
   const checkingRunCount = activeVersionNo !== null && (versions.isFetching || versions.isError)
   const publishedYaml = activeVersionNo === null ? '' : published.data?.sourceYaml
     ?? (publishedByThisEditor ? publishedHere?.yaml : undefined)
+  // 모아 보기 그래프가 빼는 옛 버전 실행의 안내 — 머리글 수와 같은 versions 에서 만든다(WP-2044).
+  const olderNotice = useMemo(
+    () => olderRunsNotice(olderVersionRuns(versions.data, activeVersionNo), activeVersionNo),
+    [versions.data, activeVersionNo],
+  )
   const unpostedChanges = useMemo(
     () => canManage && publishedYaml !== undefined ? countWorkflowYamlChanges(publishedYaml, yaml) : null,
     [canManage, publishedYaml, yaml],
@@ -491,7 +497,8 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
       <TabsContent value="runs">
         {/* 진행 중인 실행 수 문구는 목록 머리(WorkflowRuns)로 옮겼다. */}
         <WorkflowRuns workflowId={id} projectKey={project.key} activeVersionNo={activeVersionNo} canManage={canManage} canRecover={project.viewerIsMember} meId={user?.id ?? 0}
-          runningCount={running} runningFailed={running === null && versions.isError} onRetryRunning={() => void versions.refetch()} />
+          runningCount={running} runningFailed={running === null && versions.isError} onRetryRunning={() => void versions.refetch()}
+          olderNotice={olderNotice} />
       </TabsContent>
       <TabsContent value="versions">
         <WorkflowVersions

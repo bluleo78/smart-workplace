@@ -20,11 +20,11 @@ const item = (runId: number, extra: object = {}) => ({
 /** 요청 URL 을 모으며 응답하는 공통 핸들러. */
 function setup(
   respond: (url: URL) => object = () => ({ items: [item(1)], nextCursor: null }),
-  opts: { activeVersionNo?: number | null; search?: string; versionFails?: boolean } = {},
+  opts: { activeVersionNo?: number | null; search?: string; versionFails?: boolean; olderNotice?: string | null } = {},
 ) {
   const urls: URL[] = []
   const screenRun = renderScreen(
-    <WorkflowRuns workflowId={42} projectKey="WP" activeVersionNo={opts.activeVersionNo === undefined ? 2 : opts.activeVersionNo} canManage canRecover meId={1} runningCount={4} runningFailed={false} onRetryRunning={() => {}} />,
+    <WorkflowRuns workflowId={42} projectKey="WP" activeVersionNo={opts.activeVersionNo === undefined ? 2 : opts.activeVersionNo} canManage canRecover meId={1} runningCount={4} runningFailed={false} onRetryRunning={() => {}} olderNotice={opts.olderNotice} />,
     {
       path: '/projects/WP/workflow?view=runs' + (opts.search ?? ''),
       handlers: [
@@ -101,6 +101,23 @@ it('runs_graphView_showsCountsBadges', async () => {
   await user.click(screen.getByRole('button', { name: '그래프에 모아 보기' }))
   expect(await screen.findByText('진행 중 2')).toBeVisible()
   expect(location()).toContain('runsView=graph')
+  expect(screen.queryByText(/옛 버전 실행/)).not.toBeInTheDocument()
+})
+
+it('runs_graphView_olderVersionRuns_showsNotice', async () => {
+  const { user, location } = setup(undefined, { olderNotice: '옛 버전 실행 2개는 이 그래프에 표시하지 않습니다 (v1 2개) — 게시 버전 v2의 실행만 단계에 셉니다.', search: '&runsView=graph' })
+  const notice = await screen.findByRole('note')
+  // 안내는 그래프를 가리지 않는다 — 게시 버전 배지는 그대로 보인다.
+  expect(await screen.findByText('진행 중 2')).toBeVisible()
+  expect(notice).toHaveTextContent('옛 버전 실행 2개는 이 그래프에 표시하지 않습니다 (v1 2개) — 게시 버전 v2의 실행만 단계에 셉니다.')
+  await user.click(within(notice).getByRole('button', { name: '목록에서 보기' }))
+  await waitFor(() => expect(location()).not.toContain('runsView'))
+})
+
+it('graphView_versionsUnknown_noNotice', async () => {
+  setup(undefined, { search: '&runsView=graph' })
+  expect(await screen.findByText('진행 중 2')).toBeVisible()
+  expect(screen.queryByText(/옛 버전 실행/)).not.toBeInTheDocument()
 })
 
 it('runDetail_404_showsNotFound_keepsList', async () => {
