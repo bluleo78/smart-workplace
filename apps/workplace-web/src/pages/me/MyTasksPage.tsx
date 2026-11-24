@@ -1,5 +1,5 @@
 // 내 작업 — 개요/할당/내가 만든/구독 4탭(개요 WP-1484). 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -11,6 +11,7 @@ import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
 import { useMyWorkflowTurns } from '@/hooks/queries/useWorkflowRuns'
 import { buildMyTasksContext } from '@/lib/aiScreenContext/builders/issue'
+import { revealInScrollX } from '@/lib/revealInScrollX'
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { cn } from '@/lib/utils'
 
@@ -127,6 +128,21 @@ export default function MyTasksPage() {
   useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
   // 본문 스크롤 요소 — 탭 목록 무한 로드 sentinel 의 root(DS 05 §A-3). state ref 라 마운트 뒤 observer 가 다시 붙는다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+  // 탭 줄 래퍼 — 활성 탭이 래퍼 안에 다 보이도록 스크롤 위치를 맞춘다(WP-2045 리뷰 후속 1).
+  // ref 가 아니라 state 로 받는다 — 알 수 없는 탭 주소는 아래 <Navigate> 를 거쳐 다시 그리는데, 그때 ref 는 이미 달려 있어
+  // deps 가 그대로라 effect 가 다시 돌지 않기 때문이다(본문 스크롤러 scrollEl 과 같은 방식).
+  const [tabStrip, setTabStrip] = useState<HTMLDivElement | null>(null)
+  // 주소로 /me/tasks/turns 에 바로 들어오면(링크·새로고침) 래퍼는 scrollLeft 0 에서 시작하는데 오른쪽 끝의 「내 차례」 탭은
+  // 넘침 구간에 있어 잘린 채로 보인다. 활성 트리거가 래퍼 안에 들어올 때까지 래퍼의 scrollLeft 만 움직인다.
+  // 칩 줄(SearchPalette)과 같은 도우미를 쓰는 건 — scrollIntoView 는 넘침이 숨겨진 조상·문서까지 굴려 세로로 페이지를
+  // 튈 수 있다. turnCount 를 함께 보는 건 건수 배지가 뒤에 붙어 탭이 더 넓어지기 때문이고, 그려진 직내에 맞추려
+  // layout effect 다(첫 paint 에 잘린 탭이 한 프레임 보이지 않게).
+  useLayoutEffect(() => {
+    if (!tabStrip) return
+    const trigger = tabStrip.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+    if (!trigger) return
+    revealInScrollX(tabStrip, trigger)
+  }, [tabStrip, active, turnCount])
 
   // 알 수 없는 탭 주소(/me/tasks/abc)는 마지막에 본 탭(없으면 개요) 주소로 바꾼다 — 주소가 그대로 남으면 공유·새로고침해도
   // 없는 탭 주소가 퍼지고, 보이는 탭과 주소가 어긋난다(WP-926). 필터 쿼리는 그대로 넘긴다.
@@ -151,8 +167,9 @@ export default function MyTasksPage() {
                 밑줄 하단 160.5px > 래퍼 클립 경계 160px (0.5px 잘림). 그래서 세로 여유 pb-1(+4px)을 주어 밑줄이 상자 안에
                 들어오게 하고, -mb-1 로 높이·배치는 그대로 둔다(MobileBoard 선례는 TabsList 자체에 스크롤을 걸어
                 after:bottom-0 으로 밑줄을 5px 올렸지만, 여기는 데스크톱·모바일이 같은 마크업이라 모양을 바꾸지 않고
-                여유만 더한다). */}
-            <div className={cn('min-w-0 max-w-full overflow-x-auto pb-1 -mb-1', HIDE_SCROLLBAR)}>
+                여유만 더한다). 활성 탭이 래퍼 밖(오른쪽 넘침 구간)에 걸리면 위 layout effect 가 래퍼 scrollLeft 를 맞춰
+                바로 잡는다(주소로 직접 들어온 경우 — WP-2045 리뷰 후속). */}
+            <div ref={setTabStrip} className={cn('min-w-0 max-w-full overflow-x-auto pb-1 -mb-1', HIDE_SCROLLBAR)}>
               <TabsList>
                 <TabsTrigger value="overview" data-testid="tab-overview">{MY_TASKS_TAB_LABEL.overview}</TabsTrigger>
                 <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
