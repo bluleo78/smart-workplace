@@ -95,6 +95,21 @@ describe('useDeleteIssue', () => {
     expect(isInvalidated(qc, projectOverviewKey('P'))).toBe(true)
     expect(isInvalidated(qc, projectOverviewKey('Q'))).toBe(false)
   })
+
+  // WP-2036: 지운 이슈의 상세를 무효화하면 닫히기 전에 다시 가져와 헛 GET(404)이 난다 — 캐시를 지운다.
+  it('성공하면 지운 이슈의 상세 캐시를 무효화가 아니라 제거한다', async () => {
+    vi.mocked(issuesApi.remove).mockResolvedValue({ data: undefined } as never)
+    const { qc, wrapper } = setup()
+    const detailKey = issueKeys.detail('P', 1)
+    qc.setQueryData(detailKey, { id: 1 })
+    const { result } = renderHook(() => useDeleteIssue('P', 1), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync()
+    })
+
+    expect(qc.getQueryState(detailKey)).toBeUndefined()
+  })
 })
 
 describe('개요 화면이 열려 있을 때(WP-1652)', () => {

@@ -53,7 +53,9 @@ export function useDeleteIssue(
     mutationFn: () => issuesApi.remove(projectKey, number).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
-      qc.invalidateQueries({ queryKey: issueKeys.detail(projectKey, number) });
+      // 지운 이슈의 상세는 무효화(재조회)하지 않고 캐시에서 지운다(WP-2036) — 무효화하면 상세가 닫히기 전에
+      // 다시 가져와 잠깐 「찾을 수 없음」과 헛 GET(404)이 난다. 선례: useIssueRowMutations 의 useRemoveIssue.
+      qc.removeQueries({ queryKey: issueKeys.detail(projectKey, number) });
       // 지운 뒤 개요의 열린 이슈 수·활동이 바로 바뀌게 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
       toast.success(messages?.success ?? '태스크를 삭제했습니다');
