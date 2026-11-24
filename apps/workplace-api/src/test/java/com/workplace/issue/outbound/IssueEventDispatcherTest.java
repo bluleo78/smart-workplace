@@ -118,6 +118,8 @@ class IssueEventDispatcherTest {
     verify(client).publish(captor.capture());
     assertThat(captor.getValue().payload()).containsEntry("sharedMemories", shared.items());
     assertThat(captor.getValue().payload()).containsEntry("sharedMemoryMoreCount", 1);
+    // WP-1994: 일반 담당 지정 발사에는 워크플로우 표지를 싣지 않는다.
+    assertThat(captor.getValue().payload()).doesNotContainKey("workflow");
   }
 
   /**
@@ -152,6 +154,9 @@ class IssueEventDispatcherTest {
     assertThat(captor.getValue().type()).isEqualTo("issue.assigned");
     assertThat(captor.getValue().payload()).containsEntry("actingAgentId", 301L);
     assertThat(captor.getValue().payload()).containsEntry("issueKey", "WP-42");
+    // WP-1994: 노드 표지 — ai-agent 가 노드 지시로 돌게 하는 선택 칸.
+    assertThat(captor.getValue().payload())
+        .containsEntry("workflow", java.util.Map.of("runId", 7L, "nodeKey", "dev"));
   }
 
   /** WP-1986: AI 연동이 꺼져 있으면 워크플로우 깨우기도 읽지도 보내지도 않는다. */

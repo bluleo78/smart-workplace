@@ -102,6 +102,10 @@ public class IssueEventDispatcher {
    *
    * <p>담당 지정 발사와 달리 행위자가 AI 여도 보낸다 — 워크플로우 넘김은 원래 AI → AI 이고, 되돌림·방문 한도와 연쇄 한도가 고리를 막는다. 실행 주체도 이슈
    * 담당 중 첫 내부 AI 가 아니라 그 노드의 AI 다. AI 연동이 꺼져 있으면 읽지도 않는다.
+   *
+   * <p>WP-1994: payload 에 {@code workflow = {runId, nodeKey}} 를 싣는다 — ai-agent 가 이 표지를 보고 이슈 일반 지시
+   * 대신 그 노드의 지시(결과 고르기·질문)로 돌게 하는 신호다. 선택 칸이라 ai-agent 가 아직 모르는 옛 버전이어도 무시될 뿐이라 배포 순서와 무관하다. 일반 담당
+   * 지정 발사에는 싣지 않는다.
    */
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -122,6 +126,7 @@ public class IssueEventDispatcher {
               agentId);
       p.put("added", ctx.agents().stream().map(IssueEventDispatcher::summary).toList());
       p.put("removed", List.of());
+      p.put("workflow", Map.of("runId", e.runId(), "nodeKey", e.nodeKey()));
       dispatch("issue.assigned", p, ctx.issueKey());
     }
   }

@@ -15,7 +15,7 @@ import { inputSchemaKeepingUnknownArgs, replaceImagesWithNotice, toMcpContent, u
 import { createWorkplaceApiClient, type WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge, type McpProfile, type McpTool } from './tools.js';
 
-const MCP_PROFILES: readonly McpProfile[] = ['issue', 'chat', 'home', 'messaging', 'assistant', 'recurring', 'recurring-test'];
+const MCP_PROFILES: readonly McpProfile[] = ['issue', 'issue-workflow', 'chat', 'home', 'messaging', 'assistant', 'recurring', 'recurring-test'];
 
 export interface StdioEntryConfig {
   baseURL?: string;

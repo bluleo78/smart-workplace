@@ -29,6 +29,48 @@ describe('buildUserMessage', () => {
     expect(m).toContain('이번 실행 안에서 끝까지');
   });
 
+  it('internalAgent_onNodeEntered_runsWithNodeInstructions', () => {
+    const m = buildUserMessage({
+      type: 'issue.assigned',
+      payload: { ...common, added: common.assignees, removed: [], workflow: { runId: 7, nodeKey: 'dev' } },
+    } as IssueEventEnvelope);
+    expect(m).toContain('[이벤트: workflow.node_entered]');
+    expect(m).toContain('dev');
+    expect(m).toContain('WP-42');
+    for (const w of ['get_issue_workflow', 'move_issue_workflow', 'expectedRevision', 'instructions']) expect(m).toContain(w);
+    expect(m).not.toContain("update_issue 의 status 를 'IN_PROGRESS'");
+    expect(m).not.toContain('report_agent_work');
+    // (a) 노드가 다르거나 실행이 없으면 아무것도 바꾸지 않고 끝
+    expect(m).toContain('아무것도 바꾸지 말고');
+    // 깨운 실행 번호를 보여 주고, 읽은 runId 가 다르면 멈추며, 이동에는 그 번호를 그대로 쓴다
+    expect(m).toContain('(실행 7)');
+    expect(m).toContain('읽은 runId 가 위 실행 번호와 다르면');
+    expect(m).toContain('runId 는 위 실행 번호 그대로');
+    // (b) 질문은 ask 경로
+    expect(m).toContain('ask');
+    // (c) 질문 경로가 없으면 이동하지 않고 add_comment
+    expect(m).toContain('add_comment');
+    expect(m).toContain('이동하지 말고');
+    // (d) 409 WORKFLOW_STALE 한 번만 재시도
+    expect(m).toContain('WORKFLOW_STALE');
+    expect(m).toContain('한 번');
+    // (e) _qa 이어 하기
+    expect(m).toContain('_qa');
+    // (f) 시스템 프롬프트의 상태·담당 규칙은 적용 안 됨 — 이슈를 닫거나 담당을 풀면 워크플로우가 깨진다
+    expect(m).toContain('update_issue 로 이슈 상태를 바꾸지 말고');
+    expect(m).toContain('unassign_self 도 부르지 마세요');
+    expect(m).toContain('이슈를 닫으면 워크플로우가 취소');
+  });
+
+  it('workflow 칸이 null 이면 기존 issue.assigned 지시', () => {
+    const m = buildUserMessage({
+      type: 'issue.assigned',
+      payload: { ...common, added: common.assignees, removed: [], workflow: null },
+    } as IssueEventEnvelope);
+    expect(m).toContain('[이벤트: issue.assigned]');
+    expect(m).toContain("update_issue 의 status 를 'IN_PROGRESS'");
+  });
+
   it('issue.assigned', () => {
     const m = buildUserMessage({
       type: 'issue.assigned',

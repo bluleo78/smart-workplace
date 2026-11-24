@@ -28,6 +28,12 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('범주(TODO / IN_PROGRESS / DONE / CANCELED) 또는 프로젝트 상태 이름');
   });
 
+  // WP-1994: 진행 중 워크플로우가 있으면 닫지 않는다.
+  it('진행 중 워크플로우가 있으면 상태 변경·담당 해제를 하지 않게 안내한다', () => {
+    expect(SYSTEM_PROMPT).toContain('get_issue_workflow');
+    expect(SYSTEM_PROMPT).toContain('이슈를 닫으면 워크플로우가 취소됩니다');
+  });
+
   // update_issue 는 실패해도 throw 하지 않고 {ok, results} 로 돌려준다 — 실패를 성공으로 보고하지 않도록 확인을 지시한다.
   it('update_issue 결과의 ok·results.content 를 확인해 상태 변경 실패를 성공으로 말하지 않도록 지시한다', () => {
     expect(SYSTEM_PROMPT).toContain('{ok, results}');

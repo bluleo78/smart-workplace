@@ -35,10 +35,16 @@ export const issueCreatedPayload = z.object({
   priority: z.string(),
 });
 
+// WP-1994: 워크플로우 노드 깨우기 표지 — 어느 실행(runId)의 어느 노드(nodeKey)에서 깨웠는지.
+const workflowWakeMark = z.object({ runId: z.number().int().positive(), nodeKey: z.string().min(1) });
+
 export const issueAssignedPayload = z.object({
   ...common,
   added: z.array(userSummary),
   removed: z.array(userSummary),
+  // WP-1994: 워크플로우 노드 깨우기에서만 실리는 선택 칸 — 어느 실행(runId)의 어느 노드(nodeKey)에서 깨웠는지.
+  // 옛 api·일반 담당 지정은 싣지 않는다(없음/null → 기존 담당 지정 지시).
+  workflow: workflowWakeMark.nullish(),
 });
 
 export const issueCommentedPayload = z.object({
@@ -128,6 +134,15 @@ export type IssueCommentedPayload = z.infer<typeof issueCommentedPayload>;
 export type IssueStatusChangedPayload = z.infer<typeof issueStatusChangedPayload>;
 export type IssueRecurringRunPayload = z.infer<typeof issueRecurringRunPayload>;
 export type IssueEventEnvelope = z.infer<typeof issueEventEnvelope>;
+export type WorkflowWakeMark = z.infer<typeof workflowWakeMark>;
+
+// WP-1994: 워크플로우 노드 깨우기인지(issue.assigned + workflow 표지 있음) — 프로필 선택(run-agent)과 지시문(user-message)이
+// 같은 기준을 쓰도록 한 곳에 둔다. 참이면 payload.workflow 가 null 이 아님을 타입으로도 좁힌다.
+export function isWorkflowNodeWake(
+  env: IssueEventEnvelope,
+): env is { type: 'issue.assigned'; payload: IssueAssignedPayload & { workflow: WorkflowWakeMark } } {
+  return env.type === 'issue.assigned' && !!env.payload.workflow;
+}
 
 // 본 ai-agent 가 처리하는 알려진 type 들의 prefix — invalid_payload 와
 // unsupported_event_type 분기에 사용.
