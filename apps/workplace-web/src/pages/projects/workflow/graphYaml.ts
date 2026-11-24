@@ -661,28 +661,51 @@ export function autoLayout(yaml: string): string {
   })
 }
 
+/** 선 끌기 결과 — yaml 은 (바뀌었든 아니든) 다음 문서, refused 는 받지 못한 이유(사용자에게 보일 문구)다. */
+export interface ConnectResult {
+  yaml: string
+  refused?: string
+}
+
+/** 거절 이유 문구 — 편집기가 토스트로 보여 준다. */
+export const REFUSE_NO_ROLE = '역할이 없어 시작 조건을 만들 수 없습니다 — YAML 의 roles 에 역할을 먼저 더해 주세요'
+export const REFUSE_DECISION_DEFAULT = '이 분기에는 이미 기본 도착지가 있습니다 — 바꾸거나 다른 조건을 더하려면 YAML 에서 고쳐 주세요'
+export const REFUSE_INTO_START = '시작 노드로 들어가는 선은 만들 수 없습니다'
+export const REFUSE_SELF = '노드를 자기 자신에 이을 수 없습니다'
+export const REFUSE_FROM_END = '종료 노드에서는 선을 이을 수 없습니다'
+
 /**
- * 선 끌기 결과를 YAML 로 옮긴다.
+ * 선 끌기 결과를 YAML 로 옮긴다. 받을 수 없는 선이면 yaml 은 그대로 두고, 사용자가 알 만한 이유가 있으면 refused 에 담는다
+ * (노드가 없거나 가상 노드·이을 수 없는 종류처럼 사용자가 의도했다고 보기 어려운 경우는 이유 없이 그대로 돌려준다).
  * - agent_task/human_task: 새 결과를 잇는다.
  * - start: 최상위 start 목록에 { when: { assigneeRole }, to } 를 덧붙인다(스키마상 start 항목의 when 은 필수라
  *   when 없이 쓸 수 없다 — 역할은 도착 노드의 role 이 roles 에 선언돼 있으면 그것, 아니면(없거나 선언 안 된 역할) 첫 역할 키.
- *   역할이 하나도 없으면 아무것도 하지 않는다).
- * - decision: default 가 없을 때만 default 를 정한다(있으면 그대로 둔다).
- * 그 밖이나 거절 대상이면 yaml 을 그대로 돌려준다.
+ *   역할이 하나도 없으면 NO_ROLE 로 거절한다).
+ * - decision: default 가 없을 때만 default 를 정한다(있으면 DECISION_DEFAULT 로 거절 — 사람이 정한 값을 지킨다).
  */
-export function connectFromFlow(yaml: string, graph: WorkflowGraph, c: { source: string | null; target: string | null }): string {
+export function connectFromFlow(yaml: string, graph: WorkflowGraph, c: { source: string | null; target: string | null }): ConnectResult {
   const from = graph.nodes.find((n) => n.key === c.source)
-  if (!from || from.virtual || !['agent_task', 'human_task', 'start', 'decision'].includes(from.type)) return yaml
+  if (!from || from.virtual) return { yaml }
+  if (from.type === 'end') return { yaml, refused: REFUSE_FROM_END }
+  if (!['agent_task', 'human_task', 'start', 'decision'].includes(from.type)) return { yaml }
   // 도착은 YAML 에 있는 노드여야 하고, 시작 노드로 들어가는 선·자기 자신으로 가는 선은 받지 않는다
   const to = graph.nodes.find((n) => n.key === c.target)
-  if (!to || to.virtual || to.type === 'start' || to.key === from.key) return yaml
+  if (!to || to.virtual) return { yaml }
+  if (to.type === 'start') return { yaml, refused: REFUSE_INTO_START }
+  if (to.key === from.key) return { yaml, refused: REFUSE_SELF }
   if (from.type === 'start') {
     // 도착 노드의 역할이 roles 에 선언된 것일 때만 쓴다 — 없는 역할을 적으면 서버가 시작 조건을 거절한다(REF_ROLE_UNKNOWN)
     const role = to.role && graph.roles.some((r) => r.key === to.role) ? to.role : graph.roles[0]?.key
-    return role ? appendStartEntry(yaml, role, to.key) : yaml
+    return role ? { yaml: appendStartEntry(yaml, role, to.key) } : { yaml, refused: REFUSE_NO_ROLE }
   }
-  if (from.type === 'decision') return setDecisionDefault(yaml, from.key, to.key)
-  return connectOutcome(yaml, from.key, nextOutcomeKey(yaml, from.key), to.key)
+  if (from.type === 'decision') {
+    // 이미 정한 기본 도착지가 있으면 거절한다 — 단 같은 도착지로 다시 끈 선은 바랄 것이 이미 있는 상태라 조용히 둔다.
+    // 판정은 읽은 그래프의 default 선으로 한다(편집 결과가 같은지로 보면 다른 실패도 「이미 있음」으로 오인한다).
+    const current = graph.edges.find((e) => e.from === from.key && e.kind === 'default')
+    if (current) return current.to === to.key ? { yaml } : { yaml, refused: REFUSE_DECISION_DEFAULT }
+    return { yaml: setDecisionDefault(yaml, from.key, to.key) }
+  }
+  return { yaml: connectOutcome(yaml, from.key, nextOutcomeKey(yaml, from.key), to.key) }
 }
 
 /** 최상위 start 목록 끝에 { when: { assigneeRole }, to } 를 더한다. 목록이 없거나 비어 있으면 블록 목록으로 새로 만든다. */
@@ -705,12 +728,13 @@ function appendStartEntry(yaml: string, role: string, to: string): string {
   })
 }
 
-/** decision 노드에 default 도착지를 정한다 — 이미 있으면 사람이 정한 값을 지키려 그대로 둔다. */
+/** decision 노드에 default 도착지를 정한다(덮어쓴다 — 이미 정한 값이 있는지는 connectFromFlow 가 먼저 본다). */
 function setDecisionDefault(yaml: string, key: string, to: string): string {
   return editDoc(yaml, (doc) => {
     if (!doc.hasIn(['nodes', key])) return false
     const node = mapAt(doc, ['nodes', key])
-    if (!node || node.has('default')) return false
+    // 이미 있는 default 의 판정·거절은 부르는 쪽(connectFromFlow)이 그래프의 default 선으로 한다 — 같은 판정을 두 곳에 두지 않는다
+    if (!node) return false
     node.set('default', to)
   })
 }

@@ -15,6 +15,11 @@ import {
   parseWorkflowGraph,
   placeNodes,
   readNodeDetail,
+  REFUSE_DECISION_DEFAULT,
+  REFUSE_FROM_END,
+  REFUSE_INTO_START,
+  REFUSE_NO_ROLE,
+  REFUSE_SELF,
   removeNode,
   updateNode,
 } from './graphYaml'
@@ -292,7 +297,7 @@ start:
   it.each(['start', 'dev'])('connectFromFlow_refusesTarget_%s', (target) => {
     const r = parseWorkflowGraph(FIXTURE)
     if (!('graph' in r)) throw new Error('parse')
-    expect(connectFromFlow(FIXTURE, r.graph, { source: 'dev', target })).toBe(FIXTURE)
+    expect(connectFromFlow(FIXTURE, r.graph, { source: 'dev', target }).yaml).toBe(FIXTURE)
   })
 
   // 최종 리뷰 11 — 같은 출발·도착·종류·이름의 선이 둘이어도 id 가 겹치지 않는다
@@ -366,24 +371,69 @@ describe('graphYaml 코드 리뷰 지적', () => {
 
   // 1 — start 에서 끌면 start 목록에 when 이 있는 항목을 더한다(스키마상 when 필수, 역할은 도착 노드 role)
   it('connectFromFlow_fromStart_appendsStartEntryWithRole', () => {
-    const out = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'plan_ok' })
+    const res = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'plan_ok' })
+    expect(res.refused).toBeUndefined()
+    const out = res.yaml
     expect(doc(out).start.at(-1)).toEqual({ when: { assigneeRole: 'owner' }, to: 'plan_ok' })
     expect(doc(out).start).toHaveLength(3)
   })
 
   it('connectFromFlow_fromStart_noRole_usesFirstRoleKey_andCreatesMissingList', () => {
     const y = FIXTURE.replace(/start:\n {2}- .*\n {2}- .*\n/, 'start: []\n')
-    const out = connectFromFlow(y, graphOf(y), { source: 'start', target: 'done' })
+    const out = connectFromFlow(y, graphOf(y), { source: 'start', target: 'done' }).yaml
     expect(doc(out).start).toEqual([{ when: { assigneeRole: 'lead' }, to: 'done' }])
   })
 
   it('connectFromFlow_fromDecision_setsDefaultOnlyWhenMissing', () => {
     const y = FIXTURE.replace('  done: { type: end }', '  done: { type: end }\n  pick: { type: decision }')
-    const out = connectFromFlow(y, graphOf(y), { source: 'pick', target: 'dev' })
+    const res = connectFromFlow(y, graphOf(y), { source: 'pick', target: 'dev' })
+    const out = res.yaml
+    expect(res.refused).toBeUndefined()
     expect(doc(out).nodes.pick.default).toBe('dev')
-    expect(connectFromFlow(out, graphOf(out), { source: 'pick', target: 'triage' })).toBe(out)
-    expect(connectFromFlow(y, graphOf(y), { source: 'pick', target: 'start' })).toBe(y)
-    expect(connectFromFlow(y, graphOf(y), { source: 'pick', target: 'pick' })).toBe(y)
+    expect(connectFromFlow(out, graphOf(out), { source: 'pick', target: 'triage' })).toEqual({ yaml: out, refused: REFUSE_DECISION_DEFAULT })
+    expect(connectFromFlow(y, graphOf(y), { source: 'pick', target: 'start' }).yaml).toBe(y)
+    expect(connectFromFlow(y, graphOf(y), { source: 'pick', target: 'pick' }).yaml).toBe(y)
+  })
+
+  // WP-2038 — 받을 수 없는 선은 이유를 함께 돌려준다
+  describe('connectFromFlow refusal', () => {
+    it('refuses_startWithoutRoles', () => {
+      const y = 'schema: genia/workflow@1\nname: x\nroles: {}\nnodes:\n  start: { type: start }\n  a: { type: agent_task }\nstart: []\n'
+      expect(connectFromFlow(y, graphOf(y), { source: 'start', target: 'a' })).toEqual({ yaml: y, refused: REFUSE_NO_ROLE })
+    })
+    it('refuses_decisionWithDefault', () => {
+      const y = FIXTURE.replace('  done: { type: end }', '  done: { type: end }\n  pick: { type: decision }')
+      const out = connectFromFlow(y, graphOf(y), { source: 'pick', target: 'dev' }).yaml
+      expect(connectFromFlow(out, graphOf(out), { source: 'pick', target: 'triage' })).toEqual({ yaml: out, refused: REFUSE_DECISION_DEFAULT })
+      // 이미 기본 도착지인 노드로 다시 끈 선은 바뀔 것이 없어 이유 없이 그대로 둔다
+      expect(connectFromFlow(out, graphOf(out), { source: 'pick', target: 'dev' })).toEqual({ yaml: out })
+    })
+    it('decision_emptyDefault_isTreatedAsMissing', () => {
+      const y = FIXTURE.replace('  done: { type: end }', '  done: { type: end }\n  pick: { type: decision, default: ~ }')
+      const r = connectFromFlow(y, graphOf(y), { source: 'pick', target: 'dev' })
+      expect(r.refused).toBeUndefined()
+      expect(doc(r.yaml).nodes.pick.default).toBe('dev')
+    })
+    it('refuses_intoStart', () => {
+      expect(connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'dev', target: 'start' })).toEqual({ yaml: FIXTURE, refused: REFUSE_INTO_START })
+    })
+    it('refuses_self', () => {
+      expect(connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'dev', target: 'dev' })).toEqual({ yaml: FIXTURE, refused: REFUSE_SELF })
+    })
+    it('refuses_fromEnd', () => {
+      expect(connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'done', target: 'dev' })).toEqual({ yaml: FIXTURE, refused: REFUSE_FROM_END })
+    })
+    // 상수를 불러 쓰는 테스트가 문구 변경을 못 잡으므로 글자 그대로 고정한다
+    it('refuseMessages_areExact', () => {
+      expect(REFUSE_NO_ROLE).toBe('역할이 없어 시작 조건을 만들 수 없습니다 — YAML 의 roles 에 역할을 먼저 더해 주세요')
+      expect(REFUSE_DECISION_DEFAULT).toBe('이 분기에는 이미 기본 도착지가 있습니다 — 바꾸거나 다른 조건을 더하려면 YAML 에서 고쳐 주세요')
+      expect(REFUSE_INTO_START).toBe('시작 노드로 들어가는 선은 만들 수 없습니다')
+      expect(REFUSE_SELF).toBe('노드를 자기 자신에 이을 수 없습니다')
+      expect(REFUSE_FROM_END).toBe('종료 노드에서는 선을 이을 수 없습니다')
+    })
+    it('unknownNodes_noReason', () => {
+      expect(connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'nope', target: 'dev' })).toEqual({ yaml: FIXTURE })
+    })
   })
 
   // 3 — 여러 노드를 한 번에 layout 에 쓴다
@@ -426,10 +476,10 @@ describe('graphYaml 코드 리뷰 지적', () => {
   // 리뷰 후속 ① — 시작 노드에서 끌 때 도착 노드의 역할이 roles 에 없으면 첫 역할로 적는다(서버가 없는 역할을 거절한다)
   it('connectFromFlow_start_undeclaredRole_fallsBackToFirstRole', () => {
     // dev 의 role 은 developer 인데 roles 에는 없다
-    const out = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'dev' })
+    const out = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'dev' }).yaml
     expect(doc(out).start.at(-1)).toEqual({ when: { assigneeRole: 'lead' }, to: 'dev' })
     // 선언된 역할이면 그 역할을 쓴다
-    const out2 = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'plan_ok' })
+    const out2 = connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'start', target: 'plan_ok' }).yaml
     expect(doc(out2).start.at(-1)).toEqual({ when: { assigneeRole: 'owner' }, to: 'plan_ok' })
   })
 

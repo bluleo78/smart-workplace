@@ -7,7 +7,8 @@ import { parse } from 'yaml'
 import type { WorkflowProblem } from '@/lib/workflows'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
-import { connectFromFlow, moveManyFromDrag, parseWorkflowGraph } from './graphYaml'
+import { applyConnection } from './applyConnection'
+import { connectFromFlow, moveManyFromDrag, parseWorkflowGraph, REFUSE_NO_ROLE } from './graphYaml'
 import { WorkflowGraphEditor } from './WorkflowGraphEditor'
 
 const FIXTURE = `schema: genia/workflow@1
@@ -359,15 +360,41 @@ it('dragStop_writesRoundedLayout', () => {
 })
 
 it('connect_fromAgentTask_addsNextOutcome', () => {
-  const out = connectFromFlow(FIXTURE, fixtureGraph(FIXTURE), { source: 'dev', target: 'done' })
+  const out = connectFromFlow(FIXTURE, fixtureGraph(FIXTURE), { source: 'dev', target: 'done' }).yaml
   expect(doc(out).nodes.dev.outcomes.done.to).toBe('done')
   expect(doc(out).nodes.dev.outcomes.submitted.to).toBe('plan_ok')
 })
 
 it.each(['done'])('connect_from_%s_isIgnored', (source) => {
-  expect(connectFromFlow(FIXTURE, fixtureGraph(FIXTURE), { source, target: 'dev' })).toBe(FIXTURE)
+  expect(connectFromFlow(FIXTURE, fixtureGraph(FIXTURE), { source, target: 'dev' }).yaml).toBe(FIXTURE)
 })
 
+
+it('applyConnection_refused_toastsAndKeepsYaml', () => {
+  toastInfo.mockClear()
+  const y = FIXTURE.replace(/roles:[\s\S]*?\nnodes:/, 'roles: {}\n\nnodes:')
+  const onChange = vi.fn()
+  applyConnection(y, fixtureGraph(y), { source: 'start', target: 'triage' }, onChange)
+  expect(toastInfo).toHaveBeenCalledWith(REFUSE_NO_ROLE)
+  expect(onChange).not.toHaveBeenCalled()
+})
+
+it('applyConnection_success_changesWithoutToast', () => {
+  toastInfo.mockClear()
+  const onChange = vi.fn()
+  applyConnection(FIXTURE, fixtureGraph(FIXTURE), { source: 'dev', target: 'done' }, onChange)
+  expect(onChange).toHaveBeenCalledTimes(1)
+  expect(doc(onChange.mock.calls[0][0]).nodes.dev.outcomes.done.to).toBe('done')
+  expect(toastInfo).not.toHaveBeenCalled()
+})
+
+it('applyConnection_unknownNode_doesNothing', () => {
+  toastInfo.mockClear()
+  const onChange = vi.fn()
+  applyConnection(FIXTURE, fixtureGraph(FIXTURE), { source: 'nope', target: 'dev' }, onChange)
+  expect(onChange).not.toHaveBeenCalled()
+  expect(toastInfo).not.toHaveBeenCalled()
+})
 
 // 코드 리뷰 2 — 입력 도중의 잘못된 값(badInput)은 되돌림 제한을 지우지 않는다
 it('nodePanel_maxVisits_badInputKeepsValue_emptyDeletes', async () => {
