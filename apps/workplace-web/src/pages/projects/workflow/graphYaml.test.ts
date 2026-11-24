@@ -414,6 +414,20 @@ describe('graphYaml 코드 리뷰 지적', () => {
       expect(r.refused).toBeUndefined()
       expect(doc(r.yaml).nodes.pick.default).toBe('dev')
     })
+    // 그래프에 선이 없는 형식이 어긋난 default(맵·숫자·빈 글자)도 사람이 적은 값이라 끈 선이 조용히 덮지 않는다(null·없음만 빈 것)
+    it('refuses_decisionWithMalformedDefault', () => {
+      for (const value of ['{ to: ~ }', '3', "''"]) {
+        const y = FIXTURE.replace('  done: { type: end }', `  done: { type: end }\n  pick: { type: decision, default: ${value} }`)
+        expect(connectFromFlow(y, graphOf(y), { source: 'pick', target: 'dev' })).toEqual({ yaml: y, refused: REFUSE_DECISION_DEFAULT })
+      }
+    })
+    // 별칭이 null 을 가리키면 `default: ~` 처럼 빈 것이라 끈 선으로 채운다
+    it('connects_decisionWithAliasToNullDefault', () => {
+      const y = 'x: &none ~\n' + FIXTURE.replace('  done: { type: end }', '  done: { type: end }\n  pick: { type: decision, default: *none }')
+      const r = connectFromFlow(y, graphOf(y), { source: 'pick', target: 'dev' })
+      expect(r.refused).toBeUndefined()
+      expect(doc(r.yaml).nodes.pick.default).toBe('dev')
+    })
     it('refuses_intoStart', () => {
       expect(connectFromFlow(FIXTURE, graphOf(FIXTURE), { source: 'dev', target: 'start' })).toEqual({ yaml: FIXTURE, refused: REFUSE_INTO_START })
     })
