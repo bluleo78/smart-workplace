@@ -21,6 +21,8 @@ describe('handleNotifyEvent', () => {
     const spy = vi.spyOn(qc, 'invalidateQueries');
     handleNotifyEvent(qc, 'notify.created', { type: 'MENTIONED' });
     handleNotifyEvent(qc, 'notify.created', undefined);
+    // 이벤트마다 알림 목록·내 차례 두 번(WP-2042) — 두 이벤트에 4번, 임시보관함은 없다.
+    expect(spy).toHaveBeenCalledTimes(4);
     expect(spy).not.toHaveBeenCalledWith({ queryKey: mailDraftKeys.all() });
   });
 
