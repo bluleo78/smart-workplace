@@ -334,7 +334,8 @@ const showDriveInput = z.object({
 // WP-989: recurring — 반복 회차 실행. WP-1311 부터 읽기(RECURRING_RUN_TOOLS)·쓰기(RECURRING_RUN_WRITE_TOOLS·RECURRING_RUN_DIRECT_ACTIONS)를 함께 싣는다.
 // WP-1994: issue-workflow — 'issue' 와 같되 워크플로우 노드 깨우기 실행에만 move_issue_workflow 를 더 싣는다(그 밖의 이슈 실행은 이동 도구가 없어 남의 실행을 못 움직인다).
 // get_issue_workflow 는 모든 이슈 실행에 둔다(읽기 전용 — 진행 중 워크플로우가 있으면 상태·담당을 건드리지 않게 확인용). 시작(start_issue_workflow)·정의
-// (get/validate/update_workflow) 도구는 어느 쪽에도 싣지 않는다: 내부 AI 는 사람이 시작한 실행의 노드만 처리하고 정의를 바꾸지 않는다.
+// (get/validate/update_workflow) 도구는 issue·issue-workflow 어느 쪽에도 싣지 않는다: 내부 AI 는 사람이 시작한 실행의 노드만 처리하고 정의를 바꾸지 않는다.
+// WP-2033: 워크플로우 도구 6종은 assistant(홈 AI 채팅)에만 싣는다 — 이슈 3종은 issue-agent, 정의 3종은 project-agent 서브에이전트가 쓴다. recurring 에는 싣지 않는다.
 // WP-1313: recurring-test — 「지금 실행」(테스트 실행)과 그 질문의 이어 처리. recurring 과 같은 도구를 싣되 되돌릴 수 없는 쓰기
 // (RECURRING_TEST_GATED_TOOLS)는 실행하지 않고 멈춘다(이어 처리는 허락된 쓰기만 실행).
 export type McpProfile = 'issue' | 'issue-workflow' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring' | 'recurring-test';
@@ -369,9 +370,11 @@ export const RECURRING_RUN_TOOLS: readonly string[] = [
 
 /**
  * WP-1311: 반복 회차가 싣는 쓰기 공유 도구 — 반복 업무는 이슈 설명의 지시를 실행하는 것이라 시스템이 쓰기를 막지 않는다(에픽 WP-1310 설계 §6).
- * 소유자 권한으로 도는 홈 AI 채팅(assistant)의 직접 실행 쓰기와 같은 목록이고, 확인 카드로만 하던 공유 도구(CARD_ONLY_SHARED_TOOLS 의 키 —
+ * 소유자 권한으로 도는 홈 AI 채팅(assistant)의 직접 실행 쓰기와 거의 같은 목록이고(차이는 아래 「뺀 것」), 확인 카드로만 하던 공유 도구(CARD_ONLY_SHARED_TOOLS 의 키 —
  * 일정 만들기·고치기(참석자 포함)·프로젝트 만들기·멤버 추가·채널 초대)도 이 경로에서만 직접 싣는다. 홈 AI 채팅·이슈 챗의 카드 전용 규칙은 그대로다.
- * 뺀 것: unassign_self(담당에서 빠지면 반복이 거둬진다), create_drive_download_link(지켜보는 사람이 없어 10분 링크를 쓸 곳이 없다).
+ * 뺀 것: unassign_self(담당에서 빠지면 반복이 거둬진다), create_drive_download_link(지켜보는 사람이 없어 10분 링크를 쓸 곳이 없다),
+ * 워크플로우 시작·이동·정의 저장(start/move_issue_workflow·update_workflow, WP-2033 — assistant 에만 배선. 이동은 되돌릴 수 없어 지켜보는 사람 없는
+ * 반복 회차에서 움직이게 할지는 따로 정한다. 조회 get_issue_workflow·get_workflow·validate_workflow 도 RECURRING_RUN_TOOLS 에 아직 없다).
  */
 export const RECURRING_RUN_WRITE_TOOLS: readonly string[] = [
   // 이슈·프로젝트

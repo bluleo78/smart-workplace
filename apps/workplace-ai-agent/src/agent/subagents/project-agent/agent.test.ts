@@ -84,4 +84,12 @@ describe('project-agent 정의', () => {
       expect(p).toContain(k);
     }
   });
+
+  // WP-2033 리뷰 후속: 안전 규칙의 직접 실행 예외에 update_workflow — 워크플로우 만들기는 제안 전용이 아니다.
+  it('WP-2033: 안전 규칙이 update_workflow 를 직접 실행 예외로 들고 워크플로우 만들기는 제안 전용이 아니라고 안내한다', () => {
+    const p = loaded['project-agent'].prompt;
+    const safety = p.slice(p.indexOf('## 안전 규칙'));
+    expect(safety).toContain('`update_workflow`');
+    expect(safety).toContain('제안(propose) 전용이 아닙니다');
+  });
 });
