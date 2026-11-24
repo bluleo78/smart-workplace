@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 import { createAiTaskCounts } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectBodyNoHorizontalOverflow, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import type { UserSummary } from '../../../src/types/user'
 
 const agent: UserSummary = { id: 9, username: 'claude', name: 'Claude', kind: 'AGENT' }
@@ -70,4 +70,46 @@ test('내 작업 — 표 대신 모바일 행: 긴 제목이 폭을 쓰고 메�
 test('AI 위임 작업 — 제목 h1 한 번, 행 노출, 본문 스크롤로 마지막 행까지 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page, '/me/ai-tasks')
   await expectSmoke(page, 'AI 위임 작업', 'ai-row')
+})
+
+// WP-2045: 탭 줄(5개)이 390px 을 넘치면 그 넘침이 본문 스크롤 상자로 전파돼 「내 차례」 탭 선택 때
+// 페이지 전체가 가로로 밀렸다(제목 왼쪽 여백 소실). 탭 줄이 자기 상자 안에서만 밀려야 한다(@layout).
+test('내 작업 — 「내 차례」 탭을 눌러도 본문 스크롤 상자가 가로로 밀리지 않는다(WP-2045)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', createIssueSearchResponse([createIssue({ id: 300 })]))
+  await mockApi(page, 'GET', '/api/v1/me/workflow-turns', { items: [] })
+  await page.goto('/me/tasks/watched')
+  await expect(page.getByTestId('tab-turns')).toBeVisible()
+
+  const title = page.getByRole('heading', { level: 1, name: '내 작업' })
+  const leftBefore = (await title.boundingBox())!.x
+  await expectBodyNoHorizontalOverflow(page)
+
+  await page.getByTestId('tab-turns').click()
+  await expect(page).toHaveURL(/\/me\/tasks\/turns$/)
+
+  // 본문 스크롤 상자는 그대로다(가로 밀림 없음) — 제목 왼쪽 여백도 그대로.
+  await expectBodyNoHorizontalOverflow(page)
+  expect((await title.boundingBox())!.x).toBe(leftBefore)
+  // 탭 줄 자체는 넘쳐도 자기 상자 안에서만 밀린다.
+  const scroller = await page.getByRole('tablist').evaluate((el) => {
+    const box = el.parentElement!
+    return { scrollWidth: box.scrollWidth, clientWidth: box.clientWidth }
+  })
+  expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth) // 390px 에서는 넘친다(전제)
+
+  // 활성 탭 밑줄(TabsTrigger 의 after)이 래퍼(overflow-x-auto)의 세로 클립 경계 밖으로 잘리지 않는다 —
+  // 래퍼는 overflow-y 를 auto 로 계산해 자기 상자만 그리는데, 밑줄은 TabsList 상자 아래로 1.5px 나간다(WP-2045 판정).
+  // 밑줄 하단 y = trigger 패딩 박스 하단 - bottom(음수면 밖으로) / 잘림 경계 = 래퍼 패딩 박스 하단(top + border + clientHeight).
+  const clip = await page.getByRole('tablist').evaluate((list) => {
+    const wrapper = list.parentElement as HTMLElement
+    const trigger = list.querySelector('[role=tab][data-state="active"]') as HTMLElement
+    const after = getComputedStyle(trigger, '::after')
+    const triggerBorder = parseFloat(getComputedStyle(trigger).borderBottomWidth)
+    const underlineBottomY = trigger.getBoundingClientRect().bottom - triggerBorder - parseFloat(after.bottom)
+    const box = wrapper.getBoundingClientRect()
+    const clipY = box.top + parseFloat(getComputedStyle(wrapper).borderTopWidth) + wrapper.clientHeight
+    return { underlineBottomY, clipY }
+  })
+  expect(clip.underlineBottomY, `밑줄 하단 ${clip.underlineBottomY} vs 래퍼 경계 ${clip.clipY}`).toBeLessThanOrEqual(clip.clipY)
 })
