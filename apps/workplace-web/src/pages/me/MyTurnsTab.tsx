@@ -1,26 +1,28 @@
 // 내 작업 「내 차례」 탭(WP-1991) — 모든 프로젝트에서 내가 담당인 사람 노드를 오래 기다린 순으로 모아 보이고,
 // 줄을 고르면 오른쪽 패널에서 넘겨받은 내용을 보며 결과를 골라 바로 넘긴다.
 // 왜: 흩어진 프로젝트를 돌지 않고 한곳에서 답하게 한다. 넘기면 목록 쪽이 다시 읽혀 그 줄이 빠지고 패널이 닫힌다.
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { EmptyState } from '@/components/layout/EmptyState'
+import { ResultStatus } from '@/components/ResultStatus'
 import { useMyWorkflowTurns } from '@/hooks/queries/useWorkflowRuns'
 import { useAuth } from '@/hooks/useAuth'
 import { issuePath } from '@/lib/appUrl'
 import { formatRelativeTime } from '@/lib/formatters'
-import { type MyWorkflowTurn } from '@/lib/workflowRuns'
+import { type MyWorkflowTurn, turnDetailOpenedText } from '@/lib/workflowRuns'
 import { IssueWorkflowBanner } from '@/pages/projects/components/IssueWorkflowBanner'
 
-/** 고른 줄의 패널 — 넘겨받은 내용(넘긴 사람·질문, 없으면 생략)과 결과 고르기 배너. */
+/** 고른 줄의 패널 — 넘겨받은 내용(넘긴 사람·질문, 없으면 생략)과 결과 고르기 배너. 제목을 이름으로 가진 영역(region)이라 스크린리더가 상세 범위를 안다(WP-2053). */
 function TurnPanel({ turn, meId }: { turn: MyWorkflowTurn; meId: number }) {
+  const headingId = useId()
   return (
-    <div className="space-y-3 rounded-md border p-3 text-sm" data-testid="my-turn-panel">
-      <div className="font-medium">{`${turn.issueKey} ${turn.title}`}</div>
+    <section aria-labelledby={headingId} className="space-y-3 rounded-md border p-3 text-sm" data-testid="my-turn-panel">
+      <h2 id={headingId} className="font-medium text-sm">{`${turn.issueKey} ${turn.title}`}</h2>
       {turn.handedBy && <p className="text-muted-foreground">{`${turn.handedBy.name} 님이 넘김`}</p>}
       {turn.question && <p>{`「${turn.question}」`}</p>}
       <IssueWorkflowBanner issueId={turn.issueId} projectKey={turn.projectKey} meId={meId} />
-    </div>
+    </section>
   )
 }
 
@@ -42,6 +44,11 @@ export function MyTurnsTab() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      {/* WP-2053: 줄을 고르면 상세가 열렸음을 스크린리더에 알린다(포커스는 옮기지 않음). 영역은 늘 하나만 마운트. */}
+      <ResultStatus
+        conditionKey={String(selected?.runId ?? '')} ready={selected !== null && user != null}
+        text={selected ? turnDetailOpenedText(selected.issueKey) : ''} testId="my-turn-status"
+      />
       <ul className="divide-y rounded-md border" data-testid="my-turn-list">
         {items.map((t) => (
           <li

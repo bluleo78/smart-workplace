@@ -1,6 +1,6 @@
 // 워크플로우 실행 상세(WP-1991) — 머리·사람 차례/조치 필요 배너·그래프(지나온 노드 칠하기)·이동 기록.
 // 왜: 어느 이슈가 어느 단계에서 누구를 기다리는지 한 화면에서 보고, 막힌 실행은 여기서 바로 조치하게 한다.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +33,7 @@ interface Props {
 /** 실행 상세 — 고른 실행 하나를 읽어 그린다. 없으면(404) 안내만 보이고 목록은 그대로 남는다(부모가 따로 그린다). */
 export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, canRecover, meId }: Props) {
   const query = useWorkflowRun(runId)
+  const headingId = useId()
   const detail = query.data
   // 낮은 곳의 그래프 칠하기·소요 시간 — 상세가 바뀔 때만 다시 계산한다(소요 시간은 그때의 now 까지).
   const paint = useMemo(() => (detail ? paintRun(detail) : undefined), [detail])
@@ -67,12 +68,17 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
   const visit = atCurrent.find((v) => v.leftAt == null) ?? (run.status === 'SUSPENDED' && latestStopped ? latest : null)
 
   return (
-    <div className="min-w-0 space-y-3" data-testid="run-detail">
+    // WP-2053: 상세를 영역(region)·제목(h2)으로 둔다 — 스크린리더 영역 탐색에서 어느 실행인지 보인다.
+    // 열림 안내는 목록 쪽 ResultStatus 가 읽으므로 여기서 포커스를 옮기지 않는다(목록 줄에서 계속 탐색하게).
+    <section aria-labelledby={headingId} className="min-w-0 space-y-3" data-testid="run-detail">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{RUN_STATUS_LABEL[run.status]}</Badge>
-          <span className="font-medium">{run.issueKey}</span>
-          <span className="min-w-0 flex-1 truncate">{run.title}</span>
+          <h2 id={headingId} className="flex min-w-0 flex-1 items-center gap-2 text-base font-normal">
+            {/* 두 span 사이 공백 — 없으면 영역 이름이 「WP-1제목 1」로 붙어 읽힌다(WP-2053 리뷰). */}
+            <span className="font-medium">{run.issueKey}</span>{' '}
+            <span className="min-w-0 flex-1 truncate">{run.title}</span>
+          </h2>
           <Link className="text-xs text-primary hover:underline" to={issuePath(projectKey, run.issueNumber)}>이슈 열기 ↗</Link>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -95,7 +101,7 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
           ))}
         </ul>
       </section>
-    </div>
+    </section>
   )
 }
 

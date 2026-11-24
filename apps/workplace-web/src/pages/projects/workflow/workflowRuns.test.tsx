@@ -17,6 +17,17 @@ const item = (runId: number, extra: object = {}) => ({
   startedAt: '2026-11-20T00:00:00Z', versionNo: 2, ...extra,
 })
 
+/** id 1(WP-1) 실행 상세 응답 — 워크플로우 42 의 실행. */
+const runDetailBody = () => ({
+  run: {
+    runId: 1, workflowId: 42, versionNo: 2, issueId: 10, issueNumber: 10, issueKey: 'WP-1', title: '제목 1', status: 'WAITING', revision: 1,
+    currentNode: 'b', startedBy: kim, startedAt: '2026-11-20T00:00:00Z', endedAt: null, context: {},
+  },
+  nodeRuns: [],
+  events: [],
+  model: mkModel(),
+})
+
 /** 요청 URL 을 모으며 응답하는 공통 핸들러. */
 function setup(
   respond: (url: URL) => object = () => ({ items: [item(1)], nextCursor: null }),
@@ -38,7 +49,10 @@ function setup(
         http.get(base + '/projects/WP/members', () => HttpResponse.json([
           { userId: 3, username: 'kim', name: '김', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
         ])),
-        http.get(base + '/workflow-runs/:id', () => HttpResponse.json({ code: 'NOT_FOUND', message: 'x' }, { status: 404 })),
+        // id 1 만 상세가 있고 나머지는 404 — 열림 안내(WP-2053)와 없는 실행 분기를 함께 본다.
+        http.get(base + '/workflow-runs/:id', ({ params }) => (params.id === '1'
+          ? HttpResponse.json(runDetailBody())
+          : HttpResponse.json({ code: 'NOT_FOUND', message: 'x' }, { status: 404 }))),
         http.get(base + '/workflows/42/run-counts', () => HttpResponse.json({ counts: { b: 2 } })),
       ],
     },
@@ -93,6 +107,36 @@ it('runs_selectRow_setsRunParam', async () => {
   expect(location()).toContain('view=runs')
   window.history.back()
   await waitFor(() => expect(location()).not.toContain('run='))
+})
+
+it('runs_selectRow_announcesOpenedDetail', async () => {
+  const { user } = setup()
+  const status = await screen.findByTestId('run-detail-status')
+  await screen.findByText('WP-1')
+  expect(status).toHaveTextContent('')
+  await user.click(screen.getByText('WP-1').closest('button')!)
+  await waitFor(() => expect(screen.getByTestId('run-detail-status')).toHaveTextContent('WP-1 실행 상세를 열었습니다'))
+  const region = await screen.findByRole('region', { name: 'WP-1 제목 1' })
+  const heading = within(region).getByRole('heading', { level: 2 })
+  // 이름 계산은 flex 자식 사이에 공백을 넣어 주지만 브라우저마다 다르다 — 글자 자체에 공백이 있는지 본다(WP-2053 리뷰).
+  expect(heading.textContent).toBe('WP-1 제목 1')
+})
+
+it('runs_selectMissingRun_noOpenedStatus', async () => {
+  const { user } = setup(() => ({ items: [item(2)], nextCursor: null }))
+  await user.click((await screen.findByText('WP-2')).closest('button')!)
+  expect(await screen.findByText('실행을 찾을 수 없습니다')).toBeVisible()
+  expect(screen.getByTestId('run-detail-status')).toHaveTextContent('')
+})
+
+// 다른 워크플로우의 실행이면 상세가 그 안내를 보이니 「열었습니다」를 알리지 않는다(WP-2053 최종 리뷰).
+it('runs_selectOtherWorkflowRun_noOpenedStatus', async () => {
+  const { user } = setup(() => ({ items: [item(3)], nextCursor: null }))
+  const body = runDetailBody()
+  server.use(http.get(base + '/workflow-runs/3', () => HttpResponse.json({ ...body, run: { ...body.run, runId: 3, workflowId: 99, issueKey: 'WP-3' } })))
+  await user.click((await screen.findByText('WP-3')).closest('button')!)
+  expect(await screen.findByText('이 실행은 다른 워크플로우의 실행입니다')).toBeVisible()
+  expect(screen.getByTestId('run-detail-status')).toHaveTextContent('')
 })
 
 it('runs_graphView_showsCountsBadges', async () => {

@@ -206,3 +206,13 @@ export function olderRunsNotice(older: readonly OlderVersionRuns[], activeVersio
   const detail = older.map((o) => `v${o.versionNo} ${o.activeRuns}개`).join(', ')
   return `옛 버전 실행 ${total}개는 이 그래프에 표시하지 않습니다 (${detail}) — 게시 버전 v${activeVersionNo}의 실행만 단계에 셉니다.`
 }
+
+/** 실행 상세가 열렸을 때 스크린리더에 읽힐 문구(WP-2053) — 어느 이슈의 상세인지 알린다. */
+export function runDetailOpenedText(issueKey: string): string {
+  return `${issueKey} 실행 상세를 열었습니다`
+}
+
+/** 내 차례 상세가 열렸을 때 스크린리더에 읽힐 문구(WP-2053). */
+export function turnDetailOpenedText(issueKey: string): string {
+  return `${issueKey} 내 차례 상세를 열었습니다`
+}

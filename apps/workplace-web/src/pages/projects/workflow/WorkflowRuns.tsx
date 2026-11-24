@@ -3,13 +3,14 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { ResultStatus } from '@/components/ResultStatus'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
-import { useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
+import { useWorkflowRun, useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
 import { formatRelativeTime } from '@/lib/formatters'
 import { RUN_STATUS_LABEL, type RunStatus } from '@/lib/workflow'
-import { type RunFilters, type WorkflowRunItem } from '@/lib/workflowRuns'
+import { runDetailOpenedText, type RunFilters, type WorkflowRunItem } from '@/lib/workflowRuns'
 import { useWorkflowVersion, type WorkflowModel } from '@/lib/workflows'
 
 import { WorkflowGraphView } from './WorkflowGraphView'
@@ -56,6 +57,9 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
   const counts = useWorkflowRunCounts(workflowId, graphView)
   const published = useWorkflowVersion(workflowId, activeVersionNo)
   const members = useProjectMembers(projectKey)
+  // 상세와 같은 쿼리 키라 요청이 늘지 않는다 — 열림 안내 문구(이슈 키)를 얻으려고 읽는다(WP-2053).
+  // 그래프 보기에서는 상세를 그리지 않으니 읽지 않는다(주소에 run 이 남아 있어도 요청이 더 가지 않게).
+  const runQuery = useWorkflowRun(graphView ? null : runId)
   const items = useMemo(() => runs.data?.pages.flatMap((p) => p.items) ?? [], [runs.data])
   const model = published.data?.model
 
@@ -110,6 +114,12 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
           notice={olderNotice ?? null} onShowList={() => setParam('runsView', null)} />
       ) : (
         <div className="grid min-w-0 items-start gap-3 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          {/* WP-2053: 줄을 고르면 상세가 열렸음을 스크린리더에 알린다. 포커스는 옮기지 않는다(목록 탐색 유지). 영역은 늘 하나만 마운트.
+              다른 워크플로우의 실행이면 상세가 그 안내(role=alert)를 보이므로 「열었습니다」는 알리지 않는다. */}
+          <ResultStatus
+            conditionKey={String(runId ?? '')} ready={runQuery.isSuccess && runQuery.data.run.workflowId === workflowId}
+            text={runQuery.data ? runDetailOpenedText(runQuery.data.run.issueKey) : ''} testId="run-detail-status"
+          />
           <div className="min-w-0 space-y-2">
             {runs.isError ? (
               <p role="alert" className="text-sm">
