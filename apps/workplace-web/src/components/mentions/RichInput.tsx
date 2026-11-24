@@ -250,7 +250,8 @@ export function RichInput({
   // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음, 본문 모드만 읽음), dismissed: 이번 자동완성에서 Esc 로 닫았는가
   // (닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
   // 본문에는 @Override·@media 처럼 멤버가 아닌 @단어가 흔한데 그때도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음), 키를 팝업에 넘기면
-  // Enter·Esc 가 아무 일도 하지 않았다 — 본문 모드는 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅은 popupOpenRef 를 그대로 쓴다.
+  // Enter·Esc 가 아무 일도 하지 않았다 — 본문 모드는 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅은 popupOpenRef 를 그대로 쓰지만,
+  // 숨긴 팝업(dismissed)은 코멘트·채팅 Enter 전송 가드도 함께 읽는다 — dismissed 를 본문 전용으로 읽지 않게.
   const bodyPopupRef = useRef<{ live: boolean; dismissed: boolean; hide: (() => void) | null }>({
     live: false,
     dismissed: false,
@@ -495,6 +496,9 @@ export function RichInput({
                   bodyPopupRef.current.hide?.();
                   return true;
                 }
+                // Esc 로 숨긴 팝업(dismissed)에는 방향키·Enter 를 목록에 넘기지 않는다 — 본문 모드와 같게,
+                // 보이지 않는 후보가 선택되지 않게 한다(WP-2062). Escape 는 위에서 팝업 쪽이 먼저 먹는다(두 번째 Esc 도 그대로 삼킨다).
+                if (bodyPopupRef.current.dismissed) return false;
                 return component?.ref?.onKeyDown(props) ?? false;
               },
               onExit: () => {
@@ -596,7 +600,8 @@ export function RichInput({
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
         if (isSubmitEnter(event)) {
           // 이 인스턴스의 팝업이 열려있으면 mention 처리에 양보 (인스턴스-로컬 플래그).
-          if (popupOpenRef.current) return false;
+          // 숨긴 팝업은 열린 팝업이 아니라 — 멘션 삽입 대신 전송으로 간다(WP-2062).
+          if (popupOpenRef.current && !bodyPopupRef.current.dismissed) return false;
           event.preventDefault();
           submit();
           return true;
