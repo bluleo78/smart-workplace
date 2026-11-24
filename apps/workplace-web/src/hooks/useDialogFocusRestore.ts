@@ -55,14 +55,28 @@ function currentRestoreTarget(): HTMLElement | null {
  * 포커스를 받는 첫 대상으로 돌린다 — 키보드 사용자가 자리를 잃지 않게. 행이 없으면 브라우저 기본(body)에 맡긴다.
  * keyboard: 대화상자가 열려 있던 동안 마지막 입력 수단이 키보드였는지. true 일 때만 막힌 버튼의 이유 감싸개로 초점을 옮긴다.
  */
-function focusNearest(el: HTMLElement, keyboard: boolean) {
-  el.focus();
+function focusNearest(el: HTMLElement, keyboard: boolean, preventScroll: boolean) {
+  // preventScroll: 모바일 시트는 닫힐 때 연 요소를 화면에 끌어오느라 목록이 튀지 않게 스크롤 없이 돌려준다(WP-2057).
+  el.focus({ preventScroll });
   if (document.activeElement === el) return;
   if (focusDisabledReasonWrapper(el, keyboard)) return;
   for (const candidate of el.closest(ROW)?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []) {
-    candidate.focus();
+    candidate.focus({ preventScroll });
     if (document.activeElement === candidate) return;
   }
+}
+
+/** 지금 열려 있는 대화상자(대화상자·확인창). 닫히는 중(퇴장 애니메이션, data-state=closed)인 것은 뺀다. */
+const OPEN_DIALOGS = '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]';
+
+/**
+ * 돌려줄지 — 연 요소 밖에 다른 대화상자가 열려 있으면 돌려주지 않는다. 시트가 닫혀서가 아니라 폭 전환(휴대폰 ↔ 데스크톱)으로
+ * 다른 모양의 대화상자로 바뀌며 언마운트된 경우, 새 대화상자가 가진 포커스를 그 뒤에 가려진 옛 단추로 끌어오지 않게 한다.
+ * 시트를 다른 대화상자 안에서 열었으면(연 요소가 그 대화상자 안) 그대로 돌려준다. onCloseAutoFocus 시점에는 닫힌 시트 자신은 이미 DOM 에 없다.
+ * 원시 시트(RawSheetContent)와 모바일 바텀시트(MobileSheetShell, WP-2057)가 useDialogFocusRestore 의 shouldRestore 로 함께 쓴다.
+ */
+export function noOtherDialogCovers(target: HTMLElement) {
+  return Array.from(document.querySelectorAll(OPEN_DIALOGS)).every((dialog) => dialog.contains(target));
 }
 
 /**
@@ -77,12 +91,15 @@ function focusNearest(el: HTMLElement, keyboard: boolean) {
  * 열 때는 포커스를 먼저 캡처한 뒤 사용처의 onOpenAutoFocus 를 실행한다(사용처가 포커스를 옮겨도 복원 대상은 유지).
  * 닫을 때는 사용처의 onCloseAutoFocus 를 먼저 실행하고, 사용처가 preventDefault() 로 포커스를 직접 처리했으면 복원을 건너뛴다.
  * shouldRestore 를 주면 복원 직전에 대상을 넘겨 물어보고, 거짓이면 돌려주지 않는다(원시 시트 래퍼 RawSheetContent 가 쓴다).
+ * options.preventScroll 이면 돌려줄 때 스크롤하지 않는다(모바일 바텀시트 MobileSheetShell, WP-2057).
  */
 export function useDialogFocusRestore(
   onOpenAutoFocus?: (event: Event) => void,
   onCloseAutoFocus?: (event: Event) => void,
   shouldRestore?: (target: HTMLElement) => boolean,
+  options?: { preventScroll?: boolean },
 ) {
+  const preventScroll = options?.preventScroll ?? false;
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   // 이번 열림의 복원 대상을 이미 잡았는지 — 닫힐 때 비운다.
   const capturedRef = useRef(false);
@@ -135,10 +152,10 @@ export function useDialogFocusRestore(
       // 복원 대상이 이미 DOM 에서 제거됐을 수 있으므로 isConnected 확인 후 focus.
       if (target && target.isConnected && (shouldRestore?.(target) ?? true)) {
         event.preventDefault();
-        focusNearest(target, keyboardRef.current);
+        focusNearest(target, keyboardRef.current, preventScroll);
       }
     },
-    [onCloseAutoFocus, shouldRestore],
+    [onCloseAutoFocus, shouldRestore, preventScroll],
   );
 
   return { onOpenAutoFocus: handleOpenAutoFocus, onCloseAutoFocus: handleCloseAutoFocus, captureOpener: capture };

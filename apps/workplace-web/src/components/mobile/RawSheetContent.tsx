@@ -8,19 +8,7 @@ import type { ComponentProps } from 'react'
 
 import { Dialog } from '@/components/ui/dialog'
 import { useAriaModal } from '@/components/ui/dialog-modal-context'
-import { DialogOpenerProbe, useDialogFocusRestore } from '@/hooks/useDialogFocusRestore'
-
-/** 지금 열려 있는 대화상자(대화상자·확인창). 닫히는 중(퇴장 애니메이션, data-state=closed)인 것은 뺀다. */
-const OPEN_DIALOGS = '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'
-
-/**
- * 돌려줄지 — 연 요소 밖에 다른 대화상자가 열려 있으면 돌려주지 않는다. 시트가 닫혀서가 아니라 폭 전환(휴대폰 ↔ 데스크톱)으로
- * 다른 모양의 대화상자로 바뀌며 언마운트된 경우, 새 대화상자가 가진 포커스를 그 뒤에 가려진 옛 단추로 끌어오지 않게 한다.
- * 시트를 다른 대화상자 안에서 열었으면(연 요소가 그 대화상자 안) 그대로 돌려준다. onCloseAutoFocus 시점에는 닫힌 시트 자신은 이미 DOM 에 없다.
- */
-function noOtherDialogCovers(target: HTMLElement) {
-  return Array.from(document.querySelectorAll(OPEN_DIALOGS)).every((dialog) => dialog.contains(target))
-}
+import { DialogOpenerProbe, noOtherDialogCovers, useDialogFocusRestore } from '@/hooks/useDialogFocusRestore'
 
 /** 원시 시트의 Root(WP-1771) — ui/Dialog 와 같다(modal 을 Radix Root 에 넘기고 context 로 내려 RawSheetContent 가 aria-modal 에 쓴다). */
 export const RawSheetRoot = Dialog
