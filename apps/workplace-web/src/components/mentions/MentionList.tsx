@@ -11,16 +11,31 @@ export interface MentionListHandle {
   onKeyDown: (props: { event: KeyboardEvent }) => boolean;
 }
 
+/** option 의 id — 편집칸 aria-activedescendant 가 가리키는 값(WP-2061). 목록 id 와 순번으로 만든다. */
+// eslint-disable-next-line react-refresh/only-export-components -- 순수 id 함수라 같은 파일에 둔다(RichInput 이 같이 쓴다)
+export function mentionOptionId(listId: string, index: number): string {
+  return `${listId}-opt-${index}`;
+}
+
 interface MentionListProps {
   items: MentionCandidate[];
   command: (item: { id: number; label: string }) => void;
+  /** listbox 의 id — 편집칸 aria-controls 가 가리킨다. */
+  listId: string;
+  /** 활성(선택) 후보 순번이 바뀔 때마다·처음 그릴 때 부른다. 후보가 없으면 -1. */
+  onActiveChange: (index: number) => void;
 }
 
 export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
-  ({ items, command }, ref) => {
+  ({ items, command, listId, onActiveChange }, ref) => {
     const [selected, setSelected] = useState(0);
 
     useEffect(() => setSelected(0), [items]);
+
+    // 활성 후보를 편집칸에 알린다(aria-activedescendant 용). 후보가 없으면 -1.
+    // 후보가 줄어든 첫 렌더는 selected 가 아직 옛 값이라(0 으로 되돌리는 effect 전) 끝 순번으로 잘라 없는 id 를 가리키지 않게 한다.
+    const active = items.length ? Math.min(selected, items.length - 1) : -1;
+    useEffect(() => onActiveChange(active), [active, onActiveChange]);
 
     function select(index: number) {
       const item = items[index];
@@ -49,6 +64,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
 
     return (
       <div
+        id={listId}
         role="listbox"
         aria-label="멘션 후보"
         className="w-72 overflow-auto rounded-md border bg-popover shadow-md"
@@ -58,6 +74,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
           <button
             type="button"
             key={m.userId}
+            id={mentionOptionId(listId, idx)}
             role="option"
             aria-selected={idx === selected}
             data-testid={`chat-mention-option-${m.userId}`}
