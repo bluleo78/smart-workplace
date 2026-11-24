@@ -75,7 +75,7 @@ describe('AI 작업 단계 카드', () => {
     expect(await screen.findByText('검증·PR → PR 리뷰 → 끝')).toBeInTheDocument()
     expect(screen.getByText('AI 개발 흐름 v2')).toBeInTheDocument()
     expect(screen.getByText('사람 차례')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '실행 보기 ↗' })).toHaveAttribute('href', '/projects/WP/workflow')
+    expect(screen.getByRole('link', { name: '실행 보기 ↗' })).toHaveAttribute('href', '/projects/WP/workflow?view=runs&workflow=3&run=5')
   })
 
   test('enteredAtSecondsAgo_showsJustNowWithoutSuffix', async () => {
@@ -152,8 +152,8 @@ describe('AI 작업 단계 카드', () => {
   })
 })
 
-// 「⋯ 조치」 메뉴(WP-1989) — 멈춘(조치 필요) 실행을 다시 시도·오류 경로·취소·옮기기로 푼다.
-describe('AI 작업 단계 카드 — 조치 메뉴', () => {
+// 「조치」 단추와 조치 창(WP-1989·1991) — 멈춘(조치 필요) 실행을 다시 시도·오류 경로·취소·옮기기로 푼다. 창은 실행 상세와 같은 RecoverDialog.
+describe('AI 작업 단계 카드 — 조치 창', () => {
   const suspended = {
     ...runningView,
     status: 'SUSPENDED',
@@ -161,22 +161,29 @@ describe('AI 작업 단계 카드 — 조치 메뉴', () => {
     currentNode: { ...runningView.currentNode, nodeRunStatus: 'BLOCKED' },
   }
   const running = { ...runningView, status: 'RUNNING', revision: 4, currentNode: { ...runningView.currentNode, nodeRunStatus: 'ACTIVE' } }
-  const versionWithTriage = {
+  const mkNode = (n: { key: string; name: string; type?: string }, extra: object = {}) => ({
+    type: 'task', use: [], requires: [], outputs: [], outcomes: [], conditions: [], ...n, ...extra,
+  })
+  /** 지금 노드 ask(오류 경로 → triage 가 있거나 없는) + 시작·분류·검증 노드를 가진 모델. */
+  const modelWith = (withOnError: boolean) => ({
     ...version,
     model: {
       ...version.model,
-      nodes: [{ key: 'triage', name: '분류' }, { key: 'verify_pr', name: '검증·PR' }].map((n) => ({
-        ...n, type: 'task', use: [], requires: [], outputs: [], outcomes: [], conditions: [],
-      })),
+      nodes: [
+        mkNode({ key: 'start', name: '시작', type: 'start' }),
+        mkNode({ key: 'triage', name: '분류' }),
+        mkNode({ key: 'ask', name: '구현 질문 답변' }, withOnError ? { onError: { to: 'triage' } } : {}),
+        mkNode({ key: 'verify_pr', name: '검증·PR' }),
+      ],
     },
-  }
+  })
 
   /** 조치 요청 본문을 모으는 핸들러까지 붙여 띄운다. */
-  function setup(view: object, props: { isManager?: boolean; canEdit?: boolean; closed?: boolean } = {}) {
+  function setup(view: object, props: { isManager?: boolean; canEdit?: boolean; closed?: boolean; withOnError?: boolean } = {}) {
     const recovers: Record<string, unknown>[] = []
     const rendered = renderScreen(card(props), {
       handlers: [
-        ...handlers(view, enabledList, http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(versionWithTriage))),
+        ...handlers(view, enabledList, http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(modelWith(props.withOnError ?? true)))),
         http.post(`${API}/issues/7/workflow/recover`, async ({ request }) => {
           recovers.push((await request.json()) as Record<string, unknown>)
           return HttpResponse.json(view)
@@ -186,31 +193,70 @@ describe('AI 작업 단계 카드 — 조치 메뉴', () => {
     return { ...rendered, recovers }
   }
 
+  /** 조치 단추는 모델을 읽은 뒤 켜진다. */
+  const openDialog = async (user: ReturnType<typeof setup>['user']) => {
+    const btn = await screen.findByRole('button', { name: '조치' })
+    await waitFor(() => expect(btn).toBeEnabled())
+    await user.click(btn)
+  }
+
+  // 버전 모델을 못 읽어도(404) 조치는 꺼지지 않는다 — 다시 시도·실행 취소는 보낼 수 있고, 오류 경로·옮기기는 내놓지 않는다.
+  test('versionModelFails_retryStillSent_noOnErrorNoMove', async () => {
+    const recovers: Record<string, unknown>[] = []
+    const { user } = renderScreen(card({ isManager: true }), {
+      handlers: [
+        ...handlers(suspended, enabledList, http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json({ code: 'NOT_FOUND', message: 'x' }, { status: 404 }))),
+        http.post(`${API}/issues/7/workflow/recover`, async ({ request }) => {
+          recovers.push((await request.json()) as Record<string, unknown>)
+          return HttpResponse.json(suspended)
+        }),
+      ],
+    })
+    const btn = await screen.findByRole('button', { name: '조치' })
+    await waitFor(() => expect(btn).toBeEnabled())
+    await user.click(btn)
+    expect(screen.getByRole('radio', { name: '다시 시도' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '실행 취소' })).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /오류 경로로 보내기/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: '다른 노드로 옮기기' })).not.toBeInTheDocument()
+    expect(screen.getByText('단계 목록을 불러오지 못했어요')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(recovers).toEqual([{ action: 'RETRY', expectedRevision: 4 }]))
+  })
+
   test('closedIssue_hidesRecoverMenu', async () => {
     setup(suspended, { closed: true })
     await screen.findByText('조치 필요')
     expect(screen.queryByRole('button', { name: '조치' })).not.toBeInTheDocument()
   })
 
-  test('suspended_showsRecoverMenu_retryWithComment', async () => {
+  test('suspended_nonManager_noMoveTo_retryWithComment', async () => {
     const { user, recovers } = setup(suspended)
-    await user.click(await screen.findByRole('button', { name: '조치' }))
-    expect(screen.getByRole('menuitem', { name: '다시 시도' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: '오류 경로로 보내기' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: '실행 취소' })).toBeInTheDocument()
+    await openDialog(user)
+    expect(screen.getByRole('radio', { name: '다시 시도' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /오류 경로로 보내기/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '실행 취소' })).toBeInTheDocument()
     // 관리자가 아니면 옮기기는 없다.
-    expect(screen.queryByRole('menuitem', { name: '다른 노드로 옮기기' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('menuitem', { name: '다시 시도' }))
-    await user.type(await screen.findByRole('textbox', { name: '남길 말(선택)' }), '다시 해 봅시다')
+    expect(screen.queryByRole('radio', { name: '다른 노드로 옮기기' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: '다시 시도' }))
+    await user.type(screen.getByRole('textbox', { name: '남길 말(선택)' }), '다시 해 봅시다')
     await user.click(screen.getByRole('button', { name: '확인' }))
     await waitFor(() => expect(recovers).toEqual([{ action: 'RETRY', expectedRevision: 4, comment: '다시 해 봅시다' }]))
   })
 
-  test('retryWithoutComment_omitsComment', async () => {
+  test('onError_onlyWhenCurrentNodeHasOnError', async () => {
+    const { user } = setup(suspended, { withOnError: false })
+    await openDialog(user)
+    expect(screen.getByRole('radio', { name: '다시 시도' })).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /오류 경로로 보내기/ })).not.toBeInTheDocument()
+  })
+
+  test('onError_sendsActionWithoutComment', async () => {
     const { user, recovers } = setup(suspended)
-    await user.click(await screen.findByRole('button', { name: '조치' }))
-    await user.click(screen.getByRole('menuitem', { name: '오류 경로로 보내기' }))
-    await user.click(await screen.findByRole('button', { name: '확인' }))
+    await openDialog(user)
+    // 대상 노드 이름을 함께 보인다.
+    await user.click(screen.getByRole('radio', { name: '오류 경로로 보내기 → 분류' }))
+    await user.click(screen.getByRole('button', { name: '확인' }))
     await waitFor(() => expect(recovers).toEqual([{ action: 'ON_ERROR', expectedRevision: 4 }]))
   })
 
@@ -224,29 +270,93 @@ describe('AI 작업 단계 카드 — 조치 메뉴', () => {
   test('nonStaleError_keepsDialogAndComment', async () => {
     const rendered = renderScreen(card(), {
       handlers: [
-        ...handlers(suspended, enabledList, http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(versionWithTriage))),
+        ...handlers(suspended, enabledList, http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(modelWith(true)))),
         http.post(`${API}/issues/7/workflow/recover`, () => HttpResponse.json({ code: 'WORKFLOW_NO_ON_ERROR', message: '오류 경로가 없어요' }, { status: 422 })),
       ],
     })
     const { user } = rendered
-    await user.click(await screen.findByRole('button', { name: '조치' }))
-    await user.click(screen.getByRole('menuitem', { name: '오류 경로로 보내기' }))
-    await user.type(await screen.findByRole('textbox', { name: '남길 말(선택)' }), '메모')
+    await openDialog(user)
+    await user.type(screen.getByRole('textbox', { name: '남길 말(선택)' }), '메모')
     await user.click(screen.getByRole('button', { name: '확인' }))
-    // 실패해도 창과 남길 말이 남는다.
-    await waitFor(() => expect(screen.getByRole('button', { name: '확인' })).toBeEnabled())
+    // 실패해도 창과 남길 말이 남고 이유가 창 안에 보인다.
+    expect(await screen.findByRole('alert')).toHaveTextContent('오류 경로가 없어요')
     expect(screen.getByRole('textbox', { name: '남길 말(선택)' })).toHaveValue('메모')
   })
 
-  test('manager_moveToNode_picksModelNode', async () => {
+  test('manager_moveToNode_excludesCurrentAndStart', async () => {
     const { user, recovers } = setup(suspended, { isManager: true })
-    await user.click(await screen.findByRole('button', { name: '조치' }))
-    await user.click(screen.getByRole('menuitem', { name: '다른 노드로 옮기기' }))
-    // 노드를 고르기 전에는 확인할 수 없다.
-    expect(await screen.findByRole('button', { name: '확인' })).toBeDisabled()
-    await user.click(await screen.findByRole('radio', { name: '분류' }))
+    await openDialog(user)
+    await user.click(screen.getByRole('radio', { name: '다른 노드로 옮기기' }))
+    // 노드를 고르기 전에는 확인할 수 없다. 후보에서 지금 노드(ask)와 start 는 빠진다.
+    expect(screen.getByRole('button', { name: '확인' })).toBeDisabled()
+    const select = screen.getByRole('combobox', { name: '옮길 노드' })
+    const names = Array.from(select.querySelectorAll('option')).map((o) => o.textContent)
+    expect(names).toEqual(['노드 고르기', '분류', '검증·PR'])
+    await user.selectOptions(select, '분류')
     await user.click(screen.getByRole('button', { name: '확인' }))
     await waitFor(() => expect(recovers).toEqual([{ action: 'MOVE_TO', toNode: 'triage', expectedRevision: 4 }]))
+  })
+
+  // 창을 연 뒤 쿼리가 새로 고쳐져 revision 이 바뀌어도 창을 열 때의 revision 으로 보낸다.
+  test('revisionFrozenAtOpen_whileQueryRefreshes', async () => {
+    let view: object = suspended
+    const recovers: Record<string, unknown>[] = []
+    let gets = 0
+    const { user, queryClient } = renderScreen(card(), {
+      handlers: [
+        http.get(`${API}/issues/7/workflow`, () => { gets += 1; return HttpResponse.json(view) }),
+        http.get(`${API}/projects/9/workflows`, () => HttpResponse.json(enabledList)),
+        http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(modelWith(true))),
+        http.post(`${API}/issues/7/workflow/recover`, async ({ request }) => {
+          recovers.push((await request.json()) as Record<string, unknown>)
+          return HttpResponse.json(view)
+        }),
+      ],
+    })
+    await openDialog(user)
+    // 서버 쪽 revision 이 5 로 올라가고 쿼리가 새로 읽힌다(창은 그대로).
+    view = { ...suspended, revision: 5 }
+    const before = gets
+    await queryClient.invalidateQueries({ queryKey: ['issue-workflow'] })
+    await waitFor(() => expect(gets).toBeGreaterThan(before))
+    await user.click(screen.getByRole('radio', { name: '다시 시도' }))
+    await user.click(screen.getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(recovers).toEqual([{ action: 'RETRY', expectedRevision: 4 }]))
+  })
+
+  // STALE 이면 창이 닫히고, 다시 열면 새로 읽은 revision 으로 보낸다.
+  test('stale_closesDialog_reopenSendsNewRevision', async () => {
+    let view: object = suspended
+    let stale = true
+    let gets = 0
+    const recovers: Record<string, unknown>[] = []
+    const { user } = renderScreen(card(), {
+      handlers: [
+        http.get(`${API}/issues/7/workflow`, () => { gets += 1; return HttpResponse.json(view) }),
+        http.get(`${API}/projects/9/workflows`, () => HttpResponse.json(enabledList)),
+        http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(modelWith(true))),
+        http.post(`${API}/issues/7/workflow/recover`, async ({ request }) => {
+          recovers.push((await request.json()) as Record<string, unknown>)
+          if (stale) {
+            stale = false
+            view = { ...suspended, revision: 5 }
+            return HttpResponse.json({ errors: { code: 'WORKFLOW_STALE' }, message: 'stale' }, { status: 409 })
+          }
+          return HttpResponse.json(view)
+        }),
+      ],
+    })
+    await openDialog(user)
+    await user.click(screen.getByRole('radio', { name: '다시 시도' }))
+    await user.click(screen.getByRole('button', { name: '확인' }))
+    expect(await screen.findByText('그사이 단계가 바뀌었어요. 새로 불러왔어요.')).toBeVisible()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // 새 revision(5)을 다시 읽은 뒤 다시 연다.
+    await waitFor(() => expect(gets).toBeGreaterThan(1))
+    await openDialog(user)
+    await user.click(screen.getByRole('radio', { name: '다시 시도' }))
+    await user.click(screen.getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(recovers).toEqual([{ action: 'RETRY', expectedRevision: 4 }, { action: 'RETRY', expectedRevision: 5 }]))
   })
 
   test('waitingOrEnded_orNoEdit_hasNoMenu', async () => {

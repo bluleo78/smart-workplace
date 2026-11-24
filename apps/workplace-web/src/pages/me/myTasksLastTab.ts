@@ -8,7 +8,7 @@ import { type StorageOwner, userScopedKey } from '@/lib/userScopedKey'
 import type { MyTasksTab } from './myTasksQuery'
 
 /** 탭 순서 — 화면 탭 줄과 같다(개요가 맨 앞). */
-export const MY_TASKS_TABS: readonly MyTasksTab[] = ['overview', 'assigned', 'reported', 'watched']
+export const MY_TASKS_TABS: readonly MyTasksTab[] = ['overview', 'assigned', 'reported', 'watched', 'turns']
 
 /** 기억이 없을 때(첫 방문) 여는 탭. */
 export const DEFAULT_MY_TASKS_TAB: MyTasksTab = 'overview'

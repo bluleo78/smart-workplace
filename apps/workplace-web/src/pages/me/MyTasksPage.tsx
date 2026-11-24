@@ -9,6 +9,7 @@ import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
+import { useMyWorkflowTurns } from '@/hooks/queries/useWorkflowRuns'
 import { buildMyTasksContext } from '@/lib/aiScreenContext/builders/issue'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +18,7 @@ import { MeTaskFilterBar } from './MeTaskFilterBar'
 import { isMyTasksTab, readLastMyTasksTab, useMyTasksTabKey, writeLastMyTasksTab } from './myTasksLastTab'
 import { clearMyTasksFilters, hasMyTasksFilters, isHidingClosed, myTasksQueryParams, type MyTasksTab } from './myTasksQuery'
 import { MY_TASKS_TAB_LABEL } from './myTasksTabs'
+import { MyTurnsTab } from './MyTurnsTab'
 import { MyOverviewTab, OverviewPeriodPicker } from './overview/MyOverviewTab'
 
 // 할당/내가 만든 탭은 /me/issues 기반 — 프로젝트 묶음 정렬(group)과 facet 을 서버 쿼리로 합친다(myTasksQuery, WP-916).
@@ -109,6 +111,8 @@ export default function MyTasksPage() {
   const { tab } = useParams<{ tab: string }>()
   const isKnownTab = isMyTasksTab(tab)
   const tabKey = useMyTasksTabKey()
+  // 「내 차례」 수 배지 — 탭이 열릴 때만 읽지 않도록 탭 줄에서도 같은 조회를 쓴다(캐시 공유).
+  const turnCount = useMyWorkflowTurns().data?.length ?? 0
   // 잘못된 탭은 마지막에 본 탭(없으면 개요)으로 그린 뒤 아래에서 주소도 그 탭으로 바로잡는다(에러 아님).
   const active: MyTasksTab = isKnownTab ? (tab as MyTasksTab) : readLastMyTasksTab(tabKey)
   // 지금 보는 탭을 기억한다 — 다음에 /me/tasks(사이드바 「내 작업」)로 들어오면 이 탭으로 연다(WP-1484, 프로젝트 화면 기억과 같은 규칙).
@@ -118,7 +122,7 @@ export default function MyTasksPage() {
   // WP-54: 탭 + facet 을 AI 화면 컨텍스트(목록 상태)로 등록 — 건수는 탭 하위 목록이 소유해 이번 범위에선 생략.
   // 구독 탭은 facet 을 적용하지 않으므로(필터 바 미노출) URL 에 남은 facet 을 싣지 않는다.
   const [params] = useSearchParams()
-  const facets = useMemo(() => (active === 'watched' || active === 'overview' ? {} : meFacetParams(params)), [active, params])
+  const facets = useMemo(() => (active === 'watched' || active === 'overview' || active === 'turns' ? {} : meFacetParams(params)), [active, params])
   useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
   // 본문 스크롤 요소 — 탭 목록 무한 로드 sentinel 의 root(DS 05 §A-3). state ref 라 마운트 뒤 observer 가 다시 붙는다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
@@ -144,6 +148,16 @@ export default function MyTasksPage() {
             <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
             <TabsTrigger value="reported" data-testid="tab-reported">{MY_TASKS_TAB_LABEL.reported}</TabsTrigger>
             <TabsTrigger value="watched" data-testid="tab-watched">{MY_TASKS_TAB_LABEL.watched}</TabsTrigger>
+            <TabsTrigger value="turns" data-testid="tab-turns">
+              {MY_TASKS_TAB_LABEL.turns}
+              {turnCount > 0 && (
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs tabular-nums" data-testid="tab-turns-count">
+                  {/* 숫자는 눈으로만 읽게 하고, 스크린리더에는 앞에 공백을 둔 「 n건」을 읽어 「내 차례2」로 붙지 않게 한다. */}
+                  <span aria-hidden="true">{turnCount}</span>
+                  <span className="sr-only">{` ${turnCount}건`}</span>
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
           {active === 'overview' && <OverviewPeriodPicker />}
           </div>
@@ -162,6 +176,9 @@ export default function MyTasksPage() {
           </TabsContent>
           <TabsContent value="watched">
             <WatchedTab scrollRoot={scrollEl} />
+          </TabsContent>
+          <TabsContent value="turns">
+            <MyTurnsTab />
           </TabsContent>
         </Tabs>
       </Page.Body>

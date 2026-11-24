@@ -40,8 +40,8 @@ export const workflowDetail = {
 }
 
 /** 편집기와 탭 레이아웃을 같은 네트워크 계약으로 띄운다. */
-export function renderWorkflow({ manager = true, empty = false, enterTab = true, personal = false, multiple = false }: {
-  manager?: boolean; empty?: boolean; enterTab?: boolean; personal?: boolean; multiple?: boolean
+export function renderWorkflow({ manager = true, empty = false, enterTab = true, personal = false, multiple = false, search = '' }: {
+  manager?: boolean; empty?: boolean; enterTab?: boolean; personal?: boolean; multiple?: boolean; search?: string
 } = {}) {
   const summary = { id: 42, name: '작업 정리', enabled: false, activeVersionNo: 2, draftChanged: false }
   const summaries = multiple ? [summary, { ...summary, id: 43, name: '다른 워크플로우', activeVersionNo: null }] : [summary]
@@ -75,7 +75,7 @@ export function renderWorkflow({ manager = true, empty = false, enterTab = true,
       model: { nodes: [{ key: 'check', type: 'agent_task', name: '확인' }] },
     })),
   )
-  const target = enterTab ? '/projects/WP/workflow' : '/projects/WP/overview'
+  const target = enterTab ? '/projects/WP/workflow' + search : '/projects/WP/overview'
   /** 어시스턴트가 실제로 받은 작성 대기 문구를 검증한다. */
   function PromptProbe() {
     const { promptSeed } = useAssistant()

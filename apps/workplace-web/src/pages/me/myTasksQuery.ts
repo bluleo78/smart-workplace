@@ -3,7 +3,7 @@ import { parseFilters } from '../../lib/issueFilters'
 import type { IssueFilters } from '../../types/issue'
 import { meFacetParams } from './meFacetParams'
 
-export type MyTasksTab = 'overview' | 'assigned' | 'reported' | 'watched'
+export type MyTasksTab = 'overview' | 'assigned' | 'reported' | 'watched' | 'turns'
 
 /**
  * 할당 탭에서 완료·취소를 숨기는 중인지 — 「완료 모두 보기」 토글 표시와 빈 상태 안내가 같은 판정을 쓴다.

@@ -95,6 +95,8 @@ export const shellHandlers = [
   http.get(`${API}/chat/threads/:id/messages`, () => HttpResponse.json(emptyCursor)),
   http.get(`${API}/me/issues`, () => HttpResponse.json(emptyCursor)),
   http.get(`${API}/me/watched-issues`, () => HttpResponse.json(emptyCursor)),
+  // 내 작업 탭 줄의 「내 차례」 수 배지(WP-1991) — 기본은 빈 목록.
+  http.get(`${API}/me/workflow-turns`, () => HttpResponse.json({ items: [] })),
   http.get(`${API}/me/activity`, () => HttpResponse.json({ items: [], nextCursor: null })),
   // 홈 「내 작업」 위젯의 어제/오늘 한 줄(WP-1484) — 0 요약.
   http.get(`${API}/me/overview/today`, () =>

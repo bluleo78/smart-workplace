@@ -323,6 +323,7 @@ class WorkflowRunQueryApiTest extends IntegrationTestBase {
     assertThat(run.get("revision").asInt()).isEqualTo(1);
     assertThat(run.get("currentNode").asString()).isEqualTo("dev");
     assertThat(run.get("issueKey").asString()).isEqualTo(key + "-" + number(issue));
+    assertThat(run.get("issueNumber").asInt()).isEqualTo(number(issue));
     assertThat(run.get("startedBy").get("id").asLong()).isEqualTo(lead);
     assertThat(run.get("endedAt").isNull()).isTrue();
 

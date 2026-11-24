@@ -77,6 +77,8 @@ function renderTasks(path: string, respond: Respond = () => overview(), opts: Pr
       }),
       http.get('/api/v1/me/issues', () => HttpResponse.json(createIssueSearchResponse([]))),
       http.get('/api/v1/me/watched-issues', () => HttpResponse.json(createIssueSearchResponse([]))),
+      // 탭 줄의 「내 차례」 수 배지(WP-1991).
+      http.get('/api/v1/me/workflow-turns', () => HttpResponse.json({ items: [] })),
     ],
   })
   return { ...view, seen, profileSeen, analyzeSeen, reportSeen }
@@ -88,7 +90,7 @@ describe('내 작업 · 개요', () => {
     await waitFor(() => expect(first.location()).toBe('/me/tasks/overview'))
     expect(await screen.findByTestId('overview')).toBeInTheDocument()
     // 탭 순서 — 개요가 맨 앞.
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['개요', '할당', '내가 만든', '구독'])
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['개요', '할당', '내가 만든', '구독', '내 차례'])
     await first.user.click(screen.getByRole('tab', { name: '할당' }))
     await waitFor(() => expect(first.location()).toBe('/me/tasks/assigned'))
     first.unmount()
@@ -152,7 +154,8 @@ describe('내 작업 · 개요', () => {
     renderTasks('/me/tasks/overview')
     const page = await screen.findByTestId('overview')
     expect(screen.queryByTestId('overview-closed')).toBeNull()
-    expect(page).not.toHaveTextContent('끝낸 일')
+    // 제목 글자만 본다 — 업무 프로파일 요약 문장에 「끝낸 일이」 가 들어 있어(프로파일이 늦게 오면) 부분 일치는 때에 따라 걸린다.
+    expect(screen.queryByText('끝낸 일')).toBeNull()
     expect(page.lastElementChild).toBe(screen.getByTestId('overview-upcoming'))
   })
 

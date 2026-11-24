@@ -43,7 +43,12 @@ function twoProjectItems() {
 type Respond = (sp: URLSearchParams) => IssueSearchResponse | Response | Promise<IssueSearchResponse | Response>
 
 /** /me/issues·/me/watched-issues 목 — 요청 검색 파라미터를 모두 기록하고 응답은 쿼리별로 고른다. */
-function renderMyTasks(path: string, respond: Respond = () => createIssueSearchResponse(twoProjectItems()), watched: Respond = () => createIssueSearchResponse([])) {
+function renderMyTasks(
+  path: string,
+  respond: Respond = () => createIssueSearchResponse(twoProjectItems()),
+  watched: Respond = () => createIssueSearchResponse([]),
+  turns: object[] = [],
+) {
   const seen: URLSearchParams[] = []
   const seenWatched: URLSearchParams[] = []
   const reply = async (r: Respond, sp: URLSearchParams) => {
@@ -63,6 +68,8 @@ function renderMyTasks(path: string, respond: Respond = () => createIssueSearchR
           seen.push(sp)
           return reply(respond, sp)
         }),
+        // 탭 줄의 「내 차례」 수 배지가 늘 읽는다(WP-1991).
+        http.get('/api/v1/me/workflow-turns', () => HttpResponse.json({ items: turns })),
         http.get('/api/v1/me/watched-issues', ({ request }) => {
           const sp = new URL(request.url).searchParams
           seenWatched.push(sp)
@@ -386,6 +393,25 @@ describe('내 작업 상태 화면(WP-916)', () => {
     await user.click(screen.getByTestId('assigned-row-empty-show-closed'))
     await waitFor(() => expect(location()).toMatch(/closed=all/))
     await waitFor(() => expect(seen.at(-1)?.get('hideClosed')).toBeNull())
+  })
+})
+
+describe('내 작업 내 차례 탭', () => {
+  // WP-1991: 탭 순서는 개요·할당·내가 만든·구독·내 차례, 배지는 목록 길이, /me/tasks/turns 로 열린다.
+  test('tabs_includeTurnsAfterWatched', async () => {
+    const turn = (runId: number) => ({
+      runId, issueId: runId * 10, issueKey: `WP-${runId * 10}`, title: `제목 ${runId}`, projectId: 1, projectKey: 'WP', workflowId: 42,
+      workflowName: '기본 흐름', versionNo: 1, nodeKey: 'review', nodeName: '검토', enteredAt: '2026-11-20T01:00:00Z', handedBy: null, question: null,
+    })
+    const { user, location } = renderMyTasks('/me/tasks/assigned', undefined, undefined, [turn(1), turn(2)])
+    const tabs = await screen.findAllByRole('tab')
+    expect(tabs.map((t) => t.getAttribute('data-testid'))).toEqual(['tab-overview', 'tab-assigned', 'tab-reported', 'tab-watched', 'tab-turns'])
+    // 접근 이름은 「내 차례2」로 붙지 않고 「내 차례 2건」으로 읽힌다.
+    expect(await screen.findByRole('tab', { name: '내 차례 2건' })).toBeVisible()
+    expect(screen.getByTestId('tab-overview')).toHaveTextContent(/^개요$/)
+    await user.click(screen.getByTestId('tab-turns'))
+    await waitFor(() => expect(location()).toBe('/me/tasks/turns'))
+    expect(await screen.findByTestId('my-turn-row-1')).toBeVisible()
   })
 })
 

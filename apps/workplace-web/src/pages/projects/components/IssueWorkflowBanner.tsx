@@ -18,6 +18,7 @@ import {
   type WorkflowNodeView,
   type WorkflowOutcomeView,
 } from '@/lib/workflow'
+import { pendingQuestion } from '@/lib/workflowRuns'
 
 interface Props {
   issueId: number
@@ -54,17 +55,6 @@ function readOutput(o: RequiredOutput, raw: string | boolean | undefined): { val
   if (o.type === 'number') return { valid: s !== '' && !Number.isNaN(Number(s)), value: Number(s) }
   if (o.type === 'url') return { valid: isUrl(s), value: s }
   return { valid: s !== '', value: s }
-}
-
-/** 지금 노드에서 아직 답하지 않은 질문 — 서버 _qa 의 마지막 미답 항목(answerNode 가 지금 노드). askedBy 는 숫자 id 라 이름은 보이지 않는다. */
-function pendingQuestion(run: IssueWorkflowView, nodeKey: string): string | null {
-  const qa = run.context['_qa']
-  if (!Array.isArray(qa)) return null
-  for (let i = qa.length - 1; i >= 0; i--) {
-    const e = qa[i] as { answerNode?: string; answer?: unknown; question?: unknown }
-    if (e && e.answerNode === nodeKey && e.answer == null && typeof e.question === 'string') return e.question
-  }
-  return null
 }
 
 export function IssueWorkflowBanner({ issueId, projectKey, meId, posted, onPostedBodyUsed }: Props) {
@@ -104,7 +94,7 @@ function BannerBody({
   const [assigneeId, setAssigneeId] = useState<number | null>(null)
   // 빠른 두 번 클릭 방어 — 상태 갱신 전에 들어오는 두 번째 클릭을 막는다.
   const sending = useRef(false)
-  const q = pendingQuestion(run, cur.key)
+  const q = pendingQuestion(run.context, cur.key)
   const outcome: WorkflowOutcomeView | undefined = run.outcomes.find((o) => o.key === picked)
 
   // 결과 값이 갖춰졌는지 — 필수 의견·필수 출력·필수 담당.
