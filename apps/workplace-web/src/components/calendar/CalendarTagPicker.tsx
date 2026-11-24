@@ -80,6 +80,7 @@ function TagPickerPopover({ checkedIds, onToggle, onCreated, onOpen, children }:
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="start"
+        aria-label="태그 선택"
         // 휴대폰(390px)에서 화면 끝에 붙지 않게 가장자리에서 16px — 아래 하단 탭바 높이는 앱 공용 PopoverContent 가 더한다(자리가 없으면 위로 뒤집힘, WP-806)
         collisionPadding={16}
         className="w-72 p-2"

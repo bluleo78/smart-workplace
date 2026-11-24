@@ -430,6 +430,8 @@ describe('모바일', () => {
     await screen.findByTestId('ai-run-card')
     expect(screen.getByTestId('ai-run-chip-row')).toContainElement(screen.getByTestId('ai-run-period-chip'))
     await user.click(screen.getByTestId('ai-run-period-chip'))
+    // WP-2067 — 기간 팝오버는 「조회 기간 선택」 대화상자로 읽힌다.
+    expect(await screen.findByRole('dialog', { name: '조회 기간 선택' })).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: '7일' }))
     await waitFor(() => expect(location()).toContain('period=7d'))
     expect(location()).not.toContain('from=')

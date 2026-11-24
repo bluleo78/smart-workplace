@@ -124,6 +124,8 @@ describe('편집 — 색 상속/override', () => {
     await waitFor(() => expect(dot.querySelector('span')).toHaveClass('bg-blue-500'))
     await user.click(dot)
     expect(await screen.findByTestId('calendar-color-inherit')).toHaveAttribute('aria-pressed', 'true')
+    // 색 팝오버(role=dialog)에 접근 가능한 이름이 있다(WP-2067).
+    expect(screen.getByRole('dialog', { name: '일정 색 선택' })).toBeInTheDocument()
   })
 
   test('color=red 이면 팝오버의 red 스와치가 눌려 있다', async () => {

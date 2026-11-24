@@ -61,7 +61,7 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
               +{overflow.length}
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-2" align="start">
+          <PopoverContent aria-label="담당자 선택" className="w-56 p-2" align="start">
             <ul className="space-y-1">
               {overflow.map((m) => (
                 <li key={m.userId}>

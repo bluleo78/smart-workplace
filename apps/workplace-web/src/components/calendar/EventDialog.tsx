@@ -820,6 +820,7 @@ export function EventDialog({
                     </PopoverTrigger>
                     <PopoverContent
                       align="start"
+                      aria-label="일정 색 선택"
                       // 휴대폰에서 화면 가장자리에 붙지 않게 16px 띄우고, 좁으면 팔레트가 다음 줄로 꺾인다.
                       // 아래쪽 하단 탭바 높이는 앱 공용 PopoverContent(overlay/popover)가 더해 자리가 없으면 위로 뒤집힌다(WP-806)
                       collisionPadding={16}

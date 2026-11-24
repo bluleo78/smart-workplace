@@ -293,6 +293,8 @@ describe('타임라인 — 필터', () => {
     )
     const { user, location } = await openTimeline(`/projects/${KEY}/timeline?period=all`, defaultApi({ members: six }))
     await user.click(await screen.findByTestId('assignee-avatar-overflow'))
+    // WP-2067 — +N 팝오버는 「담당자 선택」 대화상자로 읽힌다.
+    expect(await screen.findByRole('dialog', { name: '담당자 선택' })).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: /한여섯/ }))
     await waitFor(() => expect(location()).toMatch(/assignee[^&]*=7/))
   })

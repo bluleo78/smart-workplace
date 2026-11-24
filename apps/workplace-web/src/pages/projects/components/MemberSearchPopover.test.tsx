@@ -57,4 +57,9 @@ describe('MemberSearchPopover — 모드별 kind 탭·조회 범위', () => {
     for (const k of KIND_TABS) expect(screen.queryByTestId(`member-search-filter-${k}`)).not.toBeInTheDocument()
     expect(useUserSearch).toHaveBeenLastCalledWith('', 'HUMAN')
   })
+
+  it('열린 팝오버는 「멤버 선택」이라는 이름의 대화상자로 읽힌다(WP-2067)', () => {
+    renderPopover({})
+    expect(screen.getByRole('dialog', { name: '멤버 선택' })).toBeInTheDocument()
+  })
 })

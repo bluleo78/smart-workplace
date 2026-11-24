@@ -42,7 +42,7 @@ export function IssueKeyRef({ text, projectKey, number }: { text: string; projec
             {text}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 p-0" align="start" onClick={stop}>
+        <PopoverContent className="w-72 p-0" align="start" aria-label={`${text} 이슈 미리보기`} onClick={stop}>
           {open && <IssueKeyPreview link={link} testId={`${testId}-preview`} onOpenIssue={() => setOpen(false)} />}
         </PopoverContent>
       </Popover>

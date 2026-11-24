@@ -89,6 +89,7 @@ export function MemberSearchPopover({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       {/* collisionPadding·폭 상한 — 390 화면에서 360px 팝오버가 오른쪽 끝에 붙지 않게 가장자리 16px 를 띄운다(WP-397 D3). */}
       <PopoverContent
+        aria-label="멤버 선택"
         className="w-[min(360px,calc(100vw-32px))] p-0"
         align="start"
         collisionPadding={16}

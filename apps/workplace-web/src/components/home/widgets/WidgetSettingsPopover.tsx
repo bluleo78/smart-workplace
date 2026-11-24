@@ -160,7 +160,7 @@ export function WidgetSettingsPopover({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="w-72 space-y-3" data-testid="widget-settings-popover">
+      <PopoverContent className="w-72 space-y-3" aria-label="위젯 설정" data-testid="widget-settings-popover">
         {form}
       </PopoverContent>
     </Popover>
