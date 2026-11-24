@@ -252,6 +252,13 @@ export function readNodeDetail(yaml: string, key: string): NodeDetail | null {
   const n = js(doc).nodes?.[key]
   if (!isPlain(n)) return null
   const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  // 내놓을 값·결과는 문서의 쌍 순서대로 읽는다 — Object.entries 는 `1:` 같은 정수 꼴 키를 앞으로 당겨,
+  // 패널의 줄 순서와 문서 순서가 어긋나면 자리로 이름 바뀜을 가리는 applyOutputs 가 엉뚱한 값을 고친다
+  const ordered = (field: 'outputs' | 'outcomes'): [string, Json][] => {
+    const m = doc.getIn(['nodes', key, field], true)
+    const values: Record<string, Json> = isPlain(n[field]) ? n[field] : {}
+    return isMap(m) ? (m.items as Pair[]).map((p) => [pairKey(p), values[pairKey(p)]]) : []
+  }
   return {
     key,
     type: str(n.type) ?? '',
@@ -260,21 +267,17 @@ export function readNodeDetail(yaml: string, key: string): NodeDetail | null {
     requires: strs(n.requires),
     instructions: str(n.instructions),
     use: strs(n.use),
-    outputs: isPlain(n.outputs)
-      ? Object.entries(n.outputs as Record<string, Json>).map(([k, o]) => ({
-          key: k,
-          type: isPlain(o) ? (str(o.type) ?? 'string') : 'string',
-          required: isPlain(o) ? o.required === true : false,
-        }))
-      : [],
-    outcomes: isPlain(n.outcomes)
-      ? Object.entries(n.outcomes as Record<string, Json>).map(([k, o]) => ({
-          key: k,
-          to: isPlain(o) ? (str(o.to) ?? '') : '',
-          ...(isPlain(o) && str(o.assignTo) ? { assignTo: str(o.assignTo) } : {}),
-          requireComment: isPlain(o) && o.requireComment === true,
-        }))
-      : [],
+    outputs: ordered('outputs').map(([k, o]) => ({
+      key: k,
+      type: isPlain(o) ? (str(o.type) ?? 'string') : 'string',
+      required: isPlain(o) ? o.required === true : false,
+    })),
+    outcomes: ordered('outcomes').map(([k, o]) => ({
+      key: k,
+      to: isPlain(o) ? (str(o.to) ?? '') : '',
+      ...(isPlain(o) && str(o.assignTo) ? { assignTo: str(o.assignTo) } : {}),
+      requireComment: isPlain(o) && o.requireComment === true,
+    })),
     maxVisits: typeof n.maxVisits === 'number' ? n.maxVisits : undefined,
   }
 }
@@ -429,19 +432,25 @@ function flowSeq(doc: Document, items: string[]) {
  */
 function applyOutputs(doc: Document, key: string, outputs: NodeDetail['outputs']): boolean {
   const path = ['nodes', key, 'outputs']
+  const existing = doc.getIn(path, true)
+  const oldKeys = isMap(existing) ? (existing.items as Pair[]).map(pairKey) : []
   if (outputs.length === 0) {
     doc.deleteIn(path)
+    syncContextRefs(doc, key, new Map(), oldKeys)
     return true
   }
   const m = mapAt(doc, path)
   if (!m) return false
   const wanted = new Set(outputs.map((o) => o.key))
   const old = [...m.items] as Pair[]
+  // 이름이 바뀐 값(옛 키 → 새 키) — 분기 조건의 when.context 를 따라 고친다
+  const renames = new Map<string, string>()
   m.items = outputs.map((o, i) => {
     let pair = old.find((x) => pairKey(x) === o.key)
     const renamed = old[i]
     if (!pair && renamed && !wanted.has(pairKey(renamed))) {
       pair = renamed
+      renames.set(pairKey(renamed), o.key)
       if (isScalar(pair.key)) pair.key.value = o.key
       else pair.key = doc.createNode(o.key)
     }
@@ -455,7 +464,64 @@ function applyOutputs(doc: Document, key: string, outputs: NodeDetail['outputs']
     } else pair.value = flowMap(doc, spec)
     return pair
   })
+  syncContextRefs(doc, key, renames, oldKeys.filter((k) => !wanted.has(k) && !renames.has(k)))
   return true
+}
+
+/**
+ * 내놓을 값의 이름을 바꾸거나 지웠을 때 분기 조건(`nodes.*.conditions[].when.context`)의 참조를 맞춘다.
+ * 참조는 `<노드>.<값>` 꼴이라 그대로 두면 서버가 REF_CONTEXT_UNKNOWN 으로 거절하고, 실행 때는 조건이 조용히 default 로 빠진다.
+ * - 이름 바뀜: 참조를 새 이름으로 고친다(조건·주석·자리는 그대로).
+ * - 지움: 그 값을 보던 조건을 지운다 — removeNode 가 노드를 지울 때 그 노드 출력을 보던 조건을 지우는 것과 같은 규칙이다.
+ *   조건이 모두 빠지면 conditions 칸째 지운다. 몇 개를 지우는지는 패널이 countContextRefs 로 미리 세어 알린다.
+ */
+function syncContextRefs(doc: Document, nodeKey: string, renames: Map<string, string>, removed: string[]) {
+  if (renames.size === 0 && removed.length === 0) return
+  const gone = new Set(removed)
+  forEachContextRef(doc, nodeKey, (output, item, conditions, i) => {
+    if (gone.has(output)) conditions.delete(i)
+    else if (renames.has(output)) item.setIn(['when', 'context'], contextRef(nodeKey, renames.get(output)!))
+  })
+}
+
+/** 분기 조건이 노드의 값을 가리키는 꼴 `<노드>.<값>` — 서버 checkContext 와 같은 표기. */
+function contextRef(nodeKey: string, output: string): string {
+  return `${nodeKey}.${output}`
+}
+
+/**
+ * 모든 분기 조건 중 nodeKey 의 값을 보는 것(`when.context` 가 `<nodeKey>.<값>`)마다 fn(값 이름, 조건, 조건 목록, 자리)을 부른다.
+ * 뒤에서부터 돌아 fn 이 그 조건을 지워도 된다. 조건이 모두 빠진 목록은 칸째 지워 빈 `conditions: []` 를 남기지 않는다
+ * (분기는 default 로만 간다). 노드 키에는 점이 없어 첫 점 뒤가 값 이름이다.
+ */
+function forEachContextRef(doc: Document, nodeKey: string, fn: (output: string, item: YAMLMap, conditions: YAMLSeq, index: number) => void) {
+  const nodes = doc.getIn(['nodes'], true)
+  if (!isMap(nodes)) return
+  const prefix = contextRef(nodeKey, '')
+  for (const pair of nodes.items as Pair[]) {
+    if (!isMap(pair.value)) continue
+    const conditions = pair.value.get('conditions', true)
+    if (!isSeq(conditions)) continue
+    const before = conditions.items.length
+    for (let i = conditions.items.length - 1; i >= 0; i--) {
+      const item = conditions.items[i]
+      if (!isMap(item)) continue
+      const ctx = item.getIn(['when', 'context'])
+      if (typeof ctx === 'string' && ctx.startsWith(prefix)) fn(ctx.slice(prefix.length), item, conditions, i)
+    }
+    if (before > 0 && conditions.items.length === 0) pair.value.delete('conditions')
+  }
+}
+
+/** 노드의 내놓을 값 하나를 보는 분기 조건 수 — 값을 지우기 전에 함께 지워질 조건을 알리는 데 쓴다. */
+export function countContextRefs(yaml: string, nodeKey: string, outputKey: string): number {
+  const doc = parseDocument(yaml)
+  if (doc.errors.length > 0) return 0
+  let n = 0
+  forEachContextRef(doc, nodeKey, (output) => {
+    if (output === outputKey) n++
+  })
+  return n
 }
 
 /**
@@ -471,13 +537,17 @@ function applyOutcomes(doc: Document, key: string, outcomes: NodeDetail['outcome
   const cur = mapAt(doc, base)
   if (!cur) return false
   const keep = new Set(outcomes.map((o) => o.key))
-  for (const pair of [...cur.items] as Pair[]) {
-    if (!keep.has(pairKey(pair))) cur.delete(pair.key)
-  }
+  // 결과 키를 쌍(Pair)으로 찾는다 — `1:`·`true:` 처럼 문자열이 아닌 키는 cur.get('1') 로 찾을 수 없어,
+  // 문자열로 찾으면 있던 결과를 지우거나 같은 키를 하나 더 붙이게 된다. readNodeDetail 은 키를 문자열로 넘긴다.
+  cur.items = (cur.items as Pair[]).filter((pair) => keep.has(pairKey(pair)))
   for (const o of outcomes) {
-    const existing = cur.get(o.key, true)
-    if (!isMap(existing)) {
-      cur.set(o.key, flowMap(doc, { to: o.to, ...(o.assignTo ? { assignTo: o.assignTo } : {}), ...(o.requireComment ? { requireComment: true } : {}) }))
+    const pair = (cur.items as Pair[]).find((x) => pairKey(x) === o.key)
+    const existing = pair?.value
+    if (!pair || !isMap(existing)) {
+      const value = flowMap(doc, { to: o.to, ...(o.assignTo ? { assignTo: o.assignTo } : {}), ...(o.requireComment ? { requireComment: true } : {}) })
+      // 맵이 아닌 값(`done: ~` 등)이 있던 결과는 그 쌍의 값만 바꿔 자리·키를 지킨다
+      if (pair) pair.value = value
+      else cur.items.push(doc.createPair(o.key, value))
       continue
     }
     existing.set('to', o.to)
@@ -595,7 +665,8 @@ export function autoLayout(yaml: string): string {
  * 선 끌기 결과를 YAML 로 옮긴다.
  * - agent_task/human_task: 새 결과를 잇는다.
  * - start: 최상위 start 목록에 { when: { assigneeRole }, to } 를 덧붙인다(스키마상 start 항목의 when 은 필수라
- *   when 없이 쓸 수 없다 — 역할은 도착 노드의 role, 없으면 첫 역할 키. 역할이 하나도 없으면 아무것도 하지 않는다).
+ *   when 없이 쓸 수 없다 — 역할은 도착 노드의 role 이 roles 에 선언돼 있으면 그것, 아니면(없거나 선언 안 된 역할) 첫 역할 키.
+ *   역할이 하나도 없으면 아무것도 하지 않는다).
  * - decision: default 가 없을 때만 default 를 정한다(있으면 그대로 둔다).
  * 그 밖이나 거절 대상이면 yaml 을 그대로 돌려준다.
  */
@@ -606,7 +677,8 @@ export function connectFromFlow(yaml: string, graph: WorkflowGraph, c: { source:
   const to = graph.nodes.find((n) => n.key === c.target)
   if (!to || to.virtual || to.type === 'start' || to.key === from.key) return yaml
   if (from.type === 'start') {
-    const role = to.role ?? graph.roles[0]?.key
+    // 도착 노드의 역할이 roles 에 선언된 것일 때만 쓴다 — 없는 역할을 적으면 서버가 시작 조건을 거절한다(REF_ROLE_UNKNOWN)
+    const role = to.role && graph.roles.some((r) => r.key === to.role) ? to.role : graph.roles[0]?.key
     return role ? appendStartEntry(yaml, role, to.key) : yaml
   }
   if (from.type === 'decision') return setDecisionDefault(yaml, from.key, to.key)

@@ -53,6 +53,13 @@ start:
   - { when: { assigneeRole: developer }, to: dev }
 `
 
+// 값 지우기 알림(toast.info)을 확인하려고 sonner 를 가로챈다
+const toastInfo = vi.hoisted(() => vi.fn())
+vi.mock('sonner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sonner')>()
+  return { ...actual, toast: Object.assign(actual.toast, { info: toastInfo }) }
+})
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const doc = (y: string) => parse(y) as Record<string, any>
 
@@ -124,6 +131,52 @@ it('nodePanel_editsInstructionsRoleOutputs', async () => {
   const last = doc(onYaml.mock.lastCall![0]).nodes.dev
   expect(last.outputs.prUrl).toEqual({ type: 'url', required: true })
   expect(last.role).toBe('lead')
+})
+
+// 리뷰 후속 ④ — 쓸 수 없는 키(빈 값·겹침)를 입력하면 저장하지 않은 까닭을 줄 아래에 알리고, 고치면 알림이 사라진다
+it('nodePanel_outputKey_invalidInput_showsAlert', async () => {
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  fireEvent.click(screen.getByText('개발'))
+  const outputs = await screen.findByRole('region', { name: '내놓을 값' })
+  fireEvent.click(within(outputs).getByRole('button', { name: '+ 추가' }))
+  fireEvent.click(within(outputs).getByRole('button', { name: '+ 추가' }))
+  const [first, second] = within(outputs).getAllByLabelText('값 키')
+  const before = onYaml.mock.calls.length
+  fireEvent.change(second, { target: { value: 'value_1' } })
+  expect(within(outputs).getByRole('alert')).toHaveTextContent('같은 키가 있어 저장하지 않았습니다')
+  expect(second).toHaveAttribute('aria-invalid', 'true')
+  fireEvent.change(first, { target: { value: '' } })
+  expect(within(outputs).getByText('키를 비울 수 없어 저장하지 않았습니다')).toBeInTheDocument()
+  // 쓸 수 없는 입력은 YAML 에 옮기지 않는다
+  expect(onYaml.mock.calls.length).toBe(before)
+  fireEvent.change(first, { target: { value: 'prUrl' } })
+  // 첫 줄이 비켜 겹침이 풀리면 둘째 줄의 입력(value_1)이 그때 저장되고 알림이 사라진다
+  await waitFor(() => expect(Object.keys(doc(onYaml.mock.lastCall![0]).nodes.dev.outputs)).toEqual(['prUrl', 'value_1']))
+  expect(within(outputs).queryByRole('alert')).not.toBeInTheDocument()
+})
+
+// 읽기 전용이면 문서에 원래 적힌 키에 알림을 띄우지 않는다
+it('nodePanel_outputKey_readOnly_noAlert', async () => {
+  const y = FIXTURE.replace('      개발한다\n', '      개발한다\n    outputs:\n      "": { type: string }\n')
+  renderWithProviders(<Harness initial={y} readOnly />)
+  fireEvent.click(screen.getByText('개발'))
+  const outputs = await screen.findByRole('region', { name: '내놓을 값' })
+  expect(within(outputs).getByLabelText('값 키')).toHaveValue('')
+  expect(within(outputs).queryByRole('alert')).not.toBeInTheDocument()
+})
+
+// 지운 값을 보던 분기 조건이 함께 지워지면 몇 개인지 알린다
+it('nodePanel_removeOutput_withContextRefs_notifies', async () => {
+  const y = FIXTURE.replace('      개발한다\n', '      개발한다\n    outputs:\n      ok: { type: boolean }\n')
+    .replace('  done: { type: end }\n', '  done: { type: end }\n  pick:\n    type: decision\n    conditions:\n      - { when: { context: dev.ok, equals: true }, to: done }\n    default: done\n')
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={y} onYaml={onYaml} />)
+  fireEvent.click(screen.getByText('개발'))
+  const outputs = await screen.findByRole('region', { name: '내놓을 값' })
+  fireEvent.click(within(outputs).getByRole('button', { name: '값 지우기' }))
+  expect(doc(onYaml.mock.lastCall![0]).nodes.pick).toEqual({ type: 'decision', default: 'done' })
+  expect(toastInfo).toHaveBeenCalledWith('「ok」를 보던 분기 조건 1개도 함께 지웠습니다')
 })
 
 it('nodePanel_outcomesAndMaxVisits', async () => {
