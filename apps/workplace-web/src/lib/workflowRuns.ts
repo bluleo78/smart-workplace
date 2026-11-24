@@ -177,3 +177,13 @@ export function pendingQuestion(context: Record<string, unknown>, nodeKey: strin
   }
   return null
 }
+
+/** 실행 상세가 열렸을 때 스크린리더에 읽힐 문구(WP-2053) — 어느 이슈의 상세인지 알린다. */
+export function runDetailOpenedText(issueKey: string): string {
+  return `${issueKey} 실행 상세를 열었습니다`
+}
+
+/** 내 차례 상세가 열렸을 때 스크린리더에 읽힐 문구(WP-2053). */
+export function turnDetailOpenedText(issueKey: string): string {
+  return `${issueKey} 내 차례 상세를 열었습니다`
+}

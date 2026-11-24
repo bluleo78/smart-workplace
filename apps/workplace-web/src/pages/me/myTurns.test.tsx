@@ -75,6 +75,23 @@ describe('내 차례 탭', () => {
     expect(screen.queryByText(/님이 넘김/)).not.toBeInTheDocument()
   })
 
+  it('myTurns_noSelection_silent', async () => {
+    setup([[turn(1)]])
+    await screen.findByTestId('my-turn-row-1')
+    expect(screen.getByTestId('my-turn-status')).toHaveTextContent(/^$/)
+  })
+
+  it('myTurns_selectRow_announcesAndLabelsPanel', async () => {
+    const { user } = setup([[turn(1)]])
+    const row = await screen.findByRole('button', { name: /WP-10/ })
+    await user.click(row)
+    await waitFor(() => expect(screen.getByTestId('my-turn-status')).toHaveTextContent('WP-10 내 차례 상세를 열었습니다'))
+    const region = screen.getByRole('region', { name: 'WP-10 제목 1' })
+    expect(within(region).getByRole('heading', { level: 2, name: 'WP-10 제목 1' })).toBeVisible()
+    await user.click(row)
+    expect(screen.getByTestId('my-turn-status')).toHaveTextContent(/^WP-10 내 차례 상세를 열었습니다$/)
+  })
+
   it('myTurns_empty', async () => {
     setup([[]])
     expect(await screen.findByText('지금 내 차례인 일이 없습니다')).toBeVisible()
