@@ -1,7 +1,7 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
 import { Eye, EyeOff, FileQuestion, MoreHorizontal, Trash2 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -28,6 +28,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { focusRow } from '@/hooks/useListFocusRescue';
 import { appUrl, issuePath } from '@/lib/appUrl';
 import { hasIssueChatParam, ISSUE_CHAT_OPEN, ISSUE_CHAT_PARAM } from '@/lib/issueChatParam';
 import { commentIdFromHash } from '@/lib/issueCommentLink';
@@ -124,6 +125,11 @@ export default function IssueDetailPage() {
   const [postedCommentId, setPostedCommentId] = useState<number | null>(null);
   // 방금 올린 코멘트·채팅 글 본문 — 사람 차례 배너가 「답으로 보내기」로 쓴다(WP-1989).
   const [lastPosted, setLastPosted] = useState<{ body: string; at: number } | null>(null);
+  // WP-2055: 배너에서 넘겨 내 차례가 끝나면 눌렀던 단추가 사라지므로 초점을 제목(h1)으로 옮긴다.
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const focusTitle = useCallback(() => {
+    if (titleRef.current) focusRow(titleRef.current);
+  }, []);
   // 글을 올린 시각과 함께 기록 — 배너가 지금 노드에 들어온 뒤의 글만 답 후보로 삼는다.
   const notePosted = (body: string) => setLastPosted({ body, at: Date.now() });
   // 코멘트 링크(#comment-<id>)로 들어온 코멘트(WP-1175) — 해시 값마다 한 번만 그리로 스크롤한다.
@@ -493,7 +499,7 @@ export default function IssueDetailPage() {
                 {/* aria-label 명시 — 없으면 자식 편집 버튼의 aria-label("제목 편집")까지
                     heading accessible name에 concatenate 되어 스크린리더가 "{제목} 제목 편집"으로
                     읽는다 (#791, WCAG 1.3.1). */}
-                <h1 className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
+                <h1 ref={titleRef} className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
                   <InlineEditableTitle
                     title={summary.title}
                     onSave={(t) => patch({ title: t, version: versioned.baseVersion('title') })}
@@ -548,6 +554,7 @@ export default function IssueDetailPage() {
                   meId={user.id}
                   posted={lastPosted}
                   onPostedBodyUsed={() => setLastPosted(null)}
+                  onLeave={focusTitle}
                 />
               )}
               {/* AI 진행(WP-1079) — 제목 아래·AI 현황 요약 위. 진행 중 작업이 없으면 스스로 숨고, 비서 가용성과 무관(작업은 구성원이 보고했다).

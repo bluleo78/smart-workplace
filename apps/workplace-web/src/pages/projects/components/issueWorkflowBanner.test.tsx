@@ -2,7 +2,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
 
@@ -28,11 +28,14 @@ function run(over: object = {}) {
   }
 }
 
-function setup(view: object | ((gets: number) => object), moves: Record<string, unknown>[] = [], props: { meId?: number; posted?: { body: string; at: number } | null } = {}, moveStatus = 200, counter?: { gets: number }) {
-  renderScreen(<IssueWorkflowBanner issueId={7} projectKey="WP" meId={props.meId ?? 1} posted={props.posted} />, {
+function setup(view: object | ((gets: number) => object), moves: Record<string, unknown>[] = [], props: { meId?: number; posted?: { body: string; at: number } | null; onLeave?: () => void } = {}, moveStatus = 200, counter?: { gets: number; delayMs?: number }) {
+  // 바깥 입력 — 넘긴 뒤 사용자가 다른 곳으로 초점을 옮긴 경우를 재현한다(WP-2055).
+  const screenResult = renderScreen(<><input aria-label="바깥 입력" /><IssueWorkflowBanner issueId={7} projectKey="WP" meId={props.meId ?? 1} posted={props.posted} onLeave={props.onLeave} /></>, {
     handlers: [
-      http.get(`${API}/issues/7/workflow`, () => {
+      http.get(`${API}/issues/7/workflow`, async () => {
         if (counter) counter.gets++
+        // 첫 조회 뒤의 재조회를 늦춰 그 사이 사용자의 초점 이동을 끼워 넣는다.
+        if (counter?.delayMs && counter.gets > 1) await new Promise((r) => setTimeout(r, counter.delayMs))
         return HttpResponse.json(typeof view === 'function' ? view(counter?.gets ?? 0) : view)
       }),
       http.post(`${API}/issues/7/workflow/move`, async ({ request }) => {
@@ -42,6 +45,7 @@ function setup(view: object | ((gets: number) => object), moves: Record<string, 
       }),
     ],
   })
+  return screenResult
 }
 
 describe('워크플로우 사람 차례 배너', () => {
@@ -210,6 +214,108 @@ describe('워크플로우 사람 차례 배너', () => {
     await user.click(screen.getByRole('button', { name: '넘기기' }))
     await waitFor(() => expect(moves).toHaveLength(1))
     expect(moves[0].assigneeIds).toEqual([5])
+  })
+
+  // WP-2055 — 넘긴 뒤 초점. 눌렀던 단추가 사라져도 초점이 body 로 떨어지지 않아야 한다.
+  test('movedAgain_focusesNewTitle', async () => {
+    const counter = { gets: 0 }
+    const next = run({ revision: 5, currentNode: { ...run().currentNode, key: 'qa', name: 'QA 확인' } })
+    setup((gets) => (gets <= 1 ? run() : next), [], {}, 200, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveFocus())
+    expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인 — 내 차례/)
+  })
+
+  test('movedAway_callsOnLeaveOnce', async () => {
+    const counter = { gets: 0 }
+    const onLeave = vi.fn()
+    const next = run({ revision: 5, currentNode: { ...run().currentNode, assignees: [{ ...me, id: 2 }] } })
+    setup((gets) => (gets <= 1 ? run() : next), [], { onLeave }, 200, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(onLeave).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument()
+  })
+
+  // 남이 옮겨 배너가 사라진 경우 — queryClient 무효화로 재조회를 일으킨다.
+  test('othersMove_doesNotCallOnLeave', async () => {
+    const counter = { gets: 0 }
+    const onLeave = vi.fn()
+    const next = run({ revision: 5, currentNode: { ...run().currentNode, assignees: [{ ...me, id: 2 }] } })
+    const { queryClient } = setup((gets) => (gets <= 1 ? run() : next), [], { onLeave }, 200, counter)
+    await screen.findByTestId('issue-workflow-banner')
+    // 내가 넘기지 않고 다른 사람이 옮긴 뒤의 재조회 — 캐시를 무효화해 두 번째 응답을 받는다.
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    expect(onLeave).not.toHaveBeenCalled()
+  })
+
+  // 넘겼는데 재조회가 같은 revision 이면 표지를 지운다 — 뒤에 남이 옮겨 사라져도 onLeave 를 부르지 않는다.
+  test('movedSameRevision_thenOthersMove_doesNotCallOnLeave', async () => {
+    const counter = { gets: 0 }
+    const onLeave = vi.fn()
+    const away = run({ revision: 5, currentNode: { ...run().currentNode, assignees: [{ ...me, id: 2 }] } })
+    // 1~2회째(첫 조회·넘긴 뒤 재조회)는 같은 revision, 3회째부터 남이 옮긴 상태.
+    const { queryClient } = setup((gets) => (gets <= 2 ? run() : away), [], { onLeave }, 200, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(counter.gets).toBe(2))
+    await act(() => new Promise((r) => setTimeout(r, 20)))
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    expect(onLeave).not.toHaveBeenCalled()
+  })
+
+  // 넘긴 뒤 재조회가 오기 전에 사용자가 바깥 입력으로 옮겼으면 배너가 떠나도 onLeave 로 초점을 뺏지 않는다.
+  test('movedAway_userFocusedElsewhere_doesNotCallOnLeave', async () => {
+    const counter = { gets: 0, delayMs: 300 }
+    const moves: Record<string, unknown>[] = []
+    const onLeave = vi.fn()
+    const next = run({ revision: 5, currentNode: { ...run().currentNode, assignees: [{ ...me, id: 2 }] } })
+    setup((gets) => (gets <= 1 ? run() : next), moves, { onLeave }, 200, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(moves).toHaveLength(1))
+    const input = screen.getByRole('textbox', { name: '바깥 입력' })
+    input.focus()
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(input).toHaveFocus()
+  })
+
+  // 같은 이유로, 새 단계도 내 차례인 경우 새 제목이 초점을 뺏지 않는다.
+  test('movedAgain_userFocusedElsewhere_doesNotFocusTitle', async () => {
+    const counter = { gets: 0, delayMs: 300 }
+    const moves: Record<string, unknown>[] = []
+    const next = run({ revision: 5, currentNode: { ...run().currentNode, key: 'qa', name: 'QA 확인' } })
+    setup((gets) => (gets <= 1 ? run() : next), moves, {}, 200, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(moves).toHaveLength(1))
+    const input = screen.getByRole('textbox', { name: '바깥 입력' })
+    input.focus()
+    await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인/))
+    expect(screen.getByTestId('issue-workflow-banner-title')).not.toHaveFocus()
+    expect(input).toHaveFocus()
+  })
+
+  // 409(낡은 화면) 뒤 재조회로 새 revision 이 뜨면 본문이 다시 마운트돼 넘기기 단추가 사라진다 — 초점이 body 로 떨어지지 않고 새 제목으로 간다.
+  test('moveStale_focusesNewTitle', async () => {
+    const counter = { gets: 0 }
+    const next = run({ revision: 5, currentNode: { ...run().currentNode, key: 'qa', name: 'QA 확인' } })
+    setup((gets) => (gets <= 1 ? run() : next), [], {}, 409, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    expect(await screen.findByText('그사이 단계가 바뀌었어요. 새로 불러왔어요.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인/))
+    await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveFocus())
   })
 
   test('header_showsElapsedSinceEntered', async () => {

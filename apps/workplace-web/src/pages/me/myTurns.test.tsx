@@ -1,5 +1,5 @@
 // 내 작업 「내 차례」 탭 — 줄 순서·셀 문구, 패널에서 넘기기, null 생략, 빈 상태(WP-1991).
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -30,7 +30,7 @@ const issueView = (runId: number) => ({
 function setup(responses: (object[] | number)[]) {
   let n = 0
   const moves: Record<string, unknown>[] = []
-  const r = renderScreen(<MyTurnsTab />, {
+  const r = renderScreen(<><input aria-label="바깥 입력" /><MyTurnsTab /></>, {
     path: '/me/tasks/turns',
     handlers: [
       http.get(base + '/me/workflow-turns', () => {
@@ -128,6 +128,57 @@ describe('내 차례 탭', () => {
     expect(within(region).getByRole('heading', { level: 2, name: 'WP-10 제목 1' })).toBeVisible()
     await user.click(row)
     expect(screen.getByTestId('my-turn-status')).toHaveTextContent(/^WP-10 내 차례 상세를 열었습니다$/)
+  })
+
+  // WP-2055 — 넘겨서 줄이 빠지면 초점이 body 로 떨어지지 않는다.
+  it('myTurns_movedRowRemoved_focusesFirstRow', async () => {
+    const { user } = setup([[turn(1), turn(2)], [turn(2)]])
+    await user.click(within(await screen.findByTestId('my-turn-row-1')).getByRole('button', { name: /WP-10/ }))
+    await user.click(await screen.findByRole('button', { name: 'approve' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(screen.queryByTestId('my-turn-row-1')).not.toBeInTheDocument())
+    await waitFor(() => expect(within(screen.getByTestId('my-turn-row-2')).getByRole('button', { name: /WP-20/ })).toHaveFocus())
+  })
+
+  it('myTurns_lastRowMoved_focusesEmptyTitle', async () => {
+    const { user } = setup([[turn(1)], []])
+    await user.click(await screen.findByRole('button', { name: /WP-10/ }))
+    await user.click(await screen.findByRole('button', { name: 'approve' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    const title = await screen.findByText('지금 내 차례인 일이 없습니다')
+    await waitFor(() => expect(title.closest('[tabindex="-1"]')).toHaveFocus())
+  })
+
+  // 남이 옮겨 고른 줄이 빠져도(주기 재조회) 사용자가 바깥 입력에 있으면 초점을 뺏지 않는다.
+  it('myTurns_selectedRowRemovedByOthers_keepsOutsideFocus', async () => {
+    const { user, queryClient } = setup([[turn(1), turn(2)], [turn(2)]])
+    await user.click(await screen.findByRole('button', { name: /WP-10/ }))
+    await screen.findByTestId('my-turn-panel')
+    const input = screen.getByRole('textbox', { name: '바깥 입력' })
+    input.focus()
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('my-turn-row-1')).not.toBeInTheDocument())
+    expect(input).toHaveFocus()
+  })
+
+  // 목록 안 다른 줄에 있는 사용자도 남이 옮겨 고른 줄이 빠졌다고 첫 줄로 끌려가지 않는다.
+  it('myTurns_selectedRowRemovedByOthers_keepsOtherRowFocus', async () => {
+    const { user, queryClient } = setup([[turn(1), turn(2), turn(3)], [turn(2), turn(3)]])
+    await user.click(await screen.findByRole('button', { name: /WP-10/ }))
+    await screen.findByTestId('my-turn-panel')
+    const row3 = within(screen.getByTestId('my-turn-row-3')).getByRole('button', { name: /WP-30/ })
+    row3.focus()
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('my-turn-row-1')).not.toBeInTheDocument())
+    expect(row3).toHaveFocus()
+  })
+
+  it('myTurns_otherRowRemoved_doesNotMoveFocus', async () => {
+    const { queryClient } = setup([[turn(1), turn(2)], [turn(2)]])
+    await screen.findByTestId('my-turn-row-1')
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('my-turn-row-1')).not.toBeInTheDocument())
+    expect(document.body).toHaveFocus()
   })
 
   it('myTurns_empty', async () => {
