@@ -26,12 +26,12 @@ const TITLE = '연말정산 증빙서류 정리 및 회사 제출'
  * 개인 프로젝트 + 작업 1건. 쓰기(PATCH 이슈·PUT 라벨·PUT 담당자·POST 라벨)와 저장 뷰 요청을 seen 에 모은다.
  * E2E personal-project.spec 의 stubPersonal 과 같은 구성.
  */
-function stubPersonal(opts: { failRecurrence?: boolean; canDelete?: boolean; deleteDelayMs?: number } = {}) {
+function stubPersonal(opts: { failRecurrence?: boolean; canDelete?: boolean; deleteDelayMs?: number; deleteStatus?: number } = {}) {
   // id 3 — 이관 전에 만든 쉼표 라벨(WP-1386). 대소문자만 다르게 쳐도 이미 있는 라벨로 본다.
   const labels = [createLabel({ id: 1, name: '세금' }), createLabel({ id: 2, name: '긴급' }), createLabel({ id: 3, name: 'Tax,Fee' })]
   const issue = createIssue({ projectKey: KEY, number: 1, title: TITLE, status: 'TODO', labels: [toLabelSummary(labels[0])] })
   const thread = createChatThread()
-  const seen = { deletes: [] as number[], patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], putRecurrence: [] as unknown[], savedViews: 0 }
+  const seen = { detailGets: 0, deletes: [] as number[], patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], putRecurrence: [] as unknown[], savedViews: 0 }
   const handlers = [
     http.get(`/api/v1/projects/${KEY}/saved-views`, () => {
       seen.savedViews++
@@ -48,13 +48,15 @@ function stubPersonal(opts: { failRecurrence?: boolean; canDelete?: boolean; del
       return HttpResponse.json(created)
     }),
     http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, name: '양동희' })])),
-    http.get(`/api/v1/projects/${KEY}/issues/1`, () =>
-      HttpResponse.json(createIssueDetail({ summary: issue, body: '영수증은 드라이브 「2026 연말정산」 폴더에 있음', viewerCanDelete: opts.canDelete ?? true })),
-    ),
+    http.get(`/api/v1/projects/${KEY}/issues/1`, () => {
+      seen.detailGets++
+      return HttpResponse.json(createIssueDetail({ summary: issue, body: '영수증은 드라이브 「2026 연말정산」 폴더에 있음', viewerCanDelete: opts.canDelete ?? true }))
+    }),
     // 삭제(WP-2036) — 호출 횟수를 기록하고 204.
     http.delete(`/api/v1/projects/${KEY}/issues/1`, async () => {
       seen.deletes.push(1)
       if (opts.deleteDelayMs) await new Promise((r) => setTimeout(r, opts.deleteDelayMs))
+      if (opts.deleteStatus) return HttpResponse.json({}, { status: opts.deleteStatus })
       return new HttpResponse(null, { status: 204 })
     }),
     http.patch(`/api/v1/projects/${KEY}/issues/1`, async ({ request }) => {
@@ -90,7 +92,7 @@ function stubPersonal(opts: { failRecurrence?: boolean; canDelete?: boolean; del
 }
 
 /** 작업 상세(?task=1, query 로 더 붙일 수 있다)를 띄운다. */
-async function openTask(opts: { failRecurrence?: boolean; query?: string; canDelete?: boolean; deleteDelayMs?: number } = {}) {
+async function openTask(opts: { failRecurrence?: boolean; query?: string; canDelete?: boolean; deleteDelayMs?: number; deleteStatus?: number } = {}) {
   const p = stubPersonal(opts)
   const view = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?task=1${opts.query ?? ''}`, handlers: p.handlers })
   await screen.findByTestId('personal-task-mobile')
@@ -355,6 +357,23 @@ describe('모바일 개인 작업 삭제 (WP-2036)', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(screen.getByTestId('personal-task-mobile')).toBeInTheDocument()
     expect(seen.deletes).toEqual([])
+  })
+
+  // 삭제 실패 — 오류 토스트, 상세 유지, 확인창 닫힘. 404 면 상세를 다시 조회한다.
+  test.each([
+    [404, true],
+    [500, false],
+  ])('DELETE 가 %i 로 실패하면 오류 토스트·상세 유지·확인창 닫힘 (상세 재조회 %s)', async (status, refetch) => {
+    const { user, seen } = await openTask({ deleteStatus: status })
+    const before = seen.detailGets
+    await user.click(screen.getByRole('button', { name: '작업 삭제' }))
+    await user.click(await screen.findByTestId('personal-task-delete-confirm'))
+    expect(await screen.findByText('작업을 삭제하지 못했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('personal-task-mobile')).toBeInTheDocument()
+    expect(seen.deletes).toEqual([1])
+    if (refetch) await waitFor(() => expect(seen.detailGets).toBe(before + 1))
+    else expect(seen.detailGets).toBe(before)
   })
 
   test('viewerCanDelete 가 false 면 삭제 단추가 없다', async () => {

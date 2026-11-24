@@ -34,7 +34,9 @@ export function PersonalTaskDeleteAction({ projectKey, number, title, childCount
     error: '작업을 삭제하지 못했습니다',
   });
 
-  if (!canDelete) return null;
+  // 권한이 없고 확인창도 닫혀 있으면 아무것도 그리지 않는다. 확인창이 열려 있거나 요청 중이면(그 사이 상세 재조회로
+  // canDelete 가 바뀌어도) 언마운트하지 않아 확인창·진행 상태가 갑자기 사라지지 않게 한다(WP-2036) — 단추만 숨긴다.
+  if (!canDelete && !open && !remove.isPending) return null;
 
   const confirm = () => {
     if (inFlight.current) return;
@@ -56,7 +58,7 @@ export function PersonalTaskDeleteAction({ projectKey, number, title, childCount
 
   return (
     <>
-      {variant === 'desktop' ? (
+      {!canDelete ? null : variant === 'desktop' ? (
         <Button
           variant="outline"
           size="sm"
