@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
 
 import { formatDurationMs } from '@/lib/formatters'
-import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
+import { mkAskModel, mkModel } from '@/test/kits/projects/workflowRunFixtures'
 
 import { WorkflowGraphView } from './WorkflowGraphView'
 
@@ -28,4 +28,16 @@ it('graphPaint_marksNodesAndDuration', () => {
   render(<WorkflowGraphView model={mkModel()} readOnly paint={paint} durations={{ a: 600000 }} />)
   for (const [k, v] of Object.entries(paint)) expect(node(k)).toHaveAttribute('data-paint', v)
   expect(within(node('a')).getByText(formatDurationMs(600000))).toBeVisible()
+})
+
+it('graphEdges_parallelEdgesShareOneLabel', () => {
+  const { container } = render(<WorkflowGraphView model={mkAskModel()} readOnly />)
+  const texts = [...container.querySelectorAll('svg text')].map((t) => t.textContent)
+  expect(texts.filter((t) => t === 'answered · 돌아가기')).toHaveLength(1)
+  expect(texts).not.toContain('answered')
+  expect(texts).not.toContain('돌아가기')
+  // 보조기기용 목록은 간선마다 한 줄 그대로다.
+  const list = within(node('work_ask')).getByRole('list', { name: '이어지는 단계' })
+  expect(within(list).getByText('answered → 작업')).toBeInTheDocument()
+  expect(within(list).getByText('돌아가기 → 작업')).toBeInTheDocument()
 })

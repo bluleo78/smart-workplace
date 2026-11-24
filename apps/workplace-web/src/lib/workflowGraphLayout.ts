@@ -36,19 +36,27 @@ export function outgoingEdges(node: WorkflowModelNode, model: WorkflowModel): { 
 
 /** 위에서 아래(TB)로 흐르게 자리를 잡는다. x·y 는 노드 왼쪽 위 모서리. 모델에 없는 노드로 가는 간선은 뺀다. */
 export function layoutWorkflowGraph(model: WorkflowModel): WorkflowGraphLayout {
-  const g = new dagre.graphlib.Graph({ multigraph: true })
+  const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 56, marginx: 16, marginy: 16 })
   g.setDefaultEdgeLabel(() => ({}))
   const keys = new Set(model.nodes.map((n) => n.key))
   for (const n of model.nodes) g.setNode(n.key, { width: GRAPH_NODE_WIDTH, height: GRAPH_NODE_HEIGHT })
 
-  const raw: { from: string; to: string; label: string; name: string }[] = []
+  // 같은 (출발, 도착) 간선은 한 줄로 합친다(WP-2048) — 질문 노드의 returnTo 와 answered outcome 처럼
+  // 평행 간선이 같은 자리에 겹쳐 그려지면 라벨이 포개져 읽히지 않기 때문이다. 처음 나온 순서를 유지하고 라벨은 " · " 로 잇는다.
+  const groups = new Map<string, { from: string; to: string; labels: string[] }>()
   for (const n of model.nodes) {
-    for (const [i, e] of outgoingEdges(n, model).entries()) {
+    for (const e of outgoingEdges(n, model)) {
       if (!keys.has(e.to)) continue
-      const name = `${n.key}:${i}`
-      raw.push({ from: n.key, to: e.to, label: e.label, name })
-      g.setEdge(n.key, e.to, {}, name)
+      const key = `${n.key}\u0000${e.to}`
+      let group = groups.get(key)
+      if (!group) {
+        group = { from: n.key, to: e.to, labels: [] }
+        groups.set(key, group)
+        // dagre 에는 묶음마다 한 번만 넣어 평행 간선 자체를 만들지 않는다 — (출발, 도착)이 하나뿐이라 multigraph 이름도 필요 없다.
+        g.setEdge(n.key, e.to, {})
+      }
+      group.labels.push(e.label)
     }
   }
   dagre.layout(g)
@@ -57,11 +65,11 @@ export function layoutWorkflowGraph(model: WorkflowModel): WorkflowGraphLayout {
     const p = g.node(n.key)
     return { key: n.key, x: p.x - GRAPH_NODE_WIDTH / 2, y: p.y - GRAPH_NODE_HEIGHT / 2, width: GRAPH_NODE_WIDTH, height: GRAPH_NODE_HEIGHT }
   })
-  const edges = raw.map((e) => ({
+  const edges = [...groups.values()].map((e) => ({
     from: e.from,
     to: e.to,
-    label: e.label,
-    points: (g.edge(e.from, e.to, e.name)?.points ?? []).map((pt: { x: number; y: number }) => ({ x: pt.x, y: pt.y })),
+    label: e.labels.join(' · '),
+    points: (g.edge(e.from, e.to)?.points ?? []).map((pt: { x: number; y: number }) => ({ x: pt.x, y: pt.y })),
   }))
   const info = g.graph()
   return { nodes, edges, width: info.width ?? 0, height: info.height ?? 0 }
