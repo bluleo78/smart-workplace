@@ -33,7 +33,9 @@ export function MyTurnsTab() {
   const selected = items.find((t) => t.runId === selectedId) ?? null
 
   if (turns.isPending) return <p className="text-sm text-muted-foreground">불러오는 중…</p>
-  if (turns.isError) return <p className="text-sm text-destructive">내 차례를 불러오지 못했습니다</p>
+  // 목록이 아직 없을 때만 전체 오류 — 주기 재조회(WP-2042)가 한 번 실패해도 v5 는 옛 data 를 두고 status 만 error 로 바꾸므로,
+  // 그때 목록·열어 둔 패널을 오류 문구로 갈아치우지 않고 받아 둔 목록을 지킨다.
+  if (turns.isError && !turns.data) return <p className="text-sm text-destructive">내 차례를 불러오지 못했습니다</p>
   if (items.length === 0) {
     return <EmptyState title="지금 내 차례인 일이 없습니다" description="워크플로우가 나에게 넘긴 일이 여기에 모입니다" />
   }

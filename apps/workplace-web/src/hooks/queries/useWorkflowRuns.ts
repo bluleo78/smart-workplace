@@ -51,11 +51,20 @@ export function useWorkflowRunCounts(workflowId: number | undefined, enabled: bo
   })
 }
 
+/** 내 차례를 다시 읽는 주기(ms) — 까닭은 useMyWorkflowTurns 주석. 내 작업 화면(탭 배지 포함)이 열려 있는 동안 돈다(WP-2042). */
+export const MY_WORKFLOW_TURNS_REFETCH_MS = 30_000
+
 /** 내 차례 — 모든 프로젝트에서 내가 담당인 활성 사람 노드(오래 기다린 순). */
 export function useMyWorkflowTurns() {
   return useQuery({
     queryKey: workflowRunKeys.myTurns(),
     queryFn: ({ signal }) =>
       client.get<MyWorkflowTurnList>('/me/workflow-turns', { signal }).then((r) => r.data.items),
+    // 남이 넘긴 차례는 이 화면이 모르는 변화다 — 전역 기본(staleTime 30초·포커스 재조회 끔)에 기대지 않고
+    // 이 쿼리만 항상 낡은 것으로 보고, 탭에 돌아오면·열어 둔 동안 30초마다 다시 읽는다. 백그라운드 탭은 쉰다(WP-2042).
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: MY_WORKFLOW_TURNS_REFETCH_MS,
+    refetchIntervalInBackground: false,
   })
 }
