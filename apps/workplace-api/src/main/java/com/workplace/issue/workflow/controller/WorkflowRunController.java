@@ -1,9 +1,13 @@
 package com.workplace.issue.workflow.controller;
 
 import com.workplace.global.security.RequirePermission;
+import com.workplace.issue.workflow.dto.MyWorkflowTurn;
+import com.workplace.issue.workflow.dto.WorkflowRunCounts;
 import com.workplace.issue.workflow.dto.WorkflowRunDetail;
 import com.workplace.issue.workflow.dto.WorkflowRunPage;
 import com.workplace.issue.workflow.service.WorkflowRunQueryService;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -44,6 +48,20 @@ public class WorkflowRunController {
   @RequirePermission("project:read")
   public ResponseEntity<WorkflowRunDetail> detail(Authentication auth, @PathVariable long runId) {
     return ResponseEntity.ok(queryService.detail(runId, callerId(auth)));
+  }
+
+  /** 정의의 노드별 진행 중 실행 수(WP-1991) — 그래프에 모아 보기 배지용. */
+  @GetMapping("/workflows/{id}/run-counts")
+  @RequirePermission("project:read")
+  public ResponseEntity<WorkflowRunCounts> runCounts(Authentication auth, @PathVariable long id) {
+    return ResponseEntity.ok(queryService.runCounts(id, callerId(auth)));
+  }
+
+  /** 내 작업 「내 차례」(WP-1991) — 내가 담당인 활성 사람 노드, 오래 기다린 순. 읽을 수 없는 프로젝트는 뺀다. */
+  @GetMapping("/me/workflow-turns")
+  @RequirePermission("project:read")
+  public ResponseEntity<Map<String, List<MyWorkflowTurn>>> myTurns(Authentication auth) {
+    return ResponseEntity.ok(Map.of("items", queryService.myTurns(callerId(auth))));
   }
 
   /** 인증 주체(사용자 id). */

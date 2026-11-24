@@ -83,6 +83,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
   await mockApi(page, 'GET', '/api/v1/me/watched-issues', { items: [], nextCursor: null, hasMore: false })
   await mockApi(page, 'GET', '/api/v1/me/activity', { items: [], nextCursor: null })
+  // 내 작업 탭 줄의 「내 차례」 수 배지(WP-1991) — 빈 목록.
+  await mockApi(page, 'GET', '/api/v1/me/workflow-turns', { items: [] })
   // 홈 「내 작업」 위젯의 어제/오늘 한 줄(WP-1484) — 같은 이유로 빈(0) 요약.
   await mockApi(page, 'GET', '/api/v1/me/overview/today', { yesterday: '2026-01-01', yesterdayCompleted: 0, yesterdayCompletedWithAi: 0, yesterdayCompletedOnTime: 0, yesterdayCreated: 0, today: '2026-01-02', overdue: 0, oldestOverdueDays: null, dueToday: 0, waiting: 0 })
   // 개요 탭 업무 프로파일 카드(WP-1485) — 같은 이유로 빈(끝낸 이슈 없음) 프로파일. 개요를 검증하는 spec 은 나중에 등록해 덮는다.

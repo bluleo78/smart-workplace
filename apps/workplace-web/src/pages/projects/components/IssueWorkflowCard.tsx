@@ -4,31 +4,23 @@
 import { MoreHorizontal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { toast } from 'sonner'
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Textarea } from '@/components/ui/textarea'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { elapsedLabel } from '@/lib/aiRoster'
-import { extractApiErrorCode } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import {
   isRunEnded,
   type IssueWorkflowView,
   isWorkflowEnabledProject,
-  type RecoverAction,
   RUN_STATUS_LABEL,
   type RunStatus,
   useIssueWorkflow,
   useIssueWorkflowCardVisible,
-  useRecoverIssueWorkflow,
-  workflowErrorMessage,
 } from '@/lib/workflow'
-import { useProjectWorkflows, useWorkflowVersion } from '@/lib/workflows'
+import { useProjectWorkflows, useWorkflowVersion, type WorkflowModel } from '@/lib/workflows'
 
+import { RecoverDialog } from '../workflow/RecoverDialog'
 import { IssuePropertyGroup } from './IssuePropertyGroup'
 
 /** 상태 칩 색 — 시맨틱 토큰만(조치 필요는 경고, 완료는 성공, AI 작업 중은 AI 강조색). */
@@ -85,103 +77,35 @@ interface IssueWorkflowCardProps {
   onStart: () => void
 }
 
-/** 조치 종류별 문구 — 확인 창 제목·메뉴에 쓴다. */
-const ACTION_LABEL: Record<RecoverAction, string> = {
-  RETRY: '다시 시도',
-  ON_ERROR: '오류 경로로 보내기',
-  MOVE_TO: '다른 노드로 옮기기',
-  CANCEL: '실행 취소',
-}
-
 /**
- * 「⋯ 조치」 메뉴와 확인 창 — 멈춘(조치 필요) 실행에만 — 다시 시도·오류 경로·취소(관리자는 옮기기까지).
- * 왜: 노드는 사람이 바로잡기 전에는 저절로 풀리지 않는다. 누르면 곧바로 실행하지 않고 남길 말과 함께 한 번 확인한다.
+ * 「조치」 단추와 조치 창 — 멈춘(조치 필요) 실행에만. 창은 실행 상세와 같은 RecoverDialog 를 쓴다(WP-1991).
+ * 왜: 노드는 사람이 바로잡기 전에는 저절로 풀리지 않는다. 창을 열 때의 revision 을 고정해 보내므로 창이 열린 동안 쿼리가 새로 고쳐져도 낡은 화면 판정이 유지된다.
  */
 function RecoverActions({
-  issueId, projectKey, run, isManager, nodes,
+  issueId, projectKey, run, isManager, model,
 }: {
   issueId: number
   projectKey: string
   run: IssueWorkflowView
   isManager: boolean
-  nodes: { key: string; name: string }[]
+  /** 게시 버전 모델 — 못 읽었으면 undefined(그래도 다시 시도·실행 취소는 보낼 수 있다). */
+  model: WorkflowModel | undefined
 }) {
-  const recover = useRecoverIssueWorkflow(issueId, projectKey)
-  const [action, setAction] = useState<RecoverAction | null>(null)
-  const [comment, setComment] = useState('')
-  const [toNode, setToNode] = useState<string | null>(null)
-  // 서버는 멈춘(조치 필요) 실행에만 조치를 받는다(WORKFLOW_NOT_SUSPENDED) — 이 메뉴는 SUSPENDED 일 때만 그려진다.
-  const actions: RecoverAction[] = ['RETRY', 'ON_ERROR', ...(isManager ? (['MOVE_TO'] as const) : []), 'CANCEL']
-
-  function close() {
-    setAction(null)
-    setComment('')
-    setToNode(null)
-  }
-
-  async function confirm() {
-    if (!action) return
-    try {
-      await recover.mutateAsync({
-        action,
-        ...(action === 'MOVE_TO' && toNode ? { toNode } : {}),
-        ...(comment.trim() !== '' ? { comment: comment.trim() } : {}),
-        expectedRevision: run.revision,
-      })
-      toast.success(`${ACTION_LABEL[action]} 처리했어요.`)
-    } catch (e) {
-      toast.error(workflowErrorMessage(e, '조치하지 못했어요.'))
-      // STALE 이면 훅이 다시 읽어 오므로 창을 닫고, 그 밖의 오류는 창과 남길 말을 둔다(다시 누를 수 있게).
-      if (extractApiErrorCode(e) !== 'WORKFLOW_STALE') return
-    }
-    close()
-  }
-
+  // 창을 열 때의 revision — null 이면 닫힘.
+  const [openRevision, setOpenRevision] = useState<number | null>(null)
+  const curKey = run.currentNode?.key
+  // 지금 노드 — 모델에 없으면(못 읽음·옛 버전) undefined 로 두어 오류 경로를 내놓지 않는다.
+  const current = model?.nodes.find((n) => n.key === curKey)
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="조치">
-            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {actions.map((a) => (
-            <DropdownMenuItem key={a} onSelect={() => setAction(a)}>
-              {ACTION_LABEL[a]}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <Dialog open={action != null} onOpenChange={(o) => !o && close()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{action ? ACTION_LABEL[action] : ''}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            {action === 'MOVE_TO' && nodes.length === 0 && (
-              <p className="text-xs text-muted-foreground">단계 목록을 불러오지 못했거나 아직 불러오는 중이에요. 잠시 뒤 다시 열어 주세요.</p>
-            )}
-            {action === 'MOVE_TO' && nodes.length > 0 && (
-              <RadioGroup aria-label="옮길 노드" value={toNode ?? ''} onValueChange={setToNode} className="space-y-1">
-                {nodes.map((n) => (
-                  <label key={n.key} className="flex cursor-pointer items-center gap-2">
-                    <RadioGroupItem value={n.key} aria-label={n.name} />
-                    {n.name}
-                  </label>
-                ))}
-              </RadioGroup>
-            )}
-            <Textarea aria-label="남길 말(선택)" placeholder="남길 말(선택)" rows={3} value={comment} onChange={(e) => setComment(e.target.value)} />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={close}>취소</Button>
-            <Button type="button" disabled={recover.isPending || (action === 'MOVE_TO' && toNode == null)} onClick={confirm}>
-              확인
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label="조치" onClick={() => setOpenRevision(run.revision)}>
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+      </Button>
+      <RecoverDialog
+        open={openRevision !== null} onOpenChange={(o) => { if (!o) setOpenRevision(null) }}
+        issueId={issueId} projectKey={projectKey} revision={openRevision ?? run.revision}
+        currentNode={current} model={model} canManage={isManager} onDone={() => {}}
+      />
     </>
   )
 }
@@ -243,7 +167,7 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
             projectKey={projectKey}
             run={run}
             isManager={isManager}
-            nodes={nodes}
+            model={version.data?.model}
           />
         )}
       </div>
@@ -277,7 +201,7 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
       )}
       {remaining && !ended && <p className="text-xs text-muted-foreground">{remaining}</p>}
       <div className="flex items-center justify-between gap-2">
-        <Link className="text-xs text-primary hover:underline" to={`/projects/${projectKey}/workflow`}>
+        <Link className="text-xs text-primary hover:underline" to={`/projects/${projectKey}/workflow${run.runId != null ? `?view=runs&workflow=${run.workflowId}&run=${run.runId}` : ''}`}>
           실행 보기 ↗
         </Link>
         {ended && enabled && editable && (

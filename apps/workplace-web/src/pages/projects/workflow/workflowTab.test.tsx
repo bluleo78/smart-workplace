@@ -4,6 +4,7 @@ import { delay, http, HttpResponse } from 'msw'
 import { expect, it, vi } from 'vitest'
 
 import { clearWorkflowDraftSessions } from '@/lib/workflowDraftSessions'
+import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
 import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
 import { server } from '@/test/msw/server'
 
@@ -440,4 +441,83 @@ it('unpostedChangeCount_survivesDraftSave_andResetsAfterPublish', async () => {
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '게시' }))
   expect(await screen.findByText('게시 버전 3')).toBeVisible()
   expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
+})
+
+it('tab_viewParamOpensRunsPanel', async () => {
+  server.use(
+    http.get('/api/v1/workflows/42/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  renderWorkflow({ search: '?view=runs' })
+  expect(await screen.findByRole('tab', { name: /^실행/, selected: true })).toBeVisible()
+  expect(await screen.findByText('아직 실행이 없습니다')).toBeVisible()
+  // 목록 보기에서도 versions 의 activeRuns 합계(3+1)를 보인다.
+  expect(await screen.findByText('진행 중인 실행 4개')).toBeVisible()
+})
+
+// 이슈 카드의 「실행 보기 ↗」가 싣는 ?workflow= 로 그 정의의 목록이 열린다(없으면 첫 정의), 정의를 바꾸면 run·모아 보기가 지워진다.
+it('tab_workflowParamOpensThatDefinition_changeClearsRun', async () => {
+  server.use(
+    http.get('/api/v1/workflows/:id/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/workflow-runs/7', () => HttpResponse.json({ code: 'NOT_FOUND', message: 'x' }, { status: 404 })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  renderWorkflow({ multiple: true, search: '?view=runs&workflow=43&run=7' })
+  const select = await screen.findByRole('combobox', { name: '워크플로우 선택' })
+  await waitFor(() => expect(select).toHaveValue('43'))
+  expect(await screen.findByText('실행을 찾을 수 없습니다')).toBeVisible()
+  await userEvent.selectOptions(select, '42')
+  await waitFor(() => expect(screen.getByRole('combobox', { name: '워크플로우 선택' })).toHaveValue('42'))
+  // 정의를 바꾸면 하위 보기(view)도 지워져 편집기가 열린다 — 실행 탭이 남지 않는다.
+  expect(await screen.findByRole('tab', { name: /^실행/, selected: false })).toBeVisible()
+  expect(screen.queryByText('실행을 고르면 여기에 상세가 보입니다.')).not.toBeInTheDocument()
+  expect(screen.queryByText('실행을 찾을 수 없습니다')).not.toBeInTheDocument()
+})
+
+it('tab_unknownWorkflowParam_fallsBackToFirst', async () => {
+  server.use(
+    http.get('/api/v1/workflows/42/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  renderWorkflow({ multiple: true, search: '?view=runs&workflow=999' })
+  expect(await screen.findByRole('combobox', { name: '워크플로우 선택' })).toHaveValue('42')
+})
+
+it('tab_runsPanel_versionsFailure_offersRetry', async () => {
+  renderWorkflow({ search: '?view=runs' })
+  // renderWorkflow 가 깐 핸들러보다 뒤에 둬야 이긴다.
+  server.use(
+    http.get('/api/v1/workflows/42/versions', () => new HttpResponse(null, { status: 500 })),
+    http.get('/api/v1/workflows/42/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  expect(await screen.findByText(/실행 수를 불러오지 못했습니다/)).toBeVisible()
+  expect(screen.getByRole('button', { name: '다시 불러오기' })).toBeVisible()
+})
+
+// 실행 상세에서 조치(실행 취소)를 마치면 버전 요약(activeRuns)을 다시 읽어 「진행 중인 실행 N개」가 바뀐다.
+it('tab_runsPanel_recover_refreshesActiveRunCount', async () => {
+  let versionsCalls = 0
+  const run = {
+    runId: 7, workflowId: 42, versionNo: 2, issueId: 70, issueNumber: 70, issueKey: 'WP-70', title: '로그인 개선', status: 'SUSPENDED', revision: 3, currentNode: 'b',
+    startedBy: null, startedAt: '2026-11-20T00:00:00Z', endedAt: null, context: {},
+  }
+  renderWorkflow({ search: '?view=runs&run=7' })
+  // renderWorkflow 가 깐 핸들러보다 뒤에 둬야 이긴다.
+  server.use(
+    http.get('/api/v1/workflows/42/versions', () => {
+      versionsCalls += 1
+      return HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: versionsCalls === 1 ? 3 : 2 }])
+    }),
+    http.get('/api/v1/workflows/42/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/workflow-runs/7', () => HttpResponse.json({ run, nodeRuns: [], events: [], model: mkModel() })),
+    http.get('/api/v1/issues/70/workflow', () => HttpResponse.json({ runId: 7, status: 'SUSPENDED', revision: 3, workflowId: 42, versionNo: 2, currentNode: null, outcomes: [], path: [], remainingNodeKeys: [], context: {} })),
+    http.post('/api/v1/issues/70/workflow/recover', () => HttpResponse.json({ runId: 7, status: 'CANCELLED', revision: 4, workflowId: 42, versionNo: 2, currentNode: null, outcomes: [], path: [], remainingNodeKeys: [], context: {} })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  expect(await screen.findByText('진행 중인 실행 3개')).toBeVisible()
+  await userEvent.click(await screen.findByRole('button', { name: '조치 고르기' }))
+  await userEvent.click(screen.getByRole('radio', { name: '실행 취소' }))
+  await userEvent.click(screen.getByRole('button', { name: '확인' }))
+  expect(await screen.findByText('진행 중인 실행 2개')).toBeVisible()
 })

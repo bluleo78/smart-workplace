@@ -5,6 +5,7 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { client } from '@/api/client'
 import { issueWorkflowKeys } from '@/hooks/queries/issueWorkflowKeys'
 import { issueKeys } from '@/hooks/queries/useIssues'
+import { workflowRunKeys } from '@/hooks/queries/workflowRunKeys'
 import { extractApiError, extractApiErrorCode } from '@/lib/api-error'
 
 import { useProjectWorkflows, type WorkflowSummary } from './workflows'
@@ -78,9 +79,14 @@ export const issueWorkflowKey = issueWorkflowKeys.detail
 /** 멈춘 실행의 조치 종류 — 서버 recover 의 action. 카드의 메뉴·확인 창과 훅이 함께 쓴다. */
 export type RecoverAction = 'RETRY' | 'ON_ERROR' | 'MOVE_TO' | 'CANCEL'
 
+/** 실행 상태가 끝(완료·취소)인가 — 끝났다고 보는 상태 집합의 단일 정의. */
+export function isRunStatusEnded(status: RunStatus): boolean {
+  return status === 'COMPLETED' || status === 'CANCELED'
+}
+
 /** 실행이 없거나 끝났는가(완료·취소) — 새로 시작을 권해도 되는 때. */
 export function isRunEnded(run: Pick<IssueWorkflowView, 'runId' | 'status'>): boolean {
-  return run.runId == null || run.status === 'COMPLETED' || run.status === 'CANCELED'
+  return run.runId == null || (run.status != null && isRunStatusEnded(run.status))
 }
 
 export function useIssueWorkflow(issueId: number | undefined) {
@@ -103,6 +109,18 @@ function useIssueWorkflowRefresh(issueId: number, projectKey: string) {
   const refresh = () => {
     qc.invalidateQueries({ queryKey: issueWorkflowKey(issueId) })
     qc.invalidateQueries({ queryKey: issueKeys.details(projectKey) })
+    // 실행 목록·상세·집계와 내 차례도 새로 읽는다(배너·조치로 옮긴 뒤 다른 화면이 낡지 않게).
+    qc.invalidateQueries({ queryKey: workflowRunKeys.all })
+    qc.invalidateQueries({ queryKey: workflowRunKeys.myTurns() })
+    // 워크플로우 탭의 「진행 중인 실행 N개」·탭 수는 버전 요약(activeRuns)의 합계라 실행이 끝나거나 옮겨지면 같이 낡는다.
+    // 이슈 화면은 워크플로우 id 를 모를 수 있어 workflowKeys.versions 모양(['workflows','detail',<id>,'versions'], 길이 4)만 고른다.
+    // 길이 5 인 버전 본문(workflowKeys.version)과 정의 상세는 불변·무관해 다시 읽지 않는다.
+    qc.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey
+        return k.length === 4 && k[0] === 'workflows' && k[1] === 'detail' && k[3] === 'versions'
+      },
+    })
   }
   const refreshIfStale = (e: unknown) => {
     if (extractApiErrorCode(e) === 'WORKFLOW_STALE') refresh()

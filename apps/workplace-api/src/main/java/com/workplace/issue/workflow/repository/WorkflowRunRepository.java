@@ -2,6 +2,7 @@ package com.workplace.issue.workflow.repository;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.NODE_RUN;
+import static com.workplace.jooq.Tables.WORKFLOW;
 import static com.workplace.jooq.Tables.WORKFLOW_MOVE_IDEMPOTENCY;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
@@ -503,6 +504,97 @@ public class WorkflowRunRepository {
         .where(active)
         .groupBy(WORKFLOW_RUN.WORKFLOW_VERSION_ID)
         .orderBy(WORKFLOW_RUN.WORKFLOW_VERSION_ID)
+        .forEach(r -> out.put(r.value1(), r.value2()));
+    return out;
+  }
+
+  /**
+   * 내가 담당인 활성 노드 방문의 실행들(WP-1991 「내 차례」) — 방문이 ACTIVE 이고 {@code userId} 가 그 담당에 있으며, 실행이 WAITING 이고
+   * 지금 노드의 방문이며, 이슈가 삭제되지 않은 것. 들어간 시각 오름차순(오래 기다린 순) {@code offset} 번째부터 {@code limit} 개(서비스가 페이지로
+   * 이어 읽는다).
+   *
+   * <p>사람 노드(human_task) 판정·프로젝트 읽기 권한은 모델·접근 판정이 필요해 부르는 쪽(서비스)이 거른다. 앞 방문의 행위자는 같은 실행에서 id 가 바로
+   * 앞인 방문의 actor_id 다.
+   */
+  public List<MyTurnRow> findMyActiveTurns(long userId, int limit, int offset) {
+    var cur = NODE_RUN.as("cur");
+    var prev = NODE_RUN.as("prv");
+    Field<Long> handedBy =
+        DSL.field(
+            select(prev.ACTOR_ID)
+                .from(prev)
+                .where(prev.RUN_ID.eq(cur.RUN_ID))
+                .and(prev.ID.lt(cur.ID))
+                .orderBy(prev.ID.desc())
+                .limit(1));
+    return dsl.select(
+            WORKFLOW_RUN.ID,
+            WORKFLOW_RUN.ISSUE_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.PROJECT_ID,
+            WORKFLOW_VERSION.ID,
+            WORKFLOW_VERSION.VERSION_NO,
+            WORKFLOW.ID,
+            WORKFLOW.NAME,
+            cur.NODE_KEY,
+            cur.ENTERED_AT,
+            WORKFLOW_RUN.CONTEXT,
+            handedBy)
+        .from(cur)
+        .join(WORKFLOW_RUN)
+        .on(WORKFLOW_RUN.ID.eq(cur.RUN_ID))
+        .join(WORKFLOW_VERSION)
+        .on(WORKFLOW_VERSION.ID.eq(WORKFLOW_RUN.WORKFLOW_VERSION_ID))
+        .join(WORKFLOW)
+        .on(WORKFLOW.ID.eq(WORKFLOW_VERSION.WORKFLOW_ID))
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(WORKFLOW_RUN.ISSUE_ID))
+        .where(cur.STATUS.eq("ACTIVE"))
+        .and(DSL.val(userId).eq(DSL.any(cur.ASSIGNEE_IDS)))
+        .and(WORKFLOW_RUN.STATUS.eq("WAITING"))
+        .and(cur.NODE_KEY.eq(WORKFLOW_RUN.CURRENT_NODE))
+        .and(ISSUE.DELETED_AT.isNull())
+        .orderBy(cur.ENTERED_AT.asc(), cur.ID.asc())
+        .limit(limit)
+        .offset(offset)
+        .fetch(
+            r ->
+                new MyTurnRow(
+                    r.value1(),
+                    r.value2(),
+                    r.value3(),
+                    r.value4(),
+                    r.value5(),
+                    r.value6(),
+                    r.value7(),
+                    r.value8(),
+                    r.value9(),
+                    r.value10(),
+                    r.value11().toInstant(),
+                    r.value12().data(),
+                    r.value13()));
+  }
+
+  /**
+   * 정의의 노드별 활성(RUNNING·WAITING·SUSPENDED) 실행 수(노드 키 → 수, WP-1991). 게시(활성) 버전의 실행만 센다 — 옛 버전 실행은 같은
+   * 노드 키여도 다른 모델의 노드라 현재 그래프의 배지로 섞으면 안 된다. 삭제된 이슈의 실행은 세지 않고, 지금 노드가 없는 실행·0 인 노드는 담지 않는다. 목록을 끝까지
+   * 읽지 않고 DB 에서 센다.
+   */
+  public Map<String, Integer> countActiveByNode(long workflowId) {
+    Map<String, Integer> out = new LinkedHashMap<>();
+    dsl.select(WORKFLOW_RUN.CURRENT_NODE, count())
+        .from(WORKFLOW_RUN)
+        .join(WORKFLOW)
+        .on(WORKFLOW.ACTIVE_VERSION_ID.eq(WORKFLOW_RUN.WORKFLOW_VERSION_ID))
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(WORKFLOW_RUN.ISSUE_ID))
+        .where(WORKFLOW.ID.eq(workflowId))
+        .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+        .and(WORKFLOW_RUN.CURRENT_NODE.isNotNull())
+        .and(ISSUE.DELETED_AT.isNull())
+        .groupBy(WORKFLOW_RUN.CURRENT_NODE)
+        .orderBy(WORKFLOW_RUN.CURRENT_NODE)
         .forEach(r -> out.put(r.value1(), r.value2()));
     return out;
   }

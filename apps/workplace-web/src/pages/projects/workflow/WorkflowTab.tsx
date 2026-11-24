@@ -1,7 +1,7 @@
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
@@ -30,6 +30,7 @@ import type { ProjectWorkflowContext } from '../tabs/ProjectTabsLayout'
 import { PublishDialog } from './PublishDialog'
 import { WorkflowGraphView } from './WorkflowGraphView'
 import { WorkflowProblemsPanel, WorkflowValidationFailure } from './WorkflowProblemsPanel'
+import { WorkflowRuns } from './WorkflowRuns'
 import { workflowSelectClass, WorkflowVersions } from './WorkflowVersions'
 import { countWorkflowYamlChanges } from './workflowYamlDiff'
 import { WorkflowYamlEditor } from './WorkflowYamlEditor'
@@ -56,7 +57,20 @@ export default function WorkflowTab() {
 function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowContext & { projectId: number }) {
   const { user, activeTenant, isLoggingOut } = useAuth()
   const draftStorageKey = workflowDraftStorageKey(user?.id, activeTenant?.tenantId, projectId)
-  const [selectedId, setSelectedId] = useState<number>()
+  // 고른 정의는 주소 `?workflow=` 에 둔다(이슈 카드 「실행 보기 ↗」가 그 실행의 정의를 바로 열게). 없거나 모르는 값이면 첫 정의.
+  const [workspaceParams, setWorkspaceParams] = useSearchParams()
+  const selectedId = Number(workspaceParams.get('workflow')) || undefined
+  /** 정의를 바꾼다 — 이전 정의의 실행(run)·모아 보기(runsView)와 하위 보기(view)는 지운다 — 만들기·바꾸기 모두 편집기로 연다. */
+  const selectWorkflow = useCallback((workflowId: number) => {
+    setWorkspaceParams((prev) => {
+      const params = new URLSearchParams(prev)
+      params.set('workflow', String(workflowId))
+      params.delete('run')
+      params.delete('runsView')
+      params.delete('view')
+      return params
+    }, { replace: true })
+  }, [setWorkspaceParams])
   const [creating, setCreating] = useState(false)
   const subscribe = useCallback((listener: () => void) => subscribeWorkflowDraftSessions(draftStorageKey, listener), [draftStorageKey])
   const getSnapshot = useCallback(() => getWorkflowDraftSessions(draftStorageKey), [draftStorageKey])
@@ -92,7 +106,7 @@ function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowC
         ...(previous ?? []).filter((summary) => summary.id !== item.id),
         { id: item.id, name: item.name, enabled: item.enabled, activeVersionNo: null, draftChanged: true },
       ])
-      setSelectedId(item.id)
+      selectWorkflow(item.id)
       setCreating(false)
       void queryClient.invalidateQueries({ queryKey: workflowKeys.list(projectId) })
       toast.success('워크플로우 초안을 만들었습니다.')
@@ -115,7 +129,7 @@ function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowC
                 aria-label="워크플로우 선택"
                 className={workflowSelectClass}
                 value={id}
-                onChange={(event) => setSelectedId(Number(event.target.value))}
+                onChange={(event) => selectWorkflow(Number(event.target.value))}
               >
                 {summaries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
@@ -221,13 +235,26 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
   reload: () => Promise<WorkflowDetail>
 }) {
   const { id, projectId, activeVersion } = detail
-  const [panel, setPanel] = useState('editor')
+  // 하위 보기는 주소 `?view=` 에 묶는다(이슈 카드 「실행 보기 ↗」가 바로 열 수 있게). 모르는 값은 편집. 바꿀 때는 replace 로 쓰고, 실행을 떠나면 run·runsView 를 지운다.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const viewParam = searchParams.get('view')
+  const panel = viewParam === 'runs' || viewParam === 'versions' ? viewParam : 'editor'
+  const setPanel = useCallback((next: string) => {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      params.set('view', next)
+      if (next !== 'runs') { params.delete('run'); params.delete('runsView') }
+      return params
+    }, { replace: true })
+  }, [setSearchParams])
   const [mode, setMode] = useState<'yaml' | 'graph'>('yaml')
   const [publishConfirmation, setPublishConfirmation] = useState<PublishConfirmation | null>(null)
   const [workError, setWorkError] = useState<string | null>(null)
   const [publishedHere, setPublishedHere] = useState<{ versionNo: number; yaml: string } | null>(null)
   const editor = useRef<HTMLTextAreaElement>(null)
   const queryClient = useQueryClient()
+  const { project } = useProjectTabs()
+  const { user } = useAuth()
   const { askWithPrompt } = useAssistant()
   // 게시 응답의 번호와 확인한 원문을 먼저 쓰고, 게시본 상세는 서버에서 다시 받는다.
   const activeVersionNo = Math.max(publishedHere?.versionNo ?? 0, activeVersion?.no ?? 0) || null
@@ -454,15 +481,9 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
         )}
       </TabsContent>
       <TabsContent value="runs">
-        {running === null && versions.isError ? (
-          <p role="alert" className="text-sm">
-            실행 수를 불러오지 못했습니다. <Button variant="link" size="sm" onClick={() => void versions.refetch()}>다시 불러오기</Button>
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {running === null ? '실행 수를 불러오는 중…' : `진행 중인 실행 ${running}개`}
-          </p>
-        )}
+        {/* 진행 중인 실행 수 문구는 목록 머리(WorkflowRuns)로 옮겼다. */}
+        <WorkflowRuns workflowId={id} projectKey={project.key} activeVersionNo={activeVersionNo} canManage={canManage} canRecover={project.viewerIsMember} meId={user?.id ?? 0}
+          runningCount={running} runningFailed={running === null && versions.isError} onRetryRunning={() => void versions.refetch()} />
       </TabsContent>
       <TabsContent value="versions">
         <WorkflowVersions

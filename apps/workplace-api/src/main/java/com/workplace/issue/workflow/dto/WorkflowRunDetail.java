@@ -27,6 +27,7 @@ public record WorkflowRunDetail(
       long workflowId,
       int versionNo,
       long issueId,
+      int issueNumber,
       String issueKey,
       String title,
       String status,
