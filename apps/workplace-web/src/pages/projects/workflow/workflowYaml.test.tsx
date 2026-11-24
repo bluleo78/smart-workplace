@@ -71,6 +71,7 @@ it.each(['검증 응답', '저장된 초안'])('그래프에서 %s의 오류를 
 
   expect(await screen.findByText('YAML에 오류가 있어 게시할 수 없습니다.')).toBeVisible()
   expect(screen.getByRole('button', { name: '게시' })).toBeDisabled()
+  // 단추는 그래프 아래 경고 줄에만 있다(상태 줄은 안내 문장만) — 하나여야 한다.
   screen.getByRole('button', { name: 'YAML 오류 확인' }).focus()
   await userEvent.keyboard('{Enter}')
   expect(await screen.findByRole('textbox', { name: '워크플로우 YAML' })).toHaveFocus()
@@ -141,7 +142,8 @@ it('검증 중 그래프로 바꿔도 실패를 확인하고 다시 검증한 �
   fireEvent.click(publish)
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '게시' }))
   expect(await screen.findByText('게시 버전 3')).toBeVisible()
-  expect(await screen.findByText('게시한 단계')).toBeVisible()
+  // 관리자의 그래프는 게시본이 아니라 초안 편집기다(WP-1995) — 게시 뒤에도 편집기가 그대로 보인다.
+  expect(screen.getByRole('button', { name: '+ 노드' })).toBeVisible()
   expect(savedBody).toEqual({ yaml: updatedYaml, expectedDraftUpdatedAt: draftTime })
   expect(publishedBody).toEqual({ expectedDraftUpdatedAt: nextDraftTime })
 })
