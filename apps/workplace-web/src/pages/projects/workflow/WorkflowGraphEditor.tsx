@@ -149,7 +149,8 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   }
 
   return (
-    <div className="flex min-w-0 flex-col rounded-md border">
+    // @container — 아래 행·패널의 @3xl 판정 기준은 여기(뷰포트가 아니라 편집기 폭)다. YAML 모드와 같은 규약.
+    <div className="@container flex min-w-0 flex-col rounded-md border">
       {/* 저장·게시 중(readOnly)에도 도구 줄은 자리를 지키고 꺼진 채 보인다 — 사라졌다 나타나며 화면이 흔들리지 않게 */}
       <div className="flex items-center gap-2 border-b p-2">
         <DropdownMenu>
@@ -171,8 +172,13 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
         </DropdownMenu>
         <Button type="button" variant="outline" size="sm" disabled={readOnly} onClick={() => onChange(autoLayout(yaml))}>자동 정렬</Button>
       </div>
-      <div className="flex min-h-96">
-        <div className="relative h-[28rem] min-w-0 flex-1">
+      {/* 좁으면 세로로 쌓아 캔버스 폭을 지키고, @3xl 이상에서만 YAML 모드와 같은 옆으로 배치 */}
+      <div className="flex min-h-96 flex-col @3xl:flex-row">
+        {/* 캔버스 높이는 늘 28rem 으로 확정해 둔다 — ReactFlow 가 쓰는 `.react-flow` 는 `height: 100%` 이라
+            부모 높이가 확정(definite)이 아니면 0 으로 풀려 캔버스가 통째로 사라진다.
+            세로 쌓기(main 축 = 높이)에서 `flex-1`(flex-basis 0%) 을 쓰면 부모 높이가 내용 기준이 되어 그렇게 되므로,
+            가로 배치일 때만(폭이 main 축) flex-1 을 건다. min-h 는 눌리지 않게 하는 안전판. */}
+        <div className="relative h-[28rem] min-h-[28rem] min-w-0 @3xl:flex-1" data-testid="workflow-graph-canvas">
           <ReactFlow
             nodes={nodes}
             onNodesChange={onNodesChange}
