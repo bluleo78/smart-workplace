@@ -44,7 +44,8 @@ function setup(responses: (object[] | number)[]) {
       }),
     ],
   })
-  return { ...r, moves }
+  // 내 차례 조회가 몇 번 갔는지 — 주기 조회가 실제로 돌았는지 단언한다(WP-2042 리뷰 후속).
+  return { ...r, moves, turnCalls: () => n }
 }
 
 describe('내 차례 탭', () => {
@@ -100,9 +101,12 @@ describe('내 차례 탭', () => {
 
     // 백그라운드 주기 조회가 한 번 실패해도 이미 받은 목록은 그대로 둔다 — v5 는 옛 data 를 두고 status 만 error 로 바꾼다.
     it('myTurns_backgroundRefetchFails_keepsList', async () => {
-      setup([[turn(1)], 500])
+      const { turnCalls } = setup([[turn(1)], 500])
       await screen.findByTestId('my-turn-row-1')
+      expect(turnCalls()).toBe(1)
       await vi.advanceTimersByTimeAsync(MY_WORKFLOW_TURNS_REFETCH_MS)
+      // 주기 조회(두 번째 요청 — 500)가 실제로 간 뒤에 목록 유지를 본다. 안 가면 여기서 실패한다.
+      await waitFor(() => expect(turnCalls()).toBeGreaterThanOrEqual(2))
       await vi.advanceTimersByTimeAsync(1000)
       expect(screen.getByTestId('my-turn-row-1')).toBeVisible()
       expect(screen.queryByText('내 차례를 불러오지 못했습니다')).not.toBeInTheDocument()
