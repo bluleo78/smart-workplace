@@ -289,6 +289,8 @@ it('publishDialog_mentionsRunningRuns', async () => {
   let publishedBody: unknown
   let published = false
   server.use(
+    // 초안이 게시본과 같으면 게시가 꺼지므로(WP-2043) 게시본 원문을 초안과 다르게 준다.
+    http.get('/api/v1/workflows/42/versions/2', () => HttpResponse.json({ versionNo: 2, sourceYaml: 'name: 게시본과 다른 원문', model: { nodes: [] } })),
     http.get('/api/v1/workflows/42', () => HttpResponse.json({
       ...workflowDetail, activeVersion: { ...workflowDetail.activeVersion, no: published ? 3 : 2 },
     })),
@@ -298,7 +300,10 @@ it('publishDialog_mentionsRunningRuns', async () => {
       return HttpResponse.json({ versionNo: 3, runningRunsOnOlderVersions: 4 })
     }),
   )
-  fireEvent.click(await screen.findByRole('button', { name: '게시' }))
+  // 게시본 원문을 불러와 변경이 있다고 확인되면 게시가 열린다.
+  const openPublish = await screen.findByRole('button', { name: '게시' })
+  await waitFor(() => expect(openPublish).toBeEnabled())
+  fireEvent.click(openPublish)
   const dialog = screen.getByRole('dialog')
   expect(await within(dialog).findByText('진행 중 실행 4은 시작한 버전으로 계속')).toBeVisible()
   fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
@@ -371,13 +376,18 @@ it('publish_confirmationUsesOpenedDraftTimestamp', async () => {
   let latest = workflowDetail
   let publishBody: unknown
   server.use(
+    // 초안이 게시본과 같으면 게시가 꺼지므로(WP-2043) 게시본 원문을 초안과 다르게 준다.
+    http.get('/api/v1/workflows/42/versions/2', () => HttpResponse.json({ versionNo: 2, sourceYaml: 'name: 게시본과 다른 원문', model: { nodes: [] } })),
     http.get('/api/v1/workflows/42', () => HttpResponse.json(latest)),
     http.post('/api/v1/workflows/42/publish', async ({ request }) => {
       publishBody = await request.json()
       return HttpResponse.json({ errors: { code: 'WORKFLOW_DRAFT_CONFLICT' } }, { status: 409 })
     }),
   )
-  fireEvent.click(await screen.findByRole('button', { name: '게시' }))
+  // 게시본 원문을 불러와 변경이 있다고 확인되면 게시가 열린다.
+  const openPublish = await screen.findByRole('button', { name: '게시' })
+  await waitFor(() => expect(openPublish).toBeEnabled())
+  fireEvent.click(openPublish)
   const dialog = screen.getByRole('dialog')
   expect(await within(dialog).findByText('진행 중 실행 4은 시작한 버전으로 계속')).toBeVisible()
   latest = { ...workflowDetail, draftYaml: 'name: 다른 곳에서 수정', draftUpdatedAt: nextDraftTime, enabled: true }
@@ -391,14 +401,21 @@ it('publish_confirmationUsesOpenedDraftTimestamp', async () => {
 it('publishDialog_disablesUntilRunCountLoaded_andRetriesFailure', async () => {
   renderWorkflow()
   let attempts = 0
-  server.use(http.get('/api/v1/workflows/42/versions', async () => {
-    if (++attempts === 1) {
-      await delay(250)
-      return new HttpResponse(null, { status: 503 })
-    }
-    return HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 7 }])
-  }))
-  fireEvent.click(await screen.findByRole('button', { name: '게시' }))
+  server.use(
+    // 초안이 게시본과 같으면 게시가 꺼지므로(WP-2043) 게시본 원문을 초안과 다르게 준다.
+    http.get('/api/v1/workflows/42/versions/2', () => HttpResponse.json({ versionNo: 2, sourceYaml: 'name: 게시본과 다른 원문', model: { nodes: [] } })),
+    http.get('/api/v1/workflows/42/versions', async () => {
+      if (++attempts === 1) {
+        await delay(250)
+        return new HttpResponse(null, { status: 503 })
+      }
+      return HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 7 }])
+    }),
+  )
+  // 게시본 원문을 불러와 변경이 있다고 확인되면 게시가 열린다.
+  const openPublish = await screen.findByRole('button', { name: '게시' })
+  await waitFor(() => expect(openPublish).toBeEnabled())
+  fireEvent.click(openPublish)
   const dialog = within(screen.getByRole('dialog'))
   const confirm = dialog.getByRole('button', { name: '게시' })
   expect(confirm).toBeDisabled()
@@ -442,6 +459,50 @@ it('unpostedChangeCount_survivesDraftSave_andResetsAfterPublish', async () => {
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '게시' }))
   expect(await screen.findByText('게시 버전 3')).toBeVisible()
   expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
+  expect(screen.getByRole('button', { name: '게시' })).toBeDisabled()
+})
+
+it('publish_disabledWhenNoUnpostedChanges_withReason', async () => {
+  renderWorkflow()
+  const changed = 'name: 변경 있음'
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  const original = (yaml as HTMLTextAreaElement).value
+  expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
+  const publish = screen.getByRole('button', { name: '게시' })
+  expect(publish).toBeDisabled()
+  expect(publish).toHaveAccessibleDescription('바꾼 내용이 없어 게시할 것이 없습니다.')
+  expect(publish).not.toHaveAttribute('title')
+  // 꺼진 단추는 툴팁이 안 뜨므로 이유가 눈에 보이는 글자로 있어야 한다.
+  expect(await screen.findByText('바꾼 내용이 없어 게시할 것이 없습니다.')).toBeVisible()
+
+  fireEvent.change(yaml, { target: { value: changed } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
+  expect(screen.getByRole('button', { name: '게시' })).not.toHaveAttribute('title')
+  expect(screen.getByRole('button', { name: '게시' })).toHaveAccessibleDescription('')
+  expect(screen.queryByText('바꾼 내용이 없어 게시할 것이 없습니다.')).not.toBeInTheDocument()
+
+  fireEvent.change(yaml, { target: { value: original } })
+  expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
+  expect(screen.getByRole('button', { name: '게시' })).toBeDisabled()
+})
+
+it('publish_enabledForFirstPublish_whenNoActiveVersion', async () => {
+  renderWorkflow({ multiple: true, search: '?workflow=43' })
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
+  expect(screen.getByRole('button', { name: '게시' })).not.toHaveAttribute('title')
+})
+
+it('publish_notBlockedWhenPublishedSourceFails', async () => {
+  renderWorkflow()
+  server.use(
+    http.get('/api/v1/workflows/42/versions/2', () => new HttpResponse(null, { status: 500 })),
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+  )
+  expect(await screen.findByText('게시 안 한 변경 수를 불러오지 못했습니다.')).toBeVisible()
+  await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
 })
 
 it('tab_viewParamOpensRunsPanel', async () => {
@@ -558,4 +619,33 @@ it('workflowTab_viewerSeesReadOnlyGraph', async () => {
   fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
   expect(await screen.findByText('살펴보기')).toBeVisible()
   expect(screen.queryByRole('button', { name: '+ 노드' })).not.toBeInTheDocument()
+})
+
+it('publish_disabledWhileCheckingChangeCount_withoutReason', async () => {
+  renderWorkflow()
+  // 게시본 원문 요청이 끝나지 않는 동안에는 변경 수를 모르므로 게시를 막되 사유 글자는 띄우지 않는다.
+  server.use(
+    http.get('/api/v1/workflows/42/versions/2', async () => {
+      await new Promise<void>(() => {})
+      return HttpResponse.json({})
+    }),
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+  )
+  await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  expect(await screen.findByText('게시 안 한 변경 수 확인 중')).toBeVisible()
+  const publish = screen.getByRole('button', { name: '게시' })
+  expect(publish).toBeDisabled()
+  expect(publish).not.toHaveAttribute('aria-describedby')
+  expect(screen.queryByText('바꾼 내용이 없어 게시할 것이 없습니다.')).not.toBeInTheDocument()
+})
+
+it('publish_noReasonForFirstPublish_withEmptyDraft', async () => {
+  renderWorkflow({ multiple: true, search: '?workflow=43' })
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  fireEvent.change(yaml, { target: { value: '' } })
+  await waitFor(() => expect((yaml as HTMLTextAreaElement).value).toBe(''))
+  // 첫 게시는 비교할 게시본이 없어 빈 초안이어도 「변경 없음」 안내를 띄우지 않는다(검증 때문에 꺼질 수는 있다).
+  expect(screen.queryByText('바꾼 내용이 없어 게시할 것이 없습니다.')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '게시' })).not.toHaveAttribute('aria-describedby')
 })
