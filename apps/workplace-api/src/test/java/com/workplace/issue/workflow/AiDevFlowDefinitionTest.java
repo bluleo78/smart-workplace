@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,10 @@ class AiDevFlowDefinitionTest {
           Map.entry("live_verify", List.of("LIVE_STACK_NAME=work-loop", "반영 근거", "검증한 HEAD SHA")),
           Map.entry("open_pr", List.of("procedure-check", "--no-verify", "개발: ", "절차:")),
           Map.entry("followup_fix", List.of("[리뷰 후속]", "[풀테스트 실패]", "cherry-pick -m 1")),
-          Map.entry("report", List.of("사용 가이드", "확인 위치")),
+          Map.entry(
+              "report",
+              // 되돌린 글은 이 PR 의 mergeCommit 으로만 센다(PR #1742 반려 2)
+              List.of("사용 가이드", "확인 위치", "`mergeCommit` 의 앞부분")),
           Map.entry(
               "review",
               List.of(
@@ -73,27 +77,37 @@ class AiDevFlowDefinitionTest {
                   "풀테스트",
                   "green",
                   "--admin",
-                  "check-migration-versions")),
+                  "check-migration-versions",
+                  // 호스트에서 머지된 PR 이 review 에 남지 않게(리뷰 후속 #1740-2)
+                  "결과 `merged` 로 이동",
+                  // 풀테스트 실패 되돌림이 followup_fix 로 들어가는 길(리뷰 후속 #1740-3)
+                  "결과 `followup` 으로 이동",
+                  // 머지 멈춤 중 사람이 머지한 PR 의 판정·prUrl 출처(PR #1742 반려 3·5)
+                  "`머지 대기:` 줄이 있으면",
+                  "앞 이동들이 낸 `prUrl`")),
           Map.entry("triage", List.of("[분류]", "사람에게 질문", "바로 개발")),
           Map.entry("plan", List.of("비교 조사", "의견 수렴", "기획안")),
           Map.entry("plan_review", List.of("팀장 검토")),
           Map.entry("plan_ok", List.of("확정")),
           Map.entry("handoff", List.of("하위 이슈", "동시 진행: 형제와 따로 가져가도 된다")));
 
-  /** 모든 agent_task 가 use 해야 하는 공통 shared 이름. */
-  private static final List<String> COMMON_SHARED =
-      List.of(
-          "priorities", "report_style", "shell_rules", "repo_facts", "blocked", "workflow_rules");
+  /**
+   * 공통 shared 글마다 있어야 하는 문구. 노드마다가 아니라 그 shared 글에서 한 번 본다 — 문구가 다른 shared 로 옮겨 가거나 짝을 이루는 두
+   * 글(report_style·workflow_rules 의 SCHEDULED)이 어긋나면 잡히게 shared 이름별로 나눈다.
+   */
+  private static final Map<String, List<String>> COMMON_MARKERS =
+      Map.of(
+          "priorities", List.of("gw-repo", "실행에 조치해야 이 노드가 다시 열린다"),
+          // 차단·인증 필요는 WORKING 보고로 풀리지 않는다 — 리뷰 후속 #1740-1
+          "report_style", List.of("note 쓰는 법", "사람이 실행에 조치해야만 풀린다", "'SCHEDULED'"),
+          "shell_rules", List.of("Dangerous rm"),
+          "repo_facts", List.of(".work-loop/project.md"),
+          "blocked", List.of("같은 단계가 3번 되풀이돼도", "실행에 조치해야 이 노드가 다시 열린다"),
+          // report_style 이 시키는 SCHEDULED 를 허용 목록에도 둔다 — 리뷰 후속 #1740-4
+          "workflow_rules", List.of("WORKFLOW_USE_MOVE", "다음 회차 대기(SCHEDULED"));
 
-  /** 공통 shared 글에 있어야 하는 문구(shared 이름 순서와 같다). 노드마다가 아니라 shared 글에서 한 번 본다. */
-  private static final List<String> COMMON_MARKERS =
-      List.of(
-          "gw-repo", // priorities
-          "note 쓰는 법", // report_style
-          "Dangerous rm", // shell_rules
-          ".work-loop/project.md", // repo_facts
-          "같은 단계가 3번 되풀이돼도", // blocked
-          "WORKFLOW_USE_MOVE"); // workflow_rules
+  /** 모든 agent_task 가 use 해야 하는 공통 shared 이름 — 위 문구 표의 이름이 곧 그 목록이다(두 곳에 적지 않게). */
+  private static final List<String> COMMON_SHARED = List.copyOf(COMMON_MARKERS.keySet());
 
   /** 개발·리뷰 노드(long_jobs·subagent_wait 를 쓰는 노드). */
   private static final List<String> DEV_NODES =
@@ -268,8 +282,20 @@ class AiDevFlowDefinitionTest {
   @DisplayName("공통 문구는 shared 글에 있고, 모든 agent_task 는 그 shared 를 use 한다")
   void commonSharedUsedByEveryAgentTask() {
     // 펼친 지시에 shared 글이 들어가는 것은 파서가 보장하므로 글은 한 번, 노드는 use 만 본다
-    String commonText = String.join("\n", COMMON_SHARED.stream().map(model.shared()::get).toList());
-    assertContainsAll("공통 shared", commonText, COMMON_MARKERS);
+    COMMON_MARKERS.forEach(
+        (name, markers) -> assertContainsAll("shared " + name, model.shared().get(name), markers));
+    // 목록 항목이 앞 문장에 붙지 않았다(줄바꿈이 빠진 편집을 잡는다 — PR #1742 반려 1). shared 와 노드 지시 모두 본다
+    Stream.concat(
+            model.shared().entrySet().stream()
+                .map(e -> Map.entry("shared " + e.getKey(), e.getValue())),
+            model.nodes().values().stream()
+                .filter(n -> n.instructions() != null)
+                .map(n -> Map.entry("node " + n.key(), n.instructions())))
+        .forEach(
+            e ->
+                assertThat(e.getValue())
+                    .as("%s 의 목록 줄바꿈", e.getKey())
+                    .doesNotContainPattern("\\S {2,}- \\S"));
     for (WorkflowModel.Node n : agentTasks()) {
       assertThat(n.use()).as("%s 의 use", n.key()).containsAll(COMMON_SHARED);
     }
@@ -312,6 +338,20 @@ class AiDevFlowDefinitionTest {
           .as("review.%s", outcome)
           .isEqualTo("developer");
     }
+  }
+
+  /**
+   * 머지 없이 닫힌 PR 을 owner 가 「그만」으로 답하면 review 에서 끝낼 길이 있다. 왜: 없으면 ask → answered 로 review 에 돌아와 같은 닫힌
+   * PR 을 다시 묻는 고리가 된다(리뷰 후속 #1740 의 code-review). 지시 문구가 아니라 그래프의 결과로 단언한다.
+   */
+  @Test
+  @DisplayName("review 는 닫힌 PR 을 끝낼 결과 drop(의견 필수)을 가진다")
+  void reviewHasDropOutcome() {
+    WorkflowModel.Outcome drop = node("review").outcomes().get("drop");
+
+    assertThat(drop).as("review.drop").isNotNull();
+    assertThat(drop.to()).isEqualTo("done");
+    assertThat(drop.requireComment()).isTrue();
   }
 
   @Test
