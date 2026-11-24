@@ -1420,6 +1420,10 @@ export function buildTools(
       sharedTool('update_comment'),
       sharedTool('create_issue'),
       sharedTool('update_issue'),
+      // WP-2033: 이슈 워크플로우 — issue-agent 전용, 카드 없이 직접 실행(이동은 분명한 요청 때만 — agent.md).
+      sharedTool('get_issue_workflow'),
+      sharedTool('start_issue_workflow'),
+      sharedTool('move_issue_workflow'),
       unassignSelfTool,
       sharedTool('link_issues'),
       sharedTool('add_issue_relation'),      // WP-887: 관련·중복·복제·원인 등 관계·외부 링크(차단 제외)
@@ -1443,6 +1447,8 @@ export function buildTools(
       sharedTool('search_members'), sharedTool('get_member'), sharedTool('get_member_contact'), // #833: 구성원(설정>구성원) 조회 — 연락처와 분리된 도메인
       proposeSetMemberRoleTool, proposeSetMemberActiveTool, // #833: 구성원 쓰기 제안(확인 카드 경유)
       sharedTool('list_projects'), sharedTool('get_project'), // 멤버는 get_project.members 로 함께 온다(list_project_members 폐지, WP-343)
+      // WP-2033: 워크플로우 정의 — project-agent 전용(게시는 분명한 요청 때만 — agent.md).
+      sharedTool('get_workflow'), sharedTool('validate_workflow'), sharedTool('update_workflow'),
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
       sharedTool('list_drive_spaces'), sharedTool('list_drive_items'), sharedTool('search_drive'), // #333 M3: 드라이브 읽기
       sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
