@@ -1,4 +1,4 @@
-// 태스크 리스트 뷰 — cursor 기반 무한 스크롤.
+// 이슈 리스트 뷰 — cursor 기반 무한 스크롤.
 // sentinel 이 뷰포트에 들어오면 다음 페이지를 자동 fetch.
 // 행은 아이콘 중심(상태/우선순위/유형) + 담당자 + 행 전체 클릭으로 상세 이동(#234).
 // #606: Drive DrivePage.tsx 의 체크박스+벌크 툴바 패턴을 재사용한 다중 선택/일괄 작업
@@ -66,7 +66,7 @@ export function IssueListView({
   groupBy: IssueClientGroupBy | null;
   /** 보일 선택 열 키(표시 순서, WP-270) — 미지정이면 기본 열(우선순위·담당자·마감). 참조가 바뀌면 행이 다시 그려지니 안정된 배열을 넘긴다. */
   columns?: IssueListColumnKey[];
-  /** 초기 빈 상태 CTA — "새 태스크 만들기" 버튼에 연결 */
+  /** 초기 빈 상태 CTA — "새 이슈 만들기" 버튼에 연결 */
   onOpenCreate?: () => void;
   /** WP-54: 로드된 건수·추가 로드 가능 여부를 상위(IssueArea)로 알린다 — AI 화면 컨텍스트 건수용. */
   onLoadedChange?: (count: number, hasMore: boolean) => void;
@@ -205,7 +205,7 @@ export function IssueListView({
 
   // 첫 로딩 — 「로딩 중…」 글자 대신 스켈레톤(DS 06 §A-2). 데스크톱은 표 자리, 모바일은 2줄 행 모양.
   // 이전 조건의 결과가 0건이면 자리채움으로 둘 목록이 없다(WP-1049) — 빈 상태(「이슈가 없습니다」·필터 빈 상태)를 새 조건에 붙여
-  // 흐림 없이 보이면 결과가 있는 조건에서도 틀린 안내와 「새 태스크 만들기」가 눌린다. 첫 로딩과 같게 스켈레톤을 보인다.
+  // 흐림 없이 보이면 결과가 있는 조건에서도 틀린 안내와 「새 이슈 만들기」가 눌린다. 첫 로딩과 같게 스켈레톤을 보인다.
   if (isLoading || (refreshing && items.length === 0)) {
     return <ListLoadingSkeleton label="이슈 불러오는 중" />;
   }
@@ -231,7 +231,7 @@ export function IssueListView({
         <div className="space-y-1">
           <p className="text-sm font-medium">이슈가 없습니다</p>
           <p className="text-xs text-muted-foreground">
-            새 태스크를 만들어 프로젝트를 시작하세요.
+            새 이슈를 만들어 프로젝트를 시작하세요.
           </p>
           {/* 기본 범위가 종료 이슈를 숨겨 비었을 수 있다 — 숨겼다고 알리고 「완료 모두 보기」를 준다(WP-606). */}
           {closedHiding && <p className="text-xs text-muted-foreground">{CLOSED_HIDDEN_NOTE}</p>}
@@ -245,7 +245,7 @@ export function IssueListView({
         )}
         {onOpenCreate && (
           <Button size="sm" onClick={() => onOpenCreate()} data-testid="empty-create-issue">
-            새 태스크 만들기
+            새 이슈 만들기
           </Button>
         )}
       </div>

@@ -42,8 +42,8 @@ import { useIssueListColumns } from './hooks/useIssueListColumns';
 import { useRememberedIssueQuery } from './hooks/useRememberedIssueQuery';
 import { useProjectTabs } from './tabs/ProjectTabsContext';
 
-// 팀·공개 프로젝트 이슈 탭 — 태스크 필터/뷰 영역. URL: /projects/:key (ProjectTabsLayout 의 index 자식, WP-1477)
-// view / 필터는 URL SearchParams 가 단일 source of truth. 로딩·오류·머리줄·탭 줄·새 태스크 대화상자는 레이아웃이 맡는다.
+// 팀·공개 프로젝트 이슈 탭 — 이슈 필터/뷰 영역. URL: /projects/:key (ProjectTabsLayout 의 index 자식, WP-1477)
+// view / 필터는 URL SearchParams 가 단일 source of truth. 로딩·오류·머리줄·탭 줄·새 이슈 대화상자는 레이아웃이 맡는다.
 // 개인 프로젝트는 레이아웃이 이 화면 대신 개인 전용 화면(PersonalProjectDetail)을 바로 그린다 — 여기는 팀 전용.
 export default function ProjectDetailPage() {
   const { key = '' } = useParams();
@@ -59,7 +59,7 @@ export default function ProjectDetailPage() {
   return <TeamIssuesTab projectKey={key} project={project} />;
 }
 
-/** 팀·공개 프로젝트 이슈 탭 본문 — 새 태스크 열기는 레이아웃 컨텍스트에서 받는다. */
+/** 팀·공개 프로젝트 이슈 탭 본문 — 새 이슈 열기는 레이아웃 컨텍스트에서 받는다. */
 function TeamIssuesTab({ projectKey, project }: { projectKey: string; project: ProjectResponse }) {
   const { openCreate } = useProjectTabs();
   const isMobile = useIsMobile();
@@ -261,7 +261,7 @@ function ProjectIssuesSection({
   }
 
   return (
-    <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
+    <section aria-label="이슈" className="flex min-h-0 flex-1 items-stretch gap-4">
       {/* 모바일엔 패널 토글이 없으므로 저장된 열림 상태(데스크톱용)를 무시한다 — 닫을 수 없는 패널이 목록을 좁히지 않게. */}
       {/* 폭은 경계선 끌기로 조절·기억(WP-1343) — 앱 목록과 같은 ResizableSidebar, 키만 따로(epic-panel). */}
       {epicPanelOpen && !isMobile && (

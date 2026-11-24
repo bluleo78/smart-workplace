@@ -30,9 +30,9 @@ function openBoard(viewerIsMember: boolean, issues: ReturnType<typeof createIssu
 }
 
 describe('보드 — OPEN 비멤버·멤버', () => {
-  test('OPEN 비멤버도 「+ 새 태스크」가 보인다 (테넌트 전원 생성 가능)', async () => {
+  test('OPEN 비멤버도 「+ 새 이슈」가 보인다 (테넌트 전원 생성 가능)', async () => {
     openBoard(false)
-    expect(await screen.findByRole('button', { name: '+ 새 태스크' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '+ 새 이슈' })).toBeInTheDocument()
   })
 
   // WP-713 — 드래그가 막힌 카드에 dnd-kit 의 aria-disabled 가 붙어 카드와 「상세 보기」 링크까지 「사용 불가」로 읽혔다.
@@ -72,7 +72,7 @@ describe('보드 — OPEN 비멤버·멤버', () => {
   test('OPEN 비멤버: 저장된 뷰를 요청하지 않고 「뷰 저장」도 없다', async () => {
     const { requests } = openBoard(false)
     expect(await screen.findByTestId('view-chip-bar')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '+ 새 태스크' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '+ 새 이슈' })).toBeInTheDocument()
     expect(screen.queryByTestId('save-view-button')).not.toBeInTheDocument()
     expect(requests.count('GET', `/api/v1/projects/${KEY}/saved-views`)).toBe(0)
   })
@@ -92,7 +92,7 @@ describe('보드 — OPEN 비멤버·멤버', () => {
         return HttpResponse.json(createIssue({ projectKey: KEY, number: 2, title: '접수 건의' }), { status: 201 })
       }),
     ])
-    await user.click(await screen.findByRole('button', { name: '+ 새 태스크' }))
+    await user.click(await screen.findByRole('button', { name: '+ 새 이슈' }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByTestId('create-intake-notice')).toHaveTextContent('우선순위·일정은 처리팀이 정합니다')
     expect(within(dialog).queryByLabelText('우선순위')).not.toBeInTheDocument()

@@ -20,7 +20,7 @@ import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
 
 const KEY = 'WP'
 
-/** 새 이슈 다이얼로그(IssueCreateDialog)만 연 채로 띄운다 — 프로젝트 화면 「+ 새 태스크」가 여는 것과 같은 props. */
+/** 새 이슈 다이얼로그(IssueCreateDialog)만 연 채로 띄운다 — 프로젝트 화면 「+ 새 이슈」가 여는 것과 같은 props. */
 function renderCreateDialog(handlers: RequestHandler[]) {
   return renderScreen(<IssueCreateDialog projectKey={KEY} open onOpenChange={() => {}} />, { path: `/projects/${KEY}`, handlers })
 }

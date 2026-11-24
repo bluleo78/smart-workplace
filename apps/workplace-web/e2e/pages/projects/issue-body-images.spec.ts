@@ -118,7 +118,7 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
 
     await page.goto(`/projects/${KEY}`)
     // 기존 issue-create-validation.spec.ts 의 다이얼로그 여는 방식과 동일하게 연다.
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await page.getByRole('button', { name: '+ 새 이슈' }).click()
     const dialog = page.getByRole('dialog', { name: '새 이슈' })
     await dialog.getByLabel('제목').fill('로그인 버튼 깨짐')
     // 본문 칸은 본문 모드 편집칸(WP-1657) — 붙여넣은 이미지는 칸 안에 자리표시 → 그림으로 보인다.
@@ -146,7 +146,7 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     })
 
     await page.goto(`/projects/${KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await page.getByRole('button', { name: '+ 새 이슈' }).click()
     const dialog = page.getByRole('dialog', { name: '새 이슈' })
     await dialog.getByLabel('제목').fill('여러 줄 본문')
     await page.getByTestId('issue-body').evaluate((el) => {
@@ -165,7 +165,7 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     const uploads = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issue-images`)
     await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500 }))
     await page.goto(`/projects/${KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await page.getByRole('button', { name: '+ 새 이슈' }).click()
     const editor = page.getByTestId('issue-body')
     await editor.evaluate((el) => {
       const dt = new DataTransfer()

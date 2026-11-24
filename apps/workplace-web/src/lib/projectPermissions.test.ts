@@ -1,4 +1,4 @@
-// 이슈 생성 권한 — 보드·목록의 「+ 새 태스크」 노출 게이트(WP-413: OPEN 보드 E2E 의 분기 검증을 대체).
+// 이슈 생성 권한 — 보드·목록의 「+ 새 이슈」 노출 게이트(WP-413: OPEN 보드 E2E 의 분기 검증을 대체).
 import { describe, expect, it } from 'vitest'
 
 import {

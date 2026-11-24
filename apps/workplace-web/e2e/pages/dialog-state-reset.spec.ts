@@ -43,7 +43,7 @@ test('Dialog 닫기 버튼 클릭 영역이 24x24px 이상이다 (#706)', { tag:
   await stubProjectPage(page)
   await page.goto(`/projects/${PROJECT_KEY}`)
 
-  await page.getByRole('button', { name: '+ 새 태스크' }).click()
+  await page.getByRole('button', { name: '+ 새 이슈' }).click()
   const dialog = page.getByRole('dialog', { name: '새 이슈' })
   await expect(dialog).toBeVisible()
 
@@ -58,7 +58,7 @@ test('Dialog 닫기 버튼 클릭 영역이 24x24px 이상이다 (#706)', { tag:
 test('이슈 초안을 닫는 모든 경로에서 계속 작성하거나 버릴 수 있다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubProjectPage(page)
   await page.goto(`/projects/${PROJECT_KEY}`)
-  const openButton = page.getByRole('button', { name: '+ 새 태스크' })
+  const openButton = page.getByRole('button', { name: '+ 새 이슈' })
   const dialog = page.getByRole('dialog', { name: '새 이슈' })
   const confirmation = page.getByRole('alertdialog', { name: '작성 중인 내용을 버릴까요?' })
   await openButton.click()

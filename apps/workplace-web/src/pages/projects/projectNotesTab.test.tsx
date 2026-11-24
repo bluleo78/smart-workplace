@@ -134,7 +134,7 @@ describe('프로젝트 노트 탭', () => {
       }),
     ])
     expect(await screen.findByText('로딩 중…')).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: '태스크' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '이슈' })).not.toBeInTheDocument()
     // 기다리는 동안 기억을 이슈로 덮어쓰지 않는다.
     expect(storedTab()).toBe('notes')
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}/notes/21`), { timeout: PAGE_LOAD_TIMEOUT })

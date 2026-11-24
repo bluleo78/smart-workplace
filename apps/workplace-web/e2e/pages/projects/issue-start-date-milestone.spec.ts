@@ -39,7 +39,7 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
     await stubProject(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${PROJECT_KEY}`);
-    await page.getByRole('button', { name: '+ 새 태스크' }).click();
+    await page.getByRole('button', { name: '+ 새 이슈' }).click();
     await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
 
     for (const id of ['#issue-start', '#issue-due']) {

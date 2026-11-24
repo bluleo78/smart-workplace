@@ -1,4 +1,4 @@
-// 태스크 보드 + 검색 + 필터 + 무한 스크롤 E2E.
+// 이슈 보드 + 검색 + 필터 + 무한 스크롤 E2E.
 // 백엔드 없이 `page.route()` 로 모킹 — 컨트랙트는 IssueResponse / IssueSearchResponse / IssueDetailResponse.
 // 브라우저가 있어야 판정되는 것만 남긴다 — 드래그·호버·키보드 놓기 포커스(@input), 폭·스크롤·무한 스크롤·겹친 링크 클릭(@layout),
 // 보드 대표 진입(@wiring, 종료 이슈 숨김 토글). 검색·상태 필터 쿼리·URL, 필터 칩 접근성 이름, 뷰 전환 URL, 마감 지남·AI 담당자 표시,
@@ -70,7 +70,7 @@ async function dragCardTo(
   await dropDnd(page);
 }
 
-test.describe('태스크 보드/검색', () => {
+test.describe('이슈 보드/검색', () => {
   test(
     '보드 진입 → DnD 로 TODO → IN_PROGRESS 카드 이동 + PATCH status 호출',
     { tag: ['@input', '@smoke'] },
@@ -285,7 +285,7 @@ test.describe('태스크 보드/검색', () => {
     await dragCardTo(page, 'issue-card-1', 'board-col-3');
 
     // 실패 토스트 + 카드가 TODO 컬럼으로 롤백
-    await expect(page.getByText(/태스크 상태 변경에 실패/)).toBeVisible();
+    await expect(page.getByText(/이슈 상태 변경에 실패/)).toBeVisible();
     await expect(
       page.getByTestId('board-col-1').getByTestId('issue-card-1'),
     ).toBeVisible();

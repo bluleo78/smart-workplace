@@ -315,7 +315,7 @@ export function useIssueCreateForm({
       const created = await create.mutateAsync(payload);
       // 맡기기가 켜져 있으면 일정 저장(·지금 실행)까지 하고 그 결과를 토스트로 알린다. 일정 저장이 실패해도 작업은 이미 있어 창을 닫는다.
       const handled = !intakeOnly && (await ai.afterCreate(created.number, mode));
-      if (!handled) toast.success('태스크를 생성했습니다');
+      if (!handled) toast.success('이슈를 생성했습니다');
       reset({ priority: 'MID' });
       onOpenChange(false);
     } catch (e) {
@@ -324,7 +324,7 @@ export function useIssueCreateForm({
       if (isStatusGoneError(e)) {
         toast.error(`상태가 방금 삭제됐어요. 다시 만들면 '${defaultStatusOf(statuses, 'TODO')?.name ?? '할 일'}'로 만들어져요.`);
       } else {
-        handleApiError(e, '태스크 생성에 실패했습니다');
+        handleApiError(e, '이슈 생성에 실패했습니다');
       }
     } finally {
       inFlight.current = false;

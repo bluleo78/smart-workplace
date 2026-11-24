@@ -85,7 +85,7 @@ export const shellHandlers = [
   holdEventStream,
   ...helpMetricBaseHandlers,
   http.get(`${API}/projects/:key/statuses`, () => HttpResponse.json(seedStatuses())),
-  // 태스크 탭 결과 건수 안내(WP-1777) — 필터·검색이 바뀌면 총계(group-counts)를 한 번 더 부른다. 빈 합계로 깔아 필터를 바꾸는 기존 테스트가 모킹 누락으로 깨지지 않게 한다.
+  // 이슈 탭 결과 건수 안내(WP-1777) — 필터·검색이 바뀌면 총계(group-counts)를 한 번 더 부른다. 빈 합계로 깔아 필터를 바꾸는 기존 테스트가 모킹 누락으로 깨지지 않게 한다.
   http.get(`${API}/projects/:key/issues/group-counts`, ({ request }) =>
     HttpResponse.json({ groupBy: new URL(request.url).searchParams.get('groupBy') ?? 'priority', groups: [] }),
   ),

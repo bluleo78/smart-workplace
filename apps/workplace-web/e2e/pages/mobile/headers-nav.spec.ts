@@ -80,7 +80,7 @@ test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', { tag: '@input' }
   await dismissByOutsideClick(page, menu, { x: 200, y: 500 })
 })
 
-test('프로젝트 상세: ＋ 새 태스크·설정은 인라인, 사이클·타임라인은 탭 줄(WP-1477)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('프로젝트 상세: ＋ 새 이슈·설정은 인라인, 사이클·타임라인은 탭 줄(WP-1477)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.goto(`/projects/${KEY}`)
   await expectSingleMergedHeader(page, 'page-header')

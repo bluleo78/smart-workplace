@@ -22,5 +22,5 @@ export function countCascadedChildren(issues: Array<IssueResponse | undefined>):
 /** 일괄 삭제 확인 문구 — 함께 지워질 하위가 있으면 그 수를 알린다(단건 확인창의 「함께 삭제됩니다」와 같은 말투). */
 export function bulkDeleteDescription(count: number, cascadedChildren: number): string {
   const children = cascadedChildren > 0 ? ` 하위 태스크 ${cascadedChildren}개도 함께 삭제됩니다.` : '';
-  return `선택한 ${count}개 태스크를 삭제할까요?${children} 이 작업은 되돌릴 수 없습니다.`;
+  return `선택한 ${count}개 이슈를 삭제할까요?${children} 이 작업은 되돌릴 수 없습니다.`;
 }

@@ -2,9 +2,9 @@
 // WP-1038 부터 에픽을 지워도 하위 이슈는 지우지 않고 에픽 연결만 푼다(하위가 다른 프로젝트에 있을 수 있다). 일반 이슈의 하위 태스크는 예전처럼
 // 함께 지워진다.
 
-/** 확인창 제목에 쓸 대상 이름 — 에픽만 「에픽」, 그 밖은 「태스크」. */
+/** 확인창 제목에 쓸 대상 이름 — 에픽만 「에픽」, 그 밖은 「이슈」. */
 export function issueDeleteEntityName(typeName: string | null | undefined): string {
-  return typeName === 'EPIC' ? '에픽' : '태스크';
+  return typeName === 'EPIC' ? '에픽' : '이슈';
 }
 
 /**
@@ -18,7 +18,7 @@ export function issueDeleteChildrenWarning(
 ): string | null {
   if (childCount <= 0) return null;
   const epic = typeName === 'EPIC';
-  const subject = titleText ? `「${titleText}」에는` : epic ? '이 에픽에는' : '이 태스크에는';
+  const subject = titleText ? `「${titleText}」에는` : epic ? '이 에픽에는' : '이 이슈에는';
   return epic
     ? `${subject} 하위 이슈가 ${childCount}개 있습니다. 하위 이슈는 지워지지 않고 에픽 연결만 풀립니다. 이 작업은 되돌릴 수 없습니다.`
     : `${subject} 하위 태스크가 ${childCount}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`;
