@@ -559,3 +559,37 @@ it('workflowTab_viewerSeesReadOnlyGraph', async () => {
   expect(await screen.findByText('살펴보기')).toBeVisible()
   expect(screen.queryByRole('button', { name: '+ 노드' })).not.toBeInTheDocument()
 })
+
+it('뷰 전환 단추는 디자인 시스템 ghost 토글 표시를 쓴다', async () => {
+  renderWorkflow()
+  const group = await screen.findByRole('group', { name: '워크플로우 표시 방식' })
+  const graph = within(group).getByRole('button', { name: '그래프' })
+  const yaml = within(group).getByRole('button', { name: 'YAML' })
+  // 클래스를 공백 토큰으로 나눠 정확 일치 검사에 쓴다 — 부분문자열 검사는
+  // border-transparent 에도 border 가 통과되는 등 오탐으로 공허해진다.
+  const tokens = (el: HTMLElement) => el.className.split(/\s+/)
+
+  // 처음에는 YAML 가 켜져 있다(모드 초기값 'yaml').
+  expect(graph).toHaveAttribute('aria-pressed', 'false')
+  expect(yaml).toHaveAttribute('aria-pressed', 'true')
+
+  // 켜진 쪽: ghost 토글 채움(primary 테두리·배경·글자)과, 안 밀리기 위한 border 를 가진다.
+  expect(yaml.className).toContain('bg-primary/10')
+  expect(yaml.className).toContain('text-primary')
+  expect(yaml.className).toContain('border-primary/50')
+  expect(tokens(yaml)).toContain('border')
+
+  // 꺼진 쪽: 토글 켜짐 클래스가 없고 테두리는 투명하다.
+  expect(graph.className).not.toContain('bg-primary/10')
+  expect(graph.className).not.toContain('text-primary')
+  expect(tokens(graph)).toContain('border-transparent')
+
+  await userEvent.click(graph)
+
+  // 한쪽을 켜면 다른 쪽은 꺼진다.
+  expect(graph).toHaveAttribute('aria-pressed', 'true')
+  expect(yaml).toHaveAttribute('aria-pressed', 'false')
+  expect(graph.className).toContain('bg-primary/10')
+  expect(yaml.className).not.toContain('bg-primary/10')
+  expect(tokens(yaml)).toContain('border-transparent')
+})

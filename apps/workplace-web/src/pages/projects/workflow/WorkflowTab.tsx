@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { apiErrorResponse, apiErrorStatus, extractApiError, isConflictError } from '@/lib/api-error'
+import { ghostToggleClass } from '@/lib/selectionStyles'
 import type { WorkflowDraftSession } from '@/lib/workflowDraftSessions'
 import {
   getWorkflowDraftGeneration, getWorkflowDraftSessions, subscribeWorkflowDraftSessions,
@@ -429,8 +430,9 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
       <TabsContent value="editor" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex gap-1" role="group" aria-label="워크플로우 표시 방식">
-            <Button size="sm" variant={mode === 'graph' ? 'secondary' : 'ghost'} aria-pressed={mode === 'graph'} onClick={() => setMode('graph')}>그래프</Button>
-            <Button size="sm" variant={mode === 'yaml' ? 'secondary' : 'ghost'} aria-pressed={mode === 'yaml'} onClick={() => setMode('yaml')}>{YAML_VIEW}</Button>
+            {/* 디자인 시스템 토글 켜짐 — secondary 로 켜짐을 표시하면 배경이 거의 흰색이라 구분되지 않았다(WP-2047) */}
+            <Button size="sm" variant="ghost" aria-pressed={mode === 'graph'} className={ghostToggleClass(mode === 'graph')} onClick={() => setMode('graph')}>그래프</Button>
+            <Button size="sm" variant="ghost" aria-pressed={mode === 'yaml'} className={ghostToggleClass(mode === 'yaml')} onClick={() => setMode('yaml')}>{YAML_VIEW}</Button>
           </div>
           {canManage && (
             <div className="flex flex-wrap items-center gap-2">
