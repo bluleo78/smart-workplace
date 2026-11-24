@@ -177,3 +177,32 @@ export function pendingQuestion(context: Record<string, unknown>, nodeKey: strin
   }
   return null
 }
+
+/** 옛 버전에 걸린 진행 중 실행 수 — 버전 번호별(버전 요약 WorkflowVersionSummary 의 두 칸과 같은 모양이라 그대로 넘겨도 된다). */
+export interface OlderVersionRuns {
+  versionNo: number
+  activeRuns: number
+}
+
+/**
+ * 게시 버전이 아닌 버전 중 진행 중 실행이 있는 것만 버전 내림차순으로 고른다.
+ * 서버 run-counts 는 게시 버전의 실행만 세므로, 다시 게시하면 옛 버전 실행이 그래프에서 빠진다 — 그 몫을 안내하려고 따로 모은다.
+ * 게시 버전이 없거나(null) 버전 목록이 아직 없으면 빈 배열.
+ */
+export function olderVersionRuns(
+  versions: readonly OlderVersionRuns[] | undefined,
+  activeVersionNo: number | null,
+): OlderVersionRuns[] {
+  if (activeVersionNo === null || !versions) return []
+  return versions
+    .filter((v) => v.versionNo !== activeVersionNo && v.activeRuns > 0)
+    .sort((a, b) => b.versionNo - a.versionNo)
+}
+
+/** 옛 버전 실행이 그래프에 안 보인다는 안내 문구. 게시 버전이 없거나 옛 버전 실행이 없으면 null(안내 안 함). */
+export function olderRunsNotice(older: readonly OlderVersionRuns[], activeVersionNo: number | null): string | null {
+  if (activeVersionNo === null || older.length === 0) return null
+  const total = older.reduce((sum, o) => sum + o.activeRuns, 0)
+  const detail = older.map((o) => `v${o.versionNo} ${o.activeRuns}개`).join(', ')
+  return `옛 버전 실행 ${total}개는 이 그래프에 표시하지 않습니다 (${detail}) — 게시 버전 v${activeVersionNo}의 실행만 단계에 셉니다.`
+}

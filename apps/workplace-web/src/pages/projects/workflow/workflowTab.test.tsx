@@ -456,6 +456,17 @@ it('tab_viewParamOpensRunsPanel', async () => {
   expect(await screen.findByText('진행 중인 실행 4개')).toBeVisible()
 })
 
+// WP-2044 탭이 versions 의 옛 버전 activeRuns(v1 1개)를 모아 보기 안내로 넘긴다 — 배선 확인.
+it('tab_graphView_passesOlderVersionRunsToNotice', async () => {
+  server.use(
+    http.get('/api/v1/workflows/42/run-counts', () => HttpResponse.json({ counts: { review: 3 } })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  renderWorkflow({ search: '?view=runs&runsView=graph' })
+  const notice = await screen.findByRole('note')
+  expect(notice).toHaveTextContent('옛 버전 실행 1개는 이 그래프에 표시하지 않습니다 (v1 1개) — 게시 버전 v2의 실행만 단계에 셉니다.')
+})
+
 // 이슈 카드의 「실행 보기 ↗」가 싣는 ?workflow= 로 그 정의의 목록이 열린다(없으면 첫 정의), 정의를 바꾸면 run·모아 보기가 지워진다.
 it('tab_workflowParamOpensThatDefinition_changeClearsRun', async () => {
   server.use(
