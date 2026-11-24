@@ -20,7 +20,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet';
 
 import { DateDivider } from '../../../../components/chat/DateDivider';
 import { Button } from '../../../../components/ui/button';
-import { getDateKey } from '../../../../lib/formatters';
+import { startsNewDay } from '../../../../lib/messageGrouping';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
 import { questionStates, type QuestionWorks } from './questionState';
@@ -191,7 +191,7 @@ export function ChatMessageList({
 
               // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
               const prev = idx > 0 ? sorted[idx - 1] : null;
-              const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt);
+              const showDateDivider = startsNewDay(prev, m);
 
               if (isEditing) {
                 return (

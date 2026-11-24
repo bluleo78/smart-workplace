@@ -315,9 +315,11 @@ export function formatDateKey(d: Date): string {
 /**
  * KST 기준 날짜 키를 반환한다 (YYYY-MM-DD 형식).
  * 채팅 날짜 구분선 삽입 시 인접 메시지의 날짜 비교에 사용된다(이슈 #338).
+ * 날짜로 읽지 못하면 빈 문자열 — Invalid Date 를 Intl.format 에 넘기면 RangeError 로 채팅 화면 전체가 깨졌다(WP-2046).
  */
 export function getDateKey(dateStr: string): string {
-  return kstDateKey(parseUtcDate(dateStr));
+  const d = parseUtcDate(dateStr);
+  return Number.isNaN(d.getTime()) ? '' : kstDateKey(d);
 }
 
 export function formatFileSize(bytes: number): string {

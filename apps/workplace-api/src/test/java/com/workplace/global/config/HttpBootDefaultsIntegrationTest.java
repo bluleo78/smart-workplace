@@ -2,7 +2,13 @@ package com.workplace.global.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.global.realtime.SseRegistry;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,5 +81,30 @@ class HttpBootDefaultsIntegrationTest extends IntegrationTestBase {
     assertThat(read.getMaxNestingDepth()).isEqualTo(1000);
     assertThat(jsonMapper.tokenStreamFactory().streamWriteConstraints().getMaxNestingDepth())
         .isEqualTo(1000);
+  }
+
+  /** SSE 직렬화 견본 — 날짜·시각·기간 타입을 모두 담는다. */
+  record SseDateSample(
+      Instant instant,
+      LocalDateTime localDateTime,
+      LocalDate localDate,
+      OffsetDateTime offsetDateTime,
+      Duration duration) {}
+
+  /**
+   * WP-2046: SSE payload 직렬화({@link SseRegistry#toJson}, 정적 매퍼)가 날짜·시각·기간을 REST(Boot 매퍼)와 같은 모양으로
+   * 쓴다. 두 매퍼가 따로 설정돼 있어, 한쪽만 바뀌면 SSE 로 받은 시각을 웹이 읽지 못해 화면이 깨진다(채널 메시지 createdAt 이 epoch 숫자로 나갔던
+   * 결함). 특정 이벤트가 아니라 타입 견본으로 모든 SSE 이벤트의 형식 어긋남을 잡는다.
+   */
+  @Test
+  void SSE_직렬화는_날짜_시각_기간을_Boot_매퍼와_같게_쓴다() {
+    SseDateSample sample =
+        new SseDateSample(
+            Instant.parse("2026-11-24T11:00:04.246320Z"),
+            LocalDateTime.parse("2026-11-24T20:00:04.246"),
+            LocalDate.parse("2026-11-24"),
+            OffsetDateTime.parse("2026-11-24T20:00:04+09:00"),
+            Duration.ofSeconds(5));
+    assertThat(SseRegistry.toJson(sample)).isEqualTo(jsonMapper.writeValueAsString(sample));
   }
 }
