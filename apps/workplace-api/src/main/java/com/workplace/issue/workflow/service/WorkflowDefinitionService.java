@@ -104,7 +104,7 @@ public class WorkflowDefinitionService {
                 .map(WorkflowVersionSummaryRow::createdBy)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet()));
-    // 활성(RUNNING·WAITING·SUSPENDED) 실행만 센다 — 끝난 실행은 그 버전을 붙잡지 않는다.
+    // 활성(RUNNING·WAITING·SUSPENDED) 실행만 센다 — 끝난 실행은 그 버전을 붙잡지 않는다. 삭제된 이슈의 실행도 빼 실행 목록과 맞춘다.
     Map<Long, Integer> activeRuns = runRepository.countActiveByVersion(workflow.id());
     return rows.stream()
         .map(

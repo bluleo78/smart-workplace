@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.workflow.repository.WorkflowRepository;
 import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.project.dto.AddMemberRequest;
@@ -78,6 +79,7 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
   @Autowired ProjectMemberGroupService memberGroupService;
   @Autowired WorkflowRepository repo;
   @Autowired WorkflowRunRepository runRepository;
+  @Autowired IssueRepository issueRepository;
   @Autowired UserRepository userRepository;
 
   private long ownerId;
@@ -435,6 +437,35 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
     assertThat(list.get(0).get("activeRuns").asInt()).isEqualTo(2);
     assertThat(list.get(1).get("activeRuns").asInt()).isZero();
     assertThat(list.get(2).get("activeRuns").asInt()).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("버전 목록의 activeRuns 는 삭제된 이슈의 실행을 세지 않는다 — 실행 목록·노드 배지와 같은 기준")
+  void versions_activeRunsExcludeDeletedIssues() {
+    long id = create("흐름", valid());
+    publish(id);
+    publish(id);
+    List<Long> v1Issues = seedRuns(versionId(id, 1), "RUNNING", "WAITING");
+    List<Long> v2Issues = seedRuns(versionId(id, 2), "RUNNING");
+    softDeleteIssue(v1Issues.get(0));
+    softDeleteIssue(v2Issues.get(0));
+
+    JsonNode list = ok(get(path(id) + "/versions"), memberId);
+    assertThat(list.get(0).get("versionNo").asInt()).isEqualTo(2);
+    assertThat(list.get(0).get("activeRuns").asInt()).isZero();
+    assertThat(list.get(1).get("activeRuns").asInt()).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("게시 응답의 runningRunsOnOlderVersions 는 삭제된 이슈의 실행을 세지 않는다")
+  void publish_olderRunsExcludeDeletedIssues() {
+    long id = create("흐름", valid());
+    publish(id);
+    List<Long> issues = seedRuns(versionId(id, 1), "RUNNING", "WAITING", "SUSPENDED");
+    softDeleteIssue(issues.get(0));
+
+    JsonNode second = ok(publishReq(id, null), ownerId);
+    assertThat(second.get("runningRunsOnOlderVersions").asInt()).isEqualTo(2);
   }
 
   @Test
@@ -1196,12 +1227,14 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
    * 버전에 실행 행을 직접 심는다 — 상태마다 이슈 하나(활성 실행은 이슈당 하나라). 끝난 상태는 RUNNING 으로 넣은 뒤 상태·끝난 시각을 바꾼다(CANCELED 는
    * 아직 API 로 만들 수 없다).
    */
-  private void seedRuns(long versionId, String... statuses) {
+  private List<Long> seedRuns(long versionId, String... statuses) {
+    List<Long> issues = new ArrayList<>();
     for (String status : statuses) {
       Res res =
           send(post(API + "/projects/" + key + "/issues").content(body("title", "실행 이슈")), ownerId);
       assertThat(res.status()).as("%s", res.text()).isBetween(200, 201);
       long issue = res.body().get("id").asLong();
+      issues.add(issue);
       long run =
           runRepository
               .insertRun(issue, versionId, "RUNNING", "work", "{}", ownerId, Instant.now())
@@ -1219,6 +1252,15 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
             .execute();
       }
     }
+    return issues;
+  }
+
+  /**
+   * 이슈의 deleted_at 만 채운다(저장소 softDelete) — 실행은 활성 그대로 둔다. 삭제 API 는 실행을 닫으므로, 닫히지 않고 남은 실행(삭제 경로가
+   * 실행을 닫지 않은 경우·예전 데이터)을 집계가 빼는지 보려고 API 를 거치지 않는다.
+   */
+  private void softDeleteIssue(long issueId) {
+    issueRepository.softDelete(issueId, Instant.now());
   }
 
   /** 응답 하나(상태·본문 글·읽은 JSON). */

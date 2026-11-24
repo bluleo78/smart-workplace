@@ -492,15 +492,24 @@ public class WorkflowRunRepository {
   /**
    * 정의의 버전별 활성 실행 수(버전 id → 수). 활성 실행이 없는 버전은 담지 않는다. 버전 응답의 「남은 실행 수」와 게시의 {@code
    * runningRunsOnOlderVersions} 가 쓴다.
+   *
+   * <p>삭제된 이슈의 실행은 세지 않는다 — 실행 목록·노드 배지({@code countActiveByNode})도 삭제된 이슈를 빼므로, 목록에 안 보이는 실행이 남은
+   * 수로 잡히면 안 된다.
    */
   public Map<Long, Integer> countActiveByVersion(long workflowId) {
     Condition active =
-        WORKFLOW_VERSION.WORKFLOW_ID.eq(workflowId).and(WORKFLOW_RUN.STATUS.in(ACTIVE));
+        WORKFLOW_VERSION
+            .WORKFLOW_ID
+            .eq(workflowId)
+            .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+            .and(ISSUE.DELETED_AT.isNull());
     Map<Long, Integer> out = new LinkedHashMap<>();
     dsl.select(WORKFLOW_RUN.WORKFLOW_VERSION_ID, count())
         .from(WORKFLOW_RUN)
         .join(WORKFLOW_VERSION)
         .on(WORKFLOW_VERSION.ID.eq(WORKFLOW_RUN.WORKFLOW_VERSION_ID))
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(WORKFLOW_RUN.ISSUE_ID))
         .where(active)
         .groupBy(WORKFLOW_RUN.WORKFLOW_VERSION_ID)
         .orderBy(WORKFLOW_RUN.WORKFLOW_VERSION_ID)
