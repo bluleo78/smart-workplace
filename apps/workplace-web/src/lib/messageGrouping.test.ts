@@ -17,6 +17,16 @@ describe('shouldStartNewGroup', () => {
   it('직전 메시지가 없으면(첫 메시지) 새 그룹', () => {
     expect(shouldStartNewGroup(null, msg({}))).toBe(true)
   })
+  it('같은 작성자라도 curr 시각을 읽지 못하면 새 그룹(WP-2046)', () => {
+    const prev = msg({ authorId: 10 })
+    const curr = msg({ authorId: 10, createdAt: 1795518215.835331 as unknown as string })
+    expect(shouldStartNewGroup(prev, curr)).toBe(true)
+  })
+  it('같은 작성자라도 prev 시각을 읽지 못하면 새 그룹(WP-2046)', () => {
+    const prev = msg({ authorId: 10, createdAt: 'not-a-date' })
+    const curr = msg({ authorId: 10 })
+    expect(shouldStartNewGroup(prev, curr)).toBe(true)
+  })
   it('작성자가 다르면 새 그룹', () => {
     const prev = msg({ authorId: 10 })
     const curr = msg({ authorId: 20 })
