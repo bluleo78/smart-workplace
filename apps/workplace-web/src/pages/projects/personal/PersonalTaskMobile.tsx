@@ -18,6 +18,7 @@ import { IssueChatButton } from '../components/chat/IssueChatButton';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssueMobilePropertyChips, type MobilePropField } from '../components/mobile/IssueMobilePropertyChips';
+import { PersonalTaskDeleteAction } from './PersonalTaskDeleteAction';
 import { usePersonalTask } from './usePersonalTask';
 import { usePersonalTaskChatJump } from './usePersonalTaskChatJump';
 
@@ -88,6 +89,18 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
         {/* 채팅 버튼(WP-1372) — 팀 이슈 모바일 헤더와 같은 44px 아이콘(읽지 않으면 빨간 점). 아래 채팅 칸으로 이동한다. */}
         {data && (
           <IssueChatButton {...chat.buttonProps} variant="icon" />
+        )}
+        {/* 삭제(WP-2036) — 채팅 버튼 뒤 44px 휴지통 아이콘. viewerCanDelete 가 참일 때만 보이고, 성공하면 onClose 로 상세를 닫는다. */}
+        {data && (
+          <PersonalTaskDeleteAction
+            projectKey={projectKey}
+            number={number}
+            title={data.summary.title}
+            childCount={data.summary.childCount}
+            canDelete={data.viewerCanDelete}
+            variant="mobile"
+            onDeleted={onClose}
+          />
         )}
       </header>
 

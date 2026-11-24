@@ -42,6 +42,7 @@ import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
 import { IssueStatusSelect } from '../components/IssueStatusSelect';
 import { useVersionedPatch } from '../hooks/useVersionedPatch';
+import { PersonalTaskDeleteAction } from './PersonalTaskDeleteAction';
 import { PersonalTaskMobile } from './PersonalTaskMobile';
 import { usePersonalTask } from './usePersonalTask';
 
@@ -113,7 +114,10 @@ function PersonalTaskModal({
     flushFocusedField(contentRef.current);
     close();
   };
-  /** 확인 창 「버리고 닫기」 — 메모 초안을 지우고 닫는다. */
+  /**
+   * 메모 초안을 지우고 묻지 않고 닫는다 — 확인 창 「버리고 닫기」와 작업 삭제 뒤(WP-2036) 둘 다 쓴다.
+   * 삭제 뒤엔 지운 작업의 메모가 의미가 없으므로 고친 메모가 있어도 다시 묻지 않는다.
+   */
   const discardAndClose = () => {
     setConfirmClose(false);
     memoRef.current?.discardDraft();
@@ -144,6 +148,7 @@ function PersonalTaskModal({
             projectKey={projectKey}
             number={number}
             onClose={requestClose}
+            onDeleted={discardAndClose}
             onMemoDirtyChange={setMemoDirty}
             memoRef={memoRef}
           />
@@ -175,12 +180,15 @@ function PersonalTaskDetail({
   projectKey,
   number,
   onClose,
+  onDeleted,
   onMemoDirtyChange,
   memoRef,
 }: {
   projectKey: string;
   number: number;
   onClose: () => void;
+  /** 삭제 성공 시 — 고친 메모 확인 없이 바로 닫는다. */
+  onDeleted: () => void;
   /** 메모를 고친 채 저장하지 않았는지 — 모달이 닫기 전에 확인을 묻는다. */
   onMemoDirtyChange: (dirty: boolean) => void;
   /** 메모 편집기 손잡이 — 모달 「버리고 닫기」가 초안을 지운다. */
@@ -215,6 +223,18 @@ function PersonalTaskDetail({
         </div>
         {/* 채팅 버튼 — 팀 이슈 헤더와 같은 버튼·읽지 않은 수. 오른쪽 채팅 서랍을 연다(열려 있으면 읽는 중으로 보고 0). */}
         {data && <IssueChatButton projectKey={projectKey} issueNumber={number} open={chat.open} onOpen={chat.openChat} />}
+        {/* 삭제 — 상세 응답의 viewerCanDelete 가 참일 때만(로딩·404 중엔 data 가 없어 안 보인다). 성공하면 onDeleted 로 ?task 를 지운다(WP-2036). */}
+        {data && (
+          <PersonalTaskDeleteAction
+            projectKey={projectKey}
+            number={number}
+            title={data.summary.title}
+            childCount={data.summary.childCount}
+            canDelete={data.viewerCanDelete}
+            variant="desktop"
+            onDeleted={onDeleted}
+          />
+        )}
         <Button
           variant="ghost"
           size="icon"
