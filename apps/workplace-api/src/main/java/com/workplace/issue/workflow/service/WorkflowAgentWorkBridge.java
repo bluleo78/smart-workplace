@@ -6,6 +6,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeEntered;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowNodeWakeEvent;
 import com.workplace.issue.outbound.WorkflowRunEvents.WorkflowRunEnded;
+import com.workplace.issue.outbound.WorkflowWakeContextReader;
 import com.workplace.issue.repository.AgentServerRunRepository;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.AgentWorkRepository.AgentWorkRow;
@@ -47,7 +48,8 @@ import tools.jackson.databind.ObjectMapper;
  * agent_work 를 모른다 — 엔진이 내는 {@link WorkflowNodeEntered} 를 이 다리가 같은 트랜잭션의 동기 리스너로 받아 AI 작업을 열고, 노드
  * 떠남은 실행 서비스가 {@link #onNodeLeft} 로 직접 부른다(떠난 node_run·질문 여부는 이벤트에 없다). 실행·node_run·agent_work 가 한
  * 트랜잭션에서 바뀌고, 깨우기만 전용 이벤트({@link WorkflowNodeWakeEvent})의 커밋 뒤 소비자(내부 AI → 그 AI 를 실행 주체로 고정한
- * ai-agent 발사, 외부 AI → ASSIGNED 알림)가 한다.
+ * ai-agent 발사, 외부 AI → ASSIGNED 알림)가 한다. 깨울 내부 AI 는 {@link
+ * WorkflowWakeContextReader#wokenInternalAgentId} 가 고른다.
  *
  * <p>왜 담당 지정 이벤트를 다시 쓰지 않나: 그 발사는 행위자가 AI 면 건너뛰고 이슈 담당 중 첫 내부 AI 를 골라, AI 가 다음 노드의 AI 에게 넘길 때 깨워야 할
  * AI 를 못 깨웠고, 이동이 새로 넣은 AI 는 ASSIGNED 알림을 두 번 받았다(리뷰 I1·I2).
@@ -92,7 +94,8 @@ public class WorkflowAgentWorkBridge {
    * <ul>
    *   <li>외부 AI: 진행 중 행이 없으면 SUBMITTED 를 연다({@code submitForAssignees}, 멱등). 이미 있으면(질문 뒤 답으로 돌아옴 —
    *       INPUT_REQUIRED) 그 행을 SUBMITTED 로 되돌린다 — 같은 AI 를 다시 깨우는 것이다
-   *   <li>내부 AI: SUBMITTED 를 만들지 않는다(지금 규칙 — 내부 AI 는 서버 실행기가 보고한다). 깨우기만 한다
+   *   <li>내부 AI: SUBMITTED 를 만들지 않는다(지금 규칙 — 내부 AI 는 서버 실행기가 보고한다). 깨우는 내부 AI 하나({@link
+   *       WorkflowWakeContextReader#wokenInternalAgentId})만 남은 멈춤 상태를 푼다
    *   <li>깨우기: 노드의 AI 담당 전원·진입을 일으킨 사람·이번 담당 변경으로 이미 알림 받은 사람을 실은 {@link WorkflowNodeWakeEvent}
    * </ul>
    *
@@ -111,9 +114,13 @@ public class WorkflowAgentWorkBridge {
     if (issue == null) {
       return;
     }
+    // 깨우는 내부 AI 하나 — 발사 쪽과 같은 규칙으로 골라 막힘 풀기와 깨우기가 어긋나지 않게 한다.
+    Long woken = WorkflowWakeContextReader.wokenInternalAgentId(agents).orElse(null);
     for (AssigneeInfo agent : agents) {
       if (!agent.isExternalAgent()) {
-        resetInternalInterrupt(issue.id(), agent.id());
+        if (agent.id().equals(woken)) {
+          resetInternalInterrupt(issue.id(), agent.id());
+        }
         continue;
       }
       // 읽은 진행 중 행을 그대로 넘겨 markState 가 다시 읽지 않게 한다.

@@ -97,8 +97,9 @@ public class IssueEventDispatcher {
   }
 
   /**
-   * 워크플로우 노드 깨우기(WP-1986) — 노드 AI 중 서버가 실행할(내부) AI 마다 그 AI 를 실행 주체로 고정해 issue.assigned 를 보낸다. 외부 AI
-   * 는 ASSIGNED 알림(notify)으로 깨어나므로 여기서는 건너뛴다.
+   * 워크플로우 노드 깨우기(WP-1986) — 노드 AI 중 서버가 실행할(내부) AI 하나({@link
+   * WorkflowWakeContextReader#wokenInternalAgentId})를 실행 주체로 고정해 issue.assigned 를 보낸다. 외부 AI 는
+   * ASSIGNED 알림(notify)으로 깨어나므로 여기서는 건너뛴다.
    *
    * <p>담당 지정 발사와 달리 행위자가 AI 여도 보낸다 — 워크플로우 넘김은 원래 AI → AI 이고, 되돌림·방문 한도와 연쇄 한도가 고리를 막는다. 실행 주체도 이슈
    * 담당 중 첫 내부 AI 가 아니라 그 노드의 AI 다. AI 연동이 꺼져 있으면 읽지도 않는다.
@@ -113,22 +114,24 @@ public class IssueEventDispatcher {
     if (!props.enabled() || e.agentIds().isEmpty()) return;
     var ctx = workflowWakeReader.read(e).orElse(null);
     if (ctx == null) return;
-    for (Long agentId : ctx.internalAgentIds()) {
-      Map<String, Object> p =
-          baseFields(
-              e.issueId(),
-              ctx.projectKey(),
-              ctx.issueKey(),
-              ctx.title(),
-              ctx.actor(),
-              ctx.assignees(),
-              Instant.now(),
-              agentId);
-      p.put("added", ctx.agents().stream().map(IssueEventDispatcher::summary).toList());
-      p.put("removed", List.of());
-      p.put("workflow", Map.of("runId", e.runId(), "nodeKey", e.nodeKey()));
-      dispatch("issue.assigned", p, ctx.issueKey());
-    }
+    // 깨울 내부 AI 하나는 리더가 고른다(규칙: WorkflowWakeContextReader#wokenInternalAgentId). 없으면 보낼 곳이 없다.
+    Long agentId = ctx.wokenAgentId();
+    if (agentId == null) return;
+    Map<String, Object> p =
+        baseFields(
+            e.issueId(),
+            ctx.projectKey(),
+            ctx.issueKey(),
+            ctx.title(),
+            ctx.actor(),
+            ctx.assignees(),
+            Instant.now(),
+            agentId);
+    // added = 깨운 내부 AI 하나 + 외부 AI(리더가 깨우지 않은 내부 AI 를 이미 뺐다) — 받은 AI 가 다른 내부 AI 도 깨운 줄 알지 않게.
+    p.put("added", ctx.agents().stream().map(IssueEventDispatcher::summary).toList());
+    p.put("removed", List.of());
+    p.put("workflow", Map.of("runId", e.runId(), "nodeKey", e.nodeKey()));
+    dispatch("issue.assigned", p, ctx.issueKey());
   }
 
   @Async("aiAgentEventExecutor")

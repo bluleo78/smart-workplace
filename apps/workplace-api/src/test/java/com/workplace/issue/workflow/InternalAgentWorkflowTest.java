@@ -114,6 +114,34 @@ class InternalAgentWorkflowTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("노드에 내부 AI 가 둘이면 첫 AI 하나만 발사하고 payload added 에도 그 AI 만 담긴다")
+  void internalTwoAgents_firesFirstOnly_addedHasOnlyWoken() {
+    long second = internalAgent();
+    String twoBots =
+        yaml()
+            .replace(
+                "bot: { members: [\"" + username(bot) + "\"] }",
+                "bot: { members: [\"" + username(bot) + "\", \"" + username(second) + "\"] }");
+    long wf = publish(twoBots);
+    // 시작하려면 노드 역할의 사람이 이슈 담당에 있어야 한다 — 둘 다 담당에 넣는다.
+    long issue = issue(lead, bot, second);
+    events.clear();
+    expectHuman(
+        post(API + "/issues/" + issue + "/workflow/start")
+            .content(json("workflowId", wf, "dryRun", false)));
+
+    List<EventEnvelope> sent = fire(wakes().getFirst());
+
+    assertThat(sent).hasSize(1);
+    assertThat(sent.getFirst().payload()).containsEntry("actingAgentId", bot);
+    // added 는 깨운 내부 AI(bot)만 — 깨우지 않은 둘째 AI 를 담으면 받은 AI 가 그 AI 도 깨어난 줄 안다.
+    List<?> added = (List<?>) sent.getFirst().payload().get("added");
+    assertThat(added).hasSize(1);
+    assertThat(String.valueOf(added.getFirst())).contains(username(bot));
+    assertThat(String.valueOf(added.getFirst())).doesNotContain(username(second));
+  }
+
+  @Test
   @DisplayName("내부 AI 자격으로 결과를 골라 이동하면 다음 노드로 가고 dev 방문이 COMPLETED 가 된다")
   void internalAgent_movesWithOutcome() {
     long issue = startedIssue();

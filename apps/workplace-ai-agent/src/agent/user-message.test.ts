@@ -40,6 +40,11 @@ describe('buildUserMessage', () => {
     for (const w of ['get_issue_workflow', 'move_issue_workflow', 'expectedRevision', 'instructions']) expect(m).toContain(w);
     expect(m).not.toContain("update_issue 의 status 를 'IN_PROGRESS'");
     expect(m).not.toContain('report_agent_work');
+    // WP-1994 검토 후속: assigneeRequired 면 담당을 반드시 고르고, 검증 오류는 한 번 고쳐 재시도
+    expect(m).toContain('assigneeRequired');
+    expect(m).toContain('검증 오류');
+    // 담당 없이 이동하면 노드가 멈추는 게 아니라 이동이 거절되고 저장되지 않으며 노드에 머문다
+    expect(m).toContain('거절');
     // (a) 노드가 다르거나 실행이 없으면 아무것도 바꾸지 않고 끝
     expect(m).toContain('아무것도 바꾸지 말고');
     // 깨운 실행 번호를 보여 주고, 읽은 runId 가 다르면 멈추며, 이동에는 그 번호를 그대로 쓴다
