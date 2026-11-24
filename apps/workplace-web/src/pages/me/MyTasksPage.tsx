@@ -11,6 +11,7 @@ import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
 import { useMyWorkflowTurns } from '@/hooks/queries/useWorkflowRuns'
 import { buildMyTasksContext } from '@/lib/aiScreenContext/builders/issue'
+import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
 import { cn } from '@/lib/utils'
 
 import { meFacetParams } from './meFacetParams'
@@ -143,23 +144,33 @@ export default function MyTasksPage() {
         <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)} className="gap-4">
           {/* 탭 줄 오른쪽 — 개요 탭에서만 「나만 볼 수 있어요」 + 기간 고르기. 좁은 폭은 탭 아래로 내려간다. */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-          <TabsList>
-            <TabsTrigger value="overview" data-testid="tab-overview">{MY_TASKS_TAB_LABEL.overview}</TabsTrigger>
-            <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
-            <TabsTrigger value="reported" data-testid="tab-reported">{MY_TASKS_TAB_LABEL.reported}</TabsTrigger>
-            <TabsTrigger value="watched" data-testid="tab-watched">{MY_TASKS_TAB_LABEL.watched}</TabsTrigger>
-            <TabsTrigger value="turns" data-testid="tab-turns">
-              {MY_TASKS_TAB_LABEL.turns}
-              {turnCount > 0 && (
-                <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs tabular-nums" data-testid="tab-turns-count">
-                  {/* 숫자는 눈으로만 읽게 하고, 스크린리더에는 앞에 공백을 둔 「 n건」을 읽어 「내 차례2」로 붙지 않게 한다. */}
-                  <span aria-hidden="true">{turnCount}</span>
-                  <span className="sr-only">{` ${turnCount}건`}</span>
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-          {active === 'overview' && <OverviewPeriodPicker />}
+            {/* 탭 줄 넘침(390px 에서 5개 탭 392px > 본문 폭)을 탭 줄 상자 안에 가둔다 — 그대로 두면 넘침이 Page.Body 스크롤러로
+                전파돼 탭 선택 때 포커스·scrollIntoView 가 페이지를 가로로 밀었다(WP-2045).
+                overflow-x-auto 는 CSS 상 overflow-y 를 auto 로 계산해 자기 상자 높이(36px)만 세로로 그리는데, 활성 밑줄
+                (TabsTrigger 의 after, bottom -5px)은 TabsList 상자 아래로 1.5px 나가 래퍼가 그대로 잘랐다 — 390px 실측
+                밑줄 하단 160.5px > 래퍼 클립 경계 160px (0.5px 잘림). 그래서 세로 여유 pb-1(+4px)을 주어 밑줄이 상자 안에
+                들어오게 하고, -mb-1 로 높이·배치는 그대로 둔다(MobileBoard 선례는 TabsList 자체에 스크롤을 걸어
+                after:bottom-0 으로 밑줄을 5px 올렸지만, 여기는 데스크톱·모바일이 같은 마크업이라 모양을 바꾸지 않고
+                여유만 더한다). */}
+            <div className={cn('min-w-0 max-w-full overflow-x-auto pb-1 -mb-1', HIDE_SCROLLBAR)}>
+              <TabsList>
+                <TabsTrigger value="overview" data-testid="tab-overview">{MY_TASKS_TAB_LABEL.overview}</TabsTrigger>
+                <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
+                <TabsTrigger value="reported" data-testid="tab-reported">{MY_TASKS_TAB_LABEL.reported}</TabsTrigger>
+                <TabsTrigger value="watched" data-testid="tab-watched">{MY_TASKS_TAB_LABEL.watched}</TabsTrigger>
+                <TabsTrigger value="turns" data-testid="tab-turns">
+                  {MY_TASKS_TAB_LABEL.turns}
+                  {turnCount > 0 && (
+                    <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs tabular-nums" data-testid="tab-turns-count">
+                      {/* 숫자는 눈으로만 읽게 하고, 스크린리더에는 앞에 공백을 둔 「 n건」을 읽어 「내 차례2」로 붙지 않게 한다. */}
+                      <span aria-hidden="true">{turnCount}</span>
+                      <span className="sr-only">{` ${turnCount}건`}</span>
+                    </span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            {active === 'overview' && <OverviewPeriodPicker />}
           </div>
           <TabsContent value="overview">
             <MyOverviewTab />
