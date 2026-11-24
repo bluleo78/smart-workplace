@@ -37,6 +37,15 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/general-purpose.*절대 금지|절대 금지.*general-purpose/s);
   });
 
+  // WP-2033: 위임 표의 issue-agent·project-agent 행이 워크플로우 업무를 담고, 라우터 도구가 없는 읽기는 위임한다.
+  it('WP-2033: 위임 표 issue-agent·project-agent 행에 워크플로우가 있고, 도구 없는 읽기는 위임하도록 안내', () => {
+    for (const agent of ['issue-agent', 'project-agent']) {
+      const row = ASSISTANT_SYSTEM_PROMPT.split('\n').find((l) => l.includes(`**${agent}**`) && l.startsWith('|'));
+      expect(row, agent).toContain('워크플로우');
+    }
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('라우터에 도구가 없는 읽기');
+  });
+
   // WP-53: 본인 담당 지정은 계정을 되묻지 않고 issue-agent 에 "me" 로 넘긴다.
   it('본인 담당 지정은 issue-agent 에 요청자 본인(me)으로 위임하도록 안내', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('나에게 할당해줘');

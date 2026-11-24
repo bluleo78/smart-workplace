@@ -920,22 +920,20 @@ describe('공유 도구 패리티 (#846)', () => {
 
   // 공유 패키지에 도구를 추가하고 ai-agent 에 연결하지 않으면 AI Chat 에서 조용히 못 쓰는 도구가 된다(#850).
   // WP-348: 확인 카드가 있는 작업의 직접 실행 도구(CARD_ONLY_SHARED_TOOLS)만 예외 — 경로마다 도구 하나.
-  // assistant(AI Chat) 프로필 제외 목록 — issue 프로필은 WP-1994 가 get(issue)·move(issue-workflow) 를 싣는다, WP-2033 이 배선하며 줄인다.
-  const NOT_YET_WIRED = new Set([
-    'get_issue_workflow',
-    'start_issue_workflow',
-    'move_issue_workflow',
-    'get_workflow',
-    'validate_workflow',
-    'update_workflow',
-  ]);
   it('assistant 프로필은 공유 도구를 전부 노출한다(확인 카드 전용 작업 제외)', () => {
     const c = client();
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
     const missing = buildSharedTools(c.sc)
       .map((t) => t.name)
-      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n) && !NOT_YET_WIRED.has(n));
+      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n));
     expect(missing).toEqual([]);
+  });
+
+  // WP-2033: 워크플로우 6종은 서브에이전트 전용 — 노출 자체는 위 「공유 도구를 전부 노출」 테스트가 지키고, 여기서는 라우터에 없음을 지킨다.
+  it('WP-2033: 워크플로우 6종은 라우터 허용 목록에 없다', () => {
+    for (const n of ['get_issue_workflow', 'start_issue_workflow', 'move_issue_workflow', 'get_workflow', 'validate_workflow', 'update_workflow']) {
+      expect(ASSISTANT_ROUTER_TOOLS).not.toContain(n);
+    }
   });
 
   // WP-1994: 기본 issue 프로필은 조회(get_issue_workflow)만, 노드 깨우기 변형(issue-workflow)은 이동까지 싣는다 — 시작·정의 도구와 report_agent_work 는 어느 쪽에도 없다.

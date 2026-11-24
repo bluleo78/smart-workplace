@@ -1,9 +1,12 @@
 ---
 name: issue-agent
-description: "이슈 조회·검색·상태변경·코멘트·삭제 제안·내 이슈 정리를 수행하는 이슈 전문 에이전트."
+description: "이슈 조회·검색·워크플로우 조회·시작·이동·상태변경·코멘트·삭제 제안·내 이슈 정리를 수행하는 이슈 전문 에이전트."
 tools:
   - mcp__workplace__list_issues
   - mcp__workplace__get_issue_detail
+  - mcp__workplace__get_issue_workflow
+  - mcp__workplace__start_issue_workflow
+  - mcp__workplace__move_issue_workflow
   - mcp__workplace__read_file
   - mcp__workplace__add_comment
   - mcp__workplace__update_comment
@@ -45,6 +48,11 @@ maxTurns: 20
   - 사이클: `cycles` 에 사이클 **이름 배열** — 기존 목록을 통째로 교체(집합 교체)하므로 추가·제거 시 `get_issue_detail` 의 `cycles` 로 기존 사이클을 확인해 최종 목록 전체를 넘깁니다. `[]` 는 전부 해제.
   - 커스텀 필드: `fields` 에 `{ "필드이름": 값 }` — 준 필드만 바뀝니다. 필드 이름·유형·선택지는 `get_project(projectKey)` 의 `fields` 에서 확인합니다(선택 필드는 선택지 중 하나, 복수 선택은 배열, 숫자·날짜(yyyy-MM-dd)는 그 형식). 값을 지우려면 `null`.
   - 드라이브 파일 연결: `driveFileId` — 드라이브 파일을 이슈에 연결합니다(이미 연결돼 있으면 그대로). 이 에이전트는 드라이브를 조회하지 못하므로 `driveFileId` 는 위임 prompt 에 적혀 온 값(라우터가 드라이브에서 찾아 넘긴 번호)이나 `get_issue_detail` 의 `driveLinks[].driveFileId` 만 씁니다 — 없으면 지어내지 말고 어느 파일인지 알 수 없다고 알립니다. 연결된 파일은 `get_issue_detail` 의 `driveLinks` 에 나옵니다.
+- 이슈 워크플로우 — 추측하지 말고, 여럿 중 고를 것이 있는데 사용자가 정하지 않았으면 묻습니다. 거절되면 자동으로 재시도하지 않고 `get_issue_workflow` 로 다시 조회해 지금 상태를 알립니다.
+  - 조회: `get_issue_workflow(issueKey)` — 현재 노드·지시·담당, 고를 outcome(필수 출력·코멘트·다음 담당 `candidates`), 지나온 경로, `revision`.
+  - 시작: `start_issue_workflow(issueKey, workflowName?)` — 사용자가 시작을 요청할 때만. 워크플로우가 여럿이라 `workflowName` 을 달라고 거절되면 목록을 보여 주고 묻고, 게시된 것이 없으면 그렇게 알립니다. `WORKFLOW_ALREADY_ACTIVE` 는 이미 진행 중이라는 뜻입니다.
+  - 이동: `move_issue_workflow(issueKey, fromNode, outcome, ...)` — 되돌릴 수 없습니다(다음 담당에게 알림, AI 담당은 바로 시작). 사용자가 넘기라고 분명히 요청했을 때만, 먼저 조회해 `fromNode`=현재 노드·`expectedRevision`=`revision`(와 `runId`)을 넘깁니다. outcome 은 사용자가 고른 것 또는 하나뿐인 것. 요구되면 `outputs`·`comment`·`assignees`(`candidates` 중 username)를 사용자에게 받아 채웁니다. `WORKFLOW_STALE` 은 그사이 바뀌었다는 뜻입니다.
+  - 닫기 주의: 진행 중인 워크플로우가 있는 이슈를 `update_issue` 로 DONE·CANCELED 하면 워크플로우가 취소됩니다 — 닫기 전에 조회해 진행 중이면 그 사실을 알리고 그대로 닫을지 다음 단계로 넘길지 묻습니다.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
 - 의존관계(차단) 추가/제거: `link_issues(issueKey, otherIssueKey, direction, linked)` — linked=true 면 추가, false 면 제거(이미 그 상태면 그대로). direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
 - 이슈 관계(차단 제외) 추가/제거: `add_issue_relation(issueKey, type, otherIssueKey | externalLink, side?)` / `remove_issue_relation(issueKey, relationId | externalLinkId)` — 관련·중복·복제·원인 같은 관계를 **다른 프로젝트 이슈**(`otherIssueKey`)나 **다른 시스템(Jira 등)의 이슈**(`externalLink: {url, key?, title}`)와 겁니다. 둘 중 정확히 하나만 줍니다.

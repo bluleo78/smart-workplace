@@ -10,12 +10,16 @@ describe('project-agent 정의', () => {
   it('loadSubagents 로 project-agent 가 로드된다', () => {
     expect(loaded['project-agent']).toBeDefined();
   });
-  it('tools 는 read 2 + search_members + update_project + 메타 생성·수정 2 + propose 5 + submit_response', () => {
+  it('tools 는 read 2 + search_members + 워크플로우 정의 3 + update_project + 메타 생성·수정 2 + propose 5 + submit_response', () => {
     expect(loaded['project-agent'].tools).toEqual([
       'mcp__workplace__list_projects',
       'mcp__workplace__get_project',
       // #833: 이름 → userId 확정 경로. 없으면 에이전트가 연락처 id 를 오용한다.
       'mcp__workplace__search_members',
+      // WP-2033: 워크플로우 정의 조회·검증·저장/게시
+      'mcp__workplace__get_workflow',
+      'mcp__workplace__validate_workflow',
+      'mcp__workplace__update_workflow',
       // #855: 이름·설명 직접 수정(OWNER)
       'mcp__workplace__update_project',
       // WP-356: 라벨·마일스톤·사이클 생성·수정(직접 실행 — 대응 확인 카드 없음, 삭제는 도구 없음)
@@ -71,5 +75,13 @@ describe('project-agent 정의', () => {
     const prompt = loaded['project-agent'].prompt;
     expect(prompt).toContain('`hasMore`·`nextPage`');
     expect(prompt).toContain('`nextPage` 를 `page` 로 넘겨');
+  });
+
+  // WP-2033: 워크플로우 정의 지시문(도구 목록은 위 tools 테스트가 고정) — 저장 전 검증·게시·충돌 방지 값·실제 응답 필드.
+  it('WP-2033: 저장 전 검증·게시는 명시 요청 때만·expectedDraftUpdatedAt(새로 만들 땐 생략)·published 확인을 안내한다', () => {
+    const p = loaded['project-agent'].prompt;
+    for (const k of ['validate_workflow', 'publish: true', 'expectedDraftUpdatedAt', '새로 만들 때는 넘기지 않습니다', 'WORKFLOW_DRAFT_CONFLICT', 'draftProblems', 'published: false']) {
+      expect(p).toContain(k);
+    }
   });
 });

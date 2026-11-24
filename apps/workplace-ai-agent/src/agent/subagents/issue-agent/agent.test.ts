@@ -16,6 +16,10 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
+      // WP-2033: 이슈 워크플로우 조회·시작·이동
+      'mcp__workplace__get_issue_workflow',
+      'mcp__workplace__start_issue_workflow',
+      'mcp__workplace__move_issue_workflow',
       'mcp__workplace__read_file', // WP-346: 이슈 첨부 본문(추출 텍스트 구간)·이미지 읽기
       'mcp__workplace__add_comment',
       'mcp__workplace__update_comment',
@@ -137,5 +141,13 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('link_issues(issueKey, otherIssueKey, direction, linked)');
     expect(prompt).toContain('react(issueKey, commentId, emoji, reacted)');
     expect(prompt).not.toMatch(/add_issue_dependency|remove_issue_dependency/);
+  });
+
+  // WP-2033: 워크플로우 3종 지시문(도구 목록은 위 tools 테스트가 고정) — 이동 전 조회·충돌·중복 시작·닫기 주의.
+  it('WP-2033: 워크플로우 이동 전 조회·WORKFLOW_STALE·WORKFLOW_ALREADY_ACTIVE·닫기 주의를 안내한다', () => {
+    const p = loaded['issue-agent'].prompt;
+    for (const k of ['get_issue_workflow', 'expectedRevision', 'WORKFLOW_STALE', 'WORKFLOW_ALREADY_ACTIVE', 'workflowName', 'candidates', '되돌릴 수 없습니다', '워크플로우가 취소됩니다']) {
+      expect(p).toContain(k);
+    }
   });
 });
