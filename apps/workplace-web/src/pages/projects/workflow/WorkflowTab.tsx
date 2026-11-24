@@ -1,5 +1,5 @@
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -38,6 +38,8 @@ import { WorkflowYamlEditor } from './WorkflowYamlEditor'
 
 const VALIDATION_DELAY = 350
 const NO_PROBLEMS: WorkflowProblem[] = []
+// 게시 안 한 변경이 0 이라 게시를 끈 이유 — 단추 옆에 보이는 글자(WP-2043).
+const NO_CHANGES_REASON = '바꾼 내용이 없어 게시할 것이 없습니다.'
 
 /** 신원이 바뀐 뒤 도착한 초안 응답은 새 사용자·테넌트 화면에 이어 쓰지 않는다. */
 function assertWorkflowDraftGeneration(generation: number): void {
@@ -383,7 +385,14 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
   const busy = useIsMutating({ mutationKey: workflowKeys.detail(id), exact: true }) > 0
   const hasErrors = problems.some((problem) => problem.severity === 'ERROR')
   // 검증 요청에 실패하면 진단 목록이 비어 있어도 검증이 끝날 때까지 게시를 막는다.
-  const canPublish = canManage && !isLoggingOut && !conflict && !busy && !validation.pending && !validation.failed && !hasErrors
+  // 게시 안 한 변경이 0 이면 같은 원문으로 게시본 버전만 하나 더 쌓인다(WP-2043). 서버는 같은 내용 재게시를 허용하므로 화면이 막는다.
+  // - 게시본이 있고 변경이 0 이면 사유 글자와 함께 막는다. 첫 게시(게시본 없음)는 비교할 게시본이 없어 0 이어도 막지 않는다.
+  // - 게시본 원문을 불러오는 중(null)에는 변경 수를 모르므로 사유 글자 없이 잠시 막는다(상태 라벨이 확인 중을 알린다).
+  // - 불러오기에 실패하면(isError) 개수를 영영 알 수 없으므로 막지 않는다.
+  const noChanges = activeVersionNo !== null && unpostedChanges === 0
+  const checkingChanges = activeVersionNo !== null && unpostedChanges === null && !published.isError
+  const noChangesReasonId = useId()
+  const canPublish = canManage && !isLoggingOut && !conflict && !busy && !validation.pending && !validation.failed && !hasErrors && !noChanges && !checkingChanges
 
   // YAML 편집기와 그래프 편집기가 같은 초안 갱신 규칙을 쓴다 — 기준 YAML 과 같아지면 편집을 지운다.
   function editDraft(updated: string) {
@@ -433,7 +442,14 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
               </span>
               <Button size="sm" variant="ghost" disabled={!edit || busy || conflict || isLoggingOut} onClick={() => updateDraft(id, null)}>되돌리기</Button>
               <Button size="sm" variant="outline" disabled={!edit || busy || conflict || isLoggingOut} onClick={() => write.mutate({ type: 'save' })}>초안 저장</Button>
-              <Button size="sm" disabled={!canPublish} onClick={() => setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected })}>게시</Button>
+              {/* 꺼진 단추는 pointer-events-none 이라 title 툴팁이 뜨지 않는다 — 이유를 단추 옆에 보이는 글자로 둔다. */}
+              {noChanges && <span id={noChangesReasonId} className="text-xs text-muted-foreground">{NO_CHANGES_REASON}</span>}
+              <Button
+                size="sm"
+                disabled={!canPublish}
+                aria-describedby={noChanges ? noChangesReasonId : undefined}
+                onClick={() => setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected })}
+              >게시</Button>
             </div>
           )}
         </div>
