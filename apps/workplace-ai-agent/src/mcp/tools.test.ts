@@ -939,6 +939,14 @@ describe('공유 도구 패리티 (#846)', () => {
     }
   });
 
+  // WP-2033 리뷰 후속: 워크플로우 도구는 반복 회차(recurring)에 싣지 않는다 — RECURRING_RUN_WRITE_TOOLS 주석의 「뺀 것」과 맞춘다.
+  it('WP-2033: 워크플로우 6종은 recurring 목록에 없다', () => {
+    for (const n of ['get_issue_workflow', 'start_issue_workflow', 'move_issue_workflow', 'get_workflow', 'validate_workflow', 'update_workflow']) {
+      expect(RECURRING_RUN_TOOLS).not.toContain(n);
+      expect(RECURRING_RUN_WRITE_TOOLS).not.toContain(n);
+    }
+  });
+
   // WP-1994: 기본 issue 프로필은 조회(get_issue_workflow)만, 노드 깨우기 변형(issue-workflow)은 이동까지 싣는다 — 시작·정의 도구와 report_agent_work 는 어느 쪽에도 없다.
   it('WP-1994: issue 프로필은 get 만, issue-workflow 프로필은 get/move 를 싣는다', () => {
     const base = buildTools(client(), AGENT_ID, 'issue').map((t) => t.name);
