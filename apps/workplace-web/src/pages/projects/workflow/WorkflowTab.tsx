@@ -436,6 +436,8 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
       )}
       {workError && <p role="alert" className="text-sm text-destructive">{workError}</p>}
       <TabsContent value="editor" className="space-y-3">
+        {/* 탭 패널 제목 — 페이지 h1 다음 h3(검증 결과 등)로 건너뛰지 않게 세 패널 모두 스크린리더용 h2 를 둔다(WP-2054, WCAG 1.3.1) */}
+        <h2 className="sr-only">편집</h2>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex gap-1" role="group" aria-label="워크플로우 표시 방식">
             <Button size="sm" variant={mode === 'graph' ? 'secondary' : 'ghost'} aria-pressed={mode === 'graph'} onClick={() => setMode('graph')}>그래프</Button>
@@ -511,12 +513,14 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
         )}
       </TabsContent>
       <TabsContent value="runs">
+        <h2 className="sr-only">실행</h2>
         {/* 진행 중인 실행 수 문구는 목록 머리(WorkflowRuns)로 옮겼다. */}
         <WorkflowRuns workflowId={id} projectKey={project.key} activeVersionNo={activeVersionNo} canManage={canManage} canRecover={project.viewerIsMember} meId={user?.id ?? 0}
           runningCount={running} runningFailed={running === null && versions.isError} onRetryRunning={() => void versions.refetch()}
           olderNotice={olderNotice} />
       </TabsContent>
       <TabsContent value="versions">
+        <h2 className="sr-only">버전</h2>
         <WorkflowVersions
           id={id}
           versions={versions}
