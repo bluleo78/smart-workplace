@@ -1,6 +1,7 @@
 // 커스텀 필드 위젯 편집 권한 분기(WP-503) — 서버는 멤버만 값 저장을 허용한다. 비멤버(disabled)에겐 값은 보이되 모든 유형의
 // 입력이 꺼지고, 날짜 지우기 버튼도 그리지 않는다. 화면 배선은 E2E(open-issue-permissions)가 맡는다(WP-413).
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/renderWithProviders'
@@ -38,5 +39,15 @@ describe('CustomFieldEditor — 편집 권한', () => {
     renderWithProviders(<CustomFieldEditor def={d} value="2026-10-20" onChange={vi.fn()} />)
     expect(screen.getByTestId('field-input-3-clear')).toBeEnabled()
     expect(screen.getByTestId('field-input-3')).toBeEnabled()
+  })
+})
+
+// WP-2058: 날짜 필드 달력 팝오버(role=dialog)는 필드 이름으로 읽혀야 한다 — 이름이 없으면 스크린리더가 「dialog」 로만 읽는다.
+describe('CustomFieldEditor — 날짜 팝오버 이름', () => {
+  it('dateField_open_dialogHasAccessibleName', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CustomFieldEditor def={def(3, 'DATE')} value={null} onChange={vi.fn()} />)
+    await user.click(screen.getByTestId('field-input-3'))
+    expect(await screen.findByRole('dialog', { name: '필드3 선택' })).toBeInTheDocument()
   })
 })

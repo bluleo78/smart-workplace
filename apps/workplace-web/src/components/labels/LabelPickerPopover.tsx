@@ -98,7 +98,8 @@ export function LabelPickerPopover({
           <Tag className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-2" data-testid="label-picker">
+      {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+      <PopoverContent className="w-72 p-2" data-testid="label-picker" aria-label="라벨 선택">
         <Input
           placeholder="라벨 검색"
           value={search}

@@ -157,6 +157,7 @@ describe('SUBTASK', () => {
       ],
     })
     await user.click(screen.getByTestId('issue-type-trigger'))
+    expect(await screen.findByRole('dialog', { name: '이슈 유형 선택' })).toBeInTheDocument()
     await user.click(await screen.findByTestId('issue-type-option-5'))
     expect(await screen.findByTestId('issue-type-subtask-parent')).toBeInTheDocument()
     expect(screen.getByTestId('issue-type-parent-save')).toBeDisabled()

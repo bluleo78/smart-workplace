@@ -61,7 +61,8 @@ export function ComponentPickerPopover({
         <PickerAddTrigger variant={trigger} aria-label={trigger === 'button' ? '구성요소 편집' : '구성요소 추가'} data-testid="component-picker-trigger" />
       </PopoverTrigger>
       {/* 트리거가 속성 레일 오른쪽 끝이라 가운데 정렬이면 화면 가장자리에 붙는다 — 오른쪽 끝을 트리거에 맞추고 가장자리 16px 를 띄운다. */}
-      <PopoverContent align="end" collisionPadding={16} className="w-72 p-2" data-testid="component-picker">
+      {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+      <PopoverContent align="end" collisionPadding={16} className="w-72 p-2" data-testid="component-picker" aria-label="구성요소 선택">
         <Input
           placeholder="구성요소 검색"
           aria-label="구성요소 검색"

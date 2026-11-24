@@ -237,7 +237,8 @@ export function AssigneePickerPopover({
           </button>
         </PopoverTrigger>
       )}
-      <PopoverContent className="w-72 p-2" data-testid="assignee-picker">
+      {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+      <PopoverContent className="w-72 p-2" data-testid="assignee-picker" aria-label="담당자 선택">
         <Input
           placeholder="멤버 검색"
           value={search}

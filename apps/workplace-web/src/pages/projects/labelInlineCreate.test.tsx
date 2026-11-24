@@ -46,6 +46,7 @@ async function openPicker({ createStatus, extra = [] }: { createStatus?: number;
   // 라벨 선택기를 연다 — 목록이 뜬 뒤에만 만들기를 판단한다.
   await view.user.click(screen.getByTestId('label-picker-trigger'))
   const picker = await screen.findByTestId('label-picker')
+  expect(screen.getByRole('dialog', { name: '라벨 선택' })).toBeInTheDocument()
   await within(picker).findByTestId('label-option-1')
   const search = within(picker).getByLabelText('라벨 검색') as HTMLInputElement
   return { ...view, picker, search, posts, puts }
