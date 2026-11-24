@@ -16,6 +16,8 @@ export function shouldStartNewGroup(
   if (prev.authorId !== curr.authorId) return true
   // 서버 LocalDateTime(UTC) 파싱은 formatters.parseUtcDate 로 단일화(중복 제거).
   const gapMs = parseUtcDate(curr.createdAt).getTime() - parseUtcDate(prev.createdAt).getTime()
+  // 시각을 못 읽으면 gapMs 가 NaN 이라 비교가 false 가 되어 앞 묶음에 붙고 이름·시각 머리를 잃는다 — 새 묶음으로 둔다(WP-2046).
+  if (Number.isNaN(gapMs)) return true
   return gapMs > GROUP_GAP_MINUTES * 60_000
 }
 
