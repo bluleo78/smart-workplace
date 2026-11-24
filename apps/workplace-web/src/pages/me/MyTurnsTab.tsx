@@ -71,7 +71,11 @@ export function MyTurnsTab() {
           </li>
         ))}
       </ul>
-      {selected && user && <TurnPanel key={selected.runId} turn={selected} meId={user.id} />}
+      {/* WP-2050: 고른 줄이 없으면 빈 칸 대신 안내 — 줄을 누르면 여기서 바로 답할 수 있다는 걸 알린다(실행 탭의 빈 상세와 같은 모양·톤, 문구는 이 탭에 맞춤). */}
+      {/* 로그인 정보가 아직 없으면 패널을 못 그리니 빈 칸 대신 안내를 둔다. */}
+      {selected && user
+        ? <TurnPanel key={selected.runId} turn={selected} meId={user.id} />
+        : <p className="text-sm text-muted-foreground" data-testid="my-turn-empty-detail">줄을 고르면 여기에서 넘겨받은 내용을 보고 바로 결과를 고를 수 있습니다.</p>}
     </div>
   )
 }

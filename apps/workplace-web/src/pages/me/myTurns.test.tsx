@@ -71,6 +71,18 @@ describe('내 차례 탭', () => {
     await waitFor(() => expect(screen.queryByTestId('my-turn-row-1')).not.toBeInTheDocument())
     expect(screen.queryByText('김 님이 넘김')).not.toBeInTheDocument()
     expect(screen.getByTestId('my-turn-row-2')).toBeVisible()
+    // WP-2050: 넘겨서 고른 줄이 빠지면 선택이 풀려 안내가 다시 보인다.
+    expect(screen.getByTestId('my-turn-empty-detail')).toBeVisible()
+  })
+
+  // WP-2050: 고른 줄이 없으면 오른쪽에 안내를 보이고, 줄을 고르면 안내 대신 패널이 보인다.
+  it('myTurns_noSelection_showsDetailHint_untilRowPicked', async () => {
+    const { user } = setup([[turn(1)]])
+    await screen.findByTestId('my-turn-row-1')
+    expect(screen.getByTestId('my-turn-empty-detail')).toHaveTextContent('줄을 고르면 여기에서 넘겨받은 내용을 보고 바로 결과를 고를 수 있습니다.')
+    await user.click(screen.getByRole('button', { name: /WP-10/ }))
+    expect(await screen.findByTestId('my-turn-panel')).toBeVisible()
+    expect(screen.queryByTestId('my-turn-empty-detail')).not.toBeInTheDocument()
   })
 
   it('myTurns_nullQuestionAndHandedBy_omitted', async () => {
@@ -134,5 +146,6 @@ describe('내 차례 탭', () => {
     setup([[]])
     expect(await screen.findByText('지금 내 차례인 일이 없습니다')).toBeVisible()
     expect(screen.getByText('워크플로우가 나에게 넘긴 일이 여기에 모입니다')).toBeVisible()
+    expect(screen.queryByTestId('my-turn-empty-detail')).not.toBeInTheDocument()
   })
 })
