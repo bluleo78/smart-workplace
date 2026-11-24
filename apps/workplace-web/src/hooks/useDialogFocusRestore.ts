@@ -45,7 +45,7 @@ function restoreTargetOf(el: HTMLElement): HTMLElement {
 }
 
 /** 지금 포커스를 가진 요소의 복원 대상 — body(포커스 없음)는 대상이 아니다. */
-function currentRestoreTarget(): HTMLElement | null {
+export function currentRestoreTarget(): HTMLElement | null {
   const active = document.activeElement;
   return active instanceof HTMLElement && active !== document.body ? restoreTargetOf(active) : null;
 }
@@ -64,6 +64,68 @@ function focusNearest(el: HTMLElement, keyboard: boolean, preventScroll: boolean
     candidate.focus({ preventScroll });
     if (document.activeElement === candidate) return;
   }
+}
+
+/** 대화상자 콘텐츠 선택자 — 연쇄 시트에서 복원 대상이 들어 있던 대화상자를 찾는 데 쓴다. */
+const ANY_DIALOG = '[role="dialog"], [role="alertdialog"]';
+
+/**
+ * 대화상자 콘텐츠 요소 → 그것을 열 때 포커스가 있던 요소(복원 대상) (WP-2057).
+ * 액션 시트에서 고른 항목이 다른 시트를 열면 두 번째 시트가 잡은 연 요소는 첫 시트 안의 단추라, 두 번째가 닫힐 때
+ * 이미 사라져 포커스가 body 로 빠진다. 그럴 때 첫 시트가 기억해 둔 연 요소(원래 단추)로 한 단계씩 거슬러 올라간다.
+ */
+const dialogOpeners = new WeakMap<HTMLElement, HTMLElement>();
+
+/** 대화상자 콘텐츠가 열릴 때의 연 요소를 기억한다 — 훅을 안 쓰는 대화상자(MobileActionSheet)도 연쇄 복원에 참여하게 한다. */
+export function rememberDialogOpener(content: HTMLElement, opener: HTMLElement | null) {
+  if (opener) dialogOpeners.set(content, opener);
+}
+
+/** 항목 선택으로 닫히는 대화상자가 넘겨 준 연 요소 — 이어 열리는 시트가 같은 커밋에서 열려 포커스가 이미 body 일 때만 쓴다. */
+let handedOffOpener: HTMLElement | null = null;
+
+/**
+ * 주의(WP-2057): 이어 여는 대화상자가 **같은 이벤트 안에서 동기로** 열릴 때만 통한다(한 틱 뒤 setTimeout 으로 비운다) —
+ * 나중에 비동기로 열면 넘겨 둔 연 요소는 이미 없다. 또 followClosedDialogs 옵션을 켠 호출부(MobileSheetShell)만 가져다 쓰고,
+ * ui/dialog·alert-dialog·RawSheetContent 는 가져가지 않는다.
+ *
+ * 항목을 눌러 대화상자를 닫고 곧바로 다른 시트를 여는 호출부(MobileActionSheet)가 부른다 — 모션이 없거나 줄인 환경에서는
+ * 첫 시트가 같은 커밋에서 사라져 두 번째 시트가 열릴 때 포커스가 body 라 복원 대상을 못 잡는다. 첫 시트의 연 요소를 잠시 넘겨 둔다.
+ */
+export function handOffDialogOpener(from: HTMLElement) {
+  const dialog = from.closest<HTMLElement>(ANY_DIALOG);
+  const opener = dialog ? dialogOpeners.get(dialog) : undefined;
+  if (!opener) return;
+  handedOffOpener = opener;
+  // 이어 여는 시트는 같은 이벤트의 커밋에서 마운트된다 — 한 틱 뒤에는 비워 다른 시트가 엉뚱한 대상을 물려받지 않게 한다.
+  setTimeout(() => {
+    if (handedOffOpener === opener) handedOffOpener = null;
+  }, 0);
+}
+
+function takeHandedOffOpener(): HTMLElement | null {
+  const opener = handedOffOpener;
+  handedOffOpener = null;
+  return opener;
+}
+
+/** 연쇄 복원에서 거슬러 오르는 최대 단계. */
+const MAX_OPENER_HOPS = 3;
+
+/**
+ * 복원 대상이 이미 사라졌으면(연 요소가 닫힌 첫 시트 안에 있던 경우) 그 시트가 기억한 연 요소로 바꾼다.
+ * 연결된 대상이 나오거나 기억이 끊기거나 MAX_OPENER_HOPS 단계에 이르면 멈춘다.
+ */
+function resolveConnectedTarget(target: HTMLElement | null, container: HTMLElement | null): HTMLElement | null {
+  let current = target;
+  let dialog = container;
+  for (let hop = 0; current && !current.isConnected && hop < MAX_OPENER_HOPS; hop++) {
+    const opener = dialog ? dialogOpeners.get(dialog) : undefined;
+    if (!opener) return current;
+    current = opener;
+    dialog = opener.closest<HTMLElement>(ANY_DIALOG);
+  }
+  return current;
 }
 
 /** 지금 열려 있는 대화상자(대화상자·확인창). 닫히는 중(퇴장 애니메이션, data-state=closed)인 것은 뺀다. */
@@ -97,9 +159,15 @@ export function useDialogFocusRestore(
   onOpenAutoFocus?: (event: Event) => void,
   onCloseAutoFocus?: (event: Event) => void,
   shouldRestore?: (target: HTMLElement) => boolean,
-  options?: { preventScroll?: boolean },
+  options?: { preventScroll?: boolean; keyboardOnly?: boolean; followClosedDialogs?: boolean },
 ) {
+  // 닫힌 대화상자를 거슬러 오르는 연쇄 복원 — 모바일 시트만 켠다. 데스크톱 대화상자·원시 시트는 예전 동작 그대로(WP-2057).
+  const followClosedDialogs = options?.followClosedDialogs ?? false;
   const preventScroll = options?.preventScroll ?? false;
+  // 키보드 사용자에게만 복원한다 — 터치로 연 시트의 연 요소가 툴팁 트리거면 프로그램 포커스가 툴팁을 남긴다(WP-2057).
+  const keyboardOnly = options?.keyboardOnly ?? false;
+  // 복원 대상이 들어 있던 대화상자 — 대상이 사라졌을 때 그 대화상자가 기억한 연 요소로 거슬러 오르는 데 쓴다.
+  const containerRef = useRef<HTMLElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   // 이번 열림의 복원 대상을 이미 잡았는지 — 닫힐 때 비운다.
   const capturedRef = useRef(false);
@@ -117,7 +185,9 @@ export function useDialogFocusRestore(
     if (capturedRef.current) return;
     capturedRef.current = true;
     // document.body 는 유효한 복원 대상이 아니다(포커스가 이미 없던 상태).
-    previouslyFocusedElementRef.current = currentRestoreTarget();
+    previouslyFocusedElementRef.current = currentRestoreTarget() ?? (followClosedDialogs ? takeHandedOffOpener() : null);
+    // 연쇄 복원을 따라갈 호출부만 연 요소가 든 대화상자를 적어 둔다(닫힐 때 연 요소가 사라지면 그 대화상자의 연 요소로).
+    containerRef.current = followClosedDialogs ? (previouslyFocusedElementRef.current?.closest<HTMLElement>(ANY_DIALOG) ?? null) : null;
     keyboardRef.current = isKeyboardFocused(document.activeElement);
     // 열린 동안 마지막 입력 수단을 추적한다 — 캡처 단계라 다이얼로그 안에서 전파를 막아도 놓치지 않는다.
     trackingRef.current?.abort();
@@ -126,7 +196,7 @@ export function useDialogFocusRestore(
     const options = { capture: true, signal: controller.signal };
     document.addEventListener('keydown', () => { keyboardRef.current = true; }, options);
     document.addEventListener('pointerdown', () => { keyboardRef.current = false; }, options);
-  }, []);
+  }, [followClosedDialogs]);
 
   const handleOpenAutoFocus = useCallback(
     (event: Event) => {
@@ -134,6 +204,8 @@ export function useDialogFocusRestore(
       // activeElement 가 다이얼로그 자신이 되어 닫을 때 트리거로 돌아가지 못한다.
       // 대개는 DialogOpenerProbe 가 이미 잡아 두었다 — 여기서는 그러지 못한 경우만 잡는다. 순수 관찰이라 defaultPrevented 와 무관.
       capture();
+      // Radix 는 열림 초점 이벤트를 콘텐츠 요소에 보낸다 — 이 대화상자의 연 요소를 기억해 이어 연 시트가 거슬러 오르게 한다.
+      if (event.currentTarget instanceof HTMLElement) rememberDialogOpener(event.currentTarget, previouslyFocusedElementRef.current);
       onOpenAutoFocus?.(event);
     },
     [capture, onOpenAutoFocus],
@@ -142,20 +214,25 @@ export function useDialogFocusRestore(
   const handleCloseAutoFocus = useCallback(
     (event: Event) => {
       onCloseAutoFocus?.(event);
-      const target = previouslyFocusedElementRef.current;
+      const container = containerRef.current;
+      const target = followClosedDialogs
+        ? resolveConnectedTarget(previouslyFocusedElementRef.current, container)
+        : previouslyFocusedElementRef.current;
+      containerRef.current = null;
       // 래퍼가 open 사이클을 넘어 유지되므로, 다음 open 에서 stale 복원을 막기 위해 이번 close 에서 소비한 뒤 비운다.
       previouslyFocusedElementRef.current = null;
       capturedRef.current = false;
       // 닫혔으니 입력 수단 감시를 끝낸다 — keyboardRef 값은 아래 복원에서 쓴 뒤 다음 열림에서 다시 정한다.
       trackingRef.current?.abort();
       if (event.defaultPrevented) return;
+      if (keyboardOnly && !keyboardRef.current) return;
       // 복원 대상이 이미 DOM 에서 제거됐을 수 있으므로 isConnected 확인 후 focus.
       if (target && target.isConnected && (shouldRestore?.(target) ?? true)) {
         event.preventDefault();
         focusNearest(target, keyboardRef.current, preventScroll);
       }
     },
-    [onCloseAutoFocus, shouldRestore, preventScroll],
+    [onCloseAutoFocus, shouldRestore, preventScroll, keyboardOnly, followClosedDialogs],
   );
 
   return { onOpenAutoFocus: handleOpenAutoFocus, onCloseAutoFocus: handleCloseAutoFocus, captureOpener: capture };
