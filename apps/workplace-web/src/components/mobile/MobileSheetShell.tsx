@@ -3,10 +3,10 @@
 // 열리면 초점을 시트 컨텐츠 자신(tabindex -1)으로 옮겨 포커스 트랩이 걸리게 하고, 닫히면 연 요소로 돌려준다(WP-2057).
 // 예전엔 열림 초점을 막기만 해서 키보드 초점이 aria-hidden 배경에 남았고, 닫힘 복원도 막아 초점이 body 로 빠졌다.
 // 높이는 index.css 의 bottom sheet 규칙(max-height: var(--vvh), bottom: var(--kb-inset))으로 키보드에 맞춰진다.
-import { type ReactNode, useCallback, useRef } from 'react';
+import { type KeyboardEvent, type ReactNode, useCallback, useRef } from 'react';
 
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
-import { DialogOpenerProbe, noOtherDialogCovers, useDialogFocusRestore } from '@/hooks/useDialogFocusRestore';
+import { DialogOpenerProbe, FOCUSABLE, noOtherDialogCovers, useDialogFocusRestore } from '@/hooks/useDialogFocusRestore';
 import { cn } from '@/lib/utils';
 
 import { isKeyboardEditable } from './useVisualViewport';
@@ -27,8 +27,24 @@ function shouldRestoreFocus(target: HTMLElement) {
   return noOtherDialogCovers(target) && !isKeyboardEditable(target);
 }
 
-/** 닫힘 복원 옵션 — 스크롤 없이 돌려준다(목록이 다시 정렬돼 연 단추가 화면 밖이어도 화면이 튀지 않게). 렌더마다 새 객체가 되지 않게 모듈에 둔다. */
-const RESTORE_OPTIONS = { preventScroll: true };
+/**
+ * 닫힘 복원 옵션(렌더마다 새 객체가 되지 않게 모듈에 둔다).
+ * preventScroll — 연 단추가 화면 밖이어도 화면이 튀지 않게. followClosedDialogs — 액션 시트 항목이 연 시트는 사라진 항목 대신 액션 시트를 연 요소로.
+ * keyboardOnly 판은 연 요소가 툴팁 트리거라 터치 복원이 툴팁을 남기는 호출부(WikiPresence)만 쓴다 — 스크린리더 터치 사용자도 복원이 필요해 기본은 아니다.
+ */
+const RESTORE_OPTIONS = { preventScroll: true, followClosedDialogs: true };
+const RESTORE_OPTIONS_KEYBOARD_ONLY = { preventScroll: true, followClosedDialogs: true, keyboardOnly: true };
+
+/**
+ * Shift+Tab 으로 보낼 수 있는 요소인지 — 실제로 Tab 정지가 되는 것만 남긴다(WP-2057).
+ * tabindex -1, 비활성 fieldset 안, visibility:hidden, inert·aria-hidden 조상 안, 레이아웃 없는(display:none) 요소는 뺀다.
+ */
+function isTabbable(el: HTMLElement) {
+  if (el.tabIndex < 0 || el.getClientRects().length === 0) return false;
+  if (getComputedStyle(el).visibility === 'hidden') return false;
+  if (el.closest('fieldset:disabled, [inert], [aria-hidden="true"]')) return false;
+  return true;
+}
 
 export function MobileSheetShell({
   open,
@@ -39,6 +55,7 @@ export function MobileSheetShell({
   className,
   headerAction,
   autoFocus = false,
+  restoreFocusForKeyboardOnly = false,
   children,
 }: {
   open: boolean;
@@ -53,6 +70,8 @@ export function MobileSheetShell({
   headerAction?: ReactNode;
   /** 열릴 때 첫 포커스 가능 요소에 포커스(검색창 있는 시트 — Radix 기본). 기본(false)은 시트 컨텐츠 자신에 초점을 둔다(WP-2057) — 첫 단추에 링이 튀지 않으면서 포커스 트랩은 걸린다. */
   autoFocus?: boolean;
+  /** 닫힘 포커스 복원을 키보드 사용자에게만 한다 — 연 요소가 툴팁 트리거라 터치 복원이 툴팁을 남기는 경우(WikiPresence). 기본(false)은 입력 수단과 무관하게 복원. */
+  restoreFocusForKeyboardOnly?: boolean;
   children: ReactNode;
 }) {
   // 시트 컨텐츠 DOM — autoFocus 가 아닐 때 열림 초점을 여기로 옮긴다(SheetContent 는 ref 를 props 로 그대로 내려보낸다).
@@ -67,7 +86,21 @@ export function MobileSheetShell({
     [autoFocus],
   );
   // 닫힘 복원은 원시 시트·ui/DialogContent 와 같은 훅 — 연 요소로 초점을 돌려준다(조건은 shouldRestoreFocus).
-  const focusRestore = useDialogFocusRestore(openAutoFocus, undefined, shouldRestoreFocus, RESTORE_OPTIONS);
+  const focusRestore = useDialogFocusRestore(openAutoFocus, undefined, shouldRestoreFocus, restoreFocusForKeyboardOnly ? RESTORE_OPTIONS_KEYBOARD_ONLY : RESTORE_OPTIONS);
+  // 열린 직후 초점은 컨텐츠 자신에 있어 Shift+Tab 이 Radix 트랩에 잡히지 않고 배경 마지막 요소로 샌다 — 시트 안 마지막 요소로 직접 보낸다(WP-2057).
+  const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    const content = contentRef.current;
+    if (e.key !== 'Tab' || !e.shiftKey || !content || e.target !== content) return;
+    e.preventDefault();
+    // 뒤에서부터 첫 Tab 정지 요소 하나만 찾는다. 없으면 컨텐츠에 그대로 둔다.
+    const items = content.querySelectorAll<HTMLElement>(FOCUSABLE);
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (isTabbable(items[i])) {
+        items[i].focus();
+        return;
+      }
+    }
+  }, []);
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
@@ -76,6 +109,7 @@ export function MobileSheetShell({
         showCloseButton={false}
         data-testid={testId}
         className={cn('flex max-h-[85dvh] flex-col gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)] outline-none', className)}
+        onKeyDown={onKeyDown}
         onCloseAutoFocus={focusRestore.onCloseAutoFocus}
         onOpenAutoFocus={focusRestore.onOpenAutoFocus}
       >

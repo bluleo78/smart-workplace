@@ -5,6 +5,7 @@ import { Fragment, type ReactNode } from 'react';
 
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
+import { currentRestoreTarget, handOffDialogOpener, rememberDialogOpener } from '@/hooks/useDialogFocusRestore';
 import { startsDestructiveGroup } from '@/lib/startsDestructiveGroup';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +25,15 @@ export interface MobileSheetAction {
   ai?: boolean;
   /** 이름 아래 작은 설명(예: 「채팅·이슈로 보내기」 아래 「앱 안 채널·DM·이슈 댓글」, WP-1235) — 이름만으로 어디로 가는지 모호한 항목에. */
   description?: string;
+}
+
+/**
+ * 열림 초점 — 기본 동작은 그대로 두고, 시트를 연 요소만 기억해 둔다(WP-2057). 이 시트 안 항목이 다른 시트를 열면
+ * 그 시트가 닫힐 때 사라진 항목 대신 여기서 기억한 연 요소로 초점을 돌려줄 수 있다(useDialogFocusRestore).
+ */
+function rememberOpener(e: Event) {
+  // 훅의 복원 대상과 같은 규칙(메뉴 항목이면 그 메뉴 트리거)으로 기억한다.
+  if (e.currentTarget instanceof HTMLElement) rememberDialogOpener(e.currentTarget, currentRestoreTarget());
 }
 
 /** 기본 닫힘 초점 처리 — Radix 기본 복귀(초점 이동)를 막는다. 렌더마다 새 함수를 만들지 않게 모듈에 둔다. */
@@ -66,6 +76,7 @@ export function MobileActionSheet({
         className={cn('max-h-[85dvh] gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]', aboveAiSheet && 'z-[80]')}
         // 트리거 없는 시트 — 기본은 닫힐 때 포커스를 되돌리지 않는다(행으로 포커스가 튀어 스크롤되는 것 방지).
         onCloseAutoFocus={onCloseAutoFocus}
+        onOpenAutoFocus={rememberOpener}
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
         {/* break-keep: 한글 제목이 음절 중간에서 끊기지 않게 낱말 단위로 줄바꿈 — 공백 없는 긴 이름은 wrap-break-word 가 그래도 끊어 넘치지 않는다. */}
@@ -79,7 +90,9 @@ export function MobileActionSheet({
                 type="button"
                 data-testid={`mobile-action-${a.key}`}
                 disabled={a.disabled}
-                onClick={() => {
+                onClick={(e) => {
+                  // 이어 여는 시트가 이 시트의 연 요소로 초점을 돌려줄 수 있게 넘겨 둔다(WP-2057).
+                  handOffDialogOpener(e.currentTarget);
                   onClose();
                   a.onSelect();
                 }}

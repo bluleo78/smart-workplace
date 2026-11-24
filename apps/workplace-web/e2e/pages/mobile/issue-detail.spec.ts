@@ -206,6 +206,24 @@ test.describe('＋ 속성 시트', () => {
     const inSheet = () => sheet.evaluate((el) => el.contains(document.activeElement));
     // 열린 직후 초점이 시트 안으로 옮겨져 있다(조건 대기).
     await expect.poll(inSheet).toBe(true);
+    // 열린 직후 Shift+Tab 한 번 — 초점이 컨텐츠 자신에 있어도 배경으로 새지 않고 시트 안 마지막 조작 요소로 간다.
+    await page.evaluate(() => {
+      const w = window as unknown as { __outsideFocus: string[] };
+      w.__outsideFocus = [];
+      document.addEventListener('focusin', (e) => {
+        if (!(e.target as Element).closest('[data-testid="issue-more-props-sheet"]')) w.__outsideFocus.push((e.target as Element).tagName);
+      });
+    });
+    await page.keyboard.press('Shift+Tab');
+    const lastIsFocused = await sheet.evaluate((el) => {
+      const items = Array.from(
+        el.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      ).filter((n) => n.getClientRects().length > 0);
+      return items.length > 0 && items[items.length - 1] === document.activeElement;
+    });
+    expect(lastIsFocused).toBe(true);
+    expect(await inSheet()).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as { __outsideFocus: string[] }).__outsideFocus)).toEqual([]);
     // Tab 으로 한 바퀴 이상 돌아도 매번 시트 안에 머문다.
     for (let i = 0; i < 12; i++) {
       await page.keyboard.press('Tab');

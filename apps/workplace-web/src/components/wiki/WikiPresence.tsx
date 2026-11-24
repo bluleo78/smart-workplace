@@ -1,5 +1,5 @@
 import { LocateFixed } from 'lucide-react'
-import { type ComponentProps, useId, useRef, useState } from 'react'
+import { type ComponentProps, useId, useState } from 'react'
 
 import { AiIcon } from '@/components/ai/AiIcon'
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -135,7 +135,6 @@ export function WikiPresence({ people, compact, stale, onJump }: WikiPresencePro
 /** 접속자가 있을 때의 헤더 버튼 + 목록(팝오버·바텀시트) — 열림 상태의 수명이 "접속자가 보이는 동안" 과 같다. */
 function WikiPresenceTrigger({ people, compact, stale, onJump }: WikiPresenceProps) {
   const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
   const titleId = useId()
   const { shown, more } = splitVisible(people, compact ? MOBILE_MAX : DESKTOP_MAX)
   const title = `이 노트를 보고 있는 사람 ${people.length}`
@@ -202,7 +201,6 @@ function WikiPresenceTrigger({ people, compact, stale, onJump }: WikiPresencePro
     <>
       <button
         {...triggerProps}
-        ref={triggerRef}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
@@ -214,12 +212,12 @@ function WikiPresenceTrigger({ people, compact, stale, onJump }: WikiPresencePro
         open={open}
         onClose={() => {
           setOpen(false)
-          // 닫으면 여는 버튼으로 포커스를 돌린다(공용 셸은 복귀를 막는 것이 기본). 닫힘이 반영돼 포커스 가둠이 풀린 다음 프레임에 옮긴다.
-          requestAnimationFrame(() => triggerRef.current?.focus())
+          // 닫힘 포커스 복원은 공용 셸이 맡는다 — 키보드 사용자에게만 여는 버튼으로 돌려주고, 터치 사용자는 툴팁이 남지 않게 돌려주지 않는다(WP-2057).
         }}
         title={title}
         description="이름을 누르면 사람 카드, ⌖ 를 누르면 커서 위치로 이동"
         testId="wiki-presence-sheet"
+        restoreFocusForKeyboardOnly
       >
         <div className="overflow-y-auto pb-2">
           <WikiPresenceList people={people} onSelect={select} rowClassName={MOBILE_SHEET_ROW} />

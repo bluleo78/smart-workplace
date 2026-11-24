@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 
+import { MobileActionSheet } from './MobileActionSheet'
 import { MobileSheetShell } from './MobileSheetShell'
 
 /** Radix 가 미뤄 둔 닫힘 포커스 처리(setTimeout 0)를 흘린다. */
@@ -229,5 +230,103 @@ describe('MobileSheetShell — 열림·닫힘 초점', () => {
     await flushRadixFocus()
     expect(opener).toHaveFocus()
     expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  // 연쇄 시트(WP-2057) — 액션 시트 항목이 다른 시트를 열면, 두 번째가 닫힐 때 사라진 항목 대신 액션 시트를 연 단추로 돌아온다.
+  test('액션 시트에서 연 시트를 Esc 로 닫으면 액션 시트를 연 단추로 돌아온다', async () => {
+    function Chained() {
+      const [actions, setActions] = useState(false)
+      const [sheet, setSheet] = useState(false)
+      return (
+        <>
+          <button onClick={() => setActions(true)}>더보기</button>
+          <MobileActionSheet
+            open={actions}
+            onClose={() => setActions(false)}
+            title="열"
+            actions={[{ key: 'rename', label: '이름 변경', icon: null, onSelect: () => setSheet(true) }]}
+          />
+          <Sheet open={sheet} onClose={() => setSheet(false)} />
+        </>
+      )
+    }
+    render(<Chained />)
+    const opener = screen.getByRole('button', { name: '더보기' })
+    await openFrom(opener)
+    act(() => screen.getByTestId('mobile-action-rename').click())
+    await flushRadixFocus()
+    await closeByEscape()
+    expect(screen.queryByTestId('sheet')).toBeNull()
+    expect(opener).toHaveFocus()
+  })
+
+  // 터치로 연 시트는 돌려주지 않는다(WP-2057) — 연 요소가 툴팁 트리거면 프로그램 포커스가 툴팁을 남긴다.
+  async function pointerOpenClose(keyboardOnly: boolean) {
+    function PointerHarness({ keyboardOnly }: { keyboardOnly: boolean }) {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>열기</button>
+          <MobileSheetShell open={open} onClose={() => setOpen(false)} title="속성" description="설명" testId="sheet" restoreFocusForKeyboardOnly={keyboardOnly}>
+            <button onClick={() => setOpen(false)}>닫기</button>
+          </MobileSheetShell>
+        </>
+      )
+    }
+    render(<PointerHarness keyboardOnly={keyboardOnly} />)
+    const opener = screen.getByRole('button', { name: '열기' })
+    // 실제 클릭처럼 초점이 먼저 단추에 간 뒤 눌린다(fireEvent 는 초점을 옮기지 않는다).
+    opener.focus()
+    fireEvent.pointerDown(opener)
+    act(() => opener.click())
+    await flushRadixFocus()
+    const close = screen.getByRole('button', { name: '닫기' })
+    fireEvent.pointerDown(close)
+    act(() => close.click())
+    await flushRadixFocus()
+    expect(screen.queryByTestId('sheet')).toBeNull()
+    return opener
+  }
+  test('restoreFocusForKeyboardOnly 시트를 포인터로 열고 닫으면 연 단추로 초점을 돌리지 않는다', async () => {
+    expect(await pointerOpenClose(true)).not.toHaveFocus()
+  })
+
+  // 스크린리더 터치(VoiceOver·TalkBack)는 포인터 이벤트로 열어도 복원이 필요하다 — 기본 시트는 입력 수단과 무관하게 돌려준다.
+  test('기본 시트는 포인터로 열고 닫아도 연 단추로 초점을 돌려준다', async () => {
+    expect(await pointerOpenClose(false)).toHaveFocus()
+  })
+
+  // 연쇄 복원은 모바일 시트 전용 — 액션 시트 항목이 연 ui Dialog 는 예전처럼 연쇄 연 요소를 받지 않는다.
+  test('액션 시트 항목이 연 데스크톱 Dialog 를 닫아도 연쇄 연 요소로 돌리지 않는다', async () => {
+    function ChainedDialog() {
+      const [actions, setActions] = useState(false)
+      const [dialog, setDialog] = useState(false)
+      return (
+        <>
+          <button onClick={() => setActions(true)}>더보기</button>
+          <MobileActionSheet
+            open={actions}
+            onClose={() => setActions(false)}
+            title="열"
+            actions={[{ key: 'rename', label: '이름 변경', icon: null, onSelect: () => setDialog(true) }]}
+          />
+          <Dialog open={dialog} onOpenChange={setDialog}>
+            <DialogContent aria-describedby={undefined}>
+              <DialogTitle>이름</DialogTitle>
+              <button>확인</button>
+            </DialogContent>
+          </Dialog>
+        </>
+      )
+    }
+    render(<ChainedDialog />)
+    const opener = screen.getByRole('button', { name: '더보기' })
+    await openFrom(opener)
+    act(() => screen.getByTestId('mobile-action-rename').click())
+    await flushRadixFocus()
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' })
+    await flushRadixFocus()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(opener).not.toHaveFocus()
   })
 })
