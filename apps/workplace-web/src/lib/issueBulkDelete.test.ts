@@ -31,10 +31,10 @@ describe('countCascadedChildren (WP-482)', () => {
 describe('bulkDeleteDescription (WP-482)', () => {
   it('하위가 있으면 함께 삭제된다고 알린다', () => {
     expect(bulkDeleteDescription(2, 2)).toBe(
-      '선택한 2개 태스크를 삭제할까요? 하위 태스크 2개도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
+      '선택한 2개 이슈를 삭제할까요? 하위 태스크 2개도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
     );
   });
   it('하위가 없으면 기존 문구', () => {
-    expect(bulkDeleteDescription(3, 0)).toBe('선택한 3개 태스크를 삭제할까요? 이 작업은 되돌릴 수 없습니다.');
+    expect(bulkDeleteDescription(3, 0)).toBe('선택한 3개 이슈를 삭제할까요? 이 작업은 되돌릴 수 없습니다.');
   });
 });

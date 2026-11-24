@@ -163,12 +163,12 @@ describe('빈 상태 (#337)', () => {
     expect(lastSearch()!.searchParams.has('q')).toBe(false)
   })
 
-  // 필터 없는 0건 → 「이슈가 없습니다」 + 「새 태스크 만들기」 → 유형 중립 「새 이슈」 다이얼로그(#641).
+  // 필터 없는 0건 → 「이슈가 없습니다」 + 「새 이슈 만들기」 → 유형 중립 「새 이슈」 다이얼로그(#641).
   test('필터 없이 0건이면 「이슈가 없습니다」와 CTA, 누르면 「새 이슈」 다이얼로그가 열린다', async () => {
     const { user } = openList([])
     expect(await screen.findByTestId('empty-no-issues')).toBeInTheDocument()
     expect(screen.getByText('이슈가 없습니다')).toBeInTheDocument()
-    expect(screen.getByText('새 태스크를 만들어 프로젝트를 시작하세요.')).toBeInTheDocument()
+    expect(screen.getByText('새 이슈를 만들어 프로젝트를 시작하세요.')).toBeInTheDocument()
     await user.click(screen.getByTestId('empty-create-issue'))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('heading', { name: '새 이슈' })).toBeInTheDocument()

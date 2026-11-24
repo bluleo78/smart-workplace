@@ -72,9 +72,9 @@ export function useRemoveIssue(projectKey: string) {
       qc.removeQueries({ queryKey: issueKeys.detail(projectKey, number) });
       // 지운 뒤 개요의 열린 이슈 수·활동이 바로 바뀌게 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
-      toast.success('태스크를 삭제했습니다');
+      toast.success('이슈를 삭제했습니다');
     },
-    onError: (e) => handleApiError(e, '태스크 삭제에 실패했습니다'),
+    onError: (e) => handleApiError(e, '이슈 삭제에 실패했습니다'),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
       qc.invalidateQueries({ queryKey: ['cycleProgress', projectKey] });

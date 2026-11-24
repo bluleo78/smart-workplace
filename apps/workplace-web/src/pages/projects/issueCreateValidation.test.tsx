@@ -4,7 +4,7 @@
 // 검증 규칙 자체(trim·200자 경계)는 src/lib/validations/issue.test.ts, 경고 켜짐 조건은 src/lib/issueDraft.test.ts 가 맡는다.
 // 닫았다 다시 열면 입력·오류가 남지 않음(#178)·제목 칸 필수 표시(*)·제출 중 「생성 중…」(#131)은
 // e2e/pages/dialog-state-reset.spec.ts · required-field-indicators.spec.ts · submit-loading-state.spec.ts 에서 옮겼다(WP-982).
-// 화면 컴포넌트 테스트(WP-1002) — 목록 화면 대신 만들기 대화상자와 그것을 여는 「+ 새 태스크」만 띄운다(issueCreateDialogScreen).
+// 화면 컴포넌트 테스트(WP-1002) — 목록 화면 대신 만들기 대화상자와 그것을 여는 「+ 새 이슈」만 띄운다(issueCreateDialogScreen).
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
@@ -26,11 +26,11 @@ function projectHandlers(posts: { count: number }, post?: Parameters<typeof http
   ]
 }
 
-/** 「+ 새 태스크」로 대화상자를 띄운다(목록 화면 대신 버튼과 대화상자만 — issueCreateDialogScreen). */
+/** 「+ 새 이슈」로 대화상자를 띄운다(목록 화면 대신 버튼과 대화상자만 — issueCreateDialogScreen). */
 async function openCreateDialog(post?: Parameters<typeof http.post>[1]) {
   const posts = { count: 0 }
   const view = renderCreateDialog(KEY, projectHandlers(posts, post))
-  await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: SCREEN_LOAD_TIMEOUT }))
+  await view.user.click(await screen.findByRole('button', { name: '+ 새 이슈' }, { timeout: SCREEN_LOAD_TIMEOUT }))
   await screen.findByRole('dialog', { name: '새 이슈' })
   return { ...view, posts }
 }
@@ -64,9 +64,9 @@ test('제목을 쓰면 beforeunload 경고가 켜지고, 대화상자를 닫으�
   expect(dispatchBeforeUnload()).toBe(false)
 })
 
-/** 「+ 새 태스크」로 대화상자를 다시 연다. */
+/** 「+ 새 이슈」로 대화상자를 다시 연다. */
 async function reopen(user: Awaited<ReturnType<typeof openCreateDialog>>['user']) {
-  await user.click(screen.getByRole('button', { name: '+ 새 태스크' }))
+  await user.click(screen.getByRole('button', { name: '+ 새 이슈' }))
   return screen.findByRole('dialog', { name: '새 이슈' })
 }
 

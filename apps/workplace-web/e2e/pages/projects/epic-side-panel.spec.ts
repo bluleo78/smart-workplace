@@ -387,7 +387,7 @@ test.describe('에픽 패널 폭 조절 (WP-1343)', () => {
     await openEpicPanel(page);
 
     const frameW = (await page.getByTestId('epic-panel-frame').boundingBox())!.width;
-    const sectionW = (await page.getByRole('region', { name: '태스크' }).boundingBox())!.width;
+    const sectionW = (await page.getByRole('region', { name: '이슈' }).boundingBox())!.width;
     expect(frameW).toBeLessThanOrEqual(sectionW * 0.4 + 1);
     // 손잡이는 저장값(480)이 아니라 화면에 보이는 상한·폭을 알린다(WP-897).
     const handle = page.getByTestId('epic-panel-resize-handle');

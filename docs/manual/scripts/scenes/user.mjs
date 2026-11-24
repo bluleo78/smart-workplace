@@ -650,7 +650,7 @@ export const scenes = [
       await openProject(page, '목록');
       await capture(page, rec, 'work-2', {
         pages: [page.getByRole('button', { name: '사이클' }), page.getByRole('button', { name: '설정' })],
-        create: page.getByRole('button', { name: /새 태스크/ }),
+        create: page.getByRole('button', { name: /새 이슈/ }),
         filters: byTestId(page, 'issue-filter-main'),
         view: page.getByRole('group', { name: '뷰 전환' }),
         group: page.getByText('스프린트 7', { exact: true }).first(),
@@ -679,7 +679,7 @@ export const scenes = [
     account: ACCOUNT,
     async run({ page, rec }) {
       await openProject(page, '목록');
-      await page.getByRole('button', { name: /새 태스크/ }).click();
+      await page.getByRole('button', { name: /새 이슈/ }).click();
       const d = dialog(page);
       await d.getByRole('heading', { name: '새 이슈' }).waitFor();
       await d.getByLabel(/제목/).first().fill('베타 테스터 피드백 정리');
@@ -1641,7 +1641,7 @@ export const scenes = [
         allowWrite: ALLOW_AI_CLASSIFY,
       });
       await openProject(page, '목록');
-      await page.getByRole('button', { name: /새 태스크/ }).click();
+      await page.getByRole('button', { name: /새 이슈/ }).click();
       const d = dialog(page);
       await d.getByRole('heading', { name: '새 이슈' }).waitFor();
       await d.getByLabel(/제목/).first().fill('iOS 17 에서 쿠폰을 적용하면 결제 버튼이 눌리지 않음');

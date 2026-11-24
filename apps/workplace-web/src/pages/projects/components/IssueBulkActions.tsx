@@ -273,7 +273,7 @@ export function IssueBulkActions({
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent data-testid="issue-bulk-delete-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>태스크 일괄 삭제</AlertDialogTitle>
+            <AlertDialogTitle>이슈 일괄 삭제</AlertDialogTitle>
             <AlertDialogDescription>
               {/* WP-482: 부모를 지우면 하위도 함께 지워진다 — 단건 확인창처럼 그 수를 알린다(행은 화면에 있으니 검색 캐시에서 찾는다). */}
               {bulkDeleteDescription(

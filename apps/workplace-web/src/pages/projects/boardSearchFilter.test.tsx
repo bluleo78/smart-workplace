@@ -1,4 +1,4 @@
-// 태스크 보드·목록의 검색·필터·카드 표시·빈 열·종료 이슈 숨김 — 페이지 테스트(WP-980).
+// 이슈 보드·목록의 검색·필터·카드 표시·빈 열·종료 이슈 숨김 — 페이지 테스트(WP-980).
 // 쿼리 파라미터·URL 동기화·배지/라벨 문구·조건부 렌더·생성 payload 는 브라우저 없이 판정되므로
 // e2e/pages/projects/board.spec.ts 에서 옮겼다. 드래그·호버·키보드 놓기 포커스(@input), 폭·스크롤·무한 스크롤(@layout),
 // 보드 대표 진입(@wiring)은 E2E 에 남는다.
@@ -25,7 +25,7 @@ function open(path: string, respond: Parameters<typeof issueSearch>[0] = () => [
 }
 
 /** 첫 화면(필터 바)이 뜰 때까지. */
-const searchBox = () => screen.findByLabelText('태스크 필터: 제목·키', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+const searchBox = () => screen.findByLabelText('이슈 필터: 제목·키', {}, { timeout: SCREEN_LOAD_TIMEOUT })
 const firstCard = (n: number) => screen.findByTestId(`issue-card-${n}`, {}, { timeout: SCREEN_LOAD_TIMEOUT })
 
 /** 상태 facet 에서 값을 고른다(「＋ 필터」 → 상태 범주 → 값). */
@@ -168,7 +168,7 @@ describe('보드 빈 열·열 쿼리', () => {
   })
 
   // WP-464 — 열 CTA 가 상태 없이 대화상자를 열어 「완료」 열에서 눌러도 할 일로 만들어졌다.
-  test('빈 열의 「이슈 추가」는 그 열 상태(statusId)로 만들고, 헤더 「+ 새 태스크」는 상태 없이 만든다', async () => {
+  test('빈 열의 「이슈 추가」는 그 열 상태(statusId)로 만들고, 헤더 「+ 새 이슈」는 상태 없이 만든다', async () => {
     const posted: Record<string, unknown>[] = []
     const create = http.post(ISSUES, async ({ request }) => {
       posted.push((await bodyOf(request)) as Record<string, unknown>)
@@ -186,7 +186,7 @@ describe('보드 빈 열·열 쿼리', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     // 헤더 버튼은 기본(할 일) — 앞서 고른 열 상태가 남지 않는다.
-    await user.click(screen.getByRole('button', { name: '+ 새 태스크' }))
+    await user.click(screen.getByRole('button', { name: '+ 새 이슈' }))
     dialog = within(await screen.findByRole('dialog'))
     expect(dialog.queryByTestId('create-status-note')).not.toBeInTheDocument()
     await user.click(dialog.getByLabelText(/^제목/))

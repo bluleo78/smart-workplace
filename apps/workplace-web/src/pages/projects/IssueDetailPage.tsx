@@ -253,7 +253,7 @@ export default function IssueDetailPage() {
     );
   if (!data) return (
     <div className="w-full p-6 text-center">
-      <p className="text-sm text-destructive mb-2">태스크를 찾을 수 없습니다</p>
+      <p className="text-sm text-destructive mb-2">이슈를 찾을 수 없습니다</p>
       <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
     </div>
   );
@@ -382,7 +382,7 @@ export default function IssueDetailPage() {
           variant="outline"
           size="sm"
           onClick={onDelete}
-          aria-label="태스크 삭제"
+          aria-label="이슈 삭제"
           data-testid="issue-delete"
           disabled={remove.isPending}
           // 모바일 ⋯ 메뉴에선 파괴적 항목을 빨간 글자로(메뉴가 text-destructive 색을 유지한다, U3-R6).

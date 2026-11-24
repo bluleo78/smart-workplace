@@ -1,4 +1,4 @@
-// 이슈 만들기 대화상자 화면 테스트 도우미(WP-1002) — 목록 화면 전체 대신 대화상자(IssueCreateDialog)와 그것을 여는 「+ 새 태스크」 버튼만 띄운다.
+// 이슈 만들기 대화상자 화면 테스트 도우미(WP-1002) — 목록 화면 전체 대신 대화상자(IssueCreateDialog)와 그것을 여는 「+ 새 이슈」 버튼만 띄운다.
 // 프로젝트 상세 화면은 open 상태 하나로 대화상자를 열고 닫는다(ProjectDetailPage 의 open/setOpen). 같은 배선을 작은 감싸개로 두어
 // 닫았다 다시 여는 판정(입력·오류 초기화)도 화면과 같은 경로로 지난다.
 import { http, HttpResponse, type RequestHandler } from 'msw'
@@ -11,12 +11,12 @@ import { renderScreen } from '@/test/renderScreen'
 import { systemTypes } from '../../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../../e2e/factories/project.factory'
 
-/** 「+ 새 태스크」 버튼 + 대화상자 — 프로젝트 상세 화면 헤더와 같은 열기/닫기 배선. */
+/** 「+ 새 이슈」 버튼 + 대화상자 — 프로젝트 상세 화면 헤더와 같은 열기/닫기 배선. */
 function CreateDialogHarness({ projectKey }: { projectKey: string }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+      <Button onClick={() => setOpen(true)}>+ 새 이슈</Button>
       <IssueCreateDialog projectKey={projectKey} open={open} onOpenChange={setOpen} />
     </>
   )

@@ -1,5 +1,5 @@
 // 프로젝트 화면 탭 레이아웃(WP-1477) — /projects/:key 와 그 탭 길(overview·notes·timeline·cycles·workflow·versions)을 감싼다.
-// 프로젝트 로딩·오류 화면, 개인/팀 분기(이 레이아웃에서만), 화면 틀(머리줄·탭 줄)과 새 태스크 대화상자를 맡고 본문은 <Outlet/>.
+// 프로젝트 로딩·오류 화면, 개인/팀 분기(이 레이아웃에서만), 화면 틀(머리줄·탭 줄)과 새 이슈 대화상자를 맡고 본문은 <Outlet/>.
 // 탭 사이를 오가도 이 레이아웃은 그대로라 머리줄·탭 줄이 다시 그려지지 않는다.
 import { ArrowLeft, Plus } from 'lucide-react'
 import { type ComponentProps, type ReactNode, Suspense, useEffect, useMemo, useState } from 'react'
@@ -41,7 +41,7 @@ const tabFallback = <p className="w-full p-6 text-muted-foreground">로딩 중�
 
 /**
  * 프로젝트 탭 레이아웃. 개인/팀 판단은 여기서만 한다 — 탭 화면들은 컨텍스트(useProjectTabs)로 불러온 프로젝트를 받는다.
- * - 팀·공개 프로젝트: 머리줄(이름·키·설정·+ 새 태스크)·탭 줄·마지막 탭 기억.
+ * - 팀·공개 프로젝트: 머리줄(이름·키·설정·+ 새 이슈)·탭 줄·마지막 탭 기억.
  * - 개인 프로젝트: 탭·기억 없음. 이슈 길은 자기 Page 를 그리는 개인 전용 화면을 바로 그리고, 타임라인·사이클·워크플로우·버전은
  *   main 과 같은 화면 머리줄(← 돌아가기·화면 이름)의 같은 틀로 감싼다. 개요 탭 주소는 이슈 화면으로 보낸다.
  */
@@ -99,12 +99,12 @@ export function ProjectTabsLayout() {
   const { redirectTo, tab, waitingVisibility } = useRememberedProjectTab(key, team, notesVisible, workflowVisible)
   // 이슈 탭의 그룹 판정(기본이 사이클 그룹이면)은 사이클 목록을 기다린다(WP-1929) — 본문 페이지 청크가 로드된 뒤에야
   // 처음 요청이 나가면 그만큼 판정(groupPending)이 늦어 스켈레톤이 길어진다. 그래서 레이아웃에서 먼저 받아 둔다
-  // (상태 목록은 이미 레이아웃의 새 태스크 대화상자가 앞에서 받는다). 같은 쿼리 키라 본문이 다시 요청하지 않는다.
+  // (상태 목록은 이미 레이아웃의 새 이슈 대화상자가 앞에서 받는다). 같은 쿼리 키라 본문이 다시 요청하지 않는다.
   // redirectTo(기본 경로 → 다른 탭으로 이동)·waitingVisibility(노트·워크플로우 판정 대기) 동안엔 이슈 본문이 그려지지 않으니 요청하지 않는다 —
   // 개인·다른 탭에서 쓰이지 않을 요청이 붙는 것을 막는다.
   useCycles(key, { enabled: team && tab === 'issues' && !redirectTo && !waitingVisibility })
 
-  // 새 태스크 대화상자 — 머리줄 「+ 새 태스크」(기본 상태)와 이슈 탭 보드 컬럼 「이슈 추가」(그 컬럼 상태 id, WP-464·WP-808)가 같이 연다.
+  // 새 이슈 대화상자 — 머리줄 「+ 새 이슈」(기본 상태)와 이슈 탭 보드 컬럼 「이슈 추가」(그 컬럼 상태 id, WP-464·WP-808)가 같이 연다.
   const [open, setOpen] = useState(false)
   const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined)
   // 프로젝트 key 가 바뀌면(같은 레이아웃이 다른 프로젝트로 재사용) 열린 대화상자·고른 컬럼 상태를 버린다 —
@@ -195,12 +195,12 @@ export function ProjectTabsLayout() {
               <Button asChild variant="outline">
                 <Link to={settingsPath}>설정</Link>
               </Button>
-              {canCreateIssue && <Button onClick={() => context.openCreate()}>+ 새 태스크</Button>}
+              {canCreateIssue && <Button onClick={() => context.openCreate()}>+ 새 이슈</Button>}
             </>
           ),
-          // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 설정은 ⋯ 메뉴로(U1-2).
+          // 모바일: 주 액션(새 이슈)만 ＋ 아이콘으로 인라인, 설정은 ⋯ 메뉴로(U1-2).
           mobilePrimaryAction: canCreateIssue && (
-            <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => context.openCreate()}>
+            <HeaderIconAction label="새 이슈" data-testid="mobile-new-issue" onClick={() => context.openCreate()}>
               <Plus />
             </HeaderIconAction>
           ),
@@ -236,7 +236,7 @@ function notesTabVisible(team: boolean, space: { data?: unknown; isError: boolea
 /**
  * 프로젝트 화면 틀 하나 — Page(세로 flex 전체 높이) + (있으면) 머리줄 + (팀만) 탭 줄 + 탭 본문(<Outlet/>, 모듈을 불러오는 동안 tabFallback).
  * 팀과 개인 화면(타임라인·사이클·버전)은 머리줄 props 와 탭 줄 유무만 다르다. 본문이 Page 안에 있어야 스크롤·타임라인 고정 높이가 산다.
- * header 를 주지 않으면 머리줄·탭 줄 없는 맨 틀(모바일 노트 페이지 전체 화면). children 은 본문 뒤에 붙는 것(팀의 새 태스크 대화상자).
+ * header 를 주지 않으면 머리줄·탭 줄 없는 맨 틀(모바일 노트 페이지 전체 화면). children 은 본문 뒤에 붙는 것(팀의 새 이슈 대화상자).
  */
 function ProjectScreenFrame({
   testId,

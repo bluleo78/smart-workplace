@@ -51,7 +51,7 @@ async function openCreate({
       return new HttpResponse(null, { status: 202 })
     }),
   ])
-  await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: SCREEN_LOAD_TIMEOUT }))
+  await view.user.click(await screen.findByRole('button', { name: '+ 새 이슈' }, { timeout: SCREEN_LOAD_TIMEOUT }))
   const dialog = await screen.findByRole('dialog', { name: '새 이슈' })
   await view.user.type(within(dialog).getByLabelText(/^제목/), '회의록 정리')
   return { ...view, sent, dialog }

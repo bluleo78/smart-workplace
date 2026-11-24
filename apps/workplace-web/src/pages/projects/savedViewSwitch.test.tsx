@@ -148,7 +148,7 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
     const release = holdWhile((u) => u.searchParams.get('priority') === 'HIGH')
     fireEvent.click(screen.getByTestId('view-chip-1'))
     expect(await screen.findByTestId('list-loading-skeleton')).toBeInTheDocument()
-    // 결과가 있는 조건에 이전 조건의 빈 상태(필터 빈 상태·「이슈가 없습니다 / 새 태스크 만들기」)가 비치지 않는다.
+    // 결과가 있는 조건에 이전 조건의 빈 상태(필터 빈 상태·「이슈가 없습니다 / 새 이슈 만들기」)가 비치지 않는다.
     expect(screen.queryByTestId('empty-no-issues')).not.toBeInTheDocument()
     expect(screen.queryByTestId('empty-create-issue')).not.toBeInTheDocument()
     expect(screen.queryByTestId('empty-filter')).not.toBeInTheDocument()

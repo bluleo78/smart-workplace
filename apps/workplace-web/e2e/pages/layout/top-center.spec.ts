@@ -10,7 +10,7 @@ import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { expectStays, measureBox, nextFrame } from '../../fixtures/wait'
 
-/** 프로젝트 화면으로 이동 — 헤더에 설정(보조) + 새 태스크(주) 단추가 있다(사이클·버전·타임라인은 탭 줄, WP-1477). */
+/** 프로젝트 화면으로 이동 — 헤더에 설정(보조) + 새 이슈(주) 단추가 있다(사이클·버전·타임라인은 탭 줄, WP-1477). */
 async function gotoProject(page: Page) {
   await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP', name: '프로젝트' }))
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
@@ -107,10 +107,10 @@ test('레이아웃 샘플은 클릭 가능 대기 뒤의 전환 프레임도 잡
 type Stage = 'expanded' | 'folded' | 'circle'
 
 /**
- * 프로젝트 머리줄 액션 — 설정(테두리 단추) + 새 태스크(주 단추). 사이클·버전·타임라인은 탭 줄로 옮겼다(WP-1477).
+ * 프로젝트 머리줄 액션 — 설정(테두리 단추) + 새 이슈(주 단추). 사이클·버전·타임라인은 탭 줄로 옮겼다(WP-1477).
  * 접는 보조 단추가 없으니 펼침·동그라미 어느 단계에서도 이 둘이 그대로 보여야 한다.
  */
-const HEADER_ACTIONS = ['설정', '새 태스크']
+const HEADER_ACTIONS = ['설정', '새 이슈']
 
 /**
  * 액션 그룹 안에서 실제로 그려진(폭이 있는) 단추의 글자와, 그 단추 폭의 합 + 단추 사이 flex 간격을 같은 프레임에서 잰다.
@@ -222,7 +222,7 @@ test('1024px 패널 닫힘 — 겹침 없음', { tag: '@layout' }, async ({ auth
 })
 
 // 1440px + AI 옆 패널 460px — 겹침 없음(≥16px).
-// 머리줄 액션이 설정·새 태스크 둘(약 169px)로 줄어 제목 자리가 160px 이상 남으므로(약 247px — 상단 가운데 「?」 자리 40px 를 뺀 값, WP-1505)
+// 머리줄 액션이 설정·새 이슈 둘(약 169px)로 줄어 제목 자리가 160px 이상 남으므로(약 247px — 상단 가운데 「?」 자리 40px 를 뺀 값, WP-1505)
 // 접지도 줄이지도 않는다(WP-1477).
 // 옛 머리줄(단추 다섯, 약 360px)에서는 여기서 보조 단추가 접혔다.
 test('1440px + AI 옆 패널 460px — 겹침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {

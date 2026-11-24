@@ -71,7 +71,7 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
     },
     onError: (err, _vars, ctx) => {
       ctx?.restore();
-      handleApiError(err, '태스크 상태 변경에 실패했습니다');
+      handleApiError(err, '이슈 상태 변경에 실패했습니다');
       // 고른 상태가 삭제돼 없으면(WP-936) 상태 목록을 다시 받아 보드 컬럼·고르기에서 지운다.
       refreshStatusesIfGone(qc, projectKey, err);
     },

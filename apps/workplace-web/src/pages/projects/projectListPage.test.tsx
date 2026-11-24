@@ -348,7 +348,6 @@ describe('리소스 로드 실패 화면 (#787)', () => {
       handlers: projectScreen('WP').handlers,
     })
     expect(await screen.findByText('이슈를 찾을 수 없습니다')).toBeInTheDocument()
-    expect(screen.queryByText('태스크를 찾을 수 없습니다')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '다시 시도' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '프로젝트로 돌아가기' }))
     await waitFor(() => expect(location()).toBe('/projects/WP'))

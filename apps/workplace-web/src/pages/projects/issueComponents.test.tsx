@@ -370,7 +370,7 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
     await screen.findByTestId('issue-column-option-assignee')
     check('issue-column-option-components')
     await user.keyboard('{Escape}')
-    await user.click(screen.getByRole('button', { name: '+ 새 태스크' }))
+    await user.click(screen.getByRole('button', { name: '+ 새 이슈' }))
     const dialog = await screen.findByRole('dialog', { name: '새 이슈' })
     await within(dialog).findByLabelText(/^제목/)
     if (shown) expect(await within(dialog).findByTestId('create-components-field')).toBeInTheDocument()

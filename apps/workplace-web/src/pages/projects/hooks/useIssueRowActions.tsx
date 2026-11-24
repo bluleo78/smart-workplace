@@ -234,14 +234,14 @@ export function useIssueRowActions({
     setPendingDelete(null);
   };
 
-  // 다중 선택·하위 태스크가 있을 때만 기본 문구(「"제목" 태스크를 정말 삭제…」) 대신 경고를 덧붙인다.
+  // 다중 선택·하위 태스크가 있을 때만 기본 문구(「"제목" 이슈를 정말 삭제…」) 대신 경고를 덧붙인다.
   const deleteCount = pendingDelete?.numbers.length ?? 0;
   const deleteChildren = pendingDelete?.issue.childCount ?? 0;
   const deleteDialog = (
     <DeleteConfirmDialog
       open={pendingDelete != null}
       onOpenChange={(o) => !o && setPendingDelete(null)}
-      entityName={deleteCount > 1 ? '태스크' : issueDeleteEntityName(pendingDelete?.issue.type?.name)}
+      entityName={issueDeleteEntityName(deleteCount > 1 ? null : pendingDelete?.issue.type?.name)}
       itemName={pendingDelete?.issue.title ?? ''}
       onConfirm={confirmDelete}
       description={
