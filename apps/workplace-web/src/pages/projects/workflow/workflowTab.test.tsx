@@ -328,8 +328,9 @@ it('게시 전 초안 저장에서 오류를 받으면 편집기로 돌아가 �
   await waitFor(() => expect(confirm).toBeEnabled())
   fireEvent.click(confirm)
 
+  // 그래프의 경고 줄에도 같은 문구가 잠깐 뜨므로, 편집기로 돌아간(대화상자가 닫힌) 뒤의 진단 목록을 본다.
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   expect(await screen.findByText('노드를 확인하세요.')).toBeVisible()
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(changedYaml)
   expect(screen.getByRole('alert')).toHaveTextContent(/오류.*게시/)
   expect(publish).toBeDisabled()
@@ -520,4 +521,30 @@ it('tab_runsPanel_recover_refreshesActiveRunCount', async () => {
   await userEvent.click(screen.getByRole('radio', { name: '실행 취소' }))
   await userEvent.click(screen.getByRole('button', { name: '확인' }))
   expect(await screen.findByText('진행 중인 실행 2개')).toBeVisible()
+})
+
+it('workflowTab_managerGraphEditsDraft', async () => {
+  renderWorkflow()
+  let saved: { yaml?: string } = {}
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', async ({ request }) => {
+      saved = (await request.json()) as { yaml?: string }
+      return HttpResponse.json({ draftUpdatedAt: nextDraftTime, problems: [] })
+    }),
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
+  await userEvent.click(await screen.findByRole('button', { name: '+ 노드' }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: 'AI 작업' }))
+  const save = screen.getByRole('button', { name: '초안 저장' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  await waitFor(() => expect(saved.yaml).toContain('task_1:'))
+})
+
+it('workflowTab_viewerSeesReadOnlyGraph', async () => {
+  renderWorkflow({ manager: false })
+  fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
+  expect(await screen.findByText('살펴보기')).toBeVisible()
+  expect(screen.queryByRole('button', { name: '+ 노드' })).not.toBeInTheDocument()
 })

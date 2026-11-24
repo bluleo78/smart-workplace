@@ -28,6 +28,7 @@ import {
 import { useProjectTabs } from '../tabs/ProjectTabsContext'
 import type { ProjectWorkflowContext } from '../tabs/ProjectTabsLayout'
 import { PublishDialog } from './PublishDialog'
+import { WorkflowGraphEditor } from './WorkflowGraphEditor'
 import { WorkflowGraphView } from './WorkflowGraphView'
 import { WorkflowProblemsPanel, WorkflowValidationFailure } from './WorkflowProblemsPanel'
 import { WorkflowRuns } from './WorkflowRuns'
@@ -384,6 +385,15 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
   // 검증 요청에 실패하면 진단 목록이 비어 있어도 검증이 끝날 때까지 게시를 막는다.
   const canPublish = canManage && !isLoggingOut && !conflict && !busy && !validation.pending && !validation.failed && !hasErrors
 
+  // YAML 편집기와 그래프 편집기가 같은 초안 갱신 규칙을 쓴다 — 기준 YAML 과 같아지면 편집을 지운다.
+  function editDraft(updated: string) {
+    const baseYaml = edit?.baseYaml ?? detail.draftYaml
+    updateDraft(id, updated === baseYaml && !conflict ? null : {
+      edit: { yaml: updated, expectedDraftUpdatedAt: expected, baseYaml },
+      conflict,
+    })
+  }
+
   // 그래프의 오류 단추가 사라지면 새로 열린 YAML 편집기로 포커스를 옮긴다.
   function openYamlDiagnostics() {
     flushSync(() => setMode('yaml'))
@@ -431,12 +441,8 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
           <div role="status" className="text-sm text-muted-foreground">
             {validation.pending && '검증 중…'}
             {validation.failed && <WorkflowValidationFailure onRetry={validation.retry} />}
-            {hasErrors && (
-              <>
-                YAML에 오류가 있어 게시할 수 없습니다.{' '}
-                <button type="button" className="underline" onClick={openYamlDiagnostics}>YAML 오류 확인</button>
-              </>
-            )}
+            {/* 「YAML 오류 확인」 단추는 그래프 아래 경고 줄에 있다 — 같은 이름의 단추를 둘 두지 않는다 */}
+            {hasErrors && 'YAML에 오류가 있어 게시할 수 없습니다.'}
           </div>
         )}
         {mode === 'yaml' && canManage ? (
@@ -446,13 +452,7 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
                 yaml={yaml}
                 textareaRef={editor}
                 problems={problems}
-                onChange={(updated) => {
-                  const baseYaml = edit?.baseYaml ?? detail.draftYaml
-                  updateDraft(id, updated === baseYaml && !conflict ? null : {
-                    edit: { yaml: updated, expectedDraftUpdatedAt: expected, baseYaml },
-                    conflict,
-                  })
-                }}
+                onChange={editDraft}
                 readOnly={busy || isLoggingOut}
               />
               <WorkflowProblemsPanel
@@ -471,6 +471,14 @@ function SelectedWorkflow({ detail, canManage, isLoggingOut, draftChanged, draft
               />
             </div>
           </div>
+        ) : mode === 'graph' && canManage ? (
+          <WorkflowGraphEditor
+            yaml={yaml}
+            problems={problems}
+            readOnly={busy || isLoggingOut}
+            onChange={editDraft}
+            onOpenYaml={openYamlDiagnostics}
+          />
         ) : (
           <PublishedWorkflow
             mode={mode}
