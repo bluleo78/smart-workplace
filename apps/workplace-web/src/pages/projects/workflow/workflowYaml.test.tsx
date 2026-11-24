@@ -51,7 +51,8 @@ it('publish_disabledWhenErrors_enabledWithWarnings', async () => {
   expect(screen.getByRole('button', { name: '게시' })).toBeDisabled()
   fireEvent.change(yaml, { target: { value: 'name: 고침' } })
   expect(await screen.findByText('경고')).toBeVisible()
-  expect(screen.getByRole('button', { name: '게시' })).toBeEnabled()
+  // 게시본 원문(versions/2) 조회가 끝나 변경 수를 안 뒤에 켜지므로 기다려 단언한다
+  await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
 })
 
 it.each(['검증 응답', '저장된 초안'])('그래프에서 %s의 오류를 확인하고 YAML 진단으로 돌아갈 수 있다', async (source) => {

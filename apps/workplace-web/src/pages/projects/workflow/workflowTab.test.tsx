@@ -1,11 +1,12 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 
 import { clearWorkflowDraftSessions } from '@/lib/workflowDraftSessions'
 import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
 import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
+import { gate } from '@/test/loadErrorRetry'
 import { server } from '@/test/msw/server'
 
 // 프로젝트 탭과 본문의 권한이 같아야 직접 주소로 들어와도 쓰기 단추가 생기지 않는다.
@@ -624,9 +625,12 @@ it('workflowTab_viewerSeesReadOnlyGraph', async () => {
 it('publish_disabledWhileCheckingChangeCount_withoutReason', async () => {
   renderWorkflow()
   // 게시본 원문 요청이 끝나지 않는 동안에는 변경 수를 모르므로 게시를 막되 사유 글자는 띄우지 않는다.
+  // 응답은 이 테스트가 끝날 때 푼다 — 끝나지 않는 Promise 로 두면 핸들러가 테스트 뒤까지 열려 남는다
+  const hold = gate()
+  onTestFinished(() => hold.release())
   server.use(
     http.get('/api/v1/workflows/42/versions/2', async () => {
-      await new Promise<void>(() => {})
+      await hold.promise
       return HttpResponse.json({})
     }),
     http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
