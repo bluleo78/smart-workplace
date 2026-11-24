@@ -8,6 +8,14 @@ export function focusLost(): boolean {
   return el === null || el === document.body;
 }
 
+/**
+ * focusLost 에 더해, 초점을 가진 요소가 DOM 에서 지워져 연결이 끊긴 채 activeElement 로 남은 때도 잃은 것으로 본다(WP-2055).
+ * 눌렀던 단추가 커밋 직후 사라지면 브라우저·jsdom 이 body 로 바꾸기 전까지 끊긴 요소가 남을 수 있다.
+ */
+export function focusLostOrDetached(): boolean {
+  return focusLost() || !document.activeElement?.isConnected;
+}
+
 /** 그 요소가 키보드 초점(:focus-visible)인지 — 마우스 초점은 거짓. 모르는 환경이면 던지므로 거짓(키보드로 보지 않음). */
 export function isKeyboardFocused(el: Element | null): boolean {
   try {

@@ -9,28 +9,33 @@ import { ResultStatus } from '@/components/ResultStatus'
 import { useMyWorkflowTurns } from '@/hooks/queries/useWorkflowRuns'
 import { useAuth } from '@/hooks/useAuth'
 import { focusRow } from '@/hooks/useListFocusRescue'
-import { focusLost } from '@/hooks/useRestoreFocusOnExit'
+import { focusLostOrDetached } from '@/hooks/useRestoreFocusOnExit'
 import { issuePath } from '@/lib/appUrl'
 import { formatRelativeTime } from '@/lib/formatters'
 import { type MyWorkflowTurn, turnDetailOpenedText } from '@/lib/workflowRuns'
 import { IssueWorkflowBanner } from '@/pages/projects/components/IssueWorkflowBanner'
 
 /** 고른 줄의 패널 — 넘겨받은 내용(넘긴 사람·질문, 없으면 생략)과 결과 고르기 배너. 제목을 이름으로 가진 영역(region)이라 스크린리더가 상세 범위를 안다(WP-2053). */
-function TurnPanel({ turn, meId }: { turn: MyWorkflowTurn; meId: number }) {
+function TurnPanel({ turn, meId, settleList }: { turn: MyWorkflowTurn; meId: number; settleList: () => Promise<unknown> }) {
   const headingId = useId()
-  // WP-2055: 넘긴 뒤 이 배너가 물러나도(담당이 남으로 바뀜) 초점이 body 로 떨어지지 않게 제목으로 옮긴다.
   const headingRef = useRef<HTMLHeadingElement>(null)
-  // 배너 효과가 부모 렌더마다 다시 돌지 않도록 참조를 고정한다.
-  // 제목은 탭 순서에 없으니 초점 받는 동안만 tabindex=-1 을 단다(focusRow — 늘 달면 빈 곳 클릭이 제목을 포커스한다).
-  const focusHeading = useCallback(() => {
-    if (headingRef.current) focusRow(headingRef.current)
-  }, [])
+  // WP-2055 리뷰 후속: 넘겨서 배너가 물러나면 먼저 목록 재조회가 끝나기를 기다린다 — 이 줄이 빠지면 MyTurnsTab 의 「고른 줄이 빠짐」 효과가
+  // 첫 줄로 옮기고 이 패널은 사라지므로 여기서는 아무것도 하지 않는다(제목 → 첫 줄로 두 번 옮겨 두 번 읽히지 않게).
+  // 재조회가 실패했거나 줄이 남아 패널이 그대로면 그때만 제목으로 옮긴다(초점이 body 에 남지 않게). 제목은 초점 받는 동안만 tabindex=-1(focusRow).
+  const onLeave = useCallback(() => {
+    void settleList().finally(() =>
+      setTimeout(() => {
+        const heading = headingRef.current
+        if (heading?.isConnected && focusLostOrDetached()) focusRow(heading)
+      }, 0),
+    )
+  }, [settleList])
   return (
     <section aria-labelledby={headingId} className="space-y-3 rounded-md border p-3 text-sm" data-testid="my-turn-panel">
       <h2 ref={headingRef} id={headingId} className="font-medium text-sm">{`${turn.issueKey} ${turn.title}`}</h2>
       {turn.handedBy && <p className="text-muted-foreground">{`${turn.handedBy.name} 님이 넘김`}</p>}
       {turn.question && <p>{`「${turn.question}」`}</p>}
-      <IssueWorkflowBanner issueId={turn.issueId} projectKey={turn.projectKey} meId={meId} onLeave={focusHeading} />
+      <IssueWorkflowBanner issueId={turn.issueId} projectKey={turn.projectKey} meId={meId} onLeave={onLeave} />
     </section>
   )
 }
@@ -40,6 +45,9 @@ export function MyTurnsTab() {
   const turns = useMyWorkflowTurns()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const items = turns.data ?? []
+  // 패널이 기다릴 목록 재조회 — 넘기기가 이미 무효화해 도는 조회에 합류한다(새 요청을 따로 보내지 않음).
+  const refetchTurns = turns.refetch
+  const settleList = useCallback(() => refetchTurns({ cancelRefetch: false }), [refetchTurns])
   // 고른 실행이 새 목록에 없으면(넘겨서 빠졌다) 선택을 푼다 — 상태를 따로 지우지 않고 파생해 깜빡임이 없다.
   const selected = items.find((t) => t.runId === selectedId) ?? null
   // WP-2055: 고른 줄이 목록에서 빠지면(넘겨서) 눌렀던 단추가 사라져 초점이 body 로 떨어진다 — 첫 줄 단추로, 목록이 비면 빈 상태로 옮긴다.
@@ -51,11 +59,9 @@ export function MyTurnsTab() {
   useEffect(() => {
     if (hadSelectedRef.current && !hasSelected) {
       // 초점을 잃었을 때(없음·body·연결 끊김)만 옮긴다 — 주기 재조회(WP-2042)로 남이 옮겨 빠진 때 사용자가 다른 곳(검색창 등)에 있으면 건드리지 않는다.
-      const active = document.activeElement
       // 지워진 요소가 커밋 직후 activeElement 로 남을 수 있어 연결이 끊긴 것도 잃은 것으로 본다(useListFocusRescue 와 같다).
       // 목록 안의 다른 줄에 있는 사용자는 옮기지 않는다 — 내가 넘긴 경우 눌렀던 단추는 body·연결 끊김으로 이미 잃은 상태다.
-      const lost = focusLost() || !active?.isConnected
-      if (lost) {
+      if (focusLostOrDetached()) {
         if (items.length === 0) {
           if (emptyRef.current) focusRow(emptyRef.current)
         } else listRef.current?.querySelector('button')?.focus()
@@ -110,7 +116,7 @@ export function MyTurnsTab() {
       {/* WP-2050: 고른 줄이 없으면 빈 칸 대신 안내 — 줄을 누르면 여기서 바로 답할 수 있다는 걸 알린다(실행 탭의 빈 상세와 같은 모양·톤, 문구는 이 탭에 맞춤). */}
       {/* 로그인 정보가 아직 없으면 패널을 못 그리니 빈 칸 대신 안내를 둔다. */}
       {selected && user
-        ? <TurnPanel key={selected.runId} turn={selected} meId={user.id} />
+        ? <TurnPanel key={selected.runId} turn={selected} meId={user.id} settleList={settleList} />
         : <p className="text-sm text-muted-foreground" data-testid="my-turn-empty-detail">줄을 고르면 여기에서 넘겨받은 내용을 보고 바로 결과를 고를 수 있습니다.</p>}
     </div>
   )

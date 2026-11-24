@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { focusRow } from '@/hooks/useListFocusRescue'
-import { focusLost } from '@/hooks/useRestoreFocusOnExit'
+// 초점을 잃었을 때만 옮긴다 — 넘긴 뒤 재조회가 오기 전에 사용자가 다른 곳(코멘트 편집기 등)으로 옮겼으면 그 자리를 뺏지 않는다(WP-2055).
+import { focusLostOrDetached as focusIsLost } from '@/hooks/useRestoreFocusOnExit'
 import { extractApiErrorCode } from '@/lib/api-error'
 import { formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import {
@@ -23,14 +24,6 @@ import {
 } from '@/lib/workflow'
 import { pendingQuestion } from '@/lib/workflowRuns'
 
-/**
- * 초점을 잃었는지(WP-2055) — body 이거나, 눌렀던 단추가 언마운트돼 연결이 끊긴 요소가 남은 때.
- * 넘긴 뒤 재조회가 오기 전에 사용자가 다른 곳(코멘트 편집기 등)으로 옮겼으면 그 자리를 뺏지 않는다.
- */
-function focusIsLost(): boolean {
-  return focusLost() || !document.activeElement?.isConnected
-}
-
 interface Props {
   issueId: number
   projectKey: string
@@ -42,6 +35,12 @@ interface Props {
   /** 내가 넘긴 뒤 배너가 더는 보이지 않게 됐을 때 한 번 불린다(WP-2055) — 부모가 초점을 둘 곳을 정한다. */
   onLeave?: () => void
 }
+
+/**
+ * 「방금 넘김」 표지의 수명(ms, WP-2055 리뷰 후속) — 넘긴 뒤 재조회가 실패하거나 끝내 새 revision 이 오지 않아도
+ * 표지가 남아 나중에 남이 옮긴 것까지 내가 넘긴 것으로 오해해 초점을 뺏지 않게 한다.
+ */
+const MOVED_TTL_MS = 10_000
 
 /** 브라우저·서버 시계 차이 여유 — 「답으로 보내기」 후보 판정에만 쓴다. */
 const CLOCK_SKEW_MS = 60_000
@@ -74,26 +73,56 @@ export function IssueWorkflowBanner({ issueId, projectKey, meId, posted, onPoste
   const view = useIssueWorkflow(issueId)
   const run = view.data
   const cur = run?.currentNode
-  // 내가 넘겼는지(WP-2055) — 넘긴 뒤 새 본문이 뜨면 제목으로 초점을 옮기고, 배너가 사라지면 onLeave 를 부른다.
-  // 표지는 「넘긴 시점의 실행:revision 과 그때의 조회 시각」에 묶는다 — 재조회가 같은 revision 을 돌려주면(상태 안 바뀜) 표지를 지워,
-  // 나중에 남이 옮겨 사라진 경우를 내가 넘긴 것으로 오해해 초점을 뺏거나 onLeave 를 부르지 않게 한다.
-  const movedRef = useRef<{ key: string; at: number } | null>(null)
+  // 내가 넘기는 중·넘겼는지(WP-2055) — 넘긴 뒤 새 본문이 뜨면 제목으로 초점을 옮기고, 배너가 사라지면 onLeave 를 부른다.
+  // 표지는 넘기기 요청 **전에** 세운다(리뷰 후속) — 성공 처리(재조회 대기)가 끝나기 전에 새 revision 이 먼저 와도 표지를 놓치지 않게.
+  // 요청이 실패하면(409 낡음 빼고) 지우고, 재조회가 실패하거나 새 revision 이 오지 않아도 MOVED_TTL_MS 뒤에는 쓰지 않는다.
+  // doneAt: 넘기기 응답을 받은 시각 — 그 뒤에 끝난 재조회도 같은 revision 이면 바뀐 것이 없어 표지를 지운다.
+  const movedRef = useRef<{ key: string; at: number; doneAt?: number } | null>(null)
+  /** 아직 유효한 표지 — 수명이 지났으면 지우고 null. */
+  const liveMoved = () => {
+    const moved = movedRef.current
+    // 수명은 응답을 받은 뒤부터 센다 — 요청이 느려도 응답 전에 표지가 사라져 초점 잇기를 놓치지 않게.
+    if (moved && Date.now() - (moved.doneAt ?? moved.at) > MOVED_TTL_MS) movedRef.current = null
+    return movedRef.current
+  }
+  // 다른 이슈로 바뀌면(같은 화면에서 이슈 이동) 앞 이슈의 표지를 버린다 — 새 이슈의 상태 변화를 내 떠남으로 보지 않게.
+  useEffect(() => {
+    movedRef.current = null
+  }, [issueId])
+  // 언마운트 때 쓸 최신 onLeave — 부모(실행 상세)가 배너를 통째로 내리는 경우에도 떠남을 알린다.
+  const onLeaveRef = useRef(onLeave)
+  useEffect(() => {
+    onLeaveRef.current = onLeave
+  }, [onLeave])
   const viewKey = run?.runId != null ? `${run.runId}:${run.revision}` : null
+  const dataUpdatedAt = view.dataUpdatedAt
   const visible =
     !!run && run.runId != null && run.status === 'WAITING' && !!cur && cur.type === 'human_task' && cur.assignees.some((a) => a.id === meId)
-  const dataUpdatedAt = view.dataUpdatedAt
   useEffect(() => {
-    const moved = movedRef.current
+    const moved = liveMoved()
     if (!moved) return
     if (viewKey === moved.key) {
-      // 같은 상태 — 넘긴 뒤 재조회가 끝났을 때만 표지를 지운다(재조회 전에는 그대로 둔다).
-      if (dataUpdatedAt > moved.at) movedRef.current = null
+      // 같은 상태 — 응답 뒤에 끝난 재조회도 그대로면 지운다. 넘기는 중·재조회 전이면 기다린다(남은 표지는 수명이 지나면 버린다).
+      if (moved.doneAt != null && dataUpdatedAt >= moved.doneAt) movedRef.current = null
       return
     }
     // 상태가 달라졌다 — 보이면 새 본문의 마운트 효과가 이미 초점을 처리했고, 안 보이면 내가 넘겨 떠난 것이다. 어느 쪽이든 표지는 지운다.
     movedRef.current = null
     if (!visible && focusIsLost()) onLeave?.()
   }, [viewKey, visible, dataUpdatedAt, onLeave])
+  useEffect(
+    () => () => {
+      // 넘긴 뒤 부모가 이 배너를 먼저 내렸다(실행 상세가 담당이 바뀐 것을 먼저 읽음) — 지워진 단추에서 초점이 body 로 떨어지므로,
+      // DOM 이 정리된 다음 틱에 초점을 잃었는지 보고 onLeave 를 부른다.
+      if (!liveMoved()) return
+      movedRef.current = null
+      setTimeout(() => {
+        if (focusIsLost()) onLeaveRef.current?.()
+      }, 0)
+    },
+    // 언마운트 때 한 번만.
+    [],
+  )
   if (!visible || !run || run.runId == null || !cur) return null
   // 노드·revision 이 바뀌면 입력을 새로 시작한다(key). 검증한 지금 노드·실행 id 를 그대로 넘긴다.
   const bodyKey = `${run.runId}:${run.revision}`
@@ -107,12 +136,19 @@ export function IssueWorkflowBanner({ issueId, projectKey, meId, posted, onPoste
       projectKey={projectKey}
       posted={posted}
       onPostedBodyUsed={onPostedBodyUsed}
+      onMoving={() => {
+        movedRef.current = { key: bodyKey, at: Date.now() }
+      }}
       onMoved={() => {
-        movedRef.current = { key: bodyKey, at: dataUpdatedAt }
+        // 응답 시각을 적는다 — 그 뒤 재조회가 같은 revision 을 돌려주면 위 효과가 표지를 지운다.
+        if (movedRef.current) movedRef.current.doneAt = Date.now()
+      }}
+      onMoveFailed={() => {
+        movedRef.current = null
       }}
       takeMoved={() => {
         // 넘긴 revision 과 다른 본문이 새로 마운트됐을 때만 초점을 옮긴다.
-        const moved = movedRef.current
+        const moved = liveMoved()
         if (!moved || moved.key === bodyKey) return false
         movedRef.current = null
         return true
@@ -129,13 +165,20 @@ function BannerBody({
   projectKey,
   posted,
   onPostedBodyUsed,
+  onMoving,
   onMoved,
+  onMoveFailed,
   takeMoved,
 }: Omit<Props, 'meId' | 'onLeave'> & {
   run: IssueWorkflowView
   cur: WorkflowNodeView
   runId: number
+  /** 넘기기 요청 직전 — 「방금 넘김」 표지를 세운다. */
+  onMoving: () => void
+  /** 넘기기 요청이 성공했다(재조회는 이 뒤에 끝날 수 있다). */
   onMoved: () => void
+  /** 넘기기가 실패했다(낡은 화면 409 빼고) — 표지를 지운다. */
+  onMoveFailed: () => void
   /** 내가 넘긴 직후의 마운트인지 읽고 지운다 — 렌더 중에 ref 를 읽지 않으려 마운트 효과에서만 부른다. */
   takeMoved: () => boolean
 }) {
@@ -193,6 +236,8 @@ function BannerBody({
     if (!outcome || sending.current) return
     sending.current = true
     try {
+      // 요청 전에 표지를 세운다 — 성공 처리(재조회)가 mutateAsync 보다 먼저 끝나 새 본문이 마운트돼도 초점을 잇는다.
+      onMoving()
       const typed = Object.fromEntries(outcome.requiredOutputs.map((o) => [o.key, readOutput(o, outputs[o.key]).value]))
       await move.mutateAsync({
         fromNode: cur.key,
@@ -204,12 +249,14 @@ function BannerBody({
         expectedRevision: run.revision,
         runId,
       })
-      // 성공했을 때만 표시 — 실패(409 등)에서는 초점을 옮기지 않는다. 재조회는 이 await 뒤에 도착한다.
       onMoved()
       toast.success('다음 단계로 넘겼어요.')
     } catch (e) {
-      // 낡은 화면(409 WORKFLOW_STALE)이면 훅이 새로 읽어 revision 이 바뀌고 본문이 다시 마운트된다 — 성공과 같이 표지를 달아 새 제목(또는 떠남)으로 초점을 잇는다.
+      // 낡은 화면(409 WORKFLOW_STALE)이면 훅이 새로 읽어 revision 이 바뀌고 본문이 다시 마운트된다 — 표지를 남겨 새 제목(또는 떠남)으로 초점을 잇는다.
+      // 그 밖의 실패는 상태가 그대로라 표지를 지운다(남겨 두면 나중에 남이 옮긴 것에 초점을 뺏는다).
+      // 낡음이면 응답 시각을 적어, 다시 읽은 것이 같은 revision 이면 표지가 지워지게 한다.
       if (extractApiErrorCode(e) === 'WORKFLOW_STALE') onMoved()
+      else onMoveFailed()
       // 안내는 toast 로 — 재조회로 revision 이 바뀌면 이 컴포넌트가 key 로 새로 마운트돼 안의 상태는 지워진다.
       toast.error(workflowErrorMessage(e, '다음 단계로 넘기지 못했어요.'))
     } finally {
