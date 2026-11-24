@@ -370,6 +370,7 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(await screen.findByText('그사이 단계가 바뀌었어요. 새로 불러왔어요.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인/))
     await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveFocus())
+  })
 
   // WP-2060 — 결과를 고르면 스크린리더가 고른 결과·아래 폼을 듣는다(aria-pressed·status·group).
   test('outcome_pick_announcesFormAndPressedState', async () => {
