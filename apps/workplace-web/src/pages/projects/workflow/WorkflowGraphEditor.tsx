@@ -15,7 +15,7 @@ import type { WorkflowProblem } from '@/lib/workflows'
 
 import { applyConnection } from './applyConnection'
 import {
-  addAskPath, addNode, autoLayout, type GraphEdge, type GraphNode, moveManyFromDrag, type NewNodeType,
+  addAskPath, addNode, autoLayout, type GraphEdge, type GraphNode, groupParallelEdges, moveManyFromDrag, type NewNodeType,
   parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
 import { NodeKindIcon, NodePanel } from './NodePanel'
@@ -33,9 +33,6 @@ const NEW_NODE_MENU: { type: NewNodeType; label: string }[] = [
   { type: 'decision', label: '분기' },
   { type: 'end', label: '종료' },
 ]
-/** 점선으로 그리는 선 — 오류·되돌림·질문 경로는 정상 흐름과 구분한다. */
-const DASHED_KINDS = new Set(['onError', 'returnTo', 'ask'])
-
 /** 노드 한 장 — 종류 아이콘, 이름, 담당(AI·사람 + 역할 이름). 가상 노드는 점선 테두리. */
 function WorkflowNodeCard({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   const { node, roleName } = data
@@ -59,15 +56,13 @@ const nodeTypes = { workflow: WorkflowNodeCard }
 
 /**
  * 그래프 선을 ReactFlow 선으로 바꾼다. 양 끝 노드가 그려지는 것(keys)만 남긴다 — 없는 노드를 가리키는 선(YAML 의 오타 등)을
- * 넘기면 ReactFlow 가 경고를 내고 그리지 못한다. 오류·되돌림·질문 경로는 점선으로 정상 흐름과 구분한다.
+ * 넘기면 ReactFlow 가 경고를 내고 그리지 못한다. 같은 출발·도착 간선은 한 선·한 라벨로 합치고(WP-2063), 오류·되돌림·질문 경로가 낀 묶음은 점선으로 정상 흐름과 구분한다.
  */
 function toFlowEdges(edges: GraphEdge[], keys: Set<string>): Edge[] {
-  return edges
-    .filter((e) => keys.has(e.from) && keys.has(e.to))
-    .map((e) => ({
-      id: e.id, source: e.from, target: e.to, label: e.label, type: 'smoothstep',
-      style: DASHED_KINDS.has(e.kind) ? { strokeDasharray: '5 4' } : undefined,
-    }))
+  return groupParallelEdges(edges, keys).map((e) => ({
+    id: e.id, source: e.from, target: e.to, label: e.label, type: 'smoothstep',
+    style: e.dashed ? { strokeDasharray: '5 4' } : undefined,
+  }))
 }
 
 /** 확대·축소 단추와 현재 배율. ReactFlow 안(Provider 아래)에서만 쓸 수 있다. */

@@ -8,6 +8,8 @@ import {
   connectFromFlow,
   connectOutcome,
   countContextRefs,
+  type GraphEdge,
+  groupParallelEdges,
   moveManyFromDrag,
   moveNode,
   nextOutcomeKey,
@@ -540,5 +542,49 @@ describe('graphYaml 코드 리뷰 지적', () => {
     const out = updateNode(y, 'a', { outputs: detail.outputs.map((o) => (o.key === '1' ? { ...o, key: 'x' } : o)) })
     expect(Object.keys(doc(out).nodes.a.outputs)).toEqual(['ok', 'x'])
     expect(doc(out).nodes.d.conditions[0].when.context).toBe('a.ok')
+  })
+})
+
+describe('groupParallelEdges', () => {
+  const e = (id: string, from: string, to: string, kind: GraphEdge['kind'], label: string): GraphEdge => ({ id, from, to, kind, label })
+  const keys = new Set(['a', 'b', 'c'])
+
+  it('같은 출발·도착의 outcome 과 returnTo 는 한 간선·한 라벨·점선이 된다', () => {
+    const out = groupParallelEdges([e('1', 'a', 'b', 'outcome', 'answered'), e('2', 'a', 'b', 'returnTo', '돌아가기')], keys)
+    expect(out).toEqual([{ id: '1', from: 'a', to: 'b', label: 'answered · 돌아가기', dashed: true }])
+  })
+
+  it('addAskPath 로 만든 질문 노드의 answered + returnTo 도 한 간선이다', () => {
+    const parsed = parseWorkflowGraph(addAskPath(FIXTURE, 'dev'))
+    if ('error' in parsed) throw new Error(parsed.error)
+    const keySet = new Set(parsed.graph.nodes.map((n) => n.key))
+    const back = groupParallelEdges(parsed.graph.edges, keySet).filter((g) => g.from === 'dev_ask' && g.to === 'dev')
+    expect(back).toHaveLength(1)
+    expect(back[0].label).toBe('answered · 돌아가기')
+    expect(back[0].dashed).toBe(true)
+  })
+
+  it('같은 출발·도착 셋은 라벨이 순서대로 이어진다', () => {
+    const out = groupParallelEdges([
+      e('1', 'a', 'b', 'outcome', 'x'), e('2', 'a', 'b', 'outcome', 'y'), e('3', 'a', 'b', 'onError', '오류'),
+    ], keys)
+    expect(out).toHaveLength(1)
+    expect(out[0].label).toBe('x · y · 오류')
+    expect(out[0].dashed).toBe(true)
+  })
+
+  it('반대 방향 간선은 합치지 않는다', () => {
+    const out = groupParallelEdges([e('1', 'a', 'b', 'ask', 'ask'), e('2', 'b', 'a', 'outcome', 'answered')], keys)
+    expect(out.map((g) => [g.from, g.to, g.dashed])).toEqual([['a', 'b', true], ['b', 'a', false]])
+  })
+
+  it('한쪽 끝 노드가 없는 간선은 묶기 전에 뺀다', () => {
+    const out = groupParallelEdges([e('1', 'a', 'zz', 'outcome', 'x'), e('2', 'a', 'b', 'outcome', 'y'), e('3', 'a', 'b', 'default', '기본')], keys)
+    expect(out).toEqual([{ id: '2', from: 'a', to: 'b', label: 'y · 기본', dashed: false }])
+  })
+
+  it('평행 간선이 없으면 간선 수·라벨·id 가 그대로다', () => {
+    const out = groupParallelEdges([e('1', 'a', 'b', 'outcome', 'x'), e('2', 'a', 'c', 'outcome', 'y')], keys)
+    expect(out.map((g) => [g.id, g.label])).toEqual([['1', 'x'], ['2', 'y']])
   })
 })
