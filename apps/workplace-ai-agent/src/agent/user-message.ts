@@ -1,6 +1,7 @@
 // 4 type envelope → Claude CLI 에 넘길 user message 문자열 변환.
 // spec §"Type 별 user message" 와 일치.
-import type { IssueEventEnvelope, IssueRecurringRunPayload } from '../types/issue-events.js';
+import { isWorkflowNodeWake } from '../types/issue-events.js';
+import type { IssueAssignedPayload, IssueEventEnvelope, IssueRecurringRunPayload, WorkflowWakeMark } from '../types/issue-events.js';
 import { KOREAN_ONLY_RULE, RECURRING_DECISION_HEADING, RECURRING_QUESTION_MARKER } from './system-prompt.js';
 import { hasDecisionSection } from './decision-section.js';
 import { RECURRING_TEST_GATED_TOOLS } from '../mcp/tools.js';
@@ -375,6 +376,31 @@ const DO_THE_WORK =
   `2. 요청한 결과물(체크리스트·정리·초안·답 등)을 만들어 add_comment 로 남깁니다 — 결과 코멘트 하나에 결과 전체를 마크다운으로 담습니다.\n` +
   `3. 정보가 모자라거나 권한·도구가 없어 끝낼 수 없으면, 한 데까지의 결과와 끝내지 못한 이유·필요한 것을 코멘트로 남깁니다.`;
 
+/**
+ * WP-1994: 워크플로우 agent_task 노드에 들어와 깨어난 내부 AI 의 지시문. 일반 담당 지정(DO_THE_WORK)과 달리
+ * 상태 변경이 아니라 「현재 노드의 instructions 를 수행하고 결과(outcome)로 이동」하는 것이 일이다.
+ * report_agent_work 는 내부 AI 에 없으므로 부르라고 하지 않고, 결과는 이동 의견(comment)·add_comment 로 남긴다.
+ */
+export function buildWorkflowNodeMessage(p: IssueAssignedPayload, workflow: WorkflowWakeMark): string {
+  const node = workflow.nodeKey;
+  return (
+    `[이벤트: workflow.node_entered]\n` +
+    `이슈의 워크플로우가 노드 '${node}' 에 들어와 당신을 깨웠습니다. 이 노드의 일을 이번 실행 안에서 끝내고 결과로 이동하세요.\n` +
+    `이슈키: ${p.issueKey}\n` +
+    `제목: ${p.issueTitle}\n` +
+    `노드: ${node} (실행 ${workflow.runId})\n` +
+    `깨운 사람: @${p.actor.username}\n\n` +
+    `get_issue_workflow 와 get_issue_detail 은 서로 기다릴 필요가 없으니 같은 턴에 함께 부르세요.\n` +
+    `1. get_issue_workflow 로 현재 상태를 읽습니다. 지금 노드가 '${node}' 가 아니거나, 진행 중인 워크플로우가 없거나, 읽은 runId 가 위 실행 번호와 다르면 아무것도 바꾸지 말고 바로 끝내세요.\n` +
+    `2. currentNode 의 instructions 와 이슈 본문·코멘트(get_issue_detail), context 를 읽고 그 지시대로 일을 합니다. context 의 _qa 에 이전 질문과 답이 있으면 읽고 이어서 하세요.\n` +
+    `3. 일이 끝나면 outcomes 에서 결과 하나를 골라 move_issue_workflow 로 이동합니다. fromNode 는 '${node}', expectedRevision 은 get_issue_workflow 가 준 값, runId 는 위 실행 번호 그대로, outcome 은 그 outcomes 의 key 를 씁니다. requiredOutputs 가 있으면 outputs 에 채우고, requireComment 이거나 결과를 남길 때는 comment 에 결과·근거를 적고, 다음 담당이 필요하면 candidates 중에서 assignees(username)로 정합니다.\n` +
+    `4. 사람에게 물어야 이어 할 수 있으면 질문 경로의 outcome 을 골라 — outcomes 에서 key 가 'ask' 이거나 toNode 가 질문·답변을 기다리는 노드(예: '…_ask')인 것이 질문 경로입니다 — comment 에 질문을 담아 이동합니다. 질문 경로가 없으면 이동하지 말고 add_comment 로 막힌 이유와 필요한 것을 남기고 끝내세요.\n` +
+    `5. move_issue_workflow 가 409 WORKFLOW_STALE 이면 get_issue_workflow 로 다시 읽어 아직 내 노드일 때만 최신 revision 으로 한 번 다시 시도하고, 아니면 아무것도 하지 말고 끝내세요.\n` +
+    `6. 워크플로우 노드에서는 시스템 프롬프트의 상태·담당 규칙(시작 때 IN_PROGRESS, 끝나면 DONE 과 unassign_self)이 적용되지 않습니다. update_issue 로 이슈 상태를 바꾸지 말고 unassign_self 도 부르지 마세요 — 진행·완료는 move_issue_workflow 로만 나타냅니다(이슈를 닫으면 워크플로우가 취소됩니다).\n` +
+    `이 실행이 끝나면 다시 깨어나지 않습니다 — 「시작합니다」만 남기고 끝내지 말고, 결과는 이동 comment(또는 add_comment)에 남기세요.`
+  );
+}
+
 export function buildUserMessage(env: IssueEventEnvelope): string {
   switch (env.type) {
     case 'issue.created': {
@@ -391,6 +417,8 @@ export function buildUserMessage(env: IssueEventEnvelope): string {
     }
     case 'issue.assigned': {
       const p = env.payload;
+      // WP-1994: 워크플로우 노드 깨우기면 노드 지시문으로 — 없으면(일반 담당 지정·옛 api) 기존 지시.
+      if (isWorkflowNodeWake(env)) return buildWorkflowNodeMessage(env.payload, env.payload.workflow);
       return (
         `[이벤트: issue.assigned]\n` +
         `당신이 이 이슈의 담당자로 지정됐습니다.\n` +

@@ -9,7 +9,9 @@ import { runnerFor } from './agent-runner.js';
 import { pickActingAgentId } from './agent-resolver.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import { resultOk } from './runner-events.js';
+import { isWorkflowNodeWake } from '../types/issue-events.js';
 import type { IssueEventEnvelope } from '../types/issue-events.js';
+import type { McpProfile } from '../mcp/tools.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
 
@@ -96,13 +98,16 @@ export async function runAgent(
   // fire-and-forget — 델타 미소비. collect 가 완료까지 순회하고 timeout/result.is_error 시 throw →
   // 끝 보고(차단됨)를 보낸 뒤 다시 던져 event-handler 의 .catch 가 로깅(현행 CLI 와 동일한 실패 처리).
   // 이슈 이벤트는 항상 담당 AGENT 자격으로 실행(#34) — onBehalfOfId = agentId, userId 없음.
-  // 'issue' 프로필 도구 14종(읽기 5[get_issue_detail·get_project + 위키 읽기 3] + add_comment/update_comment/
+  // 'issue' 프로필 도구: 읽기(get_issue_detail·get_project·위키 읽기·get_issue_workflow) + add_comment/update_comment/
   // create_issue/update_issue(상태 변경 포함)/unassign_self/link_issues/react(코멘트 반응, WP-812)/
-  // add_issue_relation/remove_issue_relation(차단 외 관계·외부 링크, WP-887)). hostBridge 미전달 시
+  // add_issue_relation/remove_issue_relation(차단 외 관계·외부 링크, WP-887). 워크플로우 노드 깨우기는 issue-workflow 프로필(McpProfile 주석)로
+  // move_issue_workflow 도 싣는다. hostBridge 미전달 시
   // unassign_self 는 API 직접 호출 후 결과 반환(현행 CLI 동작과 동일). MCP 구성은 러너 내부에서.
   // 시작 보고는 실행과 함께 보낸다(응답을 기다리느라 실행이 늦지 않게). 끝 보고는 finally 한 곳에서 시작 보고 뒤에 보낸다 — 오류로 끝나도
   // 「작업 중」에 남지 않게. 실패 사유는 정해 둔 문구만 싣는다(원시 오류 문구 — 러너 stderr·내부 주소 등 — 는 event-handler 가 로그로 남긴다).
   // 결과가 비정상(ok 아님)이면 사유 없이 보내 API 의 기본 문구(정상적으로 끝나지 않음)를 쓴다.
+  // WP-1994: 워크플로우 노드 깨우기에만 이동 도구가 있는 변형 프로필을 쓴다.
+  const profile: McpProfile = isWorkflowNodeWake(envelope) ? 'issue-workflow' : 'issue';
   const started = report({ phase: 'STARTED', ok: true });
   let finish: RunReport = { phase: 'FINISHED', ok: false, note: RUN_ERROR_NOTE };
   try {
@@ -117,7 +122,11 @@ export async function runAgent(
       agentId,
       timeoutMs,
       logTag,
-      mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'issue' },
+      mcp: {
+        client: deps.client,
+        onBehalfOfId: agentId,
+        profile,
+      },
     });
     finish = { phase: 'FINISHED', ok: resultOk(events) };
   } finally {

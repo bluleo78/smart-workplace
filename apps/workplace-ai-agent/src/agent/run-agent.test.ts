@@ -165,6 +165,19 @@ describe('runAgent (인-프로세스 SDK)', () => {
     expect(arg.client).toBe(c);
   });
 
+  // WP-1994: 워크플로우 노드 깨우기에만 issue-workflow 프로필(이동 도구 포함)을 쓴다.
+  it('issue.assigned + payload.workflow 면 issue-workflow, workflow 없으면 issue 프로필', async () => {
+    const wfEnv = {
+      type: 'issue.assigned',
+      payload: { ...baseCommon, assignees: [{ id: 201, username: 'ai', kind: 'AGENT' }], added: [], removed: [], workflow: { runId: 7, nodeKey: 'dev' } },
+    } as unknown as IssueEventEnvelope;
+    await runAgent(wfEnv, { client: client('tk-X') });
+    expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0].profile).toBe('issue-workflow');
+    const plain = { ...wfEnv, payload: { ...wfEnv.payload, workflow: null } } as unknown as IssueEventEnvelope;
+    await runAgent(plain, { client: client('tk-X') });
+    expect(vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[1][0].profile).toBe('issue');
+  });
+
   // WP-1368: 이 AI 의 지시는 실행 AI 자신을 조회해 시스템 프롬프트 맨 뒤에 붙인다 — 없으면 기존 프롬프트 그대로.
   it('지시가 있으면 systemPrompt 끝에 지시 블록, 없으면 기존 상수 그대로', async () => {
     const getMember = vi.fn().mockResolvedValue({ userId: 201, instructions: ' 코멘트는 세 줄 이내로 ' });

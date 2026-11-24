@@ -339,6 +339,7 @@ describe('프로필 구성', () => {
       'add_issue_relation',
       'create_issue',
       'get_issue_detail',
+      'get_issue_workflow', // WP-1994: 워크플로우 노드 지시 실행(조회)
       'get_project',
       'get_wiki_page',
       'link_issues',
@@ -919,7 +920,7 @@ describe('공유 도구 패리티 (#846)', () => {
 
   // 공유 패키지에 도구를 추가하고 ai-agent 에 연결하지 않으면 AI Chat 에서 조용히 못 쓰는 도구가 된다(#850).
   // WP-348: 확인 카드가 있는 작업의 직접 실행 도구(CARD_ONLY_SHARED_TOOLS)만 예외 — 경로마다 도구 하나.
-  // WP-1988: 워크플로우 도구 6종은 공유 도구로만 먼저 더했고 ai-agent 프로필 연결은 WP-1994 에서 한다 — 그때 이 목록을 지운다.
+  // assistant(AI Chat) 프로필 제외 목록 — issue 프로필은 WP-1994 가 get(issue)·move(issue-workflow) 를 싣는다, WP-2033 이 배선하며 줄인다.
   const NOT_YET_WIRED = new Set([
     'get_issue_workflow',
     'start_issue_workflow',
@@ -935,6 +936,19 @@ describe('공유 도구 패리티 (#846)', () => {
       .map((t) => t.name)
       .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n) && !NOT_YET_WIRED.has(n));
     expect(missing).toEqual([]);
+  });
+
+  // WP-1994: 기본 issue 프로필은 조회(get_issue_workflow)만, 노드 깨우기 변형(issue-workflow)은 이동까지 싣는다 — 시작·정의 도구와 report_agent_work 는 어느 쪽에도 없다.
+  it('WP-1994: issue 프로필은 get 만, issue-workflow 프로필은 get/move 를 싣는다', () => {
+    const base = buildTools(client(), AGENT_ID, 'issue').map((t) => t.name);
+    expect(base).toContain('get_issue_workflow');
+    expect(base).not.toContain('move_issue_workflow');
+    const wf = buildTools(client(), AGENT_ID, 'issue-workflow').map((t) => t.name);
+    expect(wf).toContain('get_issue_workflow');
+    expect(wf).toContain('move_issue_workflow');
+    for (const names of [base, wf]) {
+      for (const n of ['start_issue_workflow', 'get_workflow', 'validate_workflow', 'update_workflow', 'report_agent_work']) expect(names).not.toContain(n);
+    }
   });
 
   // WP-800: 대기열 이슈 가져가기는 외부 AI(work-loop 등) 전용 — 서버가 돌리는 AI 는 담당 지정 시점에 이미 일을 받는다.

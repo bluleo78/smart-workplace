@@ -61,7 +61,7 @@ function logToolCount(i: RunnerInput, config: ReturnType<typeof buildOpencodeCon
 // 이후 모든 이슈 챗 답변이 "이미 등록했습니다" 로 조용히 버려졌다. stdio MCP 의 env 는 서버 스폰 때 고정되고
 // opencode 는 MCP 호출에 세션별 식별자를 넘기지 않아 가드를 실행 단위로 묶을 통로가 없다 — 지연보다 정확성을 택한다.
 // WP-989: recurring(반복 회차)도 실행별 바인딩이 없어 풀에 둘 수 있다.
-const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'issue', 'recurring']);
+const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'issue', 'issue-workflow', 'recurring']);
 
 // RunnerInput → 풀 키. 대상 프로필이 아니면 undefined(호출부가 풀을 건너뛰는 신호로 사용).
 // #849: 프로필과 무관하게 hostBridge 를 넘긴 실행도 제외한다 — 홈 채팅 라우터(assistant)가 propose 를

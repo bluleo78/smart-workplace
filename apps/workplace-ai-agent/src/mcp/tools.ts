@@ -332,9 +332,12 @@ const showDriveInput = z.object({
 
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 // WP-989: recurring — 반복 회차 실행. WP-1311 부터 읽기(RECURRING_RUN_TOOLS)·쓰기(RECURRING_RUN_WRITE_TOOLS·RECURRING_RUN_DIRECT_ACTIONS)를 함께 싣는다.
+// WP-1994: issue-workflow — 'issue' 와 같되 워크플로우 노드 깨우기 실행에만 move_issue_workflow 를 더 싣는다(그 밖의 이슈 실행은 이동 도구가 없어 남의 실행을 못 움직인다).
+// get_issue_workflow 는 모든 이슈 실행에 둔다(읽기 전용 — 진행 중 워크플로우가 있으면 상태·담당을 건드리지 않게 확인용). 시작(start_issue_workflow)·정의
+// (get/validate/update_workflow) 도구는 어느 쪽에도 싣지 않는다: 내부 AI 는 사람이 시작한 실행의 노드만 처리하고 정의를 바꾸지 않는다.
 // WP-1313: recurring-test — 「지금 실행」(테스트 실행)과 그 질문의 이어 처리. recurring 과 같은 도구를 싣되 되돌릴 수 없는 쓰기
 // (RECURRING_TEST_GATED_TOOLS)는 실행하지 않고 멈춘다(이어 처리는 허락된 쓰기만 실행).
-export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring' | 'recurring-test';
+export type McpProfile = 'issue' | 'issue-workflow' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring' | 'recurring-test';
 
 /**
  * WP-989: 반복 회차 실행이 싣는 읽기 도구. 회차는 반복을 등록한 사람(소유자) 권한으로 돌아(홈 AI 채팅과 같은 대행) 그 사람의
@@ -1588,6 +1591,9 @@ export function buildTools(
     sharedTool('react'), // WP-812: 이슈 코멘트 반응(채팅과 같은 도구)
     sharedTool('add_issue_relation'), // WP-887: 관계 유형은 get_project 의 relationTypes, 지우기 id 는 get_issue_detail 의 relations·externalLinks
     sharedTool('remove_issue_relation'),
+    // WP-1994: 워크플로우 조회·이동 — 근거는 McpProfile 타입 주석 참고.
+    sharedTool('get_issue_workflow'),
+    ...(profile === 'issue-workflow' ? [sharedTool('move_issue_workflow')] : []),
   ];
 }
 
