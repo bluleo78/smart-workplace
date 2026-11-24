@@ -116,10 +116,10 @@ it('runs_selectRow_announcesOpenedDetail', async () => {
   expect(status).toHaveTextContent('')
   await user.click(screen.getByText('WP-1').closest('button')!)
   await waitFor(() => expect(screen.getByTestId('run-detail-status')).toHaveTextContent('WP-1 실행 상세를 열었습니다'))
-  const region = await screen.findByRole('region', { name: /WP-1/ })
+  const region = await screen.findByRole('region', { name: 'WP-1 제목 1' })
   const heading = within(region).getByRole('heading', { level: 2 })
-  expect(heading).toHaveTextContent('WP-1')
-  expect(heading).toHaveTextContent('제목 1')
+  // 이름 계산은 flex 자식 사이에 공백을 넣어 주지만 브라우저마다 다르다 — 글자 자체에 공백이 있는지 본다(WP-2053 리뷰).
+  expect(heading.textContent).toBe('WP-1 제목 1')
 })
 
 it('runs_selectMissingRun_noOpenedStatus', async () => {

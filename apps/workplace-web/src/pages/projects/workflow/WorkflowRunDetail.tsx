@@ -75,7 +75,8 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{RUN_STATUS_LABEL[run.status]}</Badge>
           <h2 id={headingId} className="flex min-w-0 flex-1 items-center gap-2 text-base font-normal">
-            <span className="font-medium">{run.issueKey}</span>
+            {/* 두 span 사이 공백 — 없으면 영역 이름이 「WP-1제목 1」로 붙어 읽힌다(WP-2053 리뷰). */}
+            <span className="font-medium">{run.issueKey}</span>{' '}
             <span className="min-w-0 flex-1 truncate">{run.title}</span>
           </h2>
           <Link className="text-xs text-primary hover:underline" to={issuePath(projectKey, run.issueNumber)}>이슈 열기 ↗</Link>
