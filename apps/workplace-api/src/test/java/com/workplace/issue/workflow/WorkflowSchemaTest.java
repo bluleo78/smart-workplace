@@ -18,22 +18,12 @@ import tools.jackson.databind.JsonNode;
 /** 워크플로우 스키마 원본(packages)과 서버 사본, 그리고 서버 검사기가 아는 키워드를 지킨다(WP-1984). */
 class WorkflowSchemaTest {
 
-  /** 테스트 작업 폴더에서 위로 올라가며 상대 경로 파일을 찾는다(못 찾으면 실패). */
-  private static Path findUp(String relative) {
-    for (Path dir = Path.of("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
-      Path candidate = dir.resolve(relative);
-      if (Files.exists(candidate)) {
-        return candidate;
-      }
-    }
-    throw new AssertionError("파일을 찾지 못했다: " + relative);
-  }
-
   @Test
   @DisplayName("서버 사본은 공용 패키지 원본과 바이트까지 같다")
   void apiCopy_equalsPackageSource() throws IOException {
-    Path source = findUp("packages/mcp-tools-shared/src/workflow-schema.json");
-    Path copy = findUp("apps/workplace-api/src/main/resources/workflow/workflow-schema.json");
+    Path source = RepoFiles.findUp("packages/mcp-tools-shared/src/workflow-schema.json");
+    Path copy =
+        RepoFiles.findUp("apps/workplace-api/src/main/resources/workflow/workflow-schema.json");
 
     assertThat(Files.readAllBytes(copy)).isEqualTo(Files.readAllBytes(source));
   }

@@ -1,0 +1,335 @@
+package com.workplace.issue.workflow;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.workplace.issue.workflow.domain.ParseResult;
+import com.workplace.issue.workflow.domain.ProjectMembers;
+import com.workplace.issue.workflow.domain.WorkflowModel;
+import com.workplace.issue.workflow.domain.WorkflowValidator;
+import com.workplace.issue.workflow.domain.WorkflowYamlParser;
+import com.workplace.issue.workflow.dto.WorkflowProblem;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+/**
+ * 저장소의 「AI 개발 흐름」 워크플로우 정의(docs/workflows/ai-dev-flow.yaml)가 서버 파서·검증기를 문제 없이 통과하고 흐름의 핵심 약속(질문
+ * 경로·리뷰 횟수 상한·관문 산출물·노드 지시의 필수 문구)을 지키는지 확인한다(WP-1992).
+ *
+ * <p>왜: 정의는 사람이 손으로 쓴 큰 YAML 이라 고치다 그래프·지시가 깨지기 쉽다. DB 없이 파일만 읽어 빠르게 지킨다.
+ */
+class AiDevFlowDefinitionTest {
+
+  /** 정의 파일 바이트(크기 검사용). 한 번만 읽는다. */
+  private static byte[] bytes;
+
+  /** 파서 결과. 한 번만 파싱한다. */
+  private static ParseResult parsed;
+
+  /** 파싱된 모델(파서 문제가 있으면 @BeforeAll 에서 실패한다). */
+  private static WorkflowModel model;
+
+  /** 정의 파일의 저장소 상대 경로. */
+  private static final String DEFINITION = "docs/workflows/ai-dev-flow.yaml";
+
+  /**
+   * 노드 키 → 그 노드의 펼친 지시에 꼭 있어야 하는 문구. 뒤 Task 가 노드별 지시를 채우며 줄만 더한다. 모든 agent_task 공통 문구는 {@link
+   * #COMMON_MARKERS} 가 맡는다.
+   */
+  private static final Map<String, List<String>> NODE_MARKERS =
+      Map.ofEntries(
+          Map.entry(
+              "understand",
+              List.of(
+                  "Dangerous rm",
+                  "origin/green",
+                  "brainstorming",
+                  "writing-plans",
+                  "질문 판단",
+                  "[풀테스트 실패]")),
+          Map.entry(
+              "implement",
+              List.of("subagent-driven-development", "원장:", "run_in_background", "-before")),
+          Map.entry("self_review", List.of("/code-review medium", "/simplify")),
+          Map.entry("squash", List.of("git reset --soft", "뜻 충돌")),
+          Map.entry("live_verify", List.of("LIVE_STACK_NAME=work-loop", "반영 근거", "검증한 HEAD SHA")),
+          Map.entry("open_pr", List.of("procedure-check", "--no-verify", "개발: ", "절차:")),
+          Map.entry("followup_fix", List.of("[리뷰 후속]", "[풀테스트 실패]", "cherry-pick -m 1")),
+          Map.entry("report", List.of("사용 가이드", "확인 위치")),
+          Map.entry(
+              "review",
+              List.of(
+                  "절차 확인",
+                  "완료 기준 대조표",
+                  "손 머지",
+                  "머지 멈춤",
+                  "풀테스트",
+                  "green",
+                  "--admin",
+                  "check-migration-versions")),
+          Map.entry("triage", List.of("[분류]", "사람에게 질문", "바로 개발")),
+          Map.entry("plan", List.of("비교 조사", "의견 수렴", "기획안")),
+          Map.entry("plan_review", List.of("팀장 검토")),
+          Map.entry("plan_ok", List.of("확정")),
+          Map.entry("handoff", List.of("하위 이슈", "동시 진행: 형제와 따로 가져가도 된다")));
+
+  /** 모든 agent_task 가 use 해야 하는 공통 shared 이름. */
+  private static final List<String> COMMON_SHARED =
+      List.of(
+          "priorities", "report_style", "shell_rules", "repo_facts", "blocked", "workflow_rules");
+
+  /** 공통 shared 글에 있어야 하는 문구(shared 이름 순서와 같다). 노드마다가 아니라 shared 글에서 한 번 본다. */
+  private static final List<String> COMMON_MARKERS =
+      List.of(
+          "gw-repo", // priorities
+          "note 쓰는 법", // report_style
+          "Dangerous rm", // shell_rules
+          ".work-loop/project.md", // repo_facts
+          "같은 단계가 3번 되풀이돼도", // blocked
+          "WORKFLOW_USE_MOVE"); // workflow_rules
+
+  /** 개발·리뷰 노드(long_jobs·subagent_wait 를 쓰는 노드). */
+  private static final List<String> DEV_NODES =
+      List.of(
+          "understand",
+          "implement",
+          "self_review",
+          "squash",
+          "live_verify",
+          "open_pr",
+          "review",
+          "followup_fix");
+
+  /** 개발·리뷰 노드의 펼친 지시에 있어야 하는 문구. */
+  private static final List<String> DEV_MARKERS =
+      List.of(
+          "bg-job", // long_jobs
+          "run_in_background"); // subagent_wait
+
+  /** 노드 지시에 남으면 안 되는 실행기 몫·스킬 폴더 경로 문구. */
+  private static final List<String> FORBIDDEN =
+      List.of("스킬 폴더", "wake", "「살아 있는 양보」", "GW-NEXT-CHECK");
+
+  /**
+   * 워크플로우 노드에서 서버가 409(WORKFLOW_USE_MOVE)로 거절하는 상태 보고 문구. 왜: 질문·검토·끝내기는 결과 이동으로만 하므로 지시가 이 보고를 시키면
+   * 첫 보고에서 막힌다(WP-1992 최종 리뷰 C1).
+   */
+  private static final List<String> MOVE_ONLY_STATES =
+      List.of("INPUT_REQUIRED", "REVIEW", "COMPLETED", "CANCELED", "REJECTED");
+
+  /** 검증기가 use 로 펼친 지시의 문서 합계 상한(자). */
+  private static final int EXPANDED_LIMIT = 1_048_576;
+
+  /** 정의 파일을 한 번 읽고 파싱한다. 왜: 테스트마다 큰 YAML 을 다시 파싱할 필요가 없고, 파서 문제는 여기서 한 번 드러난다. */
+  @BeforeAll
+  static void loadDefinition() throws IOException {
+    bytes = Files.readAllBytes(RepoFiles.findUp(DEFINITION));
+    parsed = WorkflowYamlParser.parse(new String(bytes, StandardCharsets.UTF_8));
+    assertThat(parsed.model()).as("파서 문제: %s", parsed.problems()).isNotNull();
+    model = parsed.model();
+  }
+
+  /** 정의의 역할 구성원 전부를 프로젝트 구성원으로 만든 표 — owner 역할 구성원은 사람(USER), 나머지는 외부 실행 AI. */
+  private static ProjectMembers members(WorkflowModel m) {
+    // 사람 판정을 username 하드코딩 대신 owner(확인자) 역할 구성원 집합으로 한다
+    Set<String> humans = new HashSet<>(m.roles().get("owner").memberUsernames());
+    return ProjectMembers.of(
+        m.roles().values().stream()
+            .flatMap(r -> r.memberUsernames().stream())
+            .map(
+                u ->
+                    humans.contains(u)
+                        ? new ProjectMembers.Member(u, "USER", null)
+                        : new ProjectMembers.Member(u, "AGENT", "EXTERNAL"))
+            .toList());
+  }
+
+  private static List<WorkflowModel.Node> agentTasks() {
+    return model.nodes().values().stream().filter(n -> "agent_task".equals(n.type())).toList();
+  }
+
+  /** 키로 노드를 꺼낸다(없으면 실패). */
+  private static WorkflowModel.Node node(String key) {
+    WorkflowModel.Node n = model.nodes().get(key);
+    assertThat(n).as("%s 노드", key).isNotNull();
+    return n;
+  }
+
+  /** text 에 markers 가 모두 들어 있는지 본다(label 은 실패 메시지용). */
+  private static void assertContainsAll(String label, String text, List<String> markers) {
+    for (String marker : markers) {
+      assertThat(text).as("%s 의 '%s'", label, marker).contains(marker);
+    }
+  }
+
+  @Test
+  @DisplayName("정의 파일이 파서·검증기 문제 없이 통과한다(ERROR·WARNING 모두 0)")
+  void noProblemsAtAll() {
+    assertThat(parsed.problems()).isEmpty();
+
+    List<WorkflowProblem> problems =
+        WorkflowValidator.validate(model, members(model), parsed.source());
+
+    assertThat(problems).isEmpty();
+  }
+
+  @Test
+  @DisplayName("모든 agent_task 는 사람에게 묻는 길(<키>_ask, returnTo 가 자기)을 가진다")
+  void everyAgentTaskHasAskPath() {
+    for (WorkflowModel.Node n : agentTasks()) {
+      WorkflowModel.Outcome ask = n.outcomes().get("ask");
+      assertThat(ask).as("%s 의 ask 결과", n.key()).isNotNull();
+      assertThat(ask.to()).isEqualTo(n.key() + "_ask");
+      WorkflowModel.Node askNode = node(ask.to());
+      assertThat(askNode.type()).isEqualTo("human_task");
+      assertThat(askNode.returnTo()).isEqualTo(n.key());
+    }
+  }
+
+  @Test
+  @DisplayName("review 는 같은 실행에서 3번째 들어오면 사람에게 알린다(maxVisits 3)")
+  void reviewMaxVisitsIsThree() {
+    assertThat(node("review").maxVisits()).isEqualTo(3);
+  }
+
+  @Test
+  @DisplayName("관문 노드는 산출물(검증한 HEAD·PR 주소·기획 문서)을 꼭 내놓아야 한다")
+  void gateOutputsRequired() {
+    assertOutput("live_verify", "verifiedHead", "string");
+    assertOutput("open_pr", "prUrl", "url");
+    assertOutput("followup_fix", "prUrl", "url");
+    assertOutput("plan", "planDoc", "url");
+  }
+
+  private static void assertOutput(String node, String name, String type) {
+    WorkflowModel.OutputSpec spec = node(node).outputs().get(name);
+    assertThat(spec).as("%s.%s", node, name).isNotNull();
+    assertThat(spec.type()).isEqualTo(type);
+    assertThat(spec.required()).isTrue();
+  }
+
+  @Test
+  @DisplayName("open_pr 는 검증한 HEAD 불일치·절차 검사 실패 때 되돌아갈 결과를 가진다")
+  void openPrHasBackEdges() {
+    WorkflowModel.Node n = node("open_pr");
+
+    assertThat(n.outcomes().get("reverify").to()).isEqualTo("live_verify");
+    assertThat(n.outcomes().get("redo_procedure").to()).isEqualTo("understand");
+  }
+
+  @Test
+  @DisplayName("로컬 저장소를 만지는 노드는 local-repo 능력을 요구한다")
+  void localRepoNodes() {
+    for (String key :
+        List.of(
+            "understand",
+            "implement",
+            "self_review",
+            "squash",
+            "live_verify",
+            "open_pr",
+            "followup_fix",
+            "report",
+            "review",
+            "plan",
+            "handoff")) {
+      assertThat(node(key).requires()).as("%s 의 requires", key).contains("local-repo");
+    }
+  }
+
+  @Test
+  @DisplayName("파일 크기가 읽기 상한(256 KiB)보다 작다")
+  void fitsSizeLimit() {
+    assertThat(bytes.length).isLessThan(256 * 1024);
+  }
+
+  @Test
+  @DisplayName("펼친 지시 합계가 검증기 상한(1,048,576자)보다 작고 실행기 몫 문구가 없다")
+  void expandedInstructionsFitLimit() {
+    int total = 0;
+    for (WorkflowModel.Node n : model.nodes().values()) {
+      String text = n.instructions() == null ? "" : n.instructions();
+      total += text.length();
+      for (String word : FORBIDDEN) {
+        assertThat(text).as("%s 지시의 '%s'", n.key(), word).doesNotContain(word);
+      }
+    }
+    assertThat(total).isLessThan(EXPANDED_LIMIT);
+  }
+
+  @Test
+  @DisplayName("공통 문구는 shared 글에 있고, 모든 agent_task 는 그 shared 를 use 한다")
+  void commonSharedUsedByEveryAgentTask() {
+    // 펼친 지시에 shared 글이 들어가는 것은 파서가 보장하므로 글은 한 번, 노드는 use 만 본다
+    String commonText = String.join("\n", COMMON_SHARED.stream().map(model.shared()::get).toList());
+    assertContainsAll("공통 shared", commonText, COMMON_MARKERS);
+    for (WorkflowModel.Node n : agentTasks()) {
+      assertThat(n.use()).as("%s 의 use", n.key()).containsAll(COMMON_SHARED);
+    }
+  }
+
+  @Test
+  @DisplayName("펼친 노드 지시에 필수 문구가 남아 있다(공용 지시가 빠지거나 요약되지 않았다)")
+  void nodeInstructions_keepMarkers() {
+    for (String key : DEV_NODES) {
+      assertContainsAll(key + " 지시", node(key).instructions(), DEV_MARKERS);
+    }
+    NODE_MARKERS.forEach(
+        (key, markers) -> assertContainsAll(key + " 지시", node(key).instructions(), markers));
+  }
+
+  @Test
+  @DisplayName("노드 지시가 서버가 거절하는 상태 보고(INPUT_REQUIRED·REVIEW·COMPLETED·CANCELED·REJECTED)를 시키지 않는다")
+  void noMoveOnlyStateReports() {
+    for (WorkflowModel.Node n : agentTasks()) {
+      for (String state : MOVE_ONLY_STATES) {
+        // 따옴표 종류·띄어쓰기에 상관없이 state: 'X' 형태의 보고 시킴을 잡는다
+        assertThat(n.instructions())
+            .as("%s 지시의 state %s", n.key(), state)
+            .doesNotContainPattern("state\\s*:\\s*[\"'`]?" + state);
+      }
+    }
+  }
+
+  /**
+   * review 에서 처음 들어가는 노드(report·followup_fix)로 가는 결과는 keep 이 아니다. 왜: keep 의 기준은 「멈추는 노드의 가장 최근
+   * 담당」이라 처음 방문이면 비어 ASSIGNEE_REQUIRED 로 거절된다(최종 리뷰 C2).
+   */
+  @Test
+  @DisplayName("review 의 merged·followup 결과는 keep 이 아니라 developer 로 넘긴다")
+  void reviewFirstVisitOutcomesAreNotKeep() {
+    WorkflowModel.Node review = node("review");
+
+    for (String outcome : List.of("merged", "followup")) {
+      assertThat(review.outcomes().get(outcome).assignTo())
+          .as("review.%s", outcome)
+          .isEqualTo("developer");
+    }
+  }
+
+  @Test
+  @DisplayName("triage 는 「진행 안 함」 갈래로 끝낼 결과 drop(의견 필수)을 가진다")
+  void triageHasDropOutcome() {
+    WorkflowModel.Outcome drop = node("triage").outcomes().get("drop");
+
+    assertThat(drop).as("triage.drop").isNotNull();
+    assertThat(drop.to()).isEqualTo("done");
+    assertThat(drop.requireComment()).isTrue();
+  }
+
+  /** 펼친 지시에는 shared 이름이 붙지 않으므로 글마다 제목을 달아 노드 지시의 「…」 참조가 가리킬 곳을 둔다(최종 리뷰 I2). */
+  @Test
+  @DisplayName("모든 shared 글은 「## 」 제목으로 시작한다")
+  void sharedTextsStartWithHeading() {
+    model
+        .shared()
+        .forEach((name, text) -> assertThat(text).as("shared %s", name).startsWith("## "));
+  }
+}
