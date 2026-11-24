@@ -106,7 +106,8 @@ export function DatePickerPopover({
               )}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start" data-testid={`${testIdPrefix}-popover`}>
+          {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+          <PopoverContent className="w-auto p-0" align="start" data-testid={`${testIdPrefix}-popover`} aria-label={ariaLabel}>
             <Calendar
               mode="single"
               selected={selected}

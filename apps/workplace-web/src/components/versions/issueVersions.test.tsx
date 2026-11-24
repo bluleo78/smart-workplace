@@ -61,6 +61,7 @@ describe('이슈 상세 — 버전 피커', () => {
 
     await view.user.click(screen.getByTestId('fix-version-picker-trigger'))
     const picker = await screen.findByTestId('fix-version-picker')
+    expect(screen.getByRole('dialog', { name: '수정 버전 선택' })).toBeInTheDocument()
     expect(within(within(picker).getByTestId('fix-version-option-1')).getByRole('checkbox')).toBeChecked()
     await view.user.click(within(within(picker).getByTestId('fix-version-option-2')).getByRole('checkbox'))
     // 닫을 때 한 번만 저장한다 — 고르는 동안에는 요청이 없다.

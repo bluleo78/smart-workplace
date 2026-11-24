@@ -73,7 +73,8 @@ export function FieldDateInput({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 필드의 달력인지 읽게 */}
+        <PopoverContent className="w-auto p-0" align="start" aria-label={`${def.name} 선택`}>
           <Calendar
             mode="single"
             selected={selected}

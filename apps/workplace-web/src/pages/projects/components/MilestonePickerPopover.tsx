@@ -54,7 +54,8 @@ export function MilestonePickerPopover({
             {current ? <span>{current.name}</span> : <span className="text-muted-foreground">없음</span>}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 p-2" data-testid="milestone-picker-popover">
+        {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+        <PopoverContent className="w-72 p-2" data-testid="milestone-picker-popover" aria-label="마일스톤 선택">
           <div className="max-h-64 space-y-1 overflow-y-auto">
             {/* 선택 해제 옵션 — 항상 최상단 노출 */}
             <button

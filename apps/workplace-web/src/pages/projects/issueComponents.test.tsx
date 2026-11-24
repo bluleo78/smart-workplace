@@ -177,6 +177,7 @@ describe('이슈 상세 — 구성요소 칸', () => {
 
     await user.click(within(field).getByTestId('component-picker-trigger'))
     const picker = await screen.findByTestId('component-picker')
+    expect(screen.getByRole('dialog', { name: '구성요소 선택' })).toBeInTheDocument()
     expect(within(within(picker).getByTestId('component-option-1')).getByRole('checkbox')).toBeChecked()
     await user.click(within(within(picker).getByTestId('component-option-3')).getByRole('checkbox'))
     expect(puts).toEqual([])

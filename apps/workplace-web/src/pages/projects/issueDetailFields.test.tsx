@@ -78,6 +78,7 @@ describe('담당자(다중)', () => {
 
     await user.click(screen.getByTestId('assignee-picker-trigger'))
     await screen.findByTestId('assignee-picker')
+    expect(screen.getByRole('dialog', { name: '담당자 선택' })).toBeInTheDocument()
     await user.click(screen.getByTestId(`assignee-option-${USER1.id}`))
     await user.click(screen.getByTestId(`assignee-option-${USER2.id}`))
     await user.keyboard('{Escape}')
@@ -250,6 +251,7 @@ describe('시작일·마일스톤 피커 (#620)', () => {
     expect(screen.getByRole('button', { name: '시작일 선택: 없음' })).toBeInTheDocument()
     await user.click(trigger)
     const pop = await screen.findByTestId('start-date-popover')
+    expect(screen.getByRole('dialog', { name: '시작일 선택' })).toBeInTheDocument()
     const day10 = [...pop.querySelectorAll<HTMLButtonElement>('[data-slot="calendar"] button[data-day]')].find((b) => b.textContent === '10')!
     await user.click(day10)
     await waitFor(() => expect(patches).toHaveLength(1))
@@ -266,6 +268,7 @@ describe('시작일·마일스톤 피커 (#620)', () => {
     expect(screen.getByTestId('milestone-picker-trigger')).toHaveTextContent('없음')
     expect(screen.getByRole('button', { name: '마일스톤 선택: 없음' })).toBeInTheDocument()
     await user.click(screen.getByTestId('milestone-picker-trigger'))
+    expect(await screen.findByRole('dialog', { name: '마일스톤 선택' })).toBeInTheDocument()
     await user.click(await screen.findByTestId('milestone-option-2'))
     await waitFor(() => expect(patches).toHaveLength(1))
     expect(patches[0].milestoneId).toBe(2)
@@ -450,6 +453,7 @@ describe('AI 에게 맡기기(WP-1314)', () => {
 
     await user.click(trigger)
     const pop = await screen.findByTestId('task-recurrence-popover')
+    expect(screen.getByRole('dialog', { name: 'AI 에게 맡기기 설정' })).toBeInTheDocument()
     await waitFor(() => expect(within(pop).getByRole('combobox', { name: '담당 AI' })).toHaveTextContent('팀 AI'))
     await user.click(within(pop).getByRole('button', { name: '매일' }))
     await user.click(within(pop).getByRole('button', { name: '저장' }))

@@ -53,7 +53,8 @@ export function EpicColorField({ projectKey, issueNumber, epicColor, fallbackCol
             <span>{name}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-2" data-testid="epic-color-popover">
+        {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+        <PopoverContent className="w-auto p-2" data-testid="epic-color-popover" aria-label="에픽 색 선택">
           {/* 견본 12개를 6열 2줄 격자로 — 좁은 모바일에서도 가로로 넘치지 않는다. 터치 기기(pointer-coarse)는 견본을 40px·간격 8px 로 키워
               손가락으로 이웃 색을 잘못 누르지 않게 한다(데스크톱은 라벨 설정과 같은 24px). */}
           <ColorTokenPicker

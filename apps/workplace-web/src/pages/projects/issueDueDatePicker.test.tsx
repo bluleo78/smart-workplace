@@ -42,6 +42,7 @@ describe('이슈 상세 마감일 DatePicker (#284)', () => {
     const { user, patches } = await open(null)
     await user.click(screen.getByTestId('due-date-trigger'))
     const popover = await screen.findByTestId('due-date-popover')
+    expect(screen.getByRole('dialog', { name: '마감일 선택' })).toBeInTheDocument()
     const day15 = [...popover.querySelectorAll<HTMLButtonElement>('[data-slot="calendar"] button[data-day]')].find(
       (b) => b.textContent?.trim() === '15',
     )!

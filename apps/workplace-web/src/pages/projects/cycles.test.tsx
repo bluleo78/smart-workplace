@@ -747,6 +747,7 @@ describe('사이클 피커 — 이슈 상세', () => {
     const { user, puts } = await openIssue([createCycle()], [])
     await user.click(screen.getByTestId('cycle-picker-trigger'))
     await screen.findByTestId('cycle-picker')
+    expect(screen.getByRole('dialog', { name: '사이클 선택' })).toBeInTheDocument()
     const option = screen.getByTestId('cycle-option-1')
     expect(option).toHaveTextContent('진행 중')
     expect(option).not.toHaveTextContent('ACTIVE')

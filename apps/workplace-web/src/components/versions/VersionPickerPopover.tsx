@@ -67,7 +67,14 @@ export function VersionPickerPopover({
         <PickerAddTrigger variant={trigger} aria-label={`${ariaLabel} 추가`} data-testid={`${testIdPrefix}-picker-trigger`} />
       </PopoverTrigger>
       {/* 레일 오른쪽 끝 가까이에서 열려 가운데 정렬이면 화면 가장자리에 붙는다 — 오른쪽 끝을 트리거에 맞추고 가장자리 16px 를 띄운다. */}
-      <PopoverContent align="end" collisionPadding={16} className="w-72 p-2" data-testid={`${testIdPrefix}-picker`}>
+      {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+      <PopoverContent
+        align="end"
+        collisionPadding={16}
+        className="w-72 p-2"
+        data-testid={`${testIdPrefix}-picker`}
+        aria-label={`${ariaLabel} 선택`}
+      >
         <Input
           placeholder={`${ariaLabel} 검색`}
           aria-label={`${ariaLabel} 검색`}

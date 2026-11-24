@@ -66,6 +66,7 @@ describe('오픈 프로젝트 보고자 피커 (WP-967)', () => {
 
     fireEvent.click(screen.getByTestId('reporter-picker-trigger'))
     const picker = await screen.findByTestId('reporter-picker')
+    expect(screen.getByRole('dialog', { name: '보고자 선택' })).toBeInTheDocument()
     expect(await within(picker).findByTestId('reporter-option-10')).toBeInTheDocument()
 
     // 검색어를 바꾼 직후(디바운스 동안)에는 옛 결과를 고를 수 없게 「검색 중…」만 보인다.

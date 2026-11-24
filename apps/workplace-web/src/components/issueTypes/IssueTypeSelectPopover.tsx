@@ -70,7 +70,8 @@ export function IssueTypeSelectPopover({
           <IssueTypeBadge type={current} />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-56 p-1" data-testid="issue-type-picker">
+      {/* WP-2058: role=dialog 이름 — 스크린리더가 어느 칸의 팝오버인지 읽게 한다 */}
+      <PopoverContent className="w-56 p-1" data-testid="issue-type-picker" aria-label="이슈 유형 선택">
         {subtaskTypeId != null ? (
           <form
             className="space-y-2 p-2"

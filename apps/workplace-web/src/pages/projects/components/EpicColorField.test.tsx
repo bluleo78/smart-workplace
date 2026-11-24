@@ -38,6 +38,7 @@ describe('에픽 색 고르기 (WP-1017)', () => {
 
     fireEvent.click(trigger)
     const popover = await screen.findByTestId('epic-color-popover')
+    expect(screen.getByRole('dialog', { name: '에픽 색 선택' })).toBeInTheDocument()
     // 12색 견본 — 한국어 이름으로 읽히고, 지금 색만 눌림 상태.
     const group = within(popover).getByRole('group', { name: '에픽 색' })
     expect(within(group).getAllByRole('button')).toHaveLength(12)
