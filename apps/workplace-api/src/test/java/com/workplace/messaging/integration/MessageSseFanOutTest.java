@@ -3,7 +3,6 @@ package com.workplace.messaging.integration;
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
@@ -90,11 +89,17 @@ class MessageSseFanOutTest extends ExternalClientMockedTestBase {
     // when: 메시지 작성 (서비스 @Transactional → 커밋 후 이벤트 발행)
     messageService.create(uid, channelId, new CreateMessageRequest("실시간"));
 
-    // then: AFTER_COMMIT 이후 SseRegistry.fanOut() 이 호출되어 해당 유저가 수신 목록에 포함됨
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    verify(registry, timeout(2000)).fanOut(ids.capture(), eq("messaging.message.created"), any());
-    assertThat(ids.getValue()).contains(uid);
+    // then: AFTER_COMMIT 이후 SseRegistry.fanOut() 이 이 유저를 받는 사람에 넣어 호출됨.
+    // 다른 테스트의 늦은 AFTER_COMMIT 이벤트가 섞여도 잡히지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2059).
+    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    verify(registry, timeout(2000))
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.created"),
+            payload.capture());
+    // 잡은 이벤트가 이 테스트 채널의 메시지인지 확인
+    JsonNode sse = jsonMapper.readTree(SseRegistry.toJson(payload.getValue()));
+    assertThat(sse.get("channelId").asLong()).isEqualTo(channelId);
   }
 
   /**
