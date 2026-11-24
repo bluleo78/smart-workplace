@@ -71,6 +71,38 @@ describe('AI 작업 단계 그룹 배선 (WP-1989)', () => {
   })
 })
 
+describe('워크플로우 배너 넘긴 뒤 초점 (WP-2055)', () => {
+  test('issueDetail_movedAway_focusesTitle', async () => {
+    const me = { id: 1, username: 'admin', name: '관리자', kind: 'HUMAN' as const }
+    let moved = false
+    const view = () => ({
+      runId: 5, status: 'WAITING', revision: moved ? 2 : 1, workflowId: 3, versionNo: 2,
+      currentNode: { key: 'ask', name: '질문 답변', type: 'human_task', roleKey: null, assignees: [moved ? { ...me, id: 2, name: '남' } : me], enteredAt: new Date().toISOString(), nodeRunStatus: 'ACTIVE', instructions: null },
+      outcomes: [{ key: 'done', to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] }],
+      path: [], remainingNodeKeys: [], context: {},
+    })
+    const { user } = await openIssueDetail({
+      key: KEY,
+      detail: detailWith({ id: 100 }),
+      handlers: [
+        http.get('/api/v1/issues/:id/workflow', () => HttpResponse.json(view())),
+        http.post('/api/v1/issues/:id/workflow/move', () => {
+          moved = true
+          return HttpResponse.json(view())
+        }),
+        http.get('/api/v1/projects/1/workflows', () =>
+          HttpResponse.json([{ id: 3, name: 'AI 개발 흐름', enabled: true, activeVersionNo: 2, draftChanged: false }])),
+        http.get('/api/v1/workflows/3/versions/2', () => HttpResponse.json({}, { status: 404 })),
+      ],
+    })
+    const banner = await screen.findByTestId('issue-workflow-banner')
+    await user.click(within(banner).getByRole('button', { name: 'done' }))
+    await user.click(within(banner).getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus())
+  })
+})
+
 describe('보고자 (WP-272·WP-944)', () => {
   test('상태·담당 그룹 담당자 아래에 읽기 전용 보고자 이름과 생성일이 보인다', async () => {
     await openIssueDetail({
