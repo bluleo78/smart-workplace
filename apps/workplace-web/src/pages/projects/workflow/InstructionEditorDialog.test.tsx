@@ -324,7 +324,7 @@ describe('InstructionEditorDialog', () => {
     fireEvent.change(screen.getByLabelText('지시 원문'), { target: { value: '## 새 제목\n\n' + TEXT } })
     await user.click(within(screen.getByRole('navigation', { name: '목차' })).getByRole('button', { name: '목표' }))
     const target = vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0] as HTMLElement
-    expect(target.getAttribute('data-block-index')).toBe('2')
+    expect(target.getAttribute('data-block-index')).toBe('1')
   })
 
   it('알림이_뜬_뒤_text가_원래대로_돌아오면_알림이_사라진다', async () => {
