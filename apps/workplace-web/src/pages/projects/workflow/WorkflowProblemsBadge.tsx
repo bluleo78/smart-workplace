@@ -80,7 +80,7 @@ export function WorkflowProblemsBadge({ problems, checking, failed, stale = fals
           className={cn(errors > 0 ? 'border-destructive/40 bg-destructive-subtle text-destructive-text' : 'border-warning/40 bg-warning-subtle text-warning-text')}
         ><TriangleAlert aria-hidden="true" />{label}</Button>
       </PopoverTrigger>
-      <PopoverContent align="start" onCloseAutoFocus={(event) => { if (acted.current) event.preventDefault() }} className="w-96 max-w-[calc(100vw-2rem)] space-y-2 text-sm">
+      <PopoverContent aria-label={`검사 결과 ${label}`} align="start" onCloseAutoFocus={(event) => { if (acted.current) event.preventDefault() }} className="w-96 max-w-[calc(100vw-2rem)] space-y-2 text-sm">
         <ul className="space-y-1">
           {problems.map((problem, index) => (
             <li key={`${problem.code}:${problem.line}:${problem.column}:${index}`} className="flex flex-wrap items-baseline gap-x-2">
