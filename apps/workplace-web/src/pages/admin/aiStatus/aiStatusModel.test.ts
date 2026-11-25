@@ -52,6 +52,7 @@ function kindRow(kind: string, o: Partial<KindRow>): KindRow {
     inputTokens: null,
     outputTokens: null,
     lastFailure: null,
+    limited: 0,
     ...o,
   }
 }
@@ -351,6 +352,8 @@ describe('statCards', () => {
     responseTime: { current: { p50: 800, p95: 12_300 }, previous: { p50: 700, p95: 10_000 } },
     waitTime: { current: { p95: 245_000, queueWaiting: 12 }, previous: { p95: null, queueWaiting: null } },
     slotUsage: { current: { used: 3, limit: 8 }, previous: null },
+    limited: 0,
+    limitedCredentials: [],
   }
 
   test('statCards — 지표 6장의 testId·제목·값·아랫줄', () => {

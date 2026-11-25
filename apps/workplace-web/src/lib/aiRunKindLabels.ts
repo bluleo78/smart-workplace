@@ -32,6 +32,12 @@ export const AI_RUN_KIND_LABELS: Record<string, string> = {
   DRIVE_SECURITY_CHECK: '파일 보안 점검',
   DRIVE_OVERVIEW: '드라이브 개요',
   DELEGATED_WORK: '위임 작업',
+  // 이벤트 기반 처리 종류(WP-2106) — 처리 이력에 남지만 서버 종류 표에는 없던 코드
+  ISSUE_AGENT_RUN: '이슈 AI 실행',
+  RECURRING_RUN: '반복 작업 실행',
+  RECURRING_TEST_RUN: '반복 작업 테스트 실행',
+  ISSUE_CHAT_REPLY: '이슈 챗 AI 답',
+  MESSAGING_REPLY: '채팅 AI 답',
 }
 
 /** 종류 코드 → 화면 이름. 모르는 코드는 코드 그대로. */

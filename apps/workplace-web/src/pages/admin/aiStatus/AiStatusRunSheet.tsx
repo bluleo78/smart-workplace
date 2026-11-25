@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useAiStatusRunDetail } from '@/hooks/queries/useAiStatusRuns'
 import { aiRunKindLabel } from '@/lib/aiRunKindLabels'
+import { aiRunReasonLabel } from '@/lib/aiRunReasonLabels'
 import { EMPTY_GLYPH, formatDurationMs, formatNumber } from '@/lib/formatters'
 
 import { AiStatusActor } from './AiStatusActor'
@@ -75,7 +76,7 @@ export function AiStatusRunSheet({
   // 상세를 기다리는 중 — 열려 있는 처리(R-)만(위임 작업 W- 는 상세가 없다)
   const loadingDetail = item !== null && runId !== null && detailQuery.isPending
   const detail = detailQuery.data
-  const errorText = detail?.errorDetail ?? shown?.errorReason ?? null
+  const errorText = detail?.errorDetail ?? (shown?.errorReason == null ? null : aiRunReasonLabel(shown.errorReason))
   const hasCache = detail != null && (detail.cacheReadTokens !== null || detail.cacheWriteTokens !== null)
   const maxMs = Math.max(shown?.waitMs ?? 0, shown?.durationMs ?? 0)
 

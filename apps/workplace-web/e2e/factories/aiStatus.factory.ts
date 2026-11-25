@@ -17,6 +17,8 @@ export function createAiStatusOverview(over: Partial<AiStatusOverview> = {}): Ai
       responseTime: { current: { p50: 800, p95: 1500 }, previous: { p50: 700, p95: 1200 } },
       waitTime: { current: { p95: 2500, queueWaiting: 3 }, previous: { p95: 2000, queueWaiting: 2 } },
       slotUsage: { current: { used: 3, limit: 8 }, previous: { used: 2, limit: 8 } },
+      limited: 0,
+      limitedCredentials: [],
     },
     throughput: {
       buckets,
@@ -34,7 +36,7 @@ export function createAiStatusOverview(over: Partial<AiStatusOverview> = {}): Ai
       slotLimit: [8, 8],
       backlog: {},
     },
-    kinds: [{ kind: 'MAIL', count: 11, failureRate: 0.1, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null }],
+    kinds: [{ kind: 'MAIL', count: 11, failureRate: 0.1, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null, limited: 0 }],
     alerts: [],
     ...over,
   }

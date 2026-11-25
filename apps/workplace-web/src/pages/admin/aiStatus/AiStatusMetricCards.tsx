@@ -9,7 +9,19 @@ export function AiStatusMetricCards({ cards }: { cards: StatCardDef[] }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" data-help="ai-status.metrics">
       {cards.map((card) => (
-        <StatCard key={card.testId} testId={card.testId} title={card.title} value={card.value} meta={card.meta} />
+        <StatCard key={card.testId} testId={card.testId} title={card.title} value={card.value} meta={
+            card.note ? (
+              <>
+                {card.meta}
+                <span className="w-full" data-testid={`${card.testId}-limited`}>
+                  {card.note}
+                </span>
+              </>
+            ) : (
+              card.meta
+            )
+          }
+        />
       ))}
     </div>
   )

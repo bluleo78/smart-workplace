@@ -10,6 +10,8 @@ import { MetricCard } from '@/components/metrics/MetricCard'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { aiRunKindLabel } from '@/lib/aiRunKindLabels'
+import { aiRunReasonLabel } from '@/lib/aiRunReasonLabels'
 import { EMPTY_GLYPH, formatDateTime } from '@/lib/formatters'
 
 import { durationText, historyHref, numberText, percentText, sortKinds } from './aiStatusModel'
@@ -24,7 +26,8 @@ const TOP_N = 6
 function lastFailureText(row: KindRow): string {
   if (row.lastFailure == null) return EMPTY_GLYPH
   const at = formatDateTime(row.lastFailure.at)
-  return row.lastFailure.reason == null ? at : `${at} · ${row.lastFailure.reason}`
+  // 사유 코드는 이름으로 — 사유가 없으면 시각만 둔다
+  return row.lastFailure.reason == null ? at : `${at} · ${aiRunReasonLabel(row.lastFailure.reason)}`
 }
 
 /** 종류 한 행의 셀 텍스트 — 표 모양과 목록 모양이 같은 값·같은 포매터를 쓰게 여기서 만든다. */
@@ -37,6 +40,8 @@ function kindCells(row: KindRow) {
     inputTokens: numberText(row.inputTokens),
     outputTokens: numberText(row.outputTokens),
     lastFailure: lastFailureText(row),
+    // 사용 한도 초과는 실패율에 들지 않으므로 따로 알린다 — 0건이면 숨김
+    limited: row.limited > 0 ? `한도 초과 ${numberText(row.limited)}건` : null,
   }
 }
 
@@ -45,7 +50,7 @@ function kindCells(row: KindRow) {
 function KindLink({ kind, href, stretch = false }: { kind: string; href: string; stretch?: boolean }) {
   return (
     <Link to={href} className={stretch ? 'hover:underline after:absolute after:inset-0' : 'hover:underline'}>
-      {kind}
+      {aiRunKindLabel(kind)}
     </Link>
   )
 }
@@ -78,6 +83,7 @@ export function AiStatusKindsTable({ kinds, period }: { kinds: KindRow[]; period
                     </span>
                     <span className="text-xs tabular-nums text-muted-foreground">실패율 {cells.failureRate}</span>
                   </div>
+                  {cells.limited && <p className="text-xs text-muted-foreground">{cells.limited}</p>}
                   <p className="text-xs text-muted-foreground">
                     {cells.count}건 · p95 {cells.p95} · 입력 토큰 {cells.inputTokens} · 출력 토큰 {cells.outputTokens}
                   </p>
@@ -103,7 +109,10 @@ export function AiStatusKindsTable({ kinds, period }: { kinds: KindRow[]; period
                       <KindLink kind={row.kind} href={historyHref({ period, kinds: [row.kind] })} stretch />
                     </TableCell>
                     <TableCell className="tabular-nums">{cells.count}</TableCell>
-                    <TableCell className="tabular-nums">{cells.failureRate}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {cells.failureRate}
+                      {cells.limited && <span className="block text-xs text-muted-foreground">{cells.limited}</span>}
+                    </TableCell>
                     <TableCell className="tabular-nums">{cells.p50}</TableCell>
                     <TableCell className="tabular-nums">{cells.p95}</TableCell>
                     <TableCell className="tabular-nums">{cells.inputTokens}</TableCell>

@@ -52,6 +52,8 @@ function overviewFixture(overrides: Partial<AiStatusOverview> = {}): AiStatusOve
       responseTime: { current: { p50: 800, p95: 1500 }, previous: { p50: 700, p95: 1200 } },
       waitTime: { current: { p95: 2500, queueWaiting: 3 }, previous: { p95: 2000, queueWaiting: 2 } },
       slotUsage: { current: { used: 3, limit: 8 }, previous: { used: 2, limit: 8 } },
+      limited: 0,
+      limitedCredentials: [],
     },
     throughput: {
       buckets: ISO_BUCKETS,
@@ -70,7 +72,7 @@ function overviewFixture(overrides: Partial<AiStatusOverview> = {}): AiStatusOve
       backlog: {},
     },
     kinds: [
-      { kind: 'MAIL', count: 11, failureRate: 0.1, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null },
+      { kind: 'MAIL', count: 11, failureRate: 0.1, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null, limited: 0 },
     ],
     alerts: DEFAULT_ALERTS,
     ...overrides,
@@ -79,12 +81,12 @@ function overviewFixture(overrides: Partial<AiStatusOverview> = {}): AiStatusOve
 
 /** 종류 한 행 만들기 — 종류별 표 테스트용 8종을 실패율 다르게(마지막 하나는 실패율 없음) 만든다. */
 function kindRow(kind: string, count: number, failureRate: number | null, extra: Partial<KindRow> = {}): KindRow {
-  return { kind, count, failureRate, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null, ...extra }
+  return { kind, count, failureRate, p50: 800, p95: 1500, inputTokens: 1000, outputTokens: 300, lastFailure: null, limited: 0, ...extra }
 }
 
 /** 종류별 표 픽스처 — 실패율 내림차순 상위 6 + 「나머지 2종」 이 나오게 MAIL 부터 순서를 엇갈려 둔다. */
 const KINDS: KindRow[] = [
-  kindRow('MAIL', 11, 0.5, { lastFailure: { at: '2026-11-22T10:00:00Z', reason: 'TIMEOUT' } }),
+  kindRow('MAIL_ANALYZE_PERSONAL', 11, 0.5, { lastFailure: { at: '2026-11-22T10:00:00Z', reason: 'timeout' }, limited: 3 }),
   kindRow('CHAT', 10, 0.4),
   kindRow('ISSUE', 9, 0.3),
   kindRow('DOC', 8, 0.2),
@@ -164,6 +166,19 @@ test('지표 6장이 서버 값을 제목·아랫줄과 함께 그려진다 — 
       `직전 ${formatCompactNumber(1200)} · 입력 ${formatCompactNumber(1200)} · 출력 ${formatCompactNumber(300)}`,
     ),
   ).toBeInTheDocument()
+})
+
+test('실패율 카드에 한도 초과 건수와 계정 이름이 붙는다 — metricCards_showLimitedWithCredentials', async () => {
+  const base = overviewFixture()
+  renderOverview({ fixture: { metrics: { ...base.metrics, limited: 4, limitedCredentials: ['Claude 팀 계정', '운영 계정'] } } })
+  const card = await screen.findByTestId('card-failure-rate')
+  expect(within(card).getByText('한도 초과 4건 · Claude 팀 계정 · 운영 계정')).toBeInTheDocument()
+})
+
+test('한도 초과가 0건이면 카드에 보이지 않는다 — metricCards_hideLimitedWhenZero', async () => {
+  renderOverview()
+  const card = await screen.findByTestId('card-failure-rate')
+  expect(within(card).queryByText(/한도 초과/)).not.toBeInTheDocument()
 })
 
 test('경고가 AlertList 로 그려지고(위험·주의 구분), 없으면 「이상 없음」 이다', async () => {
@@ -356,15 +371,19 @@ test('종류별 표는 실패율 내림차순 상위 6행만 보이고 「나머
     '최근 실패',
   ])
   // 실패율 내림차순 상위 6행 만 보인다
-  for (const kind of ['MAIL', 'CHAT', 'ISSUE', 'DOC', 'SEARCH', 'DRIVE']) {
+  for (const kind of ['MAIL_ANALYZE_PERSONAL', 'CHAT', 'ISSUE', 'DOC', 'SEARCH', 'DRIVE']) {
     expect(within(table).getByTestId(`kind-row-${kind}`)).toBeInTheDocument()
   }
   expect(screen.queryByTestId('kind-row-CALENDAR')).not.toBeInTheDocument()
   expect(screen.queryByTestId('kind-row-NOTE')).not.toBeInTheDocument()
   // 셀은 서버 값을 포매터로 — MAIL 실패율 50% · 최근 실패 시각과 사유
-  const mail = within(table).getByTestId('kind-row-MAIL')
+  const mail = within(table).getByTestId('kind-row-MAIL_ANALYZE_PERSONAL')
   expect(within(mail).getByText('50%')).toBeInTheDocument()
-  expect(within(mail).getByText(`${formatDateTime('2026-11-22T10:00:00Z')} · TIMEOUT`)).toBeInTheDocument()
+  expect(within(mail).getByText(`${formatDateTime('2026-11-22T10:00:00Z')} · 시간 초과`)).toBeInTheDocument()
+  // 종류는 한글 이름 — 한도 초과 건수는 0 보다 클 때만 실패율 아래에 작게
+  expect(within(mail).getByText('메일 개인 분석')).toBeInTheDocument()
+  expect(within(mail).getByText('한도 초과 3건')).toBeInTheDocument()
+  expect(within(table).getAllByText(/한도 초과/)).toHaveLength(1)
   // 「나머지 2종 보기」 를 누르면 남은 두 행이 이어 그려진다
   await user.click(screen.getByRole('button', { name: '나머지 2종 보기' }))
   expect(await screen.findByTestId('kind-row-CALENDAR')).toBeInTheDocument()
@@ -392,7 +411,9 @@ test('모바일 폭에서는 처리량이 12개 이하 막대로 다시 묶이�
     expect(screen.queryByRole('table', { name: '종류별' })).not.toBeInTheDocument()
     const list = screen.getByRole('list', { name: '종류별' })
     expect(within(list).getAllByRole('listitem')).toHaveLength(6)
-    expect(within(list).getByTestId('kind-row-MAIL')).toBeInTheDocument()
+    expect(within(list).getByTestId('kind-row-MAIL_ANALYZE_PERSONAL')).toBeInTheDocument()
+    expect(within(list).getByText('메일 개인 분석')).toBeInTheDocument()
+    expect(within(list).getByText('한도 초과 3건')).toBeInTheDocument()
     expect(within(list).queryByTestId('kind-row-CALENDAR')).not.toBeInTheDocument()
   } finally {
     act(() => viewport.setWidth(1024))
@@ -442,7 +463,7 @@ test('종류별 표의 종류 링크를 누르면 그 종류와 지금 기간의
   const section = await screen.findByTestId('ai-status-kinds')
   const table = within(section).getByRole('table', { name: '종류별' })
   // 종류 이름은 링크 — 키보드·보조기기가 닿는 이동 수단(기본 기간 24h 는 주소에 넣지 않는다)
-  expect(within(table).getByRole('link', { name: 'MAIL' })).toHaveAttribute('href', '/settings/ai-status/history?kind=MAIL')
+  expect(within(table).getByRole('link', { name: '메일 개인 분석' })).toHaveAttribute('href', '/settings/ai-status/history?kind=MAIL_ANALYZE_PERSONAL')
   // 링크를 누르면 그 주소로 간다(행 전체를 덮는 것은 ::after 레이아웃이라 jsdom 밖)
   await user.click(within(table).getByRole('link', { name: 'CHAT' }))
   expect(location()).toBe('/settings/ai-status/history?kind=CHAT')
@@ -453,9 +474,9 @@ test('7일로 본 뒤 종류 링크는 period=7d 를 함께 넘긴다', async ()
   await screen.findByTestId('ai-status-kinds')
   await user.click(screen.getByRole('button', { name: '7일' }))
   await waitFor(() =>
-    expect(within(screen.getByRole('table', { name: '종류별' })).getByRole('link', { name: 'MAIL' })).toHaveAttribute(
+    expect(within(screen.getByRole('table', { name: '종류별' })).getByRole('link', { name: '메일 개인 분석' })).toHaveAttribute(
       'href',
-      '/settings/ai-status/history?period=7d&kind=MAIL',
+      '/settings/ai-status/history?period=7d&kind=MAIL_ANALYZE_PERSONAL',
     ),
   )
 })

@@ -8,6 +8,7 @@ import type { AlertItem, AlertLevel } from '@/components/metrics/AlertList'
 import { colorIndexFor } from '@/components/metrics/chartColors'
 import { hasAnyValue } from '@/components/metrics/chartData'
 import type { ChartSeries } from '@/components/metrics/chartTypes'
+import { aiRunKindLabel } from '@/lib/aiRunKindLabels'
 import {
   EMPTY_GLYPH,
   formatCompactNumber,
@@ -41,7 +42,7 @@ export function periodLabel(value: AiStatusPeriod): string {
 export type ChartRow = Record<string, string | number | null>
 
 /** 지표 카드 정의 — StatCard 에 그대로 넘긴다. */
-export type StatCardDef = { testId: string; title: string; value: ReactNode; meta: ReactNode }
+export type StatCardDef = { testId: string; title: string; value: ReactNode; meta: ReactNode; note?: string }
 
 /** 작은 그래프 정의 — ChartCard + TrendChart/StackedBarChart 조립에 필요한 것만 담는다. */
 export type SmallGraphDef = {
@@ -124,7 +125,7 @@ export function throughputSeries(t: AiStatusOverview['throughput']): ChartSeries
   const codes = t.kinds.filter((k) => k !== OTHER).sort()
   const out: ChartSeries[] = codes.map((code, i) => ({
     key: code,
-    label: code,
+    label: aiRunKindLabel(code),
     // 서버는 상위 5 종류만 내므로 6번째부터는 방어적으로 'other' 색으로 둔다
     colorIndex: colorIndexFor(i),
   }))
@@ -467,6 +468,13 @@ function slotText(slot: AiStatusOverview['metrics']['slotUsage']['current']): st
   return slotUsageText(slot.used, slot.limit)
 }
 
+/** 실패율 카드의 「한도 초과 N건 · 계정 이름」 — 실패율에서 뺀 사용 한도 초과를 따로 알린다. 0건이면 없음(숨김). */
+export function limitedNote(limited: number | null | undefined, credentials: string[] | null | undefined): string | undefined {
+  if (limited == null || limited <= 0) return undefined
+  const names = (credentials ?? []).filter((c) => c !== '')
+  return names.length > 0 ? `한도 초과 ${formatNumber(limited)}건 · ${names.join(' · ')}` : `한도 초과 ${formatNumber(limited)}건`
+}
+
 /**
  * 지표 6장 정의 — 제목은 설계 §5-4 확정 용어, 아랫줄은 `직전 <값>`(실패율은 퍼센트포인트 차이를 더한다),
  * 토큰 카드는 머리글에 합(compact)·아랫줄에 입력·출력 분해를 쓴다(설계 §5-6 6b).
@@ -500,6 +508,7 @@ export function statCards(m: AiStatusOverview['metrics']): StatCardDef[] {
       title: '실패율',
       value: percentText(m.failureRate.current),
       meta: failureMeta,
+      note: limitedNote(m.limited, m.limitedCredentials),
     },
     {
       testId: 'card-response-time',
@@ -585,7 +594,7 @@ export function smallGraphs(s: AiStatusOverview['series']): SmallGraphDef[] {
       kind: 'line',
       rows: zipRows(s.buckets, s.backlog),
       // 종류 코드 오름차순 고정 배정 — 6번째부터는 기타 회색
-      series: backlogKeys.map((key, i) => ({ key, label: key, colorIndex: colorIndexFor(i) })),
+      series: backlogKeys.map((key, i) => ({ key, label: aiRunKindLabel(key), colorIndex: colorIndexFor(i) })),
       ariaLabel: '기간별 밀린 건수(종류별)',
       valueFormatter: formatNumber,
     },

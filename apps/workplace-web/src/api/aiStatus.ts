@@ -47,6 +47,10 @@ export interface Metrics {
   responseTime: Pair<Latency>
   waitTime: Pair<Wait>
   slotUsage: Pair<Slot | null>
+  /** 사용 한도 초과로 실패한 건수 — 실패율에서 빼고 따로 센다(WP-2106). */
+  limited: number
+  /** 한도 초과가 난 AI 계정 이름들. */
+  limitedCredentials: string[]
 }
 
 /** 처리량 한 칸(토큰 합·건수) — 데이터가 없는 구간은 칸 자체가 null 이다(0 이 아니다). */
@@ -92,6 +96,8 @@ export interface KindRow {
   inputTokens: number | null
   outputTokens: number | null
   lastFailure: LastFailure | null
+  /** 이 종류에서 사용 한도 초과로 실패한 건수(실패율에는 들어가지 않는다). */
+  limited: number
 }
 
 /** AI 현황 화면의 경고 한 줄 — code·severity 는 늘 있고 나머지는 경고 종류에 따라 null. */
