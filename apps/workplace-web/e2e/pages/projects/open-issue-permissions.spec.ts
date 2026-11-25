@@ -145,6 +145,31 @@ test(
   },
 );
 
+test(
+  '첨부 드롭존: 키보드 초점에서 Enter·Space 로 실제 파일 선택창이 열린다 (WP-2130)',
+  // 실제 브라우저의 키보드 초점·파일 선택창 — jsdom 은 선택창을 열지 못해 클릭 스파이로만 확인된다.
+  { tag: '@input' },
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: true,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const dropzone = page.getByRole('button', { name: '첨부 드롭존' });
+    await dropzone.focus();
+    await expect(dropzone).toBeFocused();
+    for (const key of ['Enter', 'Space']) {
+      const chooser = page.waitForEvent('filechooser');
+      await page.keyboard.press(key);
+      // 열린 선택창에 빈 선택으로 답해 닫는다 — 닫지 않고 다음 키를 누르면 앞 선택창이 남은 채 시험하게 된다.
+      await (await chooser).setFiles([]);
+    }
+  },
+);
+
 // ─── 이슈 상세 — 본문 이미지 권한 (WP-199) ─────────────────────────────────────
 // 왜: 이미지 업로드 권한도 본문 편집 권한과 같다. OPEN 비멤버 reporter 는 붙여넣기 업로드가 실제로 나가야 하고,
 //     편집 불가 열람자는 이미지 버튼이 없지만 본문에 이미 있는 이미지는 볼 수 있어야 한다.
