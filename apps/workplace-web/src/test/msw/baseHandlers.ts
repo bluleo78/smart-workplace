@@ -189,6 +189,8 @@ export const shellHandlers = [
   http.get(`${API}/notifications/unread-count`, () => HttpResponse.json({ count: 0 })),
   // 앱 링크 판정 설정(WP-1165) — 앱 셸이 한 번 부른다. 공개 호스트 없음(지금 호스트만 본다).
   http.get(`${API}/app-links/config`, () => HttpResponse.json({ appHost: null })),
+  // 본문 이슈 키 링크 상태 일괄 조회(WP-2102) — 이슈 키가 있는 화면이 부른다. 기본은 모두 못 보는 키(응답이 비어 링크는 평소 모양).
+  http.post(`${API}/app-links/issue-statuses`, () => HttpResponse.json({ items: [] })),
   // 드라이브 공유 링크 카드(WP-1474) — 본문에 /s/sl_… 주소가 있는 화면이 부른다. 기본은 아무것도 드러내지 않는 410(만료·없는 링크).
   http.get(`${API}/app-links/shares/:token`, () => HttpResponse.json({ message: '공유 링크가 만료되었거나 해제되었습니다' }, { status: 410 })),
   http.get(`${API}/notifications`, () => HttpResponse.json([])),

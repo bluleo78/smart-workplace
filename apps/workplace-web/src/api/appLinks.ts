@@ -106,10 +106,22 @@ export interface AppLinkConfig {
   appHost: string | null
 }
 
+/** 이슈 키 하나의 현재 상태(WP-2102) — 본문 키 링크를 끝난 이슈면 삭선으로 보이는 데 쓴다. */
+export interface IssueKeyStatus {
+  issueKey: string
+  statusName: string
+  statusCategory: string
+}
+
 export const appLinksApi = {
   card: async (link: AppLink): Promise<AppLinkCard> => {
     const { data } = await client.get<AppLinkCard>(appLinkCardPath(link))
     return data
+  },
+  /** 이슈 키 상태 일괄 조회(WP-2102) — 보는 사람이 볼 수 없거나 없는 키는 응답에서 빠진다. 순서는 입력과 다를 수 있다. */
+  issueStatuses: async (keys: string[]): Promise<IssueKeyStatus[]> => {
+    const { data } = await client.post<{ items: IssueKeyStatus[] }>('/app-links/issue-statuses', { keys })
+    return data.items
   },
   config: async (): Promise<AppLinkConfig> => {
     const { data } = await client.get<AppLinkConfig>('/app-links/config')
@@ -140,6 +152,58 @@ export function appLinkCardQuery(link: AppLink) {
     // 권한 없음·없음(404)은 다시 물어도 같다 — 재시도하지 않는다. 일시 오류(배포 중 5xx·연결 끊김)는 두 번까지 다시 묻는다.
     retry: (count: number, err: unknown) => !isAppLinkDenied(err) && count < 2,
     // 상태·제목은 자주 바뀌지 않아 1분 동안 다시 받지 않는다.
+    staleTime: 60_000,
+  }
+}
+
+// 서버가 한 번에 받는 키 최대 개수 — 넘기면 400 이라 이 크기로 나눠 보낸다.
+const ISSUE_STATUS_CHUNK = 100
+
+type StatusWaiter = { resolve: (v: IssueKeyStatus | null) => void; reject: (e: unknown) => void }
+// 이번 틱에 모인 키 → 기다리는 쪽들. 같은 키는 한 항목에 모아 본문에 한 번만 싣는다.
+let pendingStatusKeys = new Map<string, StatusWaiter[]>()
+
+/** 모인 키를 100개씩 나눠 한 묶음에 POST 한 번 — 묶음이 실패하면 그 묶음 키의 프라미스를 모두 거절한다. */
+function flushIssueStatuses() {
+  const batch = pendingStatusKeys
+  pendingStatusKeys = new Map()
+  const keys = [...batch.keys()]
+  for (let i = 0; i < keys.length; i += ISSUE_STATUS_CHUNK) {
+    const chunk = keys.slice(i, i + ISSUE_STATUS_CHUNK)
+    appLinksApi.issueStatuses(chunk).then(
+      (items) => {
+        // 응답 순서는 입력과 달라 issueKey 로 짝짓는다. 응답에 없는 키(못 보는·없는 이슈)는 null.
+        const byKey = new Map(items.map((it) => [it.issueKey, it]))
+        for (const k of chunk) for (const w of batch.get(k) ?? []) w.resolve(byKey.get(k) ?? null)
+      },
+      (err) => {
+        for (const k of chunk) for (const w of batch.get(k) ?? []) w.reject(err)
+      },
+    )
+  }
+}
+
+/**
+ * 이슈 키 하나의 상태를 받는다(WP-2102). 한 글에 키가 수십 개여도 요청이 키 수만큼 나가지 않도록,
+ * 같은 틱(마이크로태스크)에 요청된 키를 모아 한 번에 보낸다. 못 보는·없는 키는 null.
+ */
+export function loadIssueKeyStatus(key: string): Promise<IssueKeyStatus | null> {
+  return new Promise((resolve, reject) => {
+    const first = pendingStatusKeys.size === 0
+    const waiters = pendingStatusKeys.get(key)
+    if (waiters) waiters.push({ resolve, reject })
+    else pendingStatusKeys.set(key, [{ resolve, reject }])
+    if (first) queueMicrotask(flushIssueStatuses)
+  })
+}
+
+/** 키 상태 조회 옵션 — 키별 캐시라 같은 키가 여러 곳에 있어도 한 번만 받는다. */
+export function issueKeyStatusQuery(key: string) {
+  return {
+    queryKey: ['issue-key-status', key],
+    queryFn: () => loadIssueKeyStatus(key),
+    // 카드 조회와 같은 규칙 — 일시 오류(5xx·연결 끊김)는 두 번까지 다시 묻는다. 끝내 실패하면 링크는 평소 모양이다.
+    retry: (count: number, err: unknown) => !isAppLinkDenied(err) && count < 2,
     staleTime: 60_000,
   }
 }

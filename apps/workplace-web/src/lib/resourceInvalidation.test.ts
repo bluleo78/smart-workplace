@@ -11,6 +11,13 @@ import {
   ruleResourceNames,
 } from './resourceInvalidation';
 
+describe('issue 변경 → 키 링크 상태 캐시(WP-2102)', () => {
+  it('상태가 바뀌면 끝난 이슈 키 링크가 새로 받도록 [issue-key-status] 접두사를 무효화한다', () => {
+    const keys = invalidationTargets({ resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 21 }).map((t) => t.queryKey);
+    expect(keys).toContainEqual(['issue-key-status']);
+  });
+});
+
 describe('invalidationTargets', () => {
   it('issue → 이슈 id 가 있으면 워크플로우 캐시는 그 이슈 것만, 없으면 접두사', () => {
     const base = { resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 21 } as const;

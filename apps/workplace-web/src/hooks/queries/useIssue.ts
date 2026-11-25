@@ -53,6 +53,8 @@ export function useUpdateIssue(projectKey: string, number: number) {
       // 홈 합성 위젯의 마감 마커(useMyIssueDues, ['my-issue-dues', from, to])도 무효화 —
       // 마감일 변경이 홈 "오늘 마감" 카운트·주의 항목에 즉시 반영되도록 prefix 로 모든 날짜범위를 무효화한다.
       qc.invalidateQueries({ queryKey: ['my-issue-dues'] });
+      // 본문 이슈 키 링크의 상태(삭선) 캐시도 — 완료·취소로 바뀌면 바로 따라가게 한다(WP-2102).
+      qc.invalidateQueries({ queryKey: ['issue-key-status'] });
       // 상태·닫기·다시 열기는 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },

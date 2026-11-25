@@ -57,6 +57,8 @@ export function issueTargets(pk: string, ids?: number[]): InvalidationTarget[] {
     { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
     { queryKey: ['issues', pk] }, // 상세(detail) 전체
     { queryKey: ['me-issues'] },
+    // 본문 이슈 키 링크의 상태 캐시(WP-2102) — 완료·취소로 바뀌면 삭선이 따라가야 한다. 키가 `WP-12` 꼴이라 pk 로 좁히지 않고 접두사 전체(싸다).
+    { queryKey: ['issue-key-status'] },
     { queryKey: ['ai-tasks'] }, // AI 작업 목록·건수(WP-377)
     // 이슈 워크플로우 카드·배너(WP-1989) — 다른 사람·AI 가 단계를 옮겨도 이슈 갱신 알림으로 단계를 다시 읽는다(키에 pk 가 없어 id 가 없으면 접두사로).
     ...byIssueIds(ids, issueWorkflowKeys.all, issueWorkflowKeys.detail),

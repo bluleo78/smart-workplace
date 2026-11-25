@@ -25,8 +25,20 @@ const chip: RenderMention = (m, key) => (
 )
 
 /** 보이는 프로젝트는 WP 하나 — AB 는 모르는(볼 수 없는) 프로젝트. 카드 요청은 모아 둔다. */
-function handlers(cardRequests: string[] = []) {
+function handlers(cardRequests: string[] = [], statusRequests: string[][] = []) {
   return [
+    // 키 상태 일괄 조회(WP-2102) — 20 은 완료, 21 은 취소, 22 는 진행 중, 그 밖(예: 못 보는 키)은 응답에서 빠진다.
+    http.post(`${API}/app-links/issue-statuses`, async ({ request }) => {
+      const { keys } = (await request.json()) as { keys: string[] }
+      statusRequests.push(keys)
+      const table: Record<string, [string, string]> = {
+        'WP-20': ['완료', 'DONE'],
+        'WP-21': ['취소', 'CANCELED'],
+        'WP-22': ['진행 중', 'IN_PROGRESS'],
+      }
+      const items = keys.filter((k) => table[k]).map((k) => ({ issueKey: k, statusName: table[k][0], statusCategory: table[k][1] }))
+      return HttpResponse.json({ items })
+    }),
     http.get(`${API}/projects`, () =>
       HttpResponse.json({ content: [createProject({ key: 'WP' })], page: 0, size: 100, totalElements: 1, totalPages: 1 }),
     ),
@@ -68,6 +80,101 @@ function renderMarkdown(body: string, cardRequests?: string[]) {
 
 beforeEach(() => {
   pointer.coarse = false
+})
+
+/** 삭선이 실제로 그려지는 클래스인가 — 일반 underline 클래스가 같이 있으면 같은 CSS 속성이라 삭선을 덮으므로 낱말 그대로의 underline 토큰이 없어야 한다. */
+function expectStruck(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/)
+  expect(tokens).not.toContain('underline')
+  expect(tokens).toContain('[text-decoration-line:underline_line-through]')
+}
+
+describe('끝난 이슈 키 링크(WP-2102)', () => {
+  it('완료·취소 이슈는 삭선과 상태 이름 title, 진행 중·못 보는 키는 지금 모양', async () => {
+    renderScreen(
+      <ChatMarkdownText body="WP-20 WP-21 WP-22 WP-23" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      { handlers: handlers() },
+    )
+    const done = await screen.findByTestId('issue-key-ref-WP-20')
+    await waitFor(() => expect(done).toHaveAttribute('title', '완료'))
+    expect(done.className).toContain('line-through')
+    expectStruck(done)
+    const canceled = screen.getByTestId('issue-key-ref-WP-21')
+    await waitFor(() => expect(canceled).toHaveAttribute('title', '취소'))
+    expect(canceled.className).toContain('line-through')
+    for (const n of [22, 23]) {
+      const el = screen.getByTestId(`issue-key-ref-WP-${n}`)
+      expect(el.className).not.toContain('line-through')
+      expect(el).not.toHaveAttribute('title')
+    }
+  })
+
+  it('한 글에 키가 여러 개여도 상태 요청은 한 번이고, 보이지 않는 프로젝트 키는 요청하지 않는다', async () => {
+    const statusRequests: string[][] = []
+    renderScreen(
+      <ChatMarkdownText body="WP-20 WP-21 WP-22 AB-5" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      { handlers: handlers([], statusRequests) },
+    )
+    await waitFor(() => expect(screen.getByTestId('issue-key-ref-WP-20')).toHaveAttribute('title', '완료'))
+    expect(statusRequests).toHaveLength(1)
+    expect([...statusRequests[0]].sort()).toEqual(['WP-20', 'WP-21', 'WP-22'])
+  })
+
+  it('끝난 이슈 링크는 title 외에 스크린리더용 aria-label(키 (상태 이름))도 갖는다', async () => {
+    renderScreen(
+      <ChatMarkdownText body="WP-20 WP-22" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      { handlers: handlers() },
+    )
+    const done = await screen.findByTestId('issue-key-ref-WP-20')
+    await waitFor(() => expect(done).toHaveAttribute('aria-label', 'WP-20 (완료)'))
+    expect(screen.getByRole('link', { name: 'WP-20 (완료)' })).toBe(done)
+    expect(screen.getByTestId('issue-key-ref-WP-22')).not.toHaveAttribute('aria-label')
+  })
+
+  it('상태 요청이 500 이면 링크는 평소 모양(삭선·title 없음)', async () => {
+    renderScreen(
+      <ChatMarkdownText body="WP-20" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      { handlers: [http.post(`${API}/app-links/issue-statuses`, () => new HttpResponse(null, { status: 500 })), ...handlers()] },
+    )
+    const link = await screen.findByTestId('issue-key-ref-WP-20')
+    // 재시도(최대 두 번)까지 끝난 뒤에도 평소 모양이어야 한다 — 잠시 기다려 본다.
+    await new Promise((r) => setTimeout(r, 300))
+    expect(link.className).not.toContain('line-through')
+    expect(link).not.toHaveAttribute('title')
+  })
+
+  it('일시 오류 한 번 뒤 재시도로 받으면 삭선이 그려진다', async () => {
+    let calls = 0
+    renderScreen(
+      <ChatMarkdownText body="WP-20" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      {
+        handlers: [
+          http.post(`${API}/app-links/issue-statuses`, () => {
+            calls += 1
+            if (calls === 1) return new HttpResponse(null, { status: 503 })
+            return HttpResponse.json({ items: [{ issueKey: 'WP-20', statusName: '완료', statusCategory: 'DONE' }] })
+          }),
+          ...handlers(),
+        ],
+      },
+    )
+    const link = await screen.findByTestId('issue-key-ref-WP-20')
+    await waitFor(() => expect(link).toHaveAttribute('title', '완료'), { timeout: 5000 })
+    expect(calls).toBe(2)
+  })
+
+  it('터치 버튼에도 삭선', async () => {
+    pointer.coarse = true
+    renderScreen(
+      <ChatMarkdownText body="WP-20" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      { handlers: handlers() },
+    )
+    const btn = await screen.findByTestId('issue-key-ref-WP-20')
+    await waitFor(() => expect(btn).toHaveAttribute('title', '완료'))
+    expect(btn.tagName).toBe('BUTTON')
+    expect(btn.className).toContain('line-through')
+    expectStruck(btn)
+  })
 })
 
 describe.each([
