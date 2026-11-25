@@ -20,7 +20,9 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { AssigneeAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
 import { closedInfo } from '../../../lib/issueClosedInfo';
+import { issueClosedTitleClass } from '../../../lib/issueClosedTitle';
 import { isOverdue } from '../../../lib/issueOverdue';
+import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
 import { IssueCardMenuContext } from './issueCardMenuContext';
@@ -184,7 +186,15 @@ export function IssueCard({
               <IssueTypeBadge type={issue.type} size="sm" iconOnly />
             </span>
           )}
-          <span className="line-clamp-2 min-w-0 break-words leading-snug" data-testid={`issue-card-${issue.number}-title`}>
+          {/* 메뉴가 열리면 카드 배경도 accent 색이므로 종료 제목을 전경색으로 되돌린다. */}
+          <span
+            className={cn(
+              'line-clamp-2 min-w-0 break-words leading-snug',
+              issueClosedTitleClass(issue.status),
+              menuOpen && 'text-foreground',
+            )}
+            data-testid={`issue-card-${issue.number}-title`}
+          >
             {issue.title}
           </span>
         </span>
@@ -324,7 +334,10 @@ function MobileCardBody({
           </span>
         )}
         <span
-          className="line-clamp-2 min-w-0 flex-1 break-words font-medium leading-snug"
+          className={cn(
+            'line-clamp-2 min-w-0 flex-1 break-words font-medium leading-snug',
+            issueClosedTitleClass(issue.status),
+          )}
           data-testid={`issue-card-${issue.number}-title`}
         >
           {issue.title}

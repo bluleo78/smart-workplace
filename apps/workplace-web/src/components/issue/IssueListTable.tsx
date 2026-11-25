@@ -7,6 +7,7 @@ import { Fragment } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { EMPTY_GLYPH, formatListDueDate } from '@/lib/formatters'
+import { issueClosedTitleClass } from '@/lib/issueClosedTitle'
 import { isOverdue } from '@/lib/issueOverdue'
 import { LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS } from '@/lib/listStyles'
 import { splitByProject } from '@/lib/projectRuns'
@@ -80,7 +81,7 @@ function IssueTableRow({ it, tid, showAssignee }: { it: IssueResponse; tid: stri
   const to = `/projects/${it.projectKey}/issues/${it.number}`
   const overdue = isOverdue(it)
   return (
-    <tr className="cursor-pointer border-b hover:bg-accent" data-testid={tid} onClick={() => navigate(to)}>
+    <tr className="group cursor-pointer border-b hover:bg-accent" data-testid={tid} onClick={() => navigate(to)}>
       <td className="py-2"><IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} /></td>
       <td><IssuePriorityBars priority={it.priority} /></td>
       {/* pr-3 — 긴 프로젝트 키(EXTSYS-1203 등)가 제목 글자에 붙지 않게 간격을 둔다. */}
@@ -96,11 +97,17 @@ function IssueTableRow({ it, tid, showAssignee }: { it: IssueResponse; tid: stri
         <div className="@container">
           <div className="flex min-w-0 items-center gap-1.5 font-medium">
             {/* stopPropagation — 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되지 않게. */}
+            {/* 공용 표에서도 프로젝트 목록처럼 완료·취소 제목을 구분한다. */}
             <Link
               to={to}
               onClick={(e) => e.stopPropagation()}
               title={it.title}
-              className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                'min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                issueClosedTitleClass(it.status),
+                // 취소 삭선이 hover 밑줄에 덮이지 않도록 두 장식을 함께 적용한다.
+                'hover:[&.line-through]:[text-decoration-line:underline_line-through]',
+              )}
             >
               {it.title}
             </Link>
@@ -176,7 +183,7 @@ function IssueMobileRow({ it, tid, showAssignee }: { it: IssueResponse; tid: str
   const navigate = useNavigate()
   const to = `/projects/${it.projectKey}/issues/${it.number}`
   return (
-    <li className="cursor-pointer border-b px-1 py-2.5" data-testid={tid} onClick={() => navigate(to)}>
+    <li className="group cursor-pointer border-b px-1 py-2.5" data-testid={tid} onClick={() => navigate(to)}>
       <div className="flex min-w-0 items-start gap-2">
         <span className="mt-0.5 shrink-0">
           <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
@@ -187,7 +194,7 @@ function IssueMobileRow({ it, tid, showAssignee }: { it: IssueResponse; tid: str
             to={to}
             onClick={(e) => e.stopPropagation()}
             data-testid={`${tid}-title`}
-            className="line-clamp-2 break-words text-sm font-medium leading-snug"
+            className={cn('line-clamp-2 break-words text-sm font-medium leading-snug', issueClosedTitleClass(it.status))}
           >
             {it.title}
           </Link>

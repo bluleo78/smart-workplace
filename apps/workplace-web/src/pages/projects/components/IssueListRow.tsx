@@ -14,6 +14,7 @@ import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
+import { issueClosedTitleClass } from '../../../lib/issueClosedTitle';
 import { isDirectEpicParent } from '../../../lib/issueGrouping';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
@@ -178,7 +179,12 @@ export const IssueRow = memo(function IssueRow({
                 to={to}
                 onClick={(e) => e.stopPropagation()}
                 // min-w-[8rem] — 칩·레이블이 제목을 밀어내지 않게(WP-194). 칩을 숨기는 14rem 미만 칸에선 하한을 풀어 하위 배지가 칸 밖으로 넘치지 않게 한다(WP-943).
-                className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring @max-[14rem]:min-w-0"
+                className={cn(
+                  'min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring @max-[14rem]:min-w-0',
+                  issueClosedTitleClass(it.status),
+                  // 제목 링크에 밑줄이 생겨도 취소 삭선이 덮이지 않도록 두 장식을 함께 적용한다.
+                  'hover:[&.line-through]:[text-decoration-line:underline_line-through]',
+                )}
               >
                 {it.title}
               </Link>

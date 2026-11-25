@@ -9,6 +9,7 @@ import type { CycleProgress, CycleResponse } from '../../../src/types/cycle';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectTheme, textContrast, tokenColor, withTheme } from '../../fixtures/contrast';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -33,7 +34,10 @@ const ACTIVE_CYCLE: CycleResponse = {
 const PROGRESS: CycleProgress[] = [{ cycleId: 1, total: 3, done: 0, byStatus: { TODO: 3 } }];
 
 /** 공통 목 — withCycle 이면 진행 중 사이클 하나를 줘 기본 그룹이 사이클 구간이 된다(없으면 평면 목록). */
-async function setup(page: Page, { withCycle = false }: { withCycle?: boolean } = {}) {
+async function setup(
+  page: Page,
+  { withCycle = false, issues = ISSUES }: { withCycle?: boolean; issues?: typeof ISSUES } = {},
+) {
   // 올해 판정이 실제 시계에 기대지 않도록 로컬 날짜를 2026-10-01 로 고정한다.
   await page.clock.setFixedTime(new Date(2026, 9, 1, 10, 0));
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -54,7 +58,7 @@ async function setup(page: Page, { withCycle = false }: { withCycle?: boolean } 
       if (route.request().method() !== 'GET') return route.fallback();
       // 사이클 구간 모드에선 진행 중 사이클에만 행을 두고 백로그는 비운다.
       const cycleParam = new URL(route.request().url()).searchParams.get('cycle');
-      const items = cycleParam === 'null' ? [] : ISSUES;
+      const items = cycleParam === 'null' ? [] : issues;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -80,6 +84,51 @@ async function idHeadOffset(page: Page): Promise<number> {
   await expect(key).toBeVisible();
   return Math.abs((await textLeft(head)) - (await textLeft(key)));
 }
+
+test('종료 제목은 흐리고 취소에 삭선이 있으며 행 hover로 제목 색을 복원한다', { tag: '@input' }, async ({
+  authenticatedPage: page,
+}) => {
+  const done = createIssue({ id: 21, number: 21, title: '검수가 끝난 작업', status: 'DONE' });
+  const canceled = createIssue({ id: 22, number: 22, title: '취소한 작업', status: 'CANCELED' });
+  await setup(page, { issues: [done, canceled] });
+  await page.goto(`/projects/${KEY}?group=none&closed=all`);
+  await page.mouse.move(0, 0);
+
+  const doneTitle = page.getByRole('link', { name: done.title, exact: true });
+  const canceledTitle = page.getByRole('link', { name: canceled.title, exact: true });
+  await expect(doneTitle).toBeVisible();
+  await expect(canceledTitle).toBeVisible();
+
+  const muted = await tokenColor(page, '--muted-foreground');
+  const foreground = await tokenColor(page, '--foreground');
+  await expect(doneTitle).toHaveCSS('color', muted);
+  await expect(doneTitle).toHaveCSS('text-decoration-line', 'none');
+  await expect(canceledTitle).toHaveCSS('color', muted);
+  await expect(canceledTitle).toHaveCSS('text-decoration-line', 'line-through');
+
+  await page.getByTestId('issue-row-21-key').hover();
+  await expect(doneTitle).toHaveCSS('color', foreground);
+  await canceledTitle.hover();
+  await expect(canceledTitle).toHaveCSS('color', foreground);
+  await expect(canceledTitle).toHaveCSS('text-decoration-line', /line-through/);
+  await expect(doneTitle).toHaveCSS('color', muted);
+});
+
+test('다크 모드의 종료 제목은 흐린 글자색으로 표시하고 배경과 4.5:1 이상 대비된다', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  const done = createIssue({ id: 21, number: 21, title: '검수가 끝난 작업', status: 'DONE' });
+  await withTheme(page, 'dark');
+  await setup(page, { issues: [done] });
+  await page.goto(`/projects/${KEY}?group=none&closed=all`);
+  await page.mouse.move(0, 0);
+  await expectTheme(page, 'dark');
+
+  const title = page.getByRole('link', { name: done.title, exact: true });
+  await expect(title).toBeVisible();
+  await expect(title).toHaveCSS('color', await tokenColor(page, '--muted-foreground'));
+  expect(await textContrast(title)).toBeGreaterThanOrEqual(4.5);
+});
 
 test.describe('프로젝트 목록 소정리 (WP-919)', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1440, height: 900 } });

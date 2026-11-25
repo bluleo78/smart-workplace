@@ -5,6 +5,8 @@ import { CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { issueClosedTitleClass } from '../../../lib/issueClosedTitle';
+import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 import type { OpenRowMenu } from '../hooks/useIssueRowActions';
 import { IssueMobileMeta } from './IssueMobileMeta';
@@ -46,7 +48,10 @@ export function IssueRowMobileCell({
             to={to}
             onClick={(e) => e.stopPropagation()}
             data-testid={`issue-row-${it.number}-title`}
-            className="line-clamp-2 break-words text-sm font-medium leading-snug [-webkit-touch-callout:none]"
+            className={cn(
+              'line-clamp-2 break-words text-sm font-medium leading-snug [-webkit-touch-callout:none]',
+              issueClosedTitleClass(it.status),
+            )}
           >
             {it.title}
           </Link>
