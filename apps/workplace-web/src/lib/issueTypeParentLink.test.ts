@@ -19,13 +19,13 @@ describe('releasesParentType', () => {
 describe('shouldShowParentLinkChange', () => {
   // shouldShowParentLinkChange — 상위가 있어야 창이 뜬다 (Review Focus 4)
   it('상위가 없으면 releases 여부와 상관없이 false', () => {
-    expect(shouldShowParentLinkChange({ oldTypeName: 'SUBTASK', newTypeName: 'TASK', parentKey: null })).toBe(false)
+    expect(shouldShowParentLinkChange({ oldTypeName: 'SUBTASK', newTypeName: 'TASK', hasParent: false })).toBe(false)
   })
   it('상위가 있고 releases 면 true', () => {
-    expect(shouldShowParentLinkChange({ oldTypeName: 'SUBTASK', newTypeName: 'TASK', parentKey: 'WP-12' })).toBe(true)
+    expect(shouldShowParentLinkChange({ oldTypeName: 'SUBTASK', newTypeName: 'TASK', hasParent: true })).toBe(true)
   })
   it('상위가 있어도 releases 가 아니면 false', () => {
-    expect(shouldShowParentLinkChange({ oldTypeName: 'TASK', newTypeName: 'BUG', parentKey: 'WP-12' })).toBe(false)
+    expect(shouldShowParentLinkChange({ oldTypeName: 'TASK', newTypeName: 'BUG', hasParent: true })).toBe(false)
   })
 })
 

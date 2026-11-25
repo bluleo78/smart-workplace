@@ -538,6 +538,52 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
   }
 
   /**
+   * 가려진 상위 계약 고정(WP-2131) — 웹은 상세 응답의 {@code summary.parent.hidden} 에 기대어 가린 모드 확인 창을 띄우고, 확인하면
+   * relate 옵션 없는 {@code { typeId }} 만 보낸다(= 6인자 setType). 그때 상세는 가린 상위의 키·제목·프로젝트를 드러내지 않고, 유형 변경은
+   * 관계 행 없이 상위만 푼다.
+   */
+  @Test
+  void hidden_parent_is_flagged_in_detail_and_released_without_relation_on_plain_type_change() {
+    Long owner = createUser("h1");
+    Long caller = createUser("h2");
+    // 상위는 B 프로젝트의 에픽 — 호출자는 B 멤버가 아니라 읽을 수 없다.
+    var pB = newProject(owner, "PH1");
+    var pA = newProject(caller, "PH2");
+    memberRepository.insert(pA.id(), owner, "MEMBER");
+    Long parentTypeId = typeRepository.findByProjectAndName(pB.id(), "EPIC").orElseThrow().id();
+    Long epicTypeId = typeRepository.findByProjectAndName(pA.id(), "EPIC").orElseThrow().id();
+    var epic =
+        issueService.create(
+            owner,
+            pB.key(),
+            new CreateIssueRequest("e", null, null, null, null, parentTypeId, null, null));
+    var child =
+        issueService.create(
+            caller,
+            pA.key(),
+            new CreateIssueRequest("c", null, null, null, null, null, null, null));
+    issueService.setParent(owner, pA.key(), child.number(), null, pB.key() + "-" + epic.number());
+
+    // 변경 전 상세 — 상위는 있되 가려져 있다: hidden 표시만 있고 키·제목·프로젝트는 비어 있다.
+    var before = issueService.get(caller, pA.key(), child.number()).summary().parent();
+    assertThat(before).isNotNull();
+    assertThat(before.hidden()).isTrue();
+    assertThat(before.number()).isZero();
+    assertThat(before.title()).isNull();
+    assertThat(before.projectKey()).isNull();
+
+    // 웹 가린 모드 확인 — relate 옵션 없는 6인자 호출.
+    var response = issueService.setType(caller, pA.key(), child.number(), epicTypeId, null, null);
+
+    // 가린 상위의 키는 응답으로 드러나지 않고, 관계 행도 만들어지지 않는다.
+    assertThat(response.releasedParentKey()).isNull();
+    var detail = issueService.get(caller, pA.key(), child.number());
+    assertThat(detail.summary().type().name()).isEqualTo("EPIC");
+    assertThat(detail.summary().parent()).isNull();
+    assertThat(relatesBetween(child.id(), epic.id())).isZero();
+  }
+
+  /**
    * WP-2097 반려 수정 — 교차 프로젝트인데 개인 프로젝트가 끼면 {@code add} 가 거는 개인 프로젝트 교차 금지와 같은 규칙으로 보고 관계를 만들지 않는다(예외
    * 대신 false — 유형·부모 변경은 그대로 진행된다). 호출자는 개인 프로젝트 소유자라 읽을 수 있어, 읽기 검사가 아니라 이 규칙이 건너뛰게 함을 가린다.
    *

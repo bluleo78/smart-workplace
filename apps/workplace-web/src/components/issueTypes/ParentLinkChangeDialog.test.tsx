@@ -19,7 +19,7 @@ function Harness({
 }: {
   epic: { key: string; title: string } | null
   onConfirm: (p: ParentLinkChangeChoice) => void
-  parent?: { key: string; title: string; typeName: string }
+  parent?: { key: string; title: string; typeName: string } | null
 }) {
   const [open, setOpen] = useState(true)
   return (
@@ -103,4 +103,21 @@ test('Esc 를 누르면 확인 없이 창이 닫힌다', async () => {
   await user.keyboard('{Escape}')
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(onConfirm).not.toHaveBeenCalled()
+})
+
+// (WP-2131) 가린 상위 — 키·제목을 모르므로 이동·관계 선택 없이 권한 없음 안내만 보이고, 확인은 둘 다 false 로 알린다.
+test('가린 상위면 이동·관계 선택 없이 권한 없음 안내만 보인다', async () => {
+  const onConfirm = vi.fn()
+  const { user } = renderScreen(<Harness epic={null} parent={null} onConfirm={onConfirm} />)
+  await screen.findByRole('alertdialog')
+  expect(screen.getByTestId('parent-link-hidden-notice')).toHaveTextContent(
+    '지금 상위를 볼 권한이 없습니다(다른 프로젝트의 상위 등). 유형을 바꾸면 상위 연결이 풀립니다.',
+  )
+  expect(screen.getByTestId('parent-link-hidden-choice')).toHaveTextContent('상위 없이 변경(권한 없음)')
+  expect(screen.queryByRole('radio')).toBeNull()
+  expect(screen.queryByRole('checkbox')).toBeNull()
+  expect(screen.queryByTestId('parent-link-current')).toBeNull()
+  await user.click(screen.getByTestId('parent-link-confirm'))
+  expect(onConfirm).toHaveBeenCalledTimes(1)
+  expect(onConfirm).toHaveBeenCalledWith({ moveToEpic: false, relateToReleasedParent: false })
 })

@@ -84,3 +84,60 @@ test('부모가 없는 이슈는 확인 창 없이 곧바로 유형 PATCH 가 �
   expect(screen.queryByTestId('parent-link-dialog')).toBeNull()
   await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 6 }]))
 })
+
+test('가려진 상위(다른 프로젝트)가 있는 하위 태스크도 유형을 바꾸면 권한 없음 안내 창이 뜬다', async () => {
+  const requests = recordRequests()
+  // 서버는 읽을 수 없는 상위를 번호 0·제목/유형 없음·hidden 으로 내린다(WP-2131) — 타입에는 null 이 없어 단언으로 만든다.
+  const hiddenParent = { number: 0, title: null, type: null, hidden: true } as unknown as NonNullable<
+    ReturnType<typeof createIssue>['parent']
+  >
+  const detail = createIssueDetail({
+    summary: createIssue({ projectKey: KEY, number: 1, type: makeSubtaskType(), parent: hiddenParent }),
+  })
+  const { user } = await openIssueDetailScreen({
+    key: KEY,
+    number: 1,
+    detail,
+    project: { type: 'TEAM' },
+    handlers: [typesHandler, http.patch(TYPE_PATCH, () => HttpResponse.json(detail))],
+  })
+
+  await user.click(await screen.findByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-1'))
+
+  const dialog = await screen.findByTestId('parent-link-dialog', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  expect(screen.getByTestId('parent-link-hidden-notice')).toBeTruthy()
+  // 가린 상위의 키(…-0)는 창 어디에도 만들어 보이지 않는다.
+  expect(dialog.textContent).not.toMatch(/-0(\D|$)/)
+  expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
+  await user.click(screen.getByTestId('parent-link-confirm'))
+  await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 1 }]))
+})
+
+test('제목이 빠진 보이는 상위도 상위를 풀기 전에 확인 창이 뜬다', async () => {
+  const requests = recordRequests()
+  // 보이는 상위(hidden 아님)인데 응답에 제목이 비었다 — 예전엔 parentLink 가 비어 창 없이 상위가 풀렸다(WP-2131).
+  const sparseParent = { number: 3, title: '', type: makeTaskType(), projectKey: KEY } as unknown as NonNullable<
+    ReturnType<typeof createIssue>['parent']
+  >
+  const detail = createIssueDetail({
+    summary: createIssue({ projectKey: KEY, number: 1, type: makeSubtaskType(), parent: sparseParent }),
+  })
+  const { user } = await openIssueDetailScreen({
+    key: KEY,
+    number: 1,
+    detail,
+    project: { type: 'TEAM' },
+    handlers: [typesHandler, http.patch(TYPE_PATCH, () => HttpResponse.json(detail))],
+  })
+
+  await user.click(await screen.findByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-1'))
+
+  const dialog = await screen.findByTestId('parent-link-dialog', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  // 가린 상위가 아니므로 권한 없음 안내가 아니라 지금 상위(키·제목 폴백)가 보인다.
+  expect(screen.queryByTestId('parent-link-hidden-notice')).toBeNull()
+  expect(dialog.textContent).toContain(`${KEY}-3`)
+  expect(dialog.textContent).toContain('(제목 없음)')
+  expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
+})

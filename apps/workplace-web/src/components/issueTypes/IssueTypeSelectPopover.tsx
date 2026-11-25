@@ -3,6 +3,7 @@
 // SUBTASK 는 부모가 필수라(WP-745) 고르면 바로 저장하지 않고 부모 번호를 받는 단계로 넘어가, 유형·부모를 한 요청으로 보낸다.
 // WP-2097 — 고른 유형이 기존 상위를 풀면(그리고 상위가 있으면) 저장 전에 「상위 연결 변경」 확인 창을 띄우고,
 // 상세에서 넘긴 parentLink 가 없으면(상위 없음·호출부 미전달) 지금처럼 곧바로 저장한다.
+// WP-2131 — 읽을 수 없는 상위(parentLink.hidden)도 같은 창을 가린 모드(이동·관련 관계 선택 없음)로 띄우고, 확인하면 { typeId } 만 PATCH 한다.
 
 import { useState } from 'react';
 
@@ -20,13 +21,23 @@ import { IssueTypeBadge } from './IssueTypeBadge';
 import { type ParentLinkChangeChoice, ParentLinkChangeDialog } from './ParentLinkChangeDialog';
 
 /** 「상위 연결 변경」 창에 넘길 지금 상위 요약 — 상세 응답의 summary.parent 에서 호출부가 만든다(WP-2097). */
-export interface ParentLink {
+export interface VisibleParentLink {
+  /** (WP-2131) 읽을 수 있는 상위 — 가린 변형과 구분하는 표지. */
+  hidden?: false;
   parentKey: string;
-  parentTypeName: string;
+  /** 응답에 유형이 없으면 생략 — 창이 배지를 그리지 않는다(WP-2131). */
+  parentTypeName?: string;
   parentTitle: string;
   /** 지금 상위의 위에 있는 에픽(할아버지) — 없으면(에픽이 곧 상위) null 이고 창은 「상위 없이 변경」만 그린다. */
   grandparent: { key: string; title: string } | null;
 }
+
+/** (WP-2131) 호출자가 읽을 수 없는 상위 — 키·제목·유형을 모르므로 아무것도 싣지 않는다. */
+export interface HiddenParentLink {
+  hidden: true;
+}
+
+export type ParentLink = VisibleParentLink | HiddenParentLink;
 
 export function IssueTypeSelectPopover({
   projectKey,
@@ -40,7 +51,10 @@ export function IssueTypeSelectPopover({
   current: IssueTypeSummary;
   /** 워크플로 편집 권한 없을 때 트리거 비활성화 — 멤버만 유형 변경 가능. */
   disabled?: boolean;
-  /** 지금 상위 정보 — 없으면(상위 없는 이슈) 확인 창 판정을 건너뛰고 즉시 저장한다. */
+  /**
+   * 지금 상위 정보 — 없으면(상위 없는 이슈) 확인 창 판정을 건너뛰고 즉시 저장한다.
+   * (WP-2131) { hidden: true } 면 가린 모드 창(이동·관련 관계 선택 없음)을 띄우고 확인 시 { typeId } 만 PATCH 한다.
+   */
   parentLink?: ParentLink;
 }) {
   const types = useIssueTypes(projectKey);
@@ -79,7 +93,7 @@ export function IssueTypeSelectPopover({
   // WP-2097 — 지금 상위가 에픽 아래면 이동 선택지, 아니면 상위 없이 변경만. parentLink 없거나 창이 닫혀
   // 있으면(대상 유형을 아직 모른다) 선택지가 없다. 신규 유형이 EPIC 이면 대상이 EPIC 이므로 detach 만.
   const choices =
-    parentLink != null && pendingType != null
+    parentLink != null && !parentLink.hidden && pendingType != null
       ? parentLinkChangeChoices({
           newTypeName: pendingType.name,
           // 상세 응답은 할아버지의 유형 이름을 따로 안 실으는데(에픽일 때만 싣는다) 에픽이 실려 있으면 그 유형이다.
@@ -93,7 +107,7 @@ export function IssueTypeSelectPopover({
   function applyTypeChoice(t: { id: number; name: string }) {
     if (
       parentLink != null &&
-      shouldShowParentLinkChange({ oldTypeName: current.name, newTypeName: t.name, parentKey: parentLink.parentKey })
+      shouldShowParentLinkChange({ oldTypeName: current.name, newTypeName: t.name, hasParent: true })
     ) {
       setPendingType({ id: t.id, name: t.name });
       // 팝오버는 닫고 확인 창만 남긴다 — 모달 확인 창 아래 작은 팝오버를 겹쳐 두지 않는다.
@@ -107,6 +121,12 @@ export function IssueTypeSelectPopover({
   // 확인 — 골랐던 유형을 상위 처리 옵션과 함께 보낸 뒤 창 상태를 비운다. 취소·Esc 는 확인 없이 상태만 비운다.
   function onDialogConfirm(p: ParentLinkChangeChoice) {
     if (pendingType == null) return;
+    // 가린 상위는 { typeId } 만 — 서버가 상위를 풀고, 관계·이동 옵션은 보내지 않는다. 창이 가린 모드에서 돌려준 p 는 무시한다(WP-2131).
+    if (parentLink?.hidden) {
+      update.mutate({ typeId: pendingType.id });
+      setPendingType(null);
+      return;
+    }
     update.mutate({
       typeId: pendingType.id,
       ...(p.moveToEpic && choices?.epic ? { parentKey: choices.epic.key } : {}),
@@ -223,11 +243,15 @@ export function IssueTypeSelectPopover({
           onOpenChange={(next) => {
             if (!next) setPendingType(null);
           }}
-          currentParent={{
-            key: parentLink.parentKey,
-            title: parentLink.parentTitle,
-            typeName: parentLink.parentTypeName,
-          }}
+          currentParent={
+            parentLink.hidden
+              ? null
+              : {
+                  key: parentLink.parentKey,
+                  title: parentLink.parentTitle,
+                  typeName: parentLink.parentTypeName,
+                }
+          }
           epic={choices?.epic ?? null}
           onConfirm={onDialogConfirm}
           onCancel={() => setPendingType(null)}
