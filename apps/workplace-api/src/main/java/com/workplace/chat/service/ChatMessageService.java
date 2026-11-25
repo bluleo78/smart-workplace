@@ -506,8 +506,7 @@ public class ChatMessageService {
       Long implicitAgentId) {
     List<UserSummary> mentions = hydrator.summariesOf(mentionUserIds);
     // 이 글로 이미 깨운 AI 집합(반복 이어 처리 + 워크플로우 답 이동 — WP-1312·WP-2093). dispatcher 는 이벤트의
-    // alreadyWokenAgentIds() 로 같은
-    // 집합을 만든다.
+    // alreadyWokenAgentIds() 로 같은 집합을 만든다.
     Set<Long> alreadyWoken = new LinkedHashSet<>(workflowWokenAgentIds);
     if (followUpAgentId != null) alreadyWoken.add(followUpAgentId);
     // WP-1375: 반복 요약은 ai-agent 로 나갈 글(dispatcher 와 같은 판정)일 때만 읽는다 — 나머지 글은 이 값을 쓰지 않아 매 글마다 읽지
