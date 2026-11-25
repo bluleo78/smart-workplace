@@ -44,6 +44,8 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
+        // 빈 목록은 키를 삼키지 않는다 — 방향키 % 0(NaN)·없는 후보 선택 대신 바깥(전송 등)으로 넘긴다(WP-2107).
+        if (items.length === 0) return false;
         if (event.key === 'ArrowUp') {
           setSelected((i) => (i + items.length - 1) % items.length);
           return true;
