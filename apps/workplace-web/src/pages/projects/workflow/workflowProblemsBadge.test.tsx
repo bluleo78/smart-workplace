@@ -9,6 +9,9 @@ import { WorkflowProblemsBadge } from './WorkflowProblemsBadge'
 const err = (message: string, nodeKey: string | null = null, code = 'E'): WorkflowProblem => ({ severity: 'ERROR', code, message, line: 1, column: 1, nodeKey })
 const warn = (message: string, nodeKey: string | null = null, code = 'W'): WorkflowProblem => ({ severity: 'WARNING', code, message, line: 1, column: 1, nodeKey })
 
+/** 숨긴 상태 영역(sr-only role=status) 조회 — 여러 테스트가 같은 영역을 본다 */
+const liveRegion = () => screen.getAllByRole('status').find((el) => el.className.includes('sr-only'))!
+
 function setup(over: Partial<Parameters<typeof WorkflowProblemsBadge>[0]> = {}) {
   const props = { problems: [] as WorkflowProblem[], checking: false, failed: false, onRetry: vi.fn(), onAddAskPath: vi.fn(), onOpenYaml: vi.fn(), ...over }
   const view = renderWithProviders(<WorkflowProblemsBadge {...props} />)
@@ -20,6 +23,31 @@ it('noProblems_rendersNothing', () => {
   setup()
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
   expect(screen.getByRole('status')).toBeEmptyDOMElement()
+})
+
+// 실패·지난 결과 동안 영역 글자를 비우지 않는다 — 같은 결과로 돌아와도 스크린리더가 같은 문구를 다시 읽지 않게, 다른 결과면 알린다
+it('liveRegion_sameResultAfterFailed_textNeverChanges', () => {
+  const problems = [err('틀림')]
+  const view = setup({ problems })
+  expect(liveRegion()).toHaveTextContent('오류 1')
+  const seen: string[] = []
+  const observer = new MutationObserver(() => seen.push(liveRegion().textContent ?? ''))
+  observer.observe(liveRegion(), { childList: true, characterData: true, subtree: true })
+  view.view.rerender(<WorkflowProblemsBadge {...view.props} problems={[]} failed />)
+  expect(liveRegion()).toHaveTextContent('오류 1')
+  view.view.rerender(<WorkflowProblemsBadge {...view.props} problems={problems} stale />)
+  expect(liveRegion()).toHaveTextContent('오류 1')
+  view.view.rerender(<WorkflowProblemsBadge {...view.props} problems={problems} />)
+  expect(liveRegion()).toHaveTextContent('오류 1')
+  observer.disconnect()
+  expect(seen).toEqual([])
+})
+
+it('liveRegion_differentResultAfterFailed_announced', () => {
+  const view = setup({ problems: [err('틀림')] })
+  view.view.rerender(<WorkflowProblemsBadge {...view.props} problems={[]} failed />)
+  view.view.rerender(<WorkflowProblemsBadge {...view.props} problems={[err('a'), err('b')]} />)
+  expect(screen.getAllByRole('status').some((el) => el.className.includes('sr-only') && el.textContent === '오류 2')).toBe(true)
 })
 
 it('errorsAndWarnings_showsCounts', () => {
