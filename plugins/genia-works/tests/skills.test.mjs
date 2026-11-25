@@ -1968,16 +1968,16 @@ test('대기 처리는 「대기 댓글」에만 풀어 적고 가르기 (1)·�
   assert.ok(lineWith(wfSec, '- **프로젝트 판정**').includes('실행이 없는 이슈는 가르기 (1)대로 한다'));
   includesAll(lineWith(wfSec, '- **후보 고르기**'), ['상태표 PAUSED 행대로'], '후보 고르기');
   const r = lineWith(workLoopSkill, '끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는');
-  includesAll(r, ['워크플로우 실행이 끝났는데 내 행이 끝나지 않았으면(대상 상태는 「대기 댓글」 (나)) `PAUSED`'], 'PAUSED 예외');
+  includesAll(r, ['워크플로우 실행이 끝났는데 내 행이 「대기 댓글」 (나)의 대상 상태면 `PAUSED`'], 'PAUSED 예외');
   assert.equal(skillBody.split('워크플로우 실행이 끝난 이슈라 새로 처리하지 않습니다').length - 1, 1, '안내 원문은 한 곳');
 });
 
 // WP-2128 끝난 실행으로 PAUSED 된 행 — 새 실행의 내 노드면 시작 전 후보로 다시 고르고, 새 글엔 답만 한다. 다섯 곳이 같은 말을 한다.
 test('끝난 실행으로 PAUSED 된 행은 새 실행의 내 노드면 시작 전 후보로 다시 고르고, 새 글엔 답만 한다 (WP-2128)', () => {
-  includesAll(lineWith(wfSec, '- **후보 고르기**'), ['워크플로우 실행이 끝나 멈춤', '③-2', '시작 전 후보', '새 실행의 그 노드를 처음부터 한다', '옛 단계에서 이어 하지 않는다', '시작 절차(선행 확인)'], '후보 고르기');
+  includesAll(lineWith(wfSec, '- **후보 고르기**'), ['예외: note 「워크플로우 실행이 끝나 멈춤」 PAUSED 행', '③-2', '시작 전 후보', '새 실행의 그 노드를 처음부터 한다', '옛 단계에서 이어 하지 않는다', '시작 절차(선행 확인)'], '후보 고르기');
   includesAll(lineWith(skillBody, '| 멈춤(PAUSED) |'), ['워크플로우 실행이 끝나 멈춤', '다시 고르기를 「후보 고르기」, 새 글을 「대기 댓글」대로 한다'], '상태표 PAUSED');
   const w = lineWith(wfSec, '- **대기 댓글**');
-  includesAll(w, ['WORKING·INPUT_REQUIRED·AUTH_REQUIRED·WAITING·SCHEDULED·BLOCKED — SUBMITTED·REVIEW·PAUSED 는 그대로', '실행을 시작해 달라고 안내한다', '새 활성 실행의 내 노드면 「후보 고르기」대로 다시 골라', '켜진 워크플로우가 없어진 프로젝트면', '안내 글과 `get_workflow` 조회를 건너뛰고'], '대기 댓글');
+  includesAll(w, ['WORKING·INPUT_REQUIRED·AUTH_REQUIRED·WAITING·SCHEDULED·BLOCKED — SUBMITTED·REVIEW·PAUSED 는 그대로', '열린 PR <주소> 이 남아 있습니다', '그 경우에만 다시 하라는 글로 이어 할 때 notes 의 옛 `워크플로우:` 줄만 지우고 `마지막 완료 단계` 다음부터', '실행을 시작해 달라고 안내한다', '새 활성 실행의 내 노드면 「후보 고르기」대로 다시 골라', '켜진 워크플로우가 없어진 프로젝트면', '안내 글과 `get_workflow` 조회를 건너뛰고'], '대기 댓글');
   assert.ok(!w.includes('부르지 않고 넘어가고'), '옛 「부르지 않고 넘어가고」 표현이 남아 있다');
   assert.ok(lineWith(skillBody, '- **시작 전 후보**').includes('워크플로우 실행이 끝나 멈춤'), '시작 전 후보');
 });
