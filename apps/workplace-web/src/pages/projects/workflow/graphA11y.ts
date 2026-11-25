@@ -45,8 +45,8 @@ export function edgeAriaLabel(edge: GraphEdge, names: Map<string, string>): stri
   return edge.label ? `${base} (${edge.label})` : base
 }
 
-/** 키 입력이 편집 패널에 미치는 동작 — 열기(노드 키) / 닫기 / 없음(null) */
-export type PanelAction = { open: string } | { close: true } | null
+/** 키 입력이 편집 패널에 미치는 동작 — 열기(노드 키) / 닫기 / 기본 동작만 막기(패널 그대로) / 없음(null) */
+export type PanelAction = { open: string } | { close: true } | { swallow: true } | null
 
 /**
  * 키 입력으로 편집 패널을 열거나 닫을지 판정한다. nodeId 는 키가 눌린 곳의 노드.
@@ -58,7 +58,9 @@ export function panelActionFromKeyDown(key: string, nodeId: string | null, realK
   if (nodeId === null) return null
   if (key === 'Escape') return { close: true }
   if (key !== 'Enter' && key !== ' ') return null
-  return realKeys.has(nodeId) ? { open: nodeId } : null
+  if (realKeys.has(nodeId)) return { open: nodeId }
+  // 질문 경로(가상) 노드는 패널을 열지 않지만, 그 위의 Space 도 노드를 고르는 키라 페이지 스크롤은 막는다
+  return key === ' ' ? { swallow: true } : null
 }
 
 /** 이동 방향 → 한국어 방향 문구 */

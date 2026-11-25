@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test'
 
+import { parse } from 'yaml'
+
 import { createProject } from '../../factories/project.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 
@@ -223,7 +225,9 @@ test('workflowGraph_keyboardMove_persistsAfterRedraw', { tag: '@input' }, async 
   await page.keyboard.press('Enter')
   await expect(other).toHaveClass(/selected/)
   expect((await review.boundingBox())!.x).toBeGreaterThan(before.x + 10)
-  // YAML 탭에서도 새 좌표가 보인다
+  // YAML 탭에서도 새 좌표가 보인다 — review 의 x 가 0 보다 커졌음을 양성으로 단언한다(직렬화 공백이 바뀌어도 거짓 통과하지 않게)
   await page.getByRole('button', { name: 'YAML' }).click()
-  await expect(page.getByRole('textbox').first()).not.toHaveValue(/review: \{ x: 0, y: 0 \}/)
+  // YAML 을 파싱해 읽으므로 줄 꼴(인라인·블록)과 상관없고, 편집기 값이 늦게 채워져도 다시 읽는다
+  const yamlBox = page.getByRole('textbox', { name: '워크플로우 YAML' })
+  await expect.poll(async () => Number(parse(await yamlBox.inputValue())?.layout?.review?.x ?? 0)).toBeGreaterThan(0)
 })

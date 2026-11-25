@@ -457,6 +457,14 @@ it('graphEditor_space_preventsDefaultScroll', () => {
   const notPrevented = fireEvent.keyDown(screen.getByLabelText('개발, AI · developer'), { key: ' ' })
   expect(notPrevented).toBe(false)
 })
+// 질문 경로(가상) 노드는 패널을 열지 않지만, 그 위의 Space 도 페이지를 스크롤하지 않는다
+it('graphEditor_spaceOnVirtualNode_preventsScrollWithoutOpeningPanel', () => {
+  renderWithProviders(<Harness initial={'name: 질문\nnodes:\n  work:\n    name: 작업\n    type: agent_task\n    ask: { role: owner }'} />)
+  const virtualNode = screen.getByLabelText(/질문 경로\(편집 불가\)$/)
+  const notPrevented = fireEvent.keyDown(virtualNode, { key: ' ' })
+  expect(notPrevented).toBe(false)
+  expect(screen.queryByLabelText('노드 이름')).toBeNull()
+})
 // Esc 는 선택을 풀고 패널도 닫는다
 it('graphEditor_escapeOnNode_closesPanel', async () => {
   renderWithProviders(<Harness initial={FIXTURE} />)

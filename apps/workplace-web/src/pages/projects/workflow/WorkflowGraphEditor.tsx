@@ -194,10 +194,10 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
     const nodeId = target.closest('.react-flow__node')?.getAttribute('data-id') ?? null
     const action = panelActionFromKeyDown(e.key, nodeId, realKeys)
     if (!action) return
-    if ('open' in action) {
+    if ('open' in action || 'swallow' in action) {
       // Space 의 기본 동작(페이지 스크롤)을 막는다 — 노드를 고르는 키로 쓰기 때문이다
       e.preventDefault()
-      setSelected(action.open)
+      if ('open' in action) setSelected(action.open)
     } else {
       // React Flow 가 Esc 로 선택을 풀므로 패널도 닫아 둘이 어긋나지 않게 한다
       setSelected(null)
