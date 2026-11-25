@@ -1,5 +1,6 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Eye, EyeOff, FileQuestion, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -80,6 +81,8 @@ import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropert
 import { PersonCardAssignHost } from './components/PersonCardAssignHost';
 import { StartWorkflowDialog } from './components/StartWorkflowDialog';
 import { WorkflowLockedHint } from './components/WorkflowLockedHint';
+import { fetchLatestIssueValues } from './hooks/fetchLatestIssueValues';
+import { useExternalEditNotice } from './hooks/useExternalEditNotice';
 import { useVersionedPatch } from './hooks/useVersionedPatch';
 import { ISSUES_TAB_STATE, projectTabPath } from './tabs/projectTabs';
 
@@ -94,10 +97,20 @@ export default function IssueDetailPage() {
   const { data, isLoading, error, refetch } = issueQuery;
   // 탭 제목 — 「{키-번호} {제목}」(WP-814). 불러오기 전에는 주소 기본값(작업 관리).
   useDocumentTitle([data && `${data.summary.projectKey}-${data.summary.number} ${data.summary.title}`]);
-  const update = useUpdateIssue(key, issueNumber);
+  // 409(버전 충돌)는 useVersionedPatch 가 판정해 안내하므로 useUpdateIssue 의 충돌 토스트는 끈다(WP-2095).
+  const update = useUpdateIssue(key, issueNumber, { quietConflict: true });
+  const queryClient = useQueryClient();
+  // 409 뒤 최신 상세를 실제로 다시 받아(staleTime 0) 제목·본문 값과 version 을 돌려준다 — 필드별 충돌 판정 재료.
+  const fetchLatest = () => fetchLatestIssueValues(queryClient, key, issueNumber);
   // #611 제목·본문은 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 편집하는 사이 코멘트 SSE·창 포커스 리페치로 캐시 version 이
   // 올라가도, 그 사이 다른 사람이 바꾼 내용을 모른 채 덮어쓰지 않고 409 로 알 수 있게(개인 작업 메모와 같은 공용 훅).
-  const versioned = useVersionedPatch<'title' | 'body'>(update, data?.summary.version);
+  const versioned = useVersionedPatch<'title' | 'body'>(update, data?.summary.version, fetchLatest, `${key}-${issueNumber}`);
+  // 다른 사람이 먼저 저장해 제목·본문이 바뀌면 토스트로 알린다(내 저장·내가 편집 중인 필드는 제외, WP-2095).
+  const externalEditDialog = useExternalEditNotice(
+    data && { projectKey: key, number: data.summary.number, version: data.summary.version, title: data.summary.title, body: data.body },
+    versioned.savedVersions,
+    (f) => versioned.baseVersion(f) !== undefined,
+  );
   const remove = useDeleteIssue(key, issueNumber);
   // AI 현황 요약 온디맨드 생성 mutation — Rules of Hooks: 조기 반환 이전에 선언.
   const genSummary = useGenerateAiSummary(key, issueNumber);
@@ -292,12 +305,16 @@ export default function IssueDetailPage() {
   // silent: true 면 성공 토스트를 억제 — AI 분류 적용(handleClassify)처럼 여러 필드 변경을
   // 하나의 통합 토스트로 묶는 호출부에서 사용 (#578).
   // 성공 여부를 돌려준다 — 제목·본문 편집기가 실패 시 입력을 버리지 않고 편집을 다시 열 때 쓴다(#611).
-  // 편집 기준 version 올리기(내 저장)·풀기(409)는 useVersionedPatch 가 맡는다(#611). 실패 토스트(409 충돌 안내 포함)는 useUpdateIssue 가 띄운다.
+  // 편집 기준 version 올리기(내 저장)·풀기(409)는 useVersionedPatch 가 맡는다(#611). 버전 충돌(409) 안내는 useVersionedPatch 가 맡아 편집기 배너로 띄우고(토스트는 quietConflict 로 끈다), 그 밖의 실패 토스트는 useUpdateIssue 가 띄운다.
   const patch = async (changes: UpdateIssueRequest, options?: { silent?: boolean }): Promise<boolean> => {
     const ok = await versioned.patch(changes);
     if (ok && !options?.silent) toast.success('이슈 필드가 업데이트되었습니다');
     return ok;
   };
+
+  // 편집 중 그사이 다른 사람이 저장했는가 — 편집기에 최신 값과 함께 넘긴다(없으면 null).
+  const staleOf = (field: 'title' | 'body', current: string) =>
+    versioned.changedWhileEditing(field, current, data?.summary.version) ? { latest: current } : null;
 
   // 편집 화면 AI 분류 핸들러 — 현재 제목·본문으로 제안 요청 후 즉시 반영.
   // 우선순위·유형·라벨 3개 mutation 이 각자 토스트를 띄우면 한 번의 클릭에 토스트가
@@ -500,20 +517,28 @@ export default function IssueDetailPage() {
                 {/* aria-label 명시 — 없으면 자식 편집 버튼의 aria-label("제목 편집")까지
                     heading accessible name에 concatenate 되어 스크린리더가 "{제목} 제목 편집"으로
                     읽는다 (#791, WCAG 1.3.1). */}
-                <h1 ref={titleRef} className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
-                  <InlineEditableTitle
-                    title={summary.title}
-                    onSave={(t) => patch({ title: t, version: versioned.baseVersion('title') })}
-                    onEditStart={() => {
-                      versioned.beginEdit('title');
-                      setLastEditor('title');
-                    }}
-                    disabled={!canEditContent || update.isPending}
-                    commitOnBlur={!isMobile}
-                    wrap
-                    onEditingChange={isMobile ? setTitleControls : undefined}
-                  />
-                </h1>
+                <InlineEditableTitle
+                  heading={(content) => (
+                    <h1 ref={titleRef} className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
+                      {content}
+                    </h1>
+                  )}
+                  title={summary.title}
+                  onSave={(t) => patch({ title: t, version: versioned.baseVersion('title') })}
+                  conflict={versioned.conflict('title')}
+                  changedWhileEditing={staleOf('title', summary.title)}
+                  onTakeLatest={() => versioned.takeLatest('title')}
+                  onOverwrite={() => versioned.overwrite('title')}
+                  onEditEnd={() => versioned.endEdit('title')}
+                  onEditStart={() => {
+                    versioned.beginEdit('title', summary.title);
+                    setLastEditor('title');
+                  }}
+                  disabled={!canEditContent || update.isPending}
+                  commitOnBlur={!isMobile}
+                  wrap
+                  onEditingChange={isMobile ? setTitleControls : undefined}
+                />
                 {isMobile ? (
                   <IssueMobilePropertyChips
                     projectKey={key}
@@ -575,8 +600,16 @@ export default function IssueDetailPage() {
                 <InlineEditableBody
                   body={body}
                   onSave={(b) => patch({ body: b, version: versioned.baseVersion('body') })}
+                  conflict={versioned.conflict('body')}
+                  changedWhileEditing={staleOf('body', body ?? '')}
+                  onTakeLatest={() => versioned.takeLatest('body')}
+                  onOverwrite={() => versioned.overwrite('body')}
+                  onRestoreMine={(latest) => versioned.reopenConflict('body', latest)}
+                  onEditEnd={() => versioned.endEdit('body')}
+                  currentVersion={data?.summary.version}
+                  draftBaseVersion={() => versioned.baseVersion('body')}
                   onEditStart={() => {
-                    versioned.beginEdit('body');
+                    versioned.beginEdit('body', body ?? '');
                     setLastEditor('body');
                   }}
                   disabled={!canEditContent || update.isPending}
@@ -586,6 +619,7 @@ export default function IssueDetailPage() {
                   mobile={isMobile}
                   onEditingChange={isMobile ? setBodyControls : undefined}
                 />
+                {externalEditDialog}
                 {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
                 <IssueAttachmentStrip
                   projectKey={key}

@@ -9,6 +9,7 @@ vi.mock('../../api/issues', () => ({ issuesApi: { update: vi.fn() } }));
 vi.mock('../../lib/api-error', async (orig) => ({ ...(await orig<object>()), handleApiError: vi.fn() }));
 
 import { issuesApi } from '../../api/issues';
+import { handleApiError } from '../../lib/api-error';
 import { useUpdateIssue } from './useIssue';
 
 function apiError(status: number, code?: string) {
@@ -44,6 +45,33 @@ describe('useUpdateIssue 409 처리', () => {
     const keys = await invalidatedKeysAfter(apiError(409));
     expect(keys).not.toContain('["projectStatuses","WP"]');
     expect(keys.length).toBe(2);
+  });
+});
+
+describe('useUpdateIssue quietConflict(WP-2095)', () => {
+  // quietConflict 로 만든 훅에 실패 한 번을 흘리고 실패 토스트(handleApiError)를 불렀는지 돌려준다.
+  async function toastedWith(error: AxiosError) {
+    vi.mocked(handleApiError).mockClear();
+    vi.mocked(issuesApi.update).mockRejectedValueOnce(error);
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useUpdateIssue('WP', 1, { quietConflict: true }), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ title: 't' }).catch(() => undefined);
+    });
+    return vi.mocked(handleApiError).mock.calls.length > 0;
+  }
+
+  it('코드 없는 409(버전 충돌)는 토스트를 띄우지 않는다', async () => {
+    expect(await toastedWith(apiError(409))).toBe(false);
+  });
+
+  it('409 STATUS_DELETED 는 quietConflict 여도 지금처럼 토스트를 띄운다', async () => {
+    expect(await toastedWith(apiError(409, 'STATUS_DELETED'))).toBe(true);
+  });
+
+  it('500 은 토스트를 띄운다', async () => {
+    expect(await toastedWith(apiError(500))).toBe(true);
   });
 });
 

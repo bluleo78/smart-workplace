@@ -4,7 +4,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { isAxiosError } from 'axios';
 
 import { issuesApi } from '../../api/issues';
-import { handleApiError } from '../../lib/api-error';
+import { handleApiError, isVersionConflictError } from '../../lib/api-error';
 import type { IssueDetailResponse, UpdateIssueRequest } from '../../types/issue';
 import { issueKeyStatusKeys } from './issueKeyStatusKeys';
 import { issueKeys } from './useIssues';
@@ -29,7 +29,11 @@ export function useIssue(projectKey: string, number: number) {
   });
 }
 
-export function useUpdateIssue(projectKey: string, number: number) {
+/**
+ * options.quietConflict — true 면 409(버전 충돌) 토스트만 끈다(WP-2095). 충돌을 useVersionedPatch 가 판정해 안내하는 화면용 —
+ * 자동 재저장 때 거짓 토스트가 뜨지 않게. 무효화·다른 409 코드(STATUS_DELETED 등) 처리는 그대로다.
+ */
+export function useUpdateIssue(projectKey: string, number: number, options?: { quietConflict?: boolean }) {
   const qc = useQueryClient();
   const detailKey = issueKeys.detail(projectKey, number);
   return useMutation({
@@ -62,7 +66,7 @@ export function useUpdateIssue(projectKey: string, number: number) {
     },
     onError: (error) => {
       // 실패 안내는 훅이 한 번 띄운다 — 개인 작업 패널처럼 mutate 만 부르는 호출부도 실패를 알 수 있게.
-      handleApiError(error, '변경에 실패했습니다');
+      if (!(options?.quietConflict && isVersionConflictError(error))) handleApiError(error, '변경에 실패했습니다');
       // 고른 상태가 삭제돼 없으면(WP-936) 상태 목록만 다시 받고 끝낸다 — 409 STATUS_DELETED 도 버전 충돌이 아니라 이슈는 그대로다.
       if (refreshStatusesIfGone(qc, projectKey, error)) return;
       // #611 다른 편집이 먼저 반영됨(409) — 최신 이슈를 다시 불러와 화면과 version 을 맞춘다. 상세를 보고 있지 않은 화면(개인 체크리스트

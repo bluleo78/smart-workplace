@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { notifTarget } from '@/components/home/notifTarget'
+import { readIssueBodyDraftEntry } from '@/lib/issueBodyDraft'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import { PersonalProjectDetail } from '@/pages/projects/personal/PersonalProjectDetail'
 import { richEditorOf, setRichBody } from '@/test/kits/projects/issueDetailRef'
@@ -173,7 +174,7 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
       return HttpResponse.json(detailOf(it))
     }),
   ]
-  return { handlers, db, searches, patches, posts, detailGets, deleteCalls, recurrencePuts, deletes: () => recurrenceDeletes }
+  return { handlers, db, bodies, searches, patches, posts, detailGets, deleteCalls, recurrencePuts, deletes: () => recurrenceDeletes }
 }
 
 /**
@@ -585,7 +586,10 @@ describe('개인 작업 삭제 (WP-2036)', () => {
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
     // 메모 편집칸 원문을 바꾼다(편집 칸 헬퍼는 다른 describe 안이라 여기서 직접 부른다).
     setRichBody(within(screen.getByTestId('personal-task-memo')).getByTestId('issue-body-textarea'), '서론은 짧게 고침', KEY)
-    const draft = () => Object.keys(window.localStorage).filter((k) => k.endsWith(`:${KEY}:1`)).map((k) => window.localStorage.getItem(k))[0] ?? null
+    const draft = () => {
+      const key = Object.keys(window.localStorage).find((k) => k.endsWith(`:${KEY}:1`))
+      return key ? (readIssueBodyDraftEntry(key)?.text ?? null) : null
+    }
     await waitFor(() => expect(draft()).toBe('서론은 짧게 고침'), { timeout: 3000 })
     await user.click(screen.getByTestId('personal-task-delete'))
     await user.click(await screen.findByTestId('personal-task-delete-confirm'))
@@ -686,7 +690,10 @@ describe('메모 편집(WP-1374)', () => {
     const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
     await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
     // 이 작업의 메모 초안(localStorage, #824) — 키는 사용자·워크스페이스·작업으로 정해진다(끝이 :PME:1).
-    const draft = () => Object.keys(window.localStorage).filter((k) => k.endsWith(`:${KEY}:1`)).map((k) => window.localStorage.getItem(k))[0] ?? null
+    const draft = () => {
+      const key = Object.keys(window.localStorage).find((k) => k.endsWith(`:${KEY}:1`))
+      return key ? (readIssueBodyDraftEntry(key)?.text ?? null) : null
+    }
     const editor = richEditorOf(memoEditor())
     await act(async () => {
       editor.commands.focus('end')
@@ -713,6 +720,7 @@ describe('메모 편집(WP-1374)', () => {
     // 그 사이 다른 사람(AI)이 메모를 바꿔 version 4 — 화면이 다시 불러온다.
     const fetched = api.detailGets.length
     api.db.get(1)!.version = 4
+    api.bodies.set(1, '다른 사람이 바꾼 메모')
     await act(() => queryClient.invalidateQueries())
     await waitFor(() => expect(api.detailGets.length).toBeGreaterThan(fetched))
     await user.click(within(memo()).getByTestId('issue-body-save'))
@@ -724,6 +732,33 @@ describe('메모 편집(WP-1374)', () => {
       { body: '서론은 짧게 추가', version: 3 },
       { body: '서론은 짧게 추가', version: 3 },
     ])
+  })
+
+  // WP-2095 최종 리뷰 — 최신 메모로 다시 쓴 뒤 초안 [불러오기] 로 되살린 내 글 저장도 확인 없이 덮어쓰지 않는다(팀 이슈 상세와 같다).
+  test('최신 메모로 다시 쓰고 내 글을 불러와 저장해도 요청이 가지 않고 충돌 안내가 다시 뜨며, 덮어쓰기를 확인해야 저장된다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', version: 3 })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-modal')
+    await user.click(await within(await screen.findByTestId('personal-task-memo')).findByRole('button', { name: '메모 편집' }))
+    writeMemo('공들여 쓴 메모')
+    // 그 사이 다른 쪽(AI)이 메모를 먼저 바꿔 version 4.
+    api.db.get(1)!.version = 4
+    api.bodies.set(1, '다른 쪽 메모')
+    await user.click(within(memo()).getByTestId('issue-body-save'))
+    await waitFor(() => expect(api.patches).toHaveLength(1))
+    await user.click(await within(await screen.findByTestId('issue-edit-conflict-body')).findByRole('button', { name: '최신 본문으로 다시 쓰기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-edit-conflict-body')).not.toBeInTheDocument())
+    await user.click(await screen.findByTestId('issue-body-draft-restore'))
+    // 되살린 내 글 — 충돌 안내가 다시 뜬다.
+    const banner = await screen.findByTestId('issue-edit-conflict-body')
+    expect(memoEditor()).toHaveTextContent(/^공들여 쓴 메모$/)
+    await user.click(within(memo()).getByTestId('issue-body-save'))
+    expect(api.patches).toHaveLength(1)
+    expect(api.bodies.get(1)).toBe('다른 쪽 메모')
+    await user.click(within(banner).getByRole('button', { name: '내 글로 덮어쓰기…' }))
+    await user.click(await screen.findByRole('button', { name: '덮어쓰기' }))
+    await waitFor(() => expect(api.patches).toHaveLength(2))
+    expect(api.patches[1].body).toEqual({ body: '공들여 쓴 메모', version: 4 })
+    expect(api.bodies.get(1)).toBe('공들여 쓴 메모')
   })
 
   // 고친 메모를 저장하지 않고 닫으려 하면(✕·Esc) 먼저 묻는다 — 「계속 쓰기」는 모달·입력을 그대로 두고, 「버리고 닫기」는 요청 없이 닫는다.

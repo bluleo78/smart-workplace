@@ -7,8 +7,11 @@ import { toast } from 'sonner';
 
 import { uploadIssueImage } from '@/api/issueImages';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { bodySaveBlock } from '@/components/issue/bodySaveBlock';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
 import { IssueBodyImageButton } from '@/components/issue/IssueBodyImageButton';
+import { IssueEditNotice } from '@/components/issue/IssueEditConflictBanner';
+import { issueEditConflictBlockedMessage } from '@/components/issue/issueEditField';
 import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
 import type { RenderMention } from '@/components/mentions/parseMessageSegments';
 import { RichInput, type RichInputHandle } from '@/components/mentions/RichInput';
@@ -18,13 +21,14 @@ import { useEditBarControls } from '@/components/mobile/useEditBarControls';
 import { Button } from '@/components/ui/button';
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers';
 import { useAuth } from '@/hooks/useAuth';
+import { useLatest } from '@/hooks/useLatest';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
-import { clearIssueBodyDraft, issueBodyDraftKey, readIssueBodyDraft, writeIssueBodyDraft } from '@/lib/issueBodyDraft';
+import { clearIssueBodyDraft, issueBodyDraftKey, readIssueBodyDraftEntry, writeIssueBodyDraft } from '@/lib/issueBodyDraft';
 import { isBodyDraftDirty, isSameBody } from '@/lib/issueDraft';
-import { hasPendingToken } from '@/lib/markdownImageInsert';
 import { cn } from '@/lib/utils';
 import { ISSUE_BODY_MAX_LENGTH, issueTextOverLimitMessage } from '@/lib/validations/issue';
+import type { FieldConflict } from '@/pages/projects/hooks/useVersionedPatch';
 
 /**
  * 보기 모드 본문("클릭=편집 진입" 래퍼)에서 받은 이벤트가 본문 안 상호작용 요소에서 온 것인지(WP-199).
@@ -77,6 +81,24 @@ function selectionChangedSince(before: SelectionSnapshot): boolean {
   );
 }
 
+/**
+ * 「최신으로 다시 쓰기」로 남긴 내 글 초안을 지키는 중인가 — 받은 최신 값이 있고 그 초안 배너가 떠 있는 동안(불러오기·버리기 전)이다.
+ * 이때는 저장·취소·자동 저장이 초안을 덮어쓰거나 지우지 않는다(지우면 배너가 되살리겠다던 내 글이 사라진다).
+ */
+const shouldKeepDraft = (takenLatest: string | null, showDraftBanner: boolean) => takenLatest !== null && showDraftBanner;
+
+/** 초안 기준 version 을 지금 편집 기준(draftBaseVersion)으로 따른다는 표시 — baseRef 참고. */
+const LIVE = 'live' as const;
+
+/**
+ * 되살리려는 초안을 쓴 뒤 본문이 바뀌었는가 — 기준 본문이 있으면 지금 본문과 비교한다(상태·제목 등 다른 필드만 바뀌어 version 이 오른 것은 헛충돌이다).
+ * 기준 본문 없이 version 만 있는 초안은 version 비교, 둘 다 없는 옛 평문은 판정하지 않는다.
+ */
+const entryChanged = (entry: { baseVersion?: number; baseBody?: string }, body: string | null, currentVersion: number | undefined) =>
+  entry.baseBody !== undefined
+    ? !isSameBody(body ?? '', entry.baseBody)
+    : entry.baseVersion !== undefined && currentVersion !== undefined && currentVersion > entry.baseVersion;
+
 /** 감싼 화면이 부르는 동작 — 초안 저장 키(사용자·워크스페이스·이슈) 규칙을 바깥이 몰라도 되게 이 컴포넌트가 맡는다. */
 export interface InlineEditableBodyHandle {
   /** 로컬 초안(localStorage, #824)을 지운다 — 「버리고 닫기」 뒤 다음 편집에 「작성 중이던 내용」으로 되살아나지 않게(WP-1374). */
@@ -99,6 +121,14 @@ export function InlineEditableBody({
   mobile = false,
   editLabel = '본문 편집',
   onDirtyChange,
+  conflict,
+  changedWhileEditing,
+  onTakeLatest,
+  onOverwrite,
+  onRestoreMine,
+  onEditEnd,
+  currentVersion,
+  draftBaseVersion,
   ref,
 }: {
   body: string | null;
@@ -119,6 +149,24 @@ export function InlineEditableBody({
   editLabel?: string;
   // 고친 채 저장하지 않은 내용이 있는가 알림 — 감싼 모달이 닫기 전에 확인을 묻는 데 쓴다(개인 작업 상세, WP-1374). 사라질 때 false.
   onDirtyChange?: (dirty: boolean) => void;
+  // WP-2095 충돌 안내 — 409 로 남이 먼저 저장한 것이 확인된 필드 충돌(없으면 안내 없음).
+  conflict?: FieldConflict | null;
+  // 편집 중 남이 저장했다(최신 값 보기만 안내).
+  changedWhileEditing?: { latest: string } | null;
+  // 「최신 본문으로 다시 쓰기」 — 훅이 기준을 최신으로 옮기고 최신 값을 돌려준다. 편집기는 그 전 내 글을 로컬 초안으로 남긴다.
+  // 충돌이 없어 돌려줄 최신 값이 없으면 null — 편집칸을 그대로 둔다.
+  onTakeLatest?: () => string | null;
+  // 덮어쓰기 확인 뒤 — 훅이 기준을 안내에 보인 최신 version 으로 옮긴다. 편집기가 곧바로 지금 입력으로 다시 저장한다.
+  onOverwrite?: () => void;
+  // 「최신으로 다시 쓰기」 뒤 초안 [불러오기] 로 최신 값과 다른 내 글을 되살렸다 — 호출부가 그 필드의 충돌을 다시 열어
+  // 이어지는 저장이 덮어쓰기 확인을 거치게 한다. 인자는 받아 둔 최신 값.
+  onRestoreMine?: (latest: string) => void;
+  // 편집이 끝났다(취소·저장 성공) — 훅이 기준·충돌을 지우게 알린다.
+  onEditEnd?: () => void;
+  // 지금 이슈 version — 되살리려는 초안의 기준 version 보다 크면 그 사이 본문이 바뀐 것이다(WP-2095).
+  currentVersion?: number;
+  // 지금 이 필드의 저장 기준 version(편집 진입 때 고정 — 호출부는 versioned.baseVersion('body')). 초안에 함께 적는다.
+  draftBaseVersion?: () => number | undefined;
   // 바깥에서 초안을 지울 때(개인 작업 모달 「버리고 닫기」) — InlineEditableBodyHandle.
   ref?: Ref<InlineEditableBodyHandle>;
 }) {
@@ -126,6 +174,23 @@ export function InlineEditableBody({
   const [draft, setDraft] = useState(body ?? '');
   // 편집 진입 시 발견된 로컬 초안이 서버 본문과 달라 복구 배너를 보여줄지 여부.
   const [showDraftBanner, setShowDraftBanner] = useState(false);
+  // 「최신으로 다시 쓰기」로 받은 최신 값 — 이 값 그대로인 draft 는 자동 저장하지 않는다(서버 본문 prop 이 아직 옛것이면 남겨 둔 내 글 초안을 덮어쓴다).
+  const takenLatestRef = useRef<string | null>(null);
+  // 초안에 적을 저장 기준 하나 — 기준 version(v)과 그때의 본문(b). 초안에 함께 적어, 되살릴 때 본문이 실제로 바뀌었는지(version 만 오른 게 아닌지) 가린다.
+  // v 가 LIVE 면 지금 편집 기준(호출부 draftBaseVersion)을 쓰고, 숫자·undefined 면 되살린 내 글이 충돌을 다시 연 동안 지키는 초안의 원래 기준이다.
+  // 지키는 기준은 자동 저장·저장 쓰기가 기준을 지금 version 으로 올리지 않게 한다 — 올리면 충돌을 풀지 않고 떠났다 돌아와 [불러오기] 할 때
+  // 기준=지금이라 충돌을 열지 않고 남의 글을 확인 없이 덮어쓴다(WP-2095 최종 리뷰). 「원래 기준 없음(undefined)」도 지킬 수 있게 LIVE 를 따로 둔다.
+  // 편집 진입·다시 쓰기·덮어쓰기·저장 성공·취소 때 새 기준(resetBase)으로 바꾸고, 되살려 충돌을 다시 열 때 초안의 기준으로 바꾼다.
+  const baseRef = useRef<{ v: number | undefined | typeof LIVE; b: string | undefined }>({ v: LIVE, b: undefined });
+  const resetBase = (b: string | undefined) => {
+    baseRef.current = { v: LIVE, b };
+  };
+  // 호출부가 인라인 화살표로 넘겨도 자동 저장 디바운스가 부모 리렌더마다 리셋되지 않게 최신 함수를 ref 로 들고 effect 의존성에서 뺀다.
+  const draftBaseVersionRef = useLatest(draftBaseVersion);
+  const baseForDraft = useCallback(() => {
+    const { v, b } = baseRef.current;
+    return { v: v === LIVE ? draftBaseVersionRef.current?.() : v, b };
+  }, [draftBaseVersionRef]);
   // 초안은 쓴 사람(사용자·워크스페이스) 몫 — 같은 기기의 다른 사용자에게 보이지 않게(WP-699).
   const { user, activeTenant } = useAuth();
   const draftKey = issueBodyDraftKey(
@@ -169,9 +234,16 @@ export function InlineEditableBody({
   useEffect(() => {
     if (!editing || uploading) return;
     if (isSameBody(draft, body)) return;
-    const timer = window.setTimeout(() => writeIssueBodyDraft(draftKey, draft), 600);
+    // 내 글 초안을 지키는 중 — 최신 값에 글자를 보태도 자동 저장하지 않는다. 쓰면 600ms 뒤 초안이 새 편집 내용으로 바뀌어
+    // [불러오기] 가 원래 내 글을 되살리지 못한다.
+    if (shouldKeepDraft(takenLatestRef.current, showDraftBanner)) return;
+    if (takenLatestRef.current !== null && isSameBody(draft, takenLatestRef.current)) return;
+    const timer = window.setTimeout(() => {
+      const base = baseForDraft();
+      writeIssueBodyDraft(draftKey, draft, base.v, base.b);
+    }, 600);
     return () => window.clearTimeout(timer);
-  }, [editing, uploading, draft, body, draftKey]);
+  }, [editing, uploading, draft, body, draftKey, showDraftBanner, baseForDraft]);
 
   // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화하되, 저장된 초안이 서버 본문과
   // 다르면 조용히 덮어쓰지 않고 배너로 안내(다른 사람이 서버 본문을 바꿨을 수 있음).
@@ -183,7 +255,9 @@ export function InlineEditableBody({
     setUploading(false);
   };
   const enter = () => {
-    const stored = readIssueBodyDraft(draftKey);
+    takenLatestRef.current = null;
+    resetBase(body ?? '');
+    const stored = readIssueBodyDraftEntry(draftKey)?.text ?? null;
     setShowDraftBanner(stored != null && !isSameBody(stored, body));
     remountEditor(body ?? '');
     setEditing(true);
@@ -193,8 +267,21 @@ export function InlineEditableBody({
   // 업로드 중에는 막는다(저장·취소와 같다, PR #1413 리뷰) — 편집칸을 새로 만들면 올리던 이미지가 안내 없이 사라지고 올라간 파일은 어디서도 쓰이지 않는다.
   const restoreDraft = () => {
     if (uploading) return;
-    const stored = readIssueBodyDraft(draftKey);
-    if (stored != null) remountEditor(stored);
+    const entry = readIssueBodyDraftEntry(draftKey);
+    if (entry != null) {
+      remountEditor(entry.text);
+      // 되살린 글이 다시 충돌을 여는 기준 본문 — 이 글을 그대로 저장하면 남의 글을 덮어쓰는 경우다. 아니면 null.
+      // 최신으로 다시 쓰는 중이면 받아 둔 최신 값과 다른 글일 때, 다시 편집에 들어와 되살리는 경우(받아 둔 최신 값 없음)면 초안을 쓴 뒤 본문이 바뀌었을 때다.
+      const latest = takenLatestRef.current;
+      const conflictBody =
+        latest !== null
+          ? isSameBody(entry.text, latest) ? null : latest
+          : entryChanged(entry, body, currentVersion) && !isSameBody(entry.text, body) ? (body ?? '') : null;
+      if (conflictBody !== null) {
+        onRestoreMine?.(conflictBody);
+        baseRef.current = { v: entry.baseVersion, b: entry.baseBody };
+      }
+    }
     setShowDraftBanner(false);
   };
   // 배너 [버리기] — 초안 폐기, 현재(서버) draft 유지.
@@ -202,14 +289,26 @@ export function InlineEditableBody({
     clearIssueBodyDraft(draftKey);
     setShowDraftBanner(false);
   };
+  // 초안 지우기 — 내 글 초안을 지키는 중(keep)이면 건드리지 않는다. 저장·취소가 같은 규칙을 쓴다(shouldKeepDraft).
+  const clearDraftUnlessKept = (keep: boolean) => {
+    if (!keep) clearIssueBodyDraft(draftKey);
+  };
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
   // next: 저장할 원문 — 단축키(Cmd/Ctrl+Enter)는 편집칸이 지금 원문을 넘기고, 버튼·모바일 바는 draft(편집칸이 알린 원문)를 쓴다. 둘은 같다.
-  const save = async (next: string = draft) => {
+  // force: 덮어쓰기 확인을 거친 저장 — 충돌 막기를 지난다(공개 시그니처 save(next?) 는 force 없이 막힌다).
+  const saveInternal = async (next: string, force: boolean) => {
+    // 충돌 안내가 떠 있으면 저장하지 않는다 — 단추·단축키·모바일 바가 같은 경로다. 편집은 그대로 두고, 덮어쓰기는 안내의 확인 창으로만 한다.
+    if (conflict && !force) {
+      toast.error(issueEditConflictBlockedMessage('body'));
+      return;
+    }
+    // 내 글 초안을 지키는 중이면 저장이 초안을 덮어쓰거나 지우지 않는다(코드 리뷰 지적). 남은 초안은 다음 편집 진입 때 다시 배너로 안내된다.
+    const keepDraft = shouldKeepDraft(takenLatestRef.current, showDraftBanner);
     // 업로드 중 이미지(자리표시)는 원문에 실리지 않으므로 그대로 저장하면 이미지가 빠진다 — 단축키·버튼·모바일 바 공통으로 막는다.
-    if (uploading) return;
-    // 단축키(Cmd/Ctrl+Enter)·모바일 하단 바 저장도 같은 경로라 여기서 한 번에 막는다(WP-885).
-    if (next.length > ISSUE_BODY_MAX_LENGTH) return;
-    if (hasPendingToken(next)) {
+    // 단축키(Cmd/Ctrl+Enter)·모바일 하단 바 저장도 같은 경로라 여기서 한 번에 막는다(WP-885). overwrite 도 같은 판정(bodySaveBlock)을 쓴다.
+    const block = bodySaveBlock(next, { uploading, body });
+    if (block === 'uploading' || block === 'too-long') return;
+    if (block === 'pending-token') {
       // 옛 Textarea 편집칸(WP-199)이 남긴 자리표시 토큰이 복원된 초안에 남아 있다 — 조용히 무시하면 저장이 안 되는 이유를 알 수 없다.
       toast.error('업로드가 끝나지 않은 이미지가 있습니다. 해당 줄을 지우고 다시 저장해 주세요');
       return;
@@ -218,26 +317,71 @@ export function InlineEditableBody({
     setShowDraftBanner(false);
     // 원문 그대로 비교(다듬지 않음) — 열고 그대로 저장하면 요청이 없다(WP-1656 원문 보존).
     // \r\n 원문은 편집칸이 \n 줄로 읽으므로 \n 으로 바꾼 모양과 같으면 바뀌지 않은 것이다(isSameBody).
-    if (isSameBody(next, body)) {
-      clearIssueBodyDraft(draftKey);
+    if (block === 'unchanged') {
+      resetBase(baseRef.current.b);
+      clearDraftUnlessKept(keepDraft);
+      onEditEnd?.();
       return;
     }
     // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
     // 다시 여는 편집칸은 이 원문으로 새로 만들어진다(remountEditor).
+    // 내 글 초안을 지키는 중이면 초안 저장소는 건드리지 않는다(이번 입력으로 덮어쓰지 않고, 성공해도 지우지 않는다).
     setDraft(next);
-    writeIssueBodyDraft(draftKey, next);
+    if (!keepDraft) {
+      const base = baseForDraft();
+      writeIssueBodyDraft(draftKey, next, base.v, base.b);
+    }
     if (await onSave(next)) {
-      clearIssueBodyDraft(draftKey);
+      resetBase(baseRef.current.b);
+      clearDraftUnlessKept(keepDraft);
+      onEditEnd?.();
     } else {
       remountEditor(next);
       setEditing(true);
+      // 다시 연 편집에서도 남겨 둔 내 글을 되살릴 수 있게 배너를 다시 띄운다.
+      if (keepDraft) setShowDraftBanner(true);
     }
   };
+  const save = (next: string = draft) => saveInternal(next, false);
   // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
+  // 단 「최신으로 다시 쓰기」로 남긴 내 글 초안 배너가 떠 있으면 지우지 않는다 — 취소는 지금 편집칸(최신 값)을 버리는 것이지 내 글을 버리는 게 아니다.
   const cancel = () => {
+    const keepDraft = shouldKeepDraft(takenLatestRef.current, showDraftBanner);
     setEditing(false);
     setShowDraftBanner(false);
-    clearIssueBodyDraft(draftKey);
+    resetBase(baseRef.current.b);
+    clearDraftUnlessKept(keepDraft);
+    onEditEnd?.();
+  };
+  // 충돌 안내 [최신 본문으로 다시 쓰기] — 편집칸을 최신 값으로 새로 열고, 그 전 내 글은 로컬 초안으로 남겨 기존 초안 배너로 되살릴 수 있게 한다.
+  // 업로드 중에는 막는다(편집칸을 새로 만들면 올리던 이미지가 사라진다 — 불러오기와 같다).
+  const takeLatest = () => {
+    if (uploading || !onTakeLatest) return;
+    const mine = draft;
+    // 내 글의 기준 version 은 기준을 최신으로 옮기는 onTakeLatest 보다 먼저 읽는다 — 옮긴 뒤 값을 쓰면 되살릴 때 변경 판정이 빠진다.
+    const mineBase = baseForDraft();
+    const latest = onTakeLatest();
+    resetBase(latest ?? baseRef.current.b);
+    // 충돌이 없으면(이미 풀렸거나 안내가 사라진 뒤) 바꿀 최신 값이 없다 — 편집칸을 그대로 둔다.
+    if (latest === null) return;
+    takenLatestRef.current = latest;
+    if (!isSameBody(mine, latest)) {
+      writeIssueBodyDraft(draftKey, mine, mineBase.v, mineBase.b);
+      setShowDraftBanner(true);
+    } else {
+      setShowDraftBanner(false);
+    }
+    remountEditor(latest);
+  };
+  // 충돌 안내 [내 글로 덮어쓰기] 확인 뒤 — 훅이 기준을 옮긴 다음 지금 입력으로 바로 다시 저장한다.
+  // 저장이 실제로 나갈 때(막힘 없음)만 onOverwrite 로 충돌을 푼다 — 막히면 충돌 안내를 그대로 두고 saveInternal 이 같은 이유 안내를 낸다.
+  const overwrite = () => {
+    if (bodySaveBlock(draft, { uploading, body }) === null) {
+      // 덮어쓰기를 확인했다 — 훅이 기준을 옮기므로 그 새 기준으로 초안을 쓴다.
+      resetBase(conflict?.latest ?? baseRef.current.b);
+      onOverwrite?.();
+    }
+    void saveInternal(draft, true);
   };
   // Esc 취소 — 업로드 중엔 무시한다(지금처럼). 취소하면 재진입 때 편집칸이 서버 본문으로 새로 열려 올리던 이미지를 잃는다.
   const cancelByEscape = () => {
@@ -330,6 +474,14 @@ export function InlineEditableBody({
   return (
     // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거(데스크톱). 모바일은 거터 우선이라 뺀다.
     <div className={cn('space-y-2', !mobile && '-mx-3')}>
+      {/* WP-2095 충돌 안내 — 409 로 확인된 충돌이 우선, 아니면 편집 중 남이 저장한 사실만 알린다. */}
+      <IssueEditNotice
+        field="body"
+        conflict={conflict}
+        changedWhileEditing={changedWhileEditing}
+        onTakeLatest={onTakeLatest ? takeLatest : undefined}
+        onOverwrite={onOverwrite ? overwrite : undefined}
+      />
       {/* 초안 복구 배너(#824) — 편집 진입 시 로컬에 남은 초안이 서버 본문과 다를 때만 노출. */}
       {showDraftBanner && (
         <div

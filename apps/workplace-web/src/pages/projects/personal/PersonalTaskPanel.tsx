@@ -2,6 +2,7 @@
 // 왜: 메모가 길어도 넓게 읽고 고치며, 속성은 오른쪽 레일에 모아 두기 위해. 채팅은 팀 이슈 상세와 같은 UX — 머리의 채팅 버튼이
 // 오른쪽 채팅 서랍(IssueChatDrawer)을 모달 위에 연다. ?task=N 이 열림, ?chat=1 이 서랍 열림의 단일 원천이다.
 // 모바일(<1024px)은 전체 화면 상세(PersonalTaskMobile) 그대로다.
+import { useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -41,6 +42,7 @@ import { useIssueChatDrawerParam } from '../components/chat/useIssueChatDrawerPa
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
 import { IssueStatusSelect } from '../components/IssueStatusSelect';
+import { fetchLatestIssueValues } from '../hooks/fetchLatestIssueValues';
 import { useVersionedPatch } from '../hooks/useVersionedPatch';
 import { PersonalTaskDeleteAction } from './PersonalTaskDeleteAction';
 import { PersonalTaskMobile } from './PersonalTaskMobile';
@@ -195,8 +197,9 @@ function PersonalTaskDetail({
   memoRef: React.Ref<InlineEditableBodyHandle>;
 }) {
   // 조회·수정·404 판정·AI 화면 컨텍스트 등록은 모바일 전체 화면과 공유(WP-221).
-  const task = usePersonalTask(projectKey, number);
+  const task = usePersonalTask(projectKey, number, { quietConflict: true });
   const { q, update, data } = task;
+  const queryClient = useQueryClient();
   // 상태 선택지 — 개인 프로젝트도 시드 상태 목록(이름)을 갖는다(WP-808).
   const statuses = useProjectStatusList(projectKey);
   // 채팅 서랍(WP-1374) — 팀 이슈와 같은 ?chat=1. 서랍이 모달 위에 겹치므로 링크로 들어와 열린 서랍도 닫으면 모달로 돌아온다(unmarkedClose).
@@ -204,7 +207,11 @@ function PersonalTaskDetail({
   const chat = useIssueChatDrawerParam({ unmarkedClose: 'replace', clearWhen: !!q.error });
 
   // #611 메모는 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 쓰는 사이 AI 가 메모를 바꿨다면 덮어쓰지 않고 409 로 알린다(팀 이슈 본문과 같은 공용 훅).
-  const { patch, beginEdit, baseVersion } = useVersionedPatch<'body'>(update, data?.summary.version);
+  const versioned = useVersionedPatch<'body'>(update, data?.summary.version, () =>
+    // 409 뒤 최신 상세를 실제로 다시 받아 메모(body) 값과 version 을 돌려준다(WP-2095, 팀 이슈 상세와 같은 조회).
+    fetchLatestIssueValues(queryClient, projectKey, number),
+  );
+  const { patch, beginEdit, baseVersion } = versioned;
   /** 결과를 기다리지 않는 필드 저장(상태·우선순위·마감·제목). */
   const save = (changes: UpdateIssueRequest) => { void patch(changes); };
 
@@ -273,7 +280,18 @@ function PersonalTaskDetail({
                 body={data.body}
                 ref={memoRef}
                 onSave={(b) => patch({ body: b, version: baseVersion('body') })}
-                onEditStart={() => beginEdit('body')}
+                onEditStart={() => beginEdit('body', data.body ?? '')}
+                conflict={versioned.conflict('body')}
+                changedWhileEditing={
+                  versioned.changedWhileEditing('body', data.body ?? '', data.summary.version) ? { latest: data.body ?? '' } : null
+                }
+                onTakeLatest={() => versioned.takeLatest('body')}
+                // 최신으로 다시 쓴 뒤 되살린 내 글 저장도 덮어쓰기 확인을 거치게 충돌을 다시 연다(팀 이슈 상세와 같다)
+                onRestoreMine={(latest) => versioned.reopenConflict('body', latest)}
+                onOverwrite={() => versioned.overwrite('body')}
+                onEditEnd={() => versioned.endEdit('body')}
+                currentVersion={data.summary.version}
+                draftBaseVersion={() => baseVersion('body')}
                 disabled={!(data.viewerCanEditContent ?? false) || update.isPending}
                 projectKey={projectKey}
                 issueNumber={number}

@@ -222,7 +222,11 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
 
     // 디바운스(600ms) 후 localStorage 에 초안이 기록될 때까지 조건 대기(고정 대기 대신).
     await expect
-      .poll(() => page.evaluate((key) => localStorage.getItem(key), DRAFT_KEY))
+      .poll(async () => {
+        const raw = await page.evaluate((key) => localStorage.getItem(key), DRAFT_KEY);
+        // 초안은 JSON 항목({v:1,text,baseVersion,baseBody}) 으로 저장된다 — 글 내용은 text 필드.
+        return raw ? (JSON.parse(raw) as { text?: string }).text : null;
+      })
       .toBe('저장 안 하고 이탈할 초안');
 
     // 브레드크럼의 프로젝트명 링크 클릭 → SPA 내부 네비게이션(프로젝트 목록 화면으로 이동, beforeunload 미발생).

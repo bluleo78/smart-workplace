@@ -9,7 +9,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test } from 'vitest'
 
-import { issueBodyDraftKey } from '@/lib/issueBodyDraft'
+import { issueBodyDraftKey, readIssueBodyDraftEntry } from '@/lib/issueBodyDraft'
 import { richEditorOf, setRichBody } from '@/test/kits/projects/issueDetailRef'
 import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
@@ -290,7 +290,7 @@ describe('본문 인라인 수정 (#117)', () => {
   test('저장에 성공하면 초안이 정리돼 다시 편집을 열어도 복구 배너가 없다', async () => {
     const { user, patches } = await openEditable()
     await editBody(user, '정상 저장된 본문')
-    await waitFor(() => expect(window.localStorage.getItem(DRAFT_KEY)).toBe('정상 저장된 본문'), { timeout: 3000 })
+    await waitFor(() => expect(readIssueBodyDraftEntry(DRAFT_KEY)?.text).toBe('정상 저장된 본문'), { timeout: 3000 })
     await user.click(screen.getByTestId('issue-body-save'))
     await waitFor(() => expect(patches).toHaveLength(1))
     expect(await screen.findByText('정상 저장된 본문')).toBeInTheDocument()

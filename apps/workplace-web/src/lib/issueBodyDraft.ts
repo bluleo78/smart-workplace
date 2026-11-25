@@ -17,16 +17,50 @@ export function issueBodyDraftKey(owner: IssueBodyDraftOwner, projectKey: string
 
 // localStorage 접근은 프라이빗 모드·사이트 데이터 차단 환경에서 throw 할 수 있으므로
 // 전부 try/catch — 실패해도 편집 자체는 정상 동작해야 한다(#824).
-export function readIssueBodyDraft(key: string): string | null {
+/** 초안 한 건 — 글과, 그 글을 쓰기 시작한 이슈 version·본문(없으면 모름). */
+export interface IssueBodyDraftEntry {
+  text: string;
+  baseVersion?: number;
+  /** 편집을 시작한 때의 본문 — 되살릴 때 본문이 실제로 바뀌었는지 가린다(다른 필드만 바뀌어 version 이 오른 경우를 거르려고). */
+  baseBody?: string;
+}
+
+/**
+ * 초안 entry 읽기(WP-2095). 기준 version 이 있는 초안은 JSON({"v":1,"text","baseVersion"}), 없거나 예전 초안은 평문이다.
+ * 왜 기준 version: 되살릴 때 그 사이 본문이 바뀌었는지(=덮어쓰면 남의 글을 잃는지) 판정하는 데 쓴다.
+ */
+export function readIssueBodyDraftEntry(key: string): IssueBodyDraftEntry | null {
   try {
-    return window.localStorage.getItem(key);
+    const raw = window.localStorage.getItem(key);
+    if (raw == null) return null;
+    if (raw.startsWith('{"v":1,')) {
+      try {
+        const parsed = JSON.parse(raw) as { text?: unknown; baseVersion?: unknown; baseBody?: unknown };
+        if (typeof parsed.text === 'string') {
+          const entry: IssueBodyDraftEntry = { text: parsed.text };
+          if (typeof parsed.baseVersion === 'number') entry.baseVersion = parsed.baseVersion;
+          if (typeof parsed.baseBody === 'string') entry.baseBody = parsed.baseBody;
+          return entry;
+        }
+      } catch {
+        // JSON 이 아니면 평문 초안으로 본다.
+      }
+    }
+    return { text: raw };
   } catch {
     return null;
   }
 }
-export function writeIssueBodyDraft(key: string, value: string): void {
+/** 초안 글만 읽는다(기준 version 은 버린다). */
+export function readIssueBodyDraft(key: string): string | null {
+  return readIssueBodyDraftEntry(key)?.text ?? null;
+}
+/** 초안 쓰기 — 기준 version·본문이 하나라도 있으면 JSON 으로 함께 저장하고, 없으면 예전처럼 평문으로 둔다. */
+export function writeIssueBodyDraft(key: string, value: string, baseVersion?: number, baseBody?: string): void {
   try {
-    window.localStorage.setItem(key, value);
+    const stored =
+      baseVersion === undefined && baseBody === undefined ? value : JSON.stringify({ v: 1, text: value, baseVersion, baseBody });
+    window.localStorage.setItem(key, stored);
   } catch {
     // 무시 — 초안 저장은 보완책일 뿐 필수 기능이 아니다.
   }
