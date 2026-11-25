@@ -25,7 +25,7 @@ import { loadSubagents } from './subagent-loader.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
-// WP-2109: mcp 가 있는 입력을 만들 때 쓰는 더미 클라이언트(설정 빌드만 보므로 호출되지 않는다).
+// 설정 빌드만 보는 테스트가 함께 쓰는 더미 클라이언트(호출되지 않는다, WP-2109 — 테스트마다 따로 선언하지 않는다).
 const client = {} as unknown as WorkplaceApiClient;
 
 function baseInput(over: Partial<RunnerInput> = {}): RunnerInput {
@@ -146,7 +146,6 @@ describe('buildOpencodeConfig', () => {
   });
 
   it('비전 미지원: modalities 미선언 + 프롬프트 규칙 + MCP_VISION=0 + 서브에이전트 프롬프트에도 규칙(WP-241)', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }),
       'run-1',
@@ -170,7 +169,6 @@ describe('buildOpencodeConfig', () => {
   });
 
   it('비전 알 수 없음: modalities 미선언(opencode 자체 판단) + 프롬프트 규칙 + 이미지는 그대로(MCP_VISION=1)', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }),
       'run-1',
@@ -192,7 +190,7 @@ describe('buildOpencodeConfig', () => {
     expect(cfg.provider?.openai?.npm).toBe('@ai-sdk/openai');
   });
 
-  // WP-2109: 기대값 수정 — mcp 가 있어야 도구가 열리므로(없으면 단발 분석으로 maxSteps·도구를 두지 않는다) mcp 를 넣어 검증한다.
+  // WP-2109: 기대값 수정 — mcp 가 있어야 도구가 열리므로(없으면 단발 분석으로 도구를 모두 끄고 maxSteps 2) mcp 를 넣어 검증한다.
   it('primary agent: systemPrompt/maxTurns→maxSteps/MCP-only tools/permission deny', () => {
     const cfg = buildOpencodeConfig(baseInput({ mcp: { client, profile: 'issue', onBehalfOfId: 1 } }), 'run-1', ['cmd'], VISION_ON);
     expect(cfg.agent?.primary).toEqual({
@@ -260,7 +258,6 @@ describe('buildOpencodeConfig', () => {
   // WP-1493: 128개 도구 상한 모델(gpt-6-luna 등)이 전 도구(~130)를 받아 실패하던 문제 — assistant 라우터는 Claude 경로처럼
   // 라우터 도구 + 위임 도구(task)만 싣고, 쓰기는 서브에이전트에 맡긴다.
   describe('assistant 라우터 도구 축소(WP-1493)', () => {
-    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
     const assistant = (over: Partial<RunnerInput> = {}) =>
       baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 1 }, ...over });
 
@@ -331,7 +328,6 @@ describe('buildOpencodeConfig', () => {
   });
 
   it('mcp 지정 시 workplace local MCP 항목 + 컨텍스트 env 채움', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({
         mcp: {
@@ -363,7 +359,6 @@ describe('buildOpencodeConfig', () => {
 
   // WP-250: 이미지를 볼 수 있는 모델(vision === true)에만 페이지 보기(MCP_IMAGE_TOOLS)를 연다.
   describe('이미지 입력 env (WP-250)', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const env = (vision: boolean | undefined) =>
       (buildOpencodeConfig(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], { vision, limit: undefined }).mcp
         ?.workplace as { environment?: Record<string, string> }).environment;
@@ -382,7 +377,6 @@ describe('buildOpencodeConfig', () => {
 
   // WP-244: chat 도구의 실행 스레드 바인딩이 stdio MCP env 로 전달된다.
   it('mcp.chatThreadId 있으면 MCP_CHAT_THREAD_ID 추가', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({ mcp: { client, profile: 'chat', onBehalfOfId: 1, chatThreadId: 17 } }),
       'run-1',
@@ -395,7 +389,6 @@ describe('buildOpencodeConfig', () => {
 
   // WP-234: 메인 AI 채팅 세션 바인딩이 stdio MCP env 로 전달된다.
   it('mcp.homeSessionId 있으면 MCP_HOME_SESSION_ID 추가, 없으면 키 없음', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
     const env = (i: RunnerInput) =>
       (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
@@ -406,7 +399,6 @@ describe('buildOpencodeConfig', () => {
   // WP-259: 요청자 테넌트가 stdio MCP env 로 전달된다 — 없으면 다중 멤버십 사용자의 도구 호출이 fail-closed.
   // WP-1313: 테스트 이어 처리의 허락된 쓰기는 MCP_RECURRING_PERMITS(JSON) 로 넘긴다 — 비어 있으면 키가 없다.
   it('mcp.recurringPermits 있으면 MCP_RECURRING_PERMITS 추가, 비었으면 키 없음', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const env = (i: RunnerInput) =>
       (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
     expect(env(baseInput({ mcp: { client, profile: 'recurring-test', onBehalfOfId: 1, recurringPermits: ['send_mail'] } }))?.MCP_RECURRING_PERMITS).toBe('["send_mail"]');
@@ -415,7 +407,6 @@ describe('buildOpencodeConfig', () => {
 
   // WP-1816: AI 자신 신원인 반복 실행만 MCP_RECURRING_SELF=1 — 아니면 키가 없다.
   it('mcp.recurringSelfIdentity 가 true 면 MCP_RECURRING_SELF=1, 아니면 키 없음', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const env = (i: RunnerInput) =>
       (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
     expect(env(baseInput({ mcp: { client, profile: 'recurring', onBehalfOfId: 1, recurringSelfIdentity: true } }))?.MCP_RECURRING_SELF).toBe('1');
@@ -423,7 +414,6 @@ describe('buildOpencodeConfig', () => {
   });
 
   it('mcp.onBehalfOfTenantId 있으면 MCP_ON_BEHALF_OF_TENANT 추가, 없으면 키 없음', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const env = (i: RunnerInput) =>
       (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
     expect(env(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1, onBehalfOfTenantId: 5 } }))?.MCP_ON_BEHALF_OF_TENANT).toBe('5');
@@ -431,7 +421,6 @@ describe('buildOpencodeConfig', () => {
   });
 
   it('mcp.hostBridge 있으면 MCP_BRIDGE_URL/MCP_BRIDGE_RUN_ID 추가', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({
         mcp: {
@@ -452,7 +441,6 @@ describe('buildOpencodeConfig', () => {
 
   // WP-1489: onTool 은 러너가 세션 이벤트로 직접 부르므로 브리지가 필요 없다 — 등록되지 않은 runId 의 브리지 좌표를 심지 않는다.
   it('mcp.onTool 만 있으면 브리지 좌표를 심지 않는다', () => {
-    const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
       baseInput({ mcp: { client, profile: 'home', onBehalfOfId: 1, onTool: vi.fn() } }),
       'run-7',

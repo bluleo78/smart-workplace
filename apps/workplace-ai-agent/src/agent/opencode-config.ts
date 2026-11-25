@@ -213,7 +213,7 @@ export function buildOpencodeConfig(
         // 예외(WP-236): allowFileRead(이슈 챗 첨부)면 read 를 연다. 러너가 인스턴스 디렉터리를 실행 첨부 폴더로
         // 지정하므로 read 는 그 안만 닿고, 바깥은 external_directory 로 막는다.
         // WP-1493: 위임하는 라우터(assistant + allowSubagents)는 와일드카드 대신 라우터 도구 + 위임 도구(task)만 연다(routerPrimaryTools).
-        // WP-2109: 도구가 없는 실행은 전부 끈다({ '*': false }) — 열린 도구가 없으니 모델이 도구 호출을 시도할 일도 없다.
+        // WP-2109: 도구가 없는 실행은 전부 끈다({ '*': false }) — 그래도 모델이 없는 도구를 부르면 둘째 단계(NO_TOOL_MAX_STEPS)에서 끝난다.
         tools: hasTools
           ? {
               '*': false,
