@@ -884,7 +884,8 @@ describe('차트 준비 자리 (WP-2079 3라운드)', () => {
     expect(screen.getByTestId('ai-status-alert-usage')).toBeInTheDocument()
     expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
     expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 종류별 표에는 Recharts 가 없어 게이트에 묶이지 않는다 — 체인이 멈춰 있어도 자기 틱으로 그려진다(WP-2079 6라운드)
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
     // 준비 신호 — 그제야 차트 단계가 이어지고 종류별 표까지 데드락 없이 진행한다
     await act(async () => {
       warmupControl.signal?.()
@@ -902,16 +903,22 @@ describe('차트 준비 자리 (WP-2079 3라운드)', () => {
     warmupControl.signal = null
     renderOverview()
     await rollChain()
-    // 상한 전 — 지표·경고만 있고 차트 단계 뒤 블록(처리량·작은 그래프·종류별 표)은 아직 닫혀 있다
+    // 상한 전 — 지표·경고까지만 있고 차트가 든 블록(처리량·작은 그래프)은 아직 닫혀 있다
     expect(screen.getByTestId('ai-status-alert-usage')).toBeInTheDocument()
     expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
+    // 준비 신호가 안 왔으니 준비 자리는 아직 그대로다 — 늦게 온 청크의 준비 차트가 실제 차트와 같은 태스크에
+    // 그려지지 않게, 대기 상한이 지나기 전에는 내려놓지 않는다(WP-2079 6라운드)
+    expect(screen.getByTestId('ai-status-chart-warmup')).toBeInTheDocument()
+    // 종류별 표는 Recharts 가 없어 게이트 상한(4초)을 기다리지 않는다 — 체인이 멈춰 있는 동안에도 그려진다(WP-2079 6라운드)
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
     // 상한이 거의 다 될 때까지도 기다린다 — 늦게 여는 것이지 서두르지 않아야 첫 실행 비용이 데이터 뒤로 밀리지 않는다
     await act(async () => {
       vi.advanceTimersByTime(CHART_STAGE_MAX_WAIT_MS - 500)
     })
     expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-chart-warmup')).toBeInTheDocument()
     // 대기 상한 경과 — 신호 없이도 게이트가 열려 끝내 안 나오던 블록이 나온다(본문이 사라지지 않는 것이 목적)
     await act(async () => {
       vi.advanceTimersByTime(1000)
@@ -919,6 +926,39 @@ describe('차트 준비 자리 (WP-2079 3라운드)', () => {
     await rollChain()
     expect(screen.getByTestId('ai-status-throughput')).toBeInTheDocument()
     expect(screen.getByTestId('ai-status-small-graphs')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+    // 게이트가 상한으로 열린 뒤에는 준비 자리를 내려놓는다 — 남아 있으면 늦게 온 청크의 준비 차트 2개가
+    // 실제 차트와 같은 태스크에 그려져 긴 태스크가 다시 생긴다(WP-2079 6라운드)
+    expect(screen.queryByTestId('ai-status-chart-warmup')).not.toBeInTheDocument()
+  })
+
+  test('data 가 없어졌다가 다시 오면 종류별 표 틱도 처음부터 다시 센다(WP-2079 6라운드)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // 준비 신호를 끝내 보내지 않는 가짜 자리 — 게이트가 닫혀 있어 표는 체인이 아니라 자기 틱으로 그려진다
+    warmupControl.fake = true
+    warmupControl.signal = null
+    // rollUntil 은 굴리고 나면 그 사이 새로 걸린 단계 타이머를 다음 회차에서 굴려, data 도착 첫 렌더
+    // (표 틱이 아직 굴러가기 전)를 그대로 보고 지나갈 수 있다
+    renderOverview({ failSecond: true })
+    // 첫 데이터 — 게이트가 닫혀 있는 동안 표만 자기 틱으로 그려진다
+    await rollUntil(() => !!screen.queryByTestId('card-runs'))
+    expect(screen.getByTestId('card-runs')).toBeInTheDocument()
+    await rollChain()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+    // 기간 전환 실패로 data 가 없어진다 — 표 틱을 포함해 단계는 모두 0 으로 되돌린다
+    fireEvent.click(screen.getByRole('button', { name: '7일' }))
+    await rollUntil(() => !!screen.queryByTestId('ai-status-load-error'))
+    expect(screen.getByTestId('ai-status-load-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 다시 시도로 data 가 다시 오면 — 리셋이 없으면 지난 틱(4)이 남아 표가 지표 카드만 있는 첫 렌더에서
+    // 단계 없이 먼저 나온다. 리셋이 있으면 첫 렌더에는 아직 표가 없다
+    fireEvent.click(within(screen.getByTestId('ai-status-load-error')).getByRole('button', { name: /다시 시도/ }))
+    await rollUntil(() => !!screen.queryByTestId('card-runs'))
+    expect(screen.getByTestId('card-runs')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-alert-usage')).not.toBeInTheDocument()
+    // 틱이 다시 채워지면 표가 나온다 — 게이트는 여전히 닫혀 있어 체인은 여기에 관여하지 않는다
+    await rollChain()
     expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
   })
 
