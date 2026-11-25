@@ -1598,7 +1598,21 @@ public class IssueService {
         !parentChanges || issue.parentIssueId() == null
             ? null
             : issueRepository.findById(issue.parentIssueId()).orElse(null);
-    // WP-2097 — 옛 상위와의 관련 관계: 부모·유형을 바꾸기 전에 만든다. 같은 트랜잭션이라 관계가 안 생기면 유형도 바뀌지 않는다.
+    // WP-2097 — 옛 상위와의 관련 관계: 부모·유형을 바꾸기 전에 만든다. 같은 트랜잭션이라 관계를 만들다 예외가
+    // 나면(예: RELATES 유형이 없음) 유형·부모 변경도 함께 롤백된다.
+    // 이 조건이 거짓이어도 유형·부모 변경은 그대로 진행한다 — 관계를 건너뛰는 갈래와 까닭은 이렇다(리뷰 후속 요청).
+    //   ① relateToReleasedParent 를 안 켠 요청 — 기존 호출부(웹 일반 변경·SUBTASK 부모 지정 등)가 옵션을 안 줘
+    //      서버 기본값 false 로 들어온다.
+    //   ② 이번 변경으로 상위가 그대로 — releasesParent(하위 태스크→비태스크, →에픽)도 아니고 부모를 새로 지정하지도
+    //      않았거나(부모 유지) 옛 부모와 같은 부모를 다시 지정한 경우라 풀어지는 상위가 없어 남길 관계가 없다.
+    //   ③ 이 이슈에 옛 상위가 없다(부모 없는 이슈).
+    // 관계를 만들기 직전의 두 갈래도 건너돈다(둘 다 예외가 아니라 false — 유형·부모 변경은 진행, 이력·신호만 남지 않는다).
+    //   ④ 호출자가 옛 상위 프로젝트를 읽을 수 없으면(IssueRelationService.relateToReleasedParent 문서의 「읽을 수 없어
+    //      건너뜀」 — 아래 releasedParentKey 도 같은 canRead 로 가려지는 게 맞다)
+    //   ⑤ 교차 프로젝트인데 어느 한쪽이 개인 프로젝트면(같은 메서드의 「개인 프로젝트가 끼어 건너뜀」 — add 가 막을 일을
+    //      여기서는 예외 대신 건너뛴다)
+    // releasedParentKey 와의 관계는 갈래마다 다르다: ①·②·③·⑤ 는 키와 무관하고(그 키는 옵션과 무관하게 상위가 실제로
+    // 바뀌었는지만 본다), ④ 에서는 위와 같은 canRead 로 키도 함께 가려진다(아래 releasedParentKey 계산의 주석).
     if (relateToReleasedParent && parentChanges && oldParentRow != null) {
       relationService.relateToReleasedParent(callerId, issue, oldParentRow);
     }

@@ -324,6 +324,26 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         //    서로 독립 조회라 병렬로 보낸다. 부모 키 → 번호 변환(같은 프로젝트 검사)도 여기서 한다.
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
         const parentRef = parent === undefined || parent === null ? parent : parentRefOf(parent, projectKey);
+
+        // WP-2097 리뷰 후속 ② — 옵션을 말없이 무시하지 않는다. relateToReleasedParent 는 서버가 **유형 요청**에서만
+        // 받는 옵션이고 (a) type 이 없으면 옵션을 실 유형 요청이 아예 없고, (b) parent 로 상위를 null 로 비우는 갈래는
+        // setIssueType(부모 없음)과 setIssueParent(null) 두 번으로 나가 관계가 남을지 남지 않을지를 쓰기 전에 알 수 없다 —
+        // 서버는 유형 전환이 상위를 풀 때만 setType 안에서 관계를 만들기 때문이다. 둘 다 쓰기 전에 에러로 돌려준다 —
+        // 아래 필드별 팬아웃은 성공·실패를 나눠 기록하는 구조라 여기서만 막아야 앞서 쓴 필드와 함께 반쯤 반영된 결과를 남지 않는다.
+        // 명시적 false 는 서버 기본값과 같아 무시될 것이 없으니 막지 않는다(실드는 값이 참일 때만).
+        if (relateToReleasedParent === true) {
+          if (type === undefined) {
+            throw new Error(
+              'relateToReleasedParent 는 type 과 함께 줘야 합니다 — 옛 상위와의 관계는 유형 변경으로 상위가 풀릴 때만 남습니다.',
+            );
+          }
+          if (parent === null) {
+            throw new Error(
+              'relateToReleasedParent 는 parent: null 과 함께 줄 수 없습니다 — 관계는 유형 전환(하위 태스크→다른 유형, →에픽)이 상위를 풀 때만 남는데, ' +
+                '유형과 상관없이 상위를 비우는 요청을 섞으면 그 결과를 예측할 수 없습니다. parent 없이 type 만 주세요.',
+            );
+          }
+        }
         // WP-2097: 옵션은 줬을 때만 setIssueType 에 넘긴다 — 안 주면 인자 자리도 비워 기존 호출(3개 인자)과 똑같이 보낸다.
         const typeOpts = relateToReleasedParent === undefined ? undefined : { relateToReleasedParent };
         const fieldEntries = fields ? Object.entries(fields) : [];

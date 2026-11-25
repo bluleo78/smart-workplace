@@ -717,6 +717,27 @@ describe('buildSharedIssueTools', () => {
     expect(plain).toEqual({ ok: true, results: { type: 'ok' } });
   });
 
+  it('WP-2097 리뷰 후속: relateToReleasedParent 는 type 없이 또는 parent: null 과 함께 오면 쓰기 전에 에러로 돌려준다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+
+    // type 없음 — 옵션을 실 유형 요청이 없다(말없이 무시하지 않음).
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', relateToReleasedParent: true })).rejects.toThrow('type 과 함께');
+    // parent: null — 부모 해제는 setIssueParent 가 따로 가 유형 요청에 옵션이 닿지 않는다.
+    await expect(t.handler({ issueKey: 'WP-12', type: 'BUG', parent: null, relateToReleasedParent: true })).rejects.toThrow('parent: null');
+
+    // 어느 쪽도 쓰기 전이라 유형·부모·내용 쓰기가 하나도 없다.
+    expect(c.setIssueType).not.toHaveBeenCalled();
+    expect(c.setIssueParent).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+
+    // 명시적 false 는 서버 기본값과 같아 무시될 것이 없으니 그대로 지난다 — type 없이·parent: null 과 함께여도.
+    await t.handler({ issueKey: 'WP-12', relateToReleasedParent: false });
+    await t.handler({ issueKey: 'WP-12', type: 'BUG', parent: null, relateToReleasedParent: false });
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 2, undefined, { relateToReleasedParent: false });
+    expect(c.setIssueParent).toHaveBeenCalledWith('WP-12', null);
+  });
+
   it('WP-394: update_issue 는 담당자 이름이 틀리면 라벨을 포함해 아무것도 쓰지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

@@ -377,11 +377,19 @@ export default function IssueDetailPage() {
           }
           // 각 mutation 의 실패는 훅 자체 onError 가 이미 에러 토스트로 알리므로
           // 여기서는 완료 대기만 하고(allSettled) 성공 토스트 1개만 통합 노출한다 — 하나도 적용되지 않았으면 띄우지 않는다(WP-503).
-          const message = aiClassifyApplyToast(await Promise.allSettled(tasks));
-          if (message === null) return;
-          // 유형을 스킵했을 때만 이유를 덧붙인다 — 기존 통합 토스트 문구는 그대로 둔다(WP-2097).
-          toast.success(classifySkippedType ? `${message} — 상위 연결 때문에 유형은 적용하지 않음` : message);
+          // 유형 스킵 안내 문구 — 통합 토스트에 덧붙일 때와 통합 토스트가 없을 때 같은 말을 쓴다(WP-2097 리뷰 후속 ③).
+          const typeSkippedNote = '상위 연결 때문에 유형은 적용하지 않음';
+          // 이유 서브텍스트는 제안이 받아와졌으면 항상 채운다 — 통합 토스트가 없어도 제안 근거는 보인다.
           setClassifyReason(result.reason);
+          const message = aiClassifyApplyToast(await Promise.allSettled(tasks));
+          // 유형만 스킵하고 적용된 제안이 없어 통합 토스트 문구가 비면, 건너뛴 사실도 무음으로 사라진다(WP-2097 리뷰 후속 ③).
+          // 그때도 이유를 알린다 — 사용자가 「제안이 한 건도 안 먹혔다」로만 읽지 않게.
+          if (message === null) {
+            if (classifySkippedType) toast.success(typeSkippedNote);
+            return;
+          }
+          // 유형을 스킵했을 때만 이유를 덧붙인다 — 기존 통합 토스트 문구는 그대로 둔다(WP-2097).
+          toast.success(classifySkippedType ? `${message} — ${typeSkippedNote}` : message);
         },
         // 서버 문구를 우선한다 — AI 연동 꺼짐(409 AI_DISABLED, WP-1640)·비서 없음(422)의 이유가 보이게.
         onError: (e) => toast.error(extractApiError(e, 'AI 제안을 받지 못했습니다')),
