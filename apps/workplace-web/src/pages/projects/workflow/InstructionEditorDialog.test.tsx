@@ -440,4 +440,99 @@ describe('InstructionEditorDialog', () => {
     await user.click(screen.getAllByTestId('instruction-block')[1])
     expect(screen.queryByLabelText('블록 원문')).toBeNull()
   })
+
+  // 리뷰 후속(WP-2092) — 블록을 고치던 중 읽기 전용이 되면 편집을 끝낸다(남은 입력칸에 친 글이 버려지지 않게)
+  it('블록_편집_중_읽기_전용이_되면_편집이_끝나고_고친_글은_남는다', async () => {
+    const { user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender(undefined, true)
+    expect(screen.queryByLabelText('블록 원문')).toBeNull()
+    expect(screen.getByText('본문 문단!')).toBeInTheDocument()
+  })
+
+  // 리뷰 후속(WP-2092) — text 가 원래대로 돌아오면 알림 기억(warnedText)도 비워, 다음 바깥 변경에 알림이 저절로 다시 뜨지 않게
+  it('알림이_뜬_뒤_text가_원래대로_돌아왔다가_또_바뀌어도_알림이_저절로_뜨지_않는다', async () => {
+    const { user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender('B')
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    rerender(TEXT)
+    rerender('C')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  // 리뷰 후속(WP-2092) — 원문 모드 입력칸의 Esc 는 블록 편집처럼 입력칸만 떠난다(창은 닫지 않는다)
+  it('원문_모드_입력칸에서_Esc는_입력칸만_떠나고_창은_닫지_않는다', async () => {
+    const { onOpenChange, user } = setup()
+    await user.click(screen.getByRole('button', { name: '마크다운 원문' }))
+    await user.click(screen.getByLabelText('지시 원문'))
+    await user.keyboard('{Escape}')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '마크다운 원문' }))
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  // 리뷰 후속(WP-2092) — 고친 글이 있으면 두 번째 Esc 로 창이 확인 없이 닫히지 않는다(바깥 클릭과 같은 막기)
+  it('고친_글이_있으면_편집을_끝낸_뒤_Esc로_창이_닫히지_않는다', async () => {
+    const { onOpenChange, user } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Escape}')
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('원문_모드에서_고친_글이_있으면_Esc_두_번에도_창이_닫히지_않는다', async () => {
+    const { onOpenChange, user } = setup()
+    await user.click(screen.getByRole('button', { name: '마크다운 원문' }))
+    await user.type(screen.getByLabelText('지시 원문'), '!')
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Escape}')
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('고친_글이_없으면_편집을_끝낸_뒤_Esc로_창이_닫힌다', async () => {
+    const { onOpenChange, user } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Escape}')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  // 리뷰 후속(WP-2092) — 읽기 전용인데 지시가 비면 빈 가운데 대신 안내를 보인다
+  it('읽기_전용에서_지시가_비면_지시가_없습니다_안내가_보인다', () => {
+    setup({ text: '', readOnly: true })
+    expect(screen.getByText('지시가 없습니다')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '여기를 눌러 지시를 쓰세요' })).toBeNull()
+  })
+
+  // 리뷰 후속(WP-2092) — notice(노드가 사라짐 등)를 주면 안내가 보이고, 고치던 글은 원문 모드에서 복사할 수 있게 남는다
+  it('notice를_주면_안내가_보인다', () => {
+    render(
+      <InstructionEditorDialog open onOpenChange={() => {}} nodeName="분석" nodeKey="analyze" text={TEXT} shared={[]} readOnly notice="이 노드가 사라져 적용할 수 없어요" onApply={() => {}} />,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('이 노드가 사라져 적용할 수 없어요')
+  })
+
+  // 리뷰 후속 2(WP-2092) — Esc 닫기 막기는 적용과 같은 규칙: 고친 글이 지금 text 와 같으면(다른 곳이 같은 글로 바꿈) 잃을 게 없으니 닫는다
+  it('고친_글이_바뀐_text와_같으면_Esc로_창이_닫힌다', async () => {
+    const { onOpenChange, user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender(TEXT.replace('본문 문단', '본문 문단!'))
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Escape}')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  // 리뷰 후속 2(WP-2092) — 블록을 고치던 중 읽기 전용이 되면 포커스는 그 블록으로 돌아간다(body 로 빠지지 않게)
+  it('블록_편집_중_읽기_전용이_되면_포커스가_그_블록으로_돌아간다', async () => {
+    const { user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    rerender(undefined, true)
+    expect(document.activeElement).toBe(screen.getAllByTestId('instruction-block')[1])
+  })
 })
