@@ -19,6 +19,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSort;
 import com.workplace.issue.dto.IssueSortCursor;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.KeysetSeek.SeekKey;
 import java.time.LocalDate;
@@ -110,7 +111,8 @@ public class IssueSortedRepository {
   private static final Function<String, String> TEXT = Function.identity();
 
   /**
-   * 사용자 지정 정렬 한 페이지. 키 뒤에 동률 깨기로 수정 시각 DESC(이미 키면 생략) → id DESC 를 붙인다.
+   * 사용자 지정 정렬 한 페이지. closedLast(WP-2103)면 맨 앞에 끝남 여부 칸(열림 → 끝남)이 붙는다. 키 뒤에 동률 깨기로 수정 시각 DESC(이미 키면
+   * 생략) → id DESC 를 붙인다.
    *
    * <ul>
    *   <li>dueDate: 마감 없음은 방향과 무관하게 맨 뒤.
@@ -182,6 +184,15 @@ public class IssueSortedRepository {
   /** 정렬 → 키 칸 목록(사용자 키 → 동률 깨기 updatedAt DESC → id DESC). 마지막 칸은 항상 sk_id. */
   private static List<Part<?>> parts(IssueSort sort) {
     List<Part<?>> parts = new ArrayList<>();
+    // WP-2103: 끝난 이슈(DONE·CANCELED)를 맨 뒤로 — 0(열림) → 1(끝남) 플래그를 모든 키보다 앞에 둔다.
+    if (sort.closedLast()) {
+      parts.add(
+          new Part<>(
+              "sk_closed",
+              when(ISSUE.STATUS.in(IssueStatuses.CLOSED), inline(1)).otherwise(inline(0)),
+              false,
+              INT));
+    }
     int n = 0;
     for (IssueSort.Key k : sort.keys()) {
       String a = "sk_" + (n++) + "_";

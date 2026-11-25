@@ -33,7 +33,7 @@ import {
   parseView,
 } from '../../../lib/issueFilters';
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
-import { type IssueSortValue, sortOf } from '../../../lib/issueSort';
+import { type ClosedLastToggle, type IssueSortValue, sortOf } from '../../../lib/issueSort';
 import type {
   IssueFilters,
   IssueGroupBy,
@@ -99,6 +99,7 @@ export interface IssueFilterControls {
   showSort: boolean; // 정렬 칩 노출(WP-1238)
   sort: IssueSortValue | null; // 고른 정렬 — null = 기본(수정일 내림차순)
   setSort: (s: IssueSortValue | null) => void; // 필터·보기·그룹은 두고 정렬만 바꾼다. null = 기본으로
+  closedLast: ClosedLastToggle | undefined; // 「끝난 이슈 아래로」(WP-2103) — 그룹 없는 목록 보기에서만 값이 있다(그룹·보드에선 undefined 라 항목을 숨김). 기본 켜짐, URL closedLast=off 면 꺼짐
   conditionChips: IssueConditionChip[]; // facet 이 없는 조건(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 지울 수 있는 칩
   removeCondition: (key: IssueConditionKey) => void; // 조건 칩 하나만 지운다(다른 필터·보기·그룹은 그대로)
 }
@@ -173,6 +174,17 @@ export function useIssueFilterControls(
   // 고른 정렬 — 정렬 두 값이 바뀔 때만 새 객체(칩·메뉴가 매 렌더 새 값을 받지 않게).
   const { sort: sortKey, direction: sortDirection } = filters;
   const sort = useMemo(() => sortOf({ sort: sortKey, direction: sortDirection }), [sortKey, sortDirection]);
+
+  // 「끝난 이슈 아래로」(WP-2103) — 목록(평면)에서만 쓰인다. 켜짐이 기본이라 끌 때만 URL 에 closedLast=off 를 남긴다.
+  function setClosedLast(on: boolean) {
+    const next = { ...filters };
+    if (on) delete next.closedLastOff;
+    else next.closedLastOff = true;
+    writeFilters(next, view, groupParam);
+  }
+  // 쓸 수 있는 자리(그룹 없는 목록)에서만 토글을 만든다 — 소비처가 삼항식 없이 그대로 넘긴다. 필터·보기·그룹·정렬은 두고 이 설정만 바꾼다.
+  const closedLast: ClosedLastToggle | undefined =
+    view === 'list' && groupBy == null ? { on: !filters.closedLastOff, onChange: setClosedLast } : undefined;
 
   // 필터 지우기는 view·group·정렬(WP-1238)(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
   function reset() {
@@ -394,6 +406,7 @@ export function useIssueFilterControls(
     showSort,
     sort,
     setSort,
+    closedLast,
     conditionChips,
     removeCondition,
   };

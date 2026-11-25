@@ -212,6 +212,28 @@ describe('모바일 이슈 목록 — 툴바', () => {
     expect(screen.getByTestId('mobile-chip-sort')).toHaveTextContent(/^⇅ 정렬$/)
   })
 
+  // WP-2103 — 정렬 시트의 「끝난 이슈 아래로」 스위치. 그룹 없는 목록에서만 보이고, 끄면 closedLast=off 가 주소에 남는다.
+  test('정렬 시트 — 끝난 이슈 아래로 스위치로 끄고 켠다(그룹 없는 목록)', async () => {
+    const { user, location } = await open('group=none')
+    await user.click(screen.getByTestId('mobile-chip-sort'))
+    const sheet = await screen.findByTestId('mobile-sort-sheet')
+    const sw = within(sheet).getByTestId('mobile-sort-closed-last')
+    expect(sw).toHaveAttribute('role', 'switch')
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+    await user.click(sw)
+    await waitFor(() => expect(params(location).get('closedLast')).toBe('off'))
+    expect(within(sheet).getByTestId('mobile-sort-closed-last')).toHaveAttribute('aria-checked', 'false')
+    await user.click(within(sheet).getByTestId('mobile-sort-closed-last'))
+    await waitFor(() => expect(params(location).has('closedLast')).toBe(false))
+  })
+
+  test('정렬 시트 — 그룹을 묶은 목록에는 끝난 이슈 아래로 스위치가 없다', async () => {
+    const { user } = await open('group=status')
+    await user.click(screen.getByTestId('mobile-chip-sort'))
+    const sheet = await screen.findByTestId('mobile-sort-sheet')
+    expect(within(sheet).queryByTestId('mobile-sort-closed-last')).not.toBeInTheDocument()
+  })
+
   // WP-1020 — 툴바의 「필터 N」 칩 대신 두 번째 줄의 빠른 필터 칩. 칩(또는 「더 보기」) → 시트에서 체크하면 바로 반영되고,
   // 「완료 · 결과 보기」로 닫으면 걸린 칩이 맨 앞에 파랗게 요약된다. 「필터 지우기」로 다 푼다.
   test('빠른 필터 칩 줄 — 더 보기 › 상태 범주에서 진행 중 → 즉시 status 쿼리, 걸린 칩이 맨 앞, 필터 지우기로 지운다', async () => {

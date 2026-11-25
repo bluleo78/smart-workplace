@@ -41,6 +41,12 @@ export function sortOf(f: Pick<IssueFilters, 'sort' | 'direction'>): IssueSortVa
   return f.sort && f.direction ? { key: f.sort, direction: f.direction } : null;
 }
 
+/** 「끝난 이슈 아래로」(WP-2103) 토글 — 쓸 수 있는 자리(그룹 없는 목록)에서만 만들어 정렬 메뉴·시트에 넘긴다. 없으면 항목을 숨긴다. */
+export interface ClosedLastToggle {
+  on: boolean;
+  onChange: (on: boolean) => void;
+}
+
 /** 필터에 정렬을 입힌다 — null(또는 기본과 같은 정렬)이면 정렬 필드를 지워 기본 정렬로(키를 아예 보내지 않는다). */
 export function applySort(f: IssueFilters, s: IssueSortValue | null): IssueFilters {
   const base = withoutSort(f);

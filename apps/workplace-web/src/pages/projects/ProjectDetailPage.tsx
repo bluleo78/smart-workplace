@@ -23,7 +23,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
 import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
-import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
+import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope, withListOrder } from '../../lib/issueFilters';
 import { canCreateIssueIn, canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { canEditStatuses } from '../../lib/projectStatuses';
 import type { ProjectResponse } from '../../types/project';
@@ -142,7 +142,9 @@ function ProjectIssuesSection({
   // 이 쿼리가 상태 목록보다 먼저 올 수 있으므로(게이트 위 발사), 모르는 statusId 판정은 쿼리 안의
   // refreshStatusesOnUnknown(캐시가 비면 건너뜀)과 그 뒤 useProjectStatuses 의 도착 시 재검사가 맡는다 —
   // 「목록이 먼저 온 뒤 상태 목록이 올 때 모르는 상태를 다시 받는다」를 페이지 테스트로 고정해 뒀다.
-  useIssueSearchKeepingPrevious(projectKey, withDefaultIssueScope(filters), undefined, showsFlatList);
+  // 목록 요청용 필터 — filters·groupBy 가 바뀔 때만 새 객체(매 렌더 새 객체면 쿼리 키 계산이 매번 다시 돈다).
+  const listFilters = useMemo(() => withListOrder(withDefaultIssueScope(filters), toClientGroupBy(groupBy)), [filters, groupBy]);
+  useIssueSearchKeepingPrevious(projectKey, listFilters, undefined, showsFlatList);
   // 목록 선택 열(WP-270) — URL cols → 개인 저장값 → 기본, 완료일 기간 필터가 걸리면 완료일 열 자동 추가.
   // 필터 막대의 열 메뉴도 같은 훅을 부르며, URL·저장값을 공유 구독해 두 곳이 같은 열을 본다.
   const { columns: listColumns } = useIssueListColumns(projectKey, filters.closedIn != null);

@@ -191,6 +191,11 @@ describe('정렬(sort·direction)', () => {
     expect(savedViewShowsDisplayChoice('group=none')).toBe(false);
   });
 
+  it('closedLast=off 만 담은 저장 뷰도 정렬처럼 보기 선택을 담은 뷰로 본다', () => {
+    // 끝난 이슈 아래로를 끈 선택(closedLastOff)은 정렬과 같은 표시 옵션 — 주소로 열어도 그 뷰 칩이 켜져야 한다.
+    expect(savedViewShowsDisplayChoice('group=none&closedLast=off')).toBe(true);
+  });
+
   it('저장 뷰 비교는 정렬 차이를 본다(그룹과 같다)', () => {
     expect(queriesEqualIgnoringView('sort=dueDate&direction=asc', 'sort=dueDate&direction=desc')).toBe(false);
     expect(queriesEqualIgnoringView('direction=asc&sort=dueDate', 'sort=dueDate&direction=asc')).toBe(true);

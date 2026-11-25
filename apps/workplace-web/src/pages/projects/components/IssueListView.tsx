@@ -25,7 +25,7 @@ import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { useScrollTopWhenSettled } from '../../../hooks/useScrollTopWhenSettled';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { issueEpicOf } from '../../../lib/epicGroup';
-import { filterOnlyKey, filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import { filterOnlyKey, filtersToParams, withDefaultIssueScope, withListOrder } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
 import { DEFAULT_COLUMNS, type IssueListColumnKey } from '../../../lib/issueListColumns';
 import { sortOf } from '../../../lib/issueSort';
@@ -81,7 +81,7 @@ export function IssueListView({
   const columnDefs = useColumnDefs(projectKey, columns);
   // 표 최소 폭 — 기본 밖의 열을 켰을 때만(없으면 null, 제목이 남은 폭에 맞춰 줄어든다).
   const minWidthRem = issueListMinWidthRem(columnDefs.defs);
-  const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
+  const scopedFilters = useMemo(() => withListOrder(withDefaultIssueScope(filters), groupBy), [filters, groupBy]);
   // 열 머리 정렬(WP-1238) — 지금 정렬은 필터(URL sort·direction)에서, 바꾸기는 URL 로. 서버가 정렬한 순서를 그대로 그린다(그룹 안에서도).
   const setSort = useSetIssueSort();
   const { sort: sortKey, direction: sortDirection } = filters;

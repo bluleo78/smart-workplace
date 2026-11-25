@@ -87,11 +87,36 @@ export function withoutSort(f: IssueFilters): IssueFilters {
 }
 
 /**
+ * 보기 순서 설정(정렬 + 「끝난 이슈 아래로」 끔·주입값)을 뺀 필터 — filterOnlyKey 용.
+ * withoutSort 는 일부러 바꾸지 않는다: applySort 가 정렬만 갈아끼울 때 끔 설정을 지켜야 한다.
+ */
+export function withoutViewOrder(f: IssueFilters): IssueFilters {
+  const base = withoutSort(f);
+  if (base.closedLastOff === undefined && base.closedLast === undefined) return base;
+  // 구조 분해로 두 필드를 한 번에 뺀다(쓰지 않는 값은 _ 접두).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 뺄 값을 버리려는 구조 분해
+  const { closedLastOff: _off, closedLast: _on, ...rest } = base;
+  return rest;
+}
+
+/**
+ * 목록 요청용 필터 — 그룹이 없고(평면 목록) 「끝난 이슈 아래로」가 켜져 있을 때만 closedLast 를 주입한다.
+ * 그룹 목록은 구간 안 순서가 그룹 기준이라 적용하지 않고, 끔 설정이면 서버 기본 순서 그대로 보낸다. URL 에는 싣지 않는다(API 전용).
+ */
+export function withListOrder(f: IssueFilters, groupBy: string | null): IssueFilters {
+  if (groupBy == null && !f.closedLastOff) return { ...f, closedLast: true };
+  if (f.closedLast === undefined) return f;
+  const rest = { ...f };
+  delete rest.closedLast;
+  return rest;
+}
+
+/**
  * 정렬을 뺀 필터만의 정규형 문자열 — 「필터가 걸려 있나」(빈 문자열 = 없음)·일괄 선택 초기화 기준.
  * 정렬·보기·그룹은 필터가 아니라 보지 않는다(목록 빈 상태·사이클 목록 선택·「전체」 판정이 같은 기준을 쓴다).
  */
 export function filterOnlyKey(f: IssueFilters): string {
-  return filtersToParams(withoutSort(f), 'list', null).toString();
+  return filtersToParams(withoutViewOrder(f), 'list', null).toString();
 }
 
 /**
@@ -104,6 +129,8 @@ export function carrySort(next: URLSearchParams, prev: URLSearchParams): URLSear
     next.set('sort', sort);
     next.set('direction', direction);
   }
+  // 「끝난 이슈 아래로」 끔(WP-2103)도 필터가 아니라 보기 옵션이라 같이 남긴다.
+  if (prev.get('closedLast') === 'off') next.set('closedLast', 'off');
   return next;
 }
 
@@ -181,6 +208,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     ...(params.get('stale') === 'true' ? { stale: true } : {}),
     ...(params.get('waiting') === 'true' ? { waiting: true } : {}),
     ...parseSort(params),
+    // 「끝난 이슈 아래로」 끔(WP-2103) — 'off' 만 통과. 기본(켜짐)은 필드를 두지 않는다.
+    ...(params.get('closedLast') === 'off' ? { closedLastOff: true as const } : {}),
   };
 }
 
@@ -315,6 +344,8 @@ export function filtersToParams(
     p.set('sort', f.sort);
     p.set('direction', f.direction);
   }
+  // 「끝난 이슈 아래로」 끔(WP-2103) — 꺼진 때만 명시(기본 켜짐은 빈 정규형). closedLast(API 주입값)는 URL 에 싣지 않는다.
+  if (f.closedLastOff) p.set('closedLast', 'off');
   return p;
 }
 
