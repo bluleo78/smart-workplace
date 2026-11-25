@@ -2,10 +2,13 @@
  * 워크플로우 초안 YAML 을 그래프로 읽고, 그래프 편집을 YAML 에 되쓰는 순수 함수 모음.
  *
  * 왜 yaml 의 Document API 인가: 원본이 YAML 문서라 주석·키 순서·흐름 스타일을 지켜야 한다.
- * 편집은 모두 parseDocument → 해당 노드만 고침 → toString 이고, 고치지 않은 부분은 글자 그대로 남는다.
+ * 편집은 모두 parseDocument(전·후 두 번) → 해당 노드만 고침 → mergeEditedSource 원문 병합 →
+ * 병합 불가면 정규화 dump 로 대체 이고, 고치지 않은 부분은 글자 그대로 남는다(WP-2040).
  * 파싱 오류가 있는 문서는 편집 함수가 받은 문자열을 그대로 돌려준다(편집기가 망가진 글을 덮지 않게).
  */
 import { Document, isMap, isScalar, isSeq, type Pair, parseDocument, Scalar, YAMLMap, type YAMLSeq } from 'yaml'
+
+import { mergeEditedSource, pairKeyOf as pairKey, type RenameHint } from './sourcePreserve'
 
 export type GraphNodeType = 'start' | 'agent_task' | 'human_task' | 'decision' | 'end' | string
 
@@ -82,24 +85,35 @@ function dump(doc: Document): string {
 }
 
 /**
- * 편집 함수의 공통 틀 — parseDocument → 파싱 오류면 입력 그대로 → fn 이 고침 → dump.
- * fn 이 false 를 돌려주면(고칠 수 없는 모양) 입력을 그대로 돌려준다.
+ * 편집 함수의 공통 본체 — parseDocument → 파싱 오류면 null → fn 이 고침 → 원문 병합.
+ * fn 이 false 를 돌려주면(고칠 수 없는 모양)도 null — 거절과 파싱 오류는 호출자가 같은 값으로 받는다.
+ * 성공은 항상 문자열: mergeEditedSource 로 원문 위에 바뀐 자리만 교체해 손대지 않은 줄의 공백·주석을 지키고,
+ * 병합이 불안하면(null) 기존처럼 정규화 dump 로 대체한다 — 병합 실패는 null 로 새지 않는다(WP-2040).
+ * 두 번째 인자 hints 는 fn 이 한 패치에서 키 이름만 바뀐 항목(applyOutputs)을 남기는 자리다 — 병합 층이
+ * 그 항목을 원문 자리(index)에 그대로 두고 키 글자만 바꾸게 한다(WP-2040 최종 리뷰 finding 1).
+ * addNode·addAskPath 도 이 본체를 거쳐, 거절(null)만 골라 기존 실패 계약(`{ yaml, key: '' }` / `yaml`)으로 돌린다.
  */
-function editDoc(yaml: string, fn: (doc: Document) => boolean | void): string {
-  const doc = parseDocument(yaml)
-  if (doc.errors.length > 0 || fn(doc) === false) return yaml
-  return dump(doc)
+function applyEdit(yaml: string, fn: (doc: Document, hints: RenameHint[]) => boolean | void): string | null {
+  const before = parseDocument(yaml)
+  if (before.errors.length > 0) return null
+  const after = parseDocument(yaml)
+  const hints: RenameHint[] = []
+  if (fn(after, hints) === false) return null
+  return mergeEditedSource(yaml, before, after, hints) ?? dump(after)
+}
+
+/**
+ * 편집 함수의 공통 틀 — applyEdit 위에 다시 얹어 거절(null)이면 입력을 그대로 돌려준다
+ * (편집기가 망가진 글을 덮지 않게). 쓰는 쪽은 거절을 알 필요가 없을 때 쓴다.
+ */
+function editDoc(yaml: string, fn: (doc: Document, hints: RenameHint[]) => boolean | void): string {
+  return applyEdit(yaml, fn) ?? yaml
 }
 
 /** path 의 맵이 비어 있으면 칸째 지운다(빈 `layout: {}` 같은 찌꺼기를 남기지 않는다). */
 function deleteIfEmptyMap(doc: Document, path: string[]) {
   const m = doc.getIn(path, true)
   if (isMap(m) && m.items.length === 0) doc.deleteIn(path)
-}
-
-/** 맵 쌍의 키를 문자열로 읽는다. */
-function pairKey(pair: Pair): string {
-  return isScalar(pair.key) ? String(pair.key.value) : String(pair.key)
 }
 
 /**
@@ -299,21 +313,26 @@ const NEW_NODE: Record<NewNodeType, { prefix: string; name?: string }> = {
 
 /** 노드를 하나 더한다. at 이 있으면 layout 에 좌표도 쓴다. */
 export function addNode(yaml: string, type: NewNodeType, at?: { x: number; y: number }): { yaml: string; key: string } {
-  const doc = parseDocument(yaml)
-  if (doc.errors.length > 0) return { yaml, key: '' }
-  const nodes = mapAt(doc, ['nodes'])
-  if (!nodes) return { yaml, key: '' }
-  const keys = new Set(nodes.items.map(pairKey))
-  const spec = NEW_NODE[type]
-  // 시작 노드는 관례대로 'start' 를 먼저 쓰고, 이미 있으면 start_<n>
-  const key = type === 'start' && !keys.has('start') ? 'start' : freeKey(keys, spec.prefix)
-  if (at) {
-    const layout = mapAt(doc, ['layout'])
-    if (!layout) return { yaml, key: '' }
-    layout.set(key, flowMap(doc, { x: at.x, y: at.y }))
-  }
-  nodes.set(key, doc.createNode(spec.name ? { type, name: spec.name } : { type }))
-  return { yaml: dump(doc), key }
+  let key = ''
+  // 자리 검사·키 계산까지 편집 틀 안에서 한 번만 — 밖에서 미리 파싱해 두면 같은 검사를 두 번 하게 된다
+  const out = applyEdit(yaml, (d) => {
+    const nodes = mapAt(d, ['nodes'])
+    if (!nodes) return false
+    const spec = NEW_NODE[type]
+    const keys = new Set(nodes.items.map(pairKey))
+    // 시작 노드는 관례대로 'start' 를 먼저 쓰고, 이미 있으면 start_<n>
+    key = type === 'start' && !keys.has('start') ? 'start' : freeKey(keys, spec.prefix)
+    if (at) {
+      // 좌표를 쓸 자리가 맵이 아니면(사람이 쓴 값) 기존처럼 거절한다
+      const layout = mapAt(d, ['layout'])
+      if (!layout) return false
+      layout.set(key, flowMap(d, { x: at.x, y: at.y }))
+    }
+    nodes.set(key, d.createNode(spec.name ? { type, name: spec.name } : { type }))
+  })
+  // 거절(null)뿐 아니라 원문이 그대로 나온 무변경도 키를 쓰지 않는다 — 없는 키를 부르면 패널이 빈 노드를 그린다
+  if (out === null || out === yaml) return { yaml, key: '' }
+  return { yaml: out, key }
 }
 
 /** 결과를 to 로 잇는다. 이미 있는 결과면 to 만 바꿔 assignTo 등은 둔다. */
@@ -341,38 +360,39 @@ export function nextOutcomeKey(yaml: string, from: string): string {
 
 /** 질문 경로 추가 — 사람이 답하는 human_task 와 ask 결과·returnTo 를 펼친 형태로 만든다. */
 export function addAskPath(yaml: string, nodeKey: string): string {
-  const doc = parseDocument(yaml)
-  if (doc.errors.length > 0) return yaml
-  const nodes: Record<string, Json> = js(doc).nodes ?? {}
-  const node = nodes[nodeKey]
-  if (!isPlain(node)) return yaml
-  const human = Object.values(nodes).find((n) => isPlain(n) && n.type === 'human_task' && str(n.role))
-  // ask 줄임 표기에 역할이 적혀 있으면 사람이 정한 그 역할이 먼저다
-  const role = (isPlain(node.ask) ? str(node.ask.role) : undefined) ?? (human ? str(human.role) : undefined) ?? str(node.role)
-  let newKey = `${nodeKey}_ask`
-  for (let i = 2; newKey in nodes; i++) newKey = `${nodeKey}_ask_${i}`
-
-  const nodeMap = mapAt(doc, ['nodes', nodeKey])
-  const outcomes = mapAt(doc, ['nodes', nodeKey, 'outcomes'])
-  if (!nodeMap || !outcomes) return yaml
-  doc.setIn(
-    ['nodes', newKey],
-    doc.createNode({
-      type: 'human_task',
-      name: `${str(node.name) ?? nodeKey} 질문 답변`,
-      ...(role ? { role } : {}),
-      returnTo: nodeKey,
-      outcomes: { answered: { to: nodeKey, assignTo: 'keep', requireComment: true } },
-    }),
-  )
-  outcomes.set('ask', flowMap(doc, { to: newKey, ...(role ? { assignTo: role } : {}), requireComment: true }))
-  nodeMap.delete('ask')
-  const layout = doc.getIn(['layout'], true)
-  const pos = js(doc).layout?.[nodeKey]
-  if (isMap(layout) && isPlain(pos) && typeof pos.x === 'number' && typeof pos.y === 'number') {
-    layout.set(newKey, flowMap(doc, { x: pos.x, y: pos.y + 140 }))
-  }
-  return dump(doc)
+  // 역할·새 키를 읽는 단계도 편집 틀 안에서 — 밖에서 미리 파싱하면 같은 문서를 두 번 읽는다.
+  // 거절(노드 없음·맵이 아닌 자리)·파싱 오류는 null 이라 입력을 그대로 둔다.
+  const out = applyEdit(yaml, (d) => {
+    const nodes: Record<string, Json> = js(d).nodes ?? {}
+    const node = nodes[nodeKey]
+    if (!isPlain(node)) return false
+    const nodeMap = mapAt(d, ['nodes', nodeKey])
+    const outcomes = mapAt(d, ['nodes', nodeKey, 'outcomes'])
+    if (!nodeMap || !outcomes) return false
+    const human = Object.values(nodes).find((n) => isPlain(n) && n.type === 'human_task' && str(n.role))
+    // ask 줄임 표기에 역할이 적혀 있으면 사람이 정한 그 역할이 먼저다
+    const role = (isPlain(node.ask) ? str(node.ask.role) : undefined) ?? (human ? str(human.role) : undefined) ?? str(node.role)
+    let newKey = `${nodeKey}_ask`
+    for (let i = 2; newKey in nodes; i++) newKey = `${nodeKey}_ask_${i}`
+    d.setIn(
+      ['nodes', newKey],
+      d.createNode({
+        type: 'human_task',
+        name: `${str(node.name) ?? nodeKey} 질문 답변`,
+        ...(role ? { role } : {}),
+        returnTo: nodeKey,
+        outcomes: { answered: { to: nodeKey, assignTo: 'keep', requireComment: true } },
+      }),
+    )
+    outcomes.set('ask', flowMap(d, { to: newKey, ...(role ? { assignTo: role } : {}), requireComment: true }))
+    nodeMap.delete('ask')
+    const layout = d.getIn(['layout'], true)
+    const pos = js(d).layout?.[nodeKey]
+    if (isMap(layout) && isPlain(pos) && typeof pos.x === 'number' && typeof pos.y === 'number') {
+      layout.set(newKey, flowMap(d, { x: pos.x, y: pos.y + 140 }))
+    }
+  })
+  return out ?? yaml
 }
 
 /** layout 의 좌표만 바꾼다. */
@@ -392,11 +412,11 @@ function setOrDelete(doc: Document, path: string[], value: unknown, empty: boole
 
 /** 노드의 칸을 patch 로 고친다. null·빈 배열은 그 칸을 지운다. 손대지 않은 칸·노드는 그대로. */
 export function updateNode(yaml: string, key: string, patch: NodePatch): string {
-  return editDoc(yaml, (doc) => applyPatch(doc, key, patch))
+  return editDoc(yaml, (doc, hints) => applyPatch(doc, key, patch, hints))
 }
 
-/** updateNode 의 본체 — 문서를 제자리에서 고치고, 고칠 수 없는 모양이면 false. */
-function applyPatch(doc: Document, key: string, patch: NodePatch): boolean {
+/** updateNode 의 본체 — 문서를 제자리에서 고치고, 고칠 수 없는 모양이면 false. hints 는 이름 바뀜을 병합 층에 넘긴다. */
+function applyPatch(doc: Document, key: string, patch: NodePatch, hints: RenameHint[]): boolean {
   if (!doc.hasIn(['nodes', key])) return false
   // 노드 자리가 맵이 아니면(목록·문자열) 고치지 않는다 — null 이면 빈 맵으로 채운다
   if (!mapAt(doc, ['nodes', key])) return false
@@ -414,7 +434,7 @@ function applyPatch(doc: Document, key: string, patch: NodePatch): boolean {
     if (v !== undefined) setOrDelete(doc, p(f), v, v.length === 0, () => flowSeq(doc, v))
   }
   if (patch.maxVisits !== undefined) setOrDelete(doc, p('maxVisits'), patch.maxVisits, patch.maxVisits === null)
-  if (patch.outputs !== undefined && !applyOutputs(doc, key, patch.outputs)) return false
+  if (patch.outputs !== undefined && !applyOutputs(doc, key, patch.outputs, hints)) return false
   if (patch.outcomes !== undefined && !applyOutcomes(doc, key, patch.outcomes)) return false
   return true
 }
@@ -428,9 +448,11 @@ function flowSeq(doc: Document, items: string[]) {
 /**
  * outputs 를 제자리 갱신 — applyOutcomes 와 같은 원칙으로 있던 값의 쌍(과 그 주석)을 그대로 쓴다.
  * 패치 순서를 따르고, 같은 자리의 값이 패치에 없는 키면 이름이 바뀐 것으로 보고 키만 고친다(자리·주석 유지).
+ * 이름이 바뀐 자리는 hints 로 병합 층에 남긴다 — 그래야 원문 병합이 그 자리를 index 로 대응해
+ * 키 글자만 바꿔 쓰고(정렬 공백·주석 유지), 전문 정규화 dump 로 떨어지지 않는다(WP-2040 최종 리뷰 finding 1).
  * 맵이 아닌 outputs 면 false.
  */
-function applyOutputs(doc: Document, key: string, outputs: NodeDetail['outputs']): boolean {
+function applyOutputs(doc: Document, key: string, outputs: NodeDetail['outputs'], hints: RenameHint[]): boolean {
   const path = ['nodes', key, 'outputs']
   const existing = doc.getIn(path, true)
   const oldKeys = isMap(existing) ? (existing.items as Pair[]).map(pairKey) : []
@@ -449,8 +471,11 @@ function applyOutputs(doc: Document, key: string, outputs: NodeDetail['outputs']
     let pair = old.find((x) => pairKey(x) === o.key)
     const renamed = old[i]
     if (!pair && renamed && !wanted.has(pairKey(renamed))) {
+      const from = pairKey(renamed)
       pair = renamed
-      renames.set(pairKey(renamed), o.key)
+      renames.set(from, o.key)
+      // 병합 층에 자리 대응 힌트를 남긴다 — i 는 after(outputs 패치 순서) 자리라 emitMap 이 같은 자리로 찾는다
+      hints.push({ path, index: i, from, to: o.key })
       if (isScalar(pair.key)) pair.key.value = o.key
       else pair.key = doc.createNode(o.key)
     }
@@ -599,20 +624,27 @@ function removeFromDoc(doc: Document, key: string) {
     if (n.default === key || (isPlain(n.default) && n.default.to === key)) doc.deleteIn(['nodes', nk, 'default'])
     pruneList(doc, ['nodes', nk, 'conditions'], key, true)
   }
-  pruneList(doc, ['start'], key)
+  pruneList(doc, ['start'], key, false, true) // start 는 스키마 필수 키 — 비어도(`start: []`) 칸은 남긴다
   if (removeAsk && doc.hasIn(['nodes', askKey])) removeFromDoc(doc, askKey)
 }
 
 /** {when, to} 목록(YAMLSeq)에서 to 가 key 인 항목을 뒤에서부터 지운다. byContext 면 when.context 가 `<key>.` 로 시작하는 항목도 지운다. */
-function pruneList(doc: Document, path: string[], key: string, byContext = false) {
+function pruneList(doc: Document, path: string[], key: string, byContext = false, keepEmpty = false) {
   const seq = doc.getIn(path, true)
   if (!isSeq(seq)) return
+  const before = seq.items.length
   for (let i = seq.items.length - 1; i >= 0; i--) {
     const item = seq.items[i]
     if (!isMap(item)) continue
     const ctx = byContext ? (item.getIn(['when', 'context']) as unknown) : undefined
     if (item.get('to') === key || (typeof ctx === 'string' && ctx.startsWith(`${key}.`))) seq.delete(i)
   }
+  // 비게 된 칸은 칸째 지운다 — 조건(conditions) 칸도 비면 지우는 것과 같은 규칙(분기 조건이
+  // 없다는 것은 애초에 없음과 같은 뜻이라 값이 아니다). 다만 keepEmpty(스키마 필수 키 start)는
+  // `start: []` 로 남긴다 — 키를 통째로 지우면 필수 키가 없어 발행 검증이 거부되고(WP-2040 재반려
+  // finding 3), 원문 병합 층이 빈 목록을 `[]` 한 줄로 남겨 그 자리의 정렬·줄 끝 주석을 지킨다.
+  // 원래부터 비어 있던 목록(before === 0)은 사람이 쓴 자리라 건드리지 않는다.
+  if (before > 0 && seq.items.length === 0 && !keepEmpty) doc.deleteIn(path)
 }
 
 /**
