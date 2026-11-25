@@ -44,6 +44,9 @@ export function IssueSortMenu({
   closedLast?: ClosedLastToggle;
 }) {
   const { keys, directions } = sortMenuModel(sort);
+  // 「끝난 이슈 아래로」를 끈 것도 기본 순서가 아니다(WP-2103 리뷰 후속) — 칩 켜짐 모양·문구·「기본으로」 활성에 함께 반영한다.
+  const closedMixed = closedLast?.on === false;
+  const custom = sort != null || closedMixed;
   // 한 묶음(기준 또는 방향)의 라디오 — 골라도 메뉴를 닫지 않는다(preventDefault): 기준을 고르고 이어서 방향을 바꾸며 뒤의 목록을 볼 수 있게(열 메뉴와 같다).
   // 기본 상태의 체크는 실제 순서인 수정일·내림차순이고, 그 조합을 다시 골라도 기본 그대로다(sortMenuModel).
   const radios = <T extends string>(options: SortMenuOption<T>[], testIdPrefix: string, hint?: (v: T) => string | null) => (
@@ -67,15 +70,15 @@ export function IssueSortMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        {/* 기본일 땐 「⇅ 정렬」만 보이는 수수한 칩, 고르면 기준·방향을 보이고 켜짐(primary) 표시 — 지금 순서가 기본이 아님을 알린다. */}
+        {/* 기본일 땐 「⇅ 정렬」만 보이는 수수한 칩, 고르거나 끝난 이슈를 섞으면 켜짐(primary) 표시 — 지금 순서가 기본이 아님을 알린다. */}
         <Button
           variant="outline"
           size="sm"
           data-testid="issue-sort-chip"
-          aria-label={`정렬 기준 — ${sort ? `${ISSUE_SORT_LABEL[sort.key]} ${ISSUE_SORT_DIRECTION_LABEL[sort.direction]}` : '기본(수정일)'}`}
-          className={cn(sort ? TOGGLE_ON_CLASS : 'text-muted-foreground')}
+          aria-label={`정렬 기준 — ${sort ? `${ISSUE_SORT_LABEL[sort.key]} ${ISSUE_SORT_DIRECTION_LABEL[sort.direction]}` : '기본(수정일)'}${closedMixed ? ', 끝난 이슈 섞음' : ''}`}
+          className={cn(custom ? TOGGLE_ON_CLASS : 'text-muted-foreground')}
         >
-          <ArrowUpDown aria-hidden="true" /> {sortChipLabel(sort)}
+          <ArrowUpDown aria-hidden="true" /> {sortChipLabel(sort, closedMixed)}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48" data-testid="issue-sort-menu">
@@ -87,7 +90,7 @@ export function IssueSortMenu({
         {closedLast && (
           <>
             <DropdownMenuSeparator />
-            {/* 골라도 메뉴를 닫지 않는다 — 정렬 항목과 같다. 「기본으로」는 정렬만 되돌리고 이 설정은 건드리지 않는다. */}
+            {/* 골라도 메뉴를 닫지 않는다 — 정렬 항목과 같다. 「기본으로」는 정렬과 이 설정을 함께 되돌린다. */}
             <DropdownMenuCheckboxItem
               checked={closedLast.on}
               data-testid="issue-sort-closed-last"
@@ -101,7 +104,11 @@ export function IssueSortMenu({
           </>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem data-testid="issue-sort-reset" disabled={!sort} onSelect={() => onChange(null)}>
+        <DropdownMenuItem
+          data-testid="issue-sort-reset"
+          disabled={!custom}
+          onSelect={() => (closedLast ? closedLast.resetOrder() : onChange(null))}
+        >
           기본으로
         </DropdownMenuItem>
       </DropdownMenuContent>

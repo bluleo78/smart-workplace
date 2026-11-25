@@ -410,13 +410,41 @@ describe('끝난 이슈 아래로 (WP-2103)', () => {
     expect(withClosedLast(api)).toHaveLength(1)
   })
 
-  test('「기본으로」는 정렬만 되돌리고 끝난 이슈 아래로 설정은 건드리지 않는다', async () => {
+  test('「기본으로」는 정렬과 끝난 이슈 아래로 끔을 함께 되돌린다', async () => {
     const { user, location } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?group=none&closedLast=off&sort=dueDate&direction=asc` })
     await screen.findByTestId('issue-row-7')
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent('정렬: 마감일 ↑ · 끝난 이슈 섞음')
     await user.click(screen.getByTestId('issue-sort-chip'))
     await user.click(await screen.findByTestId('issue-sort-reset'))
     await waitFor(() => expect(location()).not.toMatch(/sort=/))
-    expect(location()).toMatch(/closedLast=off/)
+    expect(location()).not.toMatch(/closedLast/)
+    expect(screen.getByTestId('issue-sort-chip')).toHaveTextContent(/^정렬$/)
+  })
+
+  // WP-2103 리뷰 후속 — 끈 것만으로도 기본 순서가 아니다: 칩이 켜짐 모양·문구로 알리고 「기본으로」가 살아 있다.
+  test('정렬 없이 끄기만 해도 칩이 켜짐 모양과 「끝난 이슈 섞음」 문구를 보이고, 「기본으로」로 다시 켠다', async () => {
+    const { user, location } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?group=none&closedLast=off` })
+    await screen.findByTestId('issue-row-7')
+    const chip = screen.getByTestId('issue-sort-chip')
+    expect(chip).toHaveTextContent('정렬 · 끝난 이슈 섞음')
+    expect(chip).toHaveAccessibleName(/끝난 이슈 섞음/)
+    expect(chip).not.toHaveClass('text-muted-foreground')
+    await user.click(chip)
+    const reset = await screen.findByTestId('issue-sort-reset')
+    expect(reset).not.toHaveAttribute('data-disabled')
+    await user.click(reset)
+    await waitFor(() => expect(location()).not.toMatch(/closedLast/))
+    expect(screen.getByTestId('issue-sort-chip')).toHaveClass('text-muted-foreground')
+  })
+
+  // WP-2103 리뷰 후속 — 기본 그룹 판정(사이클 목록) 전에는 groupBy 가 아직 null 이라도 항목을 보이지 않는다(보였다 사라지는 깜빡임 방지).
+  test('사이클 목록을 받기 전(기본 그룹 판정 중)에는 메뉴에 끝난 이슈 아래로 항목이 없다', async () => {
+    const { user } = openList([createIssue({ number: 7 })], {
+      extra: [http.get(`${API}/projects/${KEY}/cycles`, () => new Promise<Response>(() => {}))],
+    })
+    await user.click(await screen.findByTestId('issue-sort-chip', {}, { timeout: 45_000 }))
+    await screen.findByTestId('issue-sort-menu')
+    expect(screen.queryByTestId('issue-sort-closed-last')).not.toBeInTheDocument()
   })
 
   test('그룹을 묶은 목록에서는 closedLast 를 보내지 않고 메뉴 항목도 없다', async () => {

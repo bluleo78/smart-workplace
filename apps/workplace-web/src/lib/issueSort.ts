@@ -45,6 +45,11 @@ export function sortOf(f: Pick<IssueFilters, 'sort' | 'direction'>): IssueSortVa
 export interface ClosedLastToggle {
   on: boolean;
   onChange: (on: boolean) => void;
+  /**
+   * 「기본으로」 — 정렬과 이 설정을 한 번에 기본(정렬 없음·켜짐)으로 되돌린다.
+   * 정렬 지우기와 켜기를 따로 쓰면 뒤의 쓰기가 앞서 읽은 필터로 정렬을 되살리므로 한 번의 URL 쓰기로 한다.
+   */
+  resetOrder: () => void;
 }
 
 /** 필터에 정렬을 입힌다 — null(또는 기본과 같은 정렬)이면 정렬 필드를 지워 기본 정렬로(키를 아예 보내지 않는다). */
@@ -96,10 +101,13 @@ export function cycleHeaderSort(current: IssueSortValue | null, key: IssueSortKe
   return current.direction === 'asc' ? normalizeSort({ key, direction: 'desc' }) : null;
 }
 
-/** 칩 문구 — 기본이면 「정렬」, 고르면 「정렬: 마감일 ↑」(↑ 오름차순 · ↓ 내림차순). */
-export function sortChipLabel(s: IssueSortValue | null): string {
-  if (!s) return '정렬';
-  return `정렬: ${ISSUE_SORT_LABEL[s.key]} ${s.direction === 'asc' ? '↑' : '↓'}`;
+/**
+ * 칩 문구 — 기본이면 「정렬」, 고르면 「정렬: 마감일 ↑」(↑ 오름차순 · ↓ 내림차순).
+ * 「끝난 이슈 아래로」를 껐으면(WP-2103 리뷰 후속) 기본 순서가 아니므로 「· 끝난 이슈 섞음」을 붙여 칩만 보고도 알게 한다.
+ */
+export function sortChipLabel(s: IssueSortValue | null, closedMixed = false): string {
+  const base = s ? `정렬: ${ISSUE_SORT_LABEL[s.key]} ${s.direction === 'asc' ? '↑' : '↓'}` : '정렬';
+  return closedMixed ? `${base} · 끝난 이슈 섞음` : base;
 }
 
 /**

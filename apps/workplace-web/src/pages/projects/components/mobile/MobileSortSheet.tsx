@@ -25,16 +25,19 @@ export function MobileSortChip({
   const [open, setOpen] = useState(false);
   // 항목·체크·고른 뒤 값은 데스크톱 메뉴와 같은 sortMenuModel — 기본 상태의 체크는 수정일·내림차순이다.
   const { keys, directions } = sortMenuModel(sort);
+  // 「끝난 이슈 아래로」를 끈 것도 기본 순서가 아니다(WP-2103 리뷰 후속) — 데스크톱 메뉴와 같게 칩·「기본으로」에 반영한다.
+  const closedMixed = closedLast?.on === false;
+  const custom = sort != null || closedMixed;
   return (
     <>
-      {/* 고른 정렬이 있으면 활성 칩(primary 틴트) — 그룹 칩과 같은 줄에서 「기본 순서가 아님」을 알린다. */}
+      {/* 고른 정렬이 있거나 끝난 이슈를 섞으면 활성 칩(primary 틴트) — 그룹 칩과 같은 줄에서 「기본 순서가 아님」을 알린다. */}
       <button
         type="button"
-        className={cn(MOBILE_CHIP, sort && MOBILE_CHIP_ACTIVE)}
+        className={cn(MOBILE_CHIP, custom && MOBILE_CHIP_ACTIVE)}
         onClick={() => setOpen(true)}
         data-testid="mobile-chip-sort"
       >
-        ⇅ {sortChipLabel(sort)}
+        ⇅ {sortChipLabel(sort, closedMixed)}
       </button>
       <MobileSheetShell
         open={open}
@@ -45,8 +48,8 @@ export function MobileSortChip({
         headerAction={
           <button
             type="button"
-            disabled={!sort}
-            onClick={() => onChange(null)}
+            disabled={!custom}
+            onClick={() => (closedLast ? closedLast.resetOrder() : onChange(null))}
             data-testid="mobile-sort-reset"
             className="min-h-11 px-2 text-sm text-primary disabled:text-muted-foreground"
           >
@@ -87,7 +90,7 @@ export function MobileSortChip({
             </button>
           ))}
         </div>
-        {/* 끝난 이슈 아래로(WP-2103) — 스위치 한 줄. 「기본으로」는 이 설정을 건드리지 않는다. */}
+        {/* 끝난 이슈 아래로(WP-2103) — 스위치 한 줄. 「기본으로」는 정렬과 이 설정을 함께 되돌린다. */}
         {closedLast && (
           // 행 전체가 label 이라 글자를 눌러도 스위치가 토글된다(MobileViewSheet 의 「완료 모두 보기」와 같은 마크업).
           <label className={cn(MOBILE_SHEET_ROW, 'border-t')}>
