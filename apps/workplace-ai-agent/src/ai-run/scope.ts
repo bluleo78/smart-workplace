@@ -311,8 +311,11 @@ export function swallowRecording(label: string, fn: () => void): void {
   }
 }
 
-/** 현재 범위에서 call 이 낸 러너 실패를 용서한다(call 없으면 마지막 실패) — 재시도 회복 경로용(WP-1828, WP-2122). */
-export function forgiveScopeRunnerFailure(call?: object): void {
+/**
+ * 현재 범위에서 call 이 낸 러너 실패를 용서한다 — 재시도·마무리 회복 경로용(WP-1828, WP-2122).
+ * call 은 필수다(WP-2126): 인자 없이 「마지막 실패」를 지우면 겹쳐 돈 다른 러너의 한도 실패를 지우는 결함이 두 번(WP-2122·WP-2126) 났다.
+ */
+export function forgiveScopeRunnerFailure(call: object): void {
   swallowRecording('러너 실패 용서', () => currentAiRunScope()?.forgiveRunnerFailure(call));
 }
 

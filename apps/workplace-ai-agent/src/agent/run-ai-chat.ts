@@ -440,7 +440,9 @@ export async function runAiChatStream(
   if (limit && subagentTexts.length === 0 && !signal.aborted && finalizeTimeoutMs >= FINALIZE_MIN_MS) {
     onProgress?.(FINALIZE_PROGRESS_LABEL);
     // 한도 도달로 쌓인 러너 실패는 마무리 답이 나오면 용서한다 — 마무리 러너가 실패하면 새 실패로 기록된다(WP-1828).
-    forgiveScopeRunnerFailure();
+    // 마지막 실패가 아니라 한도로 끝난 그 호출(effort 재시도가 있었으면 재시도 input)의 실패만 지워,
+    // 겹쳐 돈 다른 러너의 한도 실패는 남긴다(WP-2126, WP-2122 와 같은 규칙).
+    forgiveScopeRunnerFailure(handle.input);
     const fin = await finalizeAfterLimit({
       runner,
       credential,

@@ -16,6 +16,11 @@ import { shouldRetryWithoutEffort, withoutEffort } from './single-shot.js';
 /** 사용자에게 보이는(또는 부작용이 생긴) 이벤트 — 이것이 나온 뒤에는 다시 돌지 않는다. */
 const isVisible = (e: RunnerEvent) => e.type === 'text_delta' || e.type === 'tool_use' || e.type === 'tool_done';
 
+/** WP-2126: runner.stream 핸들 + 마지막으로 돈 input(재시도 전 원본, 재시도 뒤 effort 뺀 복사본). */
+export interface EffortFallbackHandle extends RunnerStreamHandle {
+  readonly input: RunnerInput;
+}
+
 export interface EffortFallbackOptions {
   /** 로그 영역(예: 'ai-chat', 'wiki-compose'). */
   logArea: string;
@@ -31,11 +36,14 @@ export function streamWithEffortFallback(
   input: RunnerInput,
   onEvent: (e: RunnerEvent) => void,
   opts: EffortFallbackOptions,
-): RunnerStreamHandle {
+): EffortFallbackHandle {
   const now = opts.now ?? Date.now;
   const startedAt = now();
   let killed = false;
   let current: RunnerStreamHandle;
+  // WP-2126: 지금 도는 input — 재시도 전에는 받은 input, 재시도 뒤에는 runner.stream 에 넘긴 withoutEffort 복사본.
+  // 한도 도달 마무리가 그 호출의 실패만 용서하려고 호출자가 마지막으로 돈 input 을 알 수 있게 한다.
+  let currentInput = input;
 
   // 첫 실행 — 보이는 이벤트가 나올 때까지 모은다.
   let buffering = true;
@@ -75,12 +83,16 @@ export function streamWithEffortFallback(
       // 재시도가 회복하면 처리 전체는 성공 — 첫 시도의 러너 실패 표시를 지운다(WP-1828).
       // WP-2122: 마지막 실패가 아니라 실패한 첫 시도(원래 input — 재시도는 withoutEffort 복사본이라 다른 객체)의 실패만 지워, 겹쳐 돈 다른 호출의 한도 실패는 남긴다.
       forgiveScopeRunnerFailure(input);
-      current = runner.stream(withoutEffort(input, remainingMs), onEvent);
+      currentInput = withoutEffort(input, remainingMs);
+      current = runner.stream(currentInput, onEvent);
       await current.done;
     }
   })();
 
   return {
+    get input() {
+      return currentInput;
+    },
     done,
     kill: () => {
       killed = true;
