@@ -15,6 +15,10 @@ function _nameRequired() {
     <Popover open>
       {/* @ts-expect-error — 이름 없는 팝오버는 막는다(WP-2075) */}
       <PopoverContent>내용</PopoverContent>
+      {/* 긍정 사례 — @ts-expect-error 는 그 줄의 모든 오류를 덮으므로, 이름을 준 호출은 따로 컴파일돼야 함을 고정한다.
+          유니언이 잘못 좁혀져 aria-label·aria-labelledby 만 준 호출까지 막히면 여기서 typecheck 가 실패한다. */}
+      <PopoverContent aria-label="이름">내용</PopoverContent>
+      <PopoverContent aria-labelledby="제목-id">내용</PopoverContent>
     </Popover>
   )
 }
