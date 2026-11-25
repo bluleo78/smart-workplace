@@ -334,6 +334,23 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
   })
 })
 
+// WP-2070 — sticky 일괄 작업 바 표지(data-sticky-bulk-bar). 슬롯의 scroll-padding(:has) 이 바 높이만큼 위 여백을 줘 Shift+Tab 초점이 바 뒤로 가려지지 않게 하는 근거다.
+// 기하는 E2E(@layout·@input)가 보고, 모바일은 뷰포트가 달라 IssueCycleGroupedList.stickyBar.mobile.test.tsx 에서 본다.
+describe('사이클 구간 sticky 바 표지 (WP-2070)', () => {
+  const marker = () => document.querySelector('[data-sticky-bulk-bar]')
+
+  test('sticky 바 표지는 데스크톱에서 선택이 있을 때만 달린다', async () => {
+    const { user } = await open(`/projects/${KEY}?group=cycle`)
+    expect(marker()).toBeNull()
+
+    await user.click(await within(section('cycle-1')).findByTestId('select-issue-11'))
+    await waitFor(() => expect(marker()).not.toBeNull())
+
+    await user.click(screen.getByTestId('bulk-clear'))
+    await waitFor(() => expect(marker()).toBeNull())
+  })
+})
+
 // WP-1238: 사이클 구간 목록(사이클이 있는 팀의 기본 목록)도 열 머리 정렬이 된다 — 위에 한 번 보이는 머리만 단추이고, 구간 쿼리마다 정렬이 실린다.
 describe('사이클 구간 목록 정렬 (WP-1238)', () => {
   test('「담당자」 머리를 누르면 모든 구간 요청에 sort=assignee&direction=asc 가 실리고, 단추는 보이는 머리 하나뿐이다', async () => {

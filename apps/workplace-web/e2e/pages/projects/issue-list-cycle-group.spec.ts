@@ -289,4 +289,71 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(section(page, 'cycle-1').getByTestId('issue-row-109')).toBeVisible();
     await expect(page.getByTestId('list-cycle-more-cycle-1')).toHaveCount(0);
   });
+  // WP-2070 — 사이클 그룹 목록에서 일괄 작업 바(sticky top-0)가 떠 있을 때 Shift+Tab 으로 위로 오르면 초점이 바 밑에 가려졌다.
+  // 슬롯의 scroll-padding-top(바 높이만큼)이 브라우저의 초점 자동 스크롤 여백이 되어 가림을 막는다 — 기하라 jsdom 으로 못 잰다.
+  test(
+    '키보드로 위로 이동해도 초점이 사이클 목록의 일괄 작업 바에 가려지지 않는다(WP-2070)',
+    { tag: ['@layout', '@input'] },
+    async ({ authenticatedPage: page }) => {
+      // 사이클 구간 35행(행마다 탭 정지 여럿)을 Shift+Tab 으로 오르며 매번 재므로 부하 속에서도 시간이 모자라지 않게 한도를 늘린다.
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await setup(page);
+      // 스프린트 12(cycle=1)만 35건으로 덮어쓴다 — 나중에 등록한 라우트가 먼저 적용된다. 다음 페이지는 없다.
+      const cycleIssues = Array.from({ length: 35 }, (_, i) =>
+        createIssue({ id: 100 + i, number: 100 + i, title: `키보드 이동 이슈 ${i}` }),
+      );
+      await page.route(
+        (url) => url.pathname === ISSUES_PATH && url.searchParams.get('cycle') === '1',
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse(cycleIssues, null)),
+          });
+        },
+      );
+      await page.goto(`/projects/${KEY}`);
+      const first = section(page, 'cycle-1').getByTestId('select-issue-100');
+      const last = section(page, 'cycle-1').getByTestId('select-issue-134');
+      await expect(last).toBeVisible();
+
+      // 열 머리는 sticky 가 아니라 따로 여백이 필요 없다 — 이 전제가 깨지면 여백 계산을 다시 해야 한다.
+      await expect(page.getByTestId('list-cycle-column-head').first()).toHaveCSS('position', 'static');
+
+      // 첫 행을 선택해 바를 띄운다(선택 뒤 바가 sticky 로 붙고 표지가 달린다).
+      await first.check();
+      await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 1개');
+      await expect(page.locator('[data-sticky-bulk-bar]')).toHaveCount(1);
+
+      await last.focus();
+      let steps = 0;
+      let reachedFirst = false;
+      const covered: string[] = [];
+      // 첫 행 체크박스에 닿을 때까지(행당 탭 정지 수가 늘어도 되게 넉넉한 안전 상한) 한 칸씩 올라가며 잰다.
+      for (let i = 0; i < 400 && !reachedFirst; i++) {
+        await page.keyboard.press('Shift+Tab');
+        const r = await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          const list = document.querySelector('[data-testid="issue-cycle-grouped-list"]');
+          const bar = document.querySelector('[data-sticky-bulk-bar]');
+          if (!el || !list || !bar || !list.contains(el) || bar.contains(el)) return null;
+          // 초점 링은 요소 위로 2px 그려진다 — 링까지 바 아래에 있어야 한다.
+          return {
+            covered: el.getBoundingClientRect().top - 2 < bar.getBoundingClientRect().bottom - 0.5,
+            first: el.getAttribute('data-testid') === 'select-issue-100',
+            name: el.getAttribute('aria-label') ?? el.getAttribute('data-testid') ?? el.textContent?.trim() ?? '',
+          };
+        });
+        if (!r) continue;
+        steps++;
+        if (r.covered) covered.push(r.name);
+        if (r.first) reachedFirst = true;
+      }
+      expect(steps, '목록 안에서 여러 칸을 올라갔다').toBeGreaterThan(10);
+      expect(reachedFirst, '첫 행 체크박스까지 올라갔다').toBe(true);
+      expect(covered, '위쪽이 일괄 작업 바에 덮인 초점 요소').toEqual([]);
+    },
+  );
 });

@@ -156,7 +156,12 @@ export function IssueCycleGroupedList({
           가로 스크롤한다. 기본 열 구성이면 null — 지금처럼 제목 칸이 줄어든다. */}
       <div style={isMobile || minWidthRem == null ? undefined : { minWidth: `calc(${minWidthRem}rem + 0.75rem + 2px)` }}>
       {/* 일괄 작업 바 — 데스크톱은 보이는 폭으로 위·왼쪽에 붙인다(바 자신의 sticky top 은 이 감싸개가 대신한다). */}
-      <div className={cn(!isMobile && 'sticky top-0 left-0 z-20 w-[100cqw]')}>
+      {/* data-sticky-bulk-bar — 데스크톱에서 선택이 있어 바가 sticky 로 떠 있을 때만 단다(WP-2070).
+          슬롯(ProjectDetailPage)이 :has 로 이 표지를 보고 scroll-padding-top 을 줘, Shift+Tab 으로 오르는 초점이 바 뒤로 가려지지 않게 한다. */}
+      <div
+        className={cn(!isMobile && 'sticky top-0 left-0 z-20 w-[100cqw]')}
+        data-sticky-bulk-bar={!isMobile && selected.size > 0 ? '' : undefined}
+      >
         <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
       </div>
       {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
