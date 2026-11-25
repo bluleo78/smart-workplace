@@ -1,4 +1,4 @@
-// 위젯 본문 렌더(WP-161 에서 Dashboard.tsx 로부터 분리) — 지연 로딩 Suspense + 시스템/카탈로그 분기.
+// 위젯 본문 렌더(WP-161 에서 Dashboard.tsx 로부터 분리) — 카탈로그 본문 지연 로딩(Suspense) + 시스템/카탈로그 분기, 시스템 본문 여덟 개는 registry 에 정적 import(WP-2076).
 import { createElement, Suspense } from 'react'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,7 +31,7 @@ function CatalogWidgetBody({
 }
 
 /**
- * 위젯 본문(지연 로딩 Suspense + 시스템/카탈로그 분기) — 데스크톱·모바일 카드(보기·편집)가 공통으로 쓴다.
+ * 위젯 본문(카탈로그 본문 지연 로딩 Suspense + 시스템/카탈로그 분기 — 시스템 본문 여덟 개는 registry 에 정적 import, WP-2076) — 데스크톱·모바일 카드(보기·편집)가 공통으로 쓴다.
  * frameHeadingLevel: 카탈로그 위젯 제목(WidgetFrame)의 헤딩 레벨.
  */
 export function EntryBody({

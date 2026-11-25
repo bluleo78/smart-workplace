@@ -1,10 +1,12 @@
 // 홈 대시보드 보기 모드 — 화면 컴포넌트 테스트(WP-971, WP-982).
 // 위젯 헤더·행 딥링크, 카탈로그 위젯 params → 헤더 URL 쿼리, 이슈 목록 위젯 쿼리 파라미터, 빈 상태, 알림 헤더·멘션 셀의 인박스 열기,
-// 합성(카운트 스트립·주의 필요) 집계·빈 상태·아이콘 색, 빠른 액션 링크, tall 클래스, 위젯 실패 격리, 항목 수 렌더는
-// 브라우저 없이 판정되므로 e2e/pages/home.spec.ts 에서 옮겼다. 홈 화면 배선(라우트 → 대시보드 → 위젯 API)은 그 spec 의 @wiring 이 지킨다.
+// 합성(카운트 스트립·주의 필요) 집계·빈 상태·아이콘 색, attention 스켈레톤·min-h 래퍼(WP-2076), 빠른 액션 링크, tall 클래스,
+// 위젯 실패 격리, 항목 수 렌더는 브라우저 없이 판정되므로 e2e/pages/home.spec.ts 에서 옮겼다.
+// 홈 화면 배선(라우트 → 대시보드 → 위젯 API)은 그 spec 의 @wiring 이 지킨다.
 // 대시보드 + 인박스 패널만 renderScreen 으로 띄운다(dashboardKit-b1).
 import { screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import type { RequestHandler } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { dashboardKeys } from '@/hooks/queries/dashboardKeys'
@@ -446,4 +448,66 @@ test.each([undefined, '내 일감'])('제목을 숨긴 카탈로그 위젯은 �
   const h = await within(c).findByRole('heading', { level: 2, name: '프로젝트' })
   expect(within(c).getAllByRole('heading')).toHaveLength(1)
   expect(within(c).getByTestId('home-widget')).toContainElement(h)
+})
+
+// ── WP-2076 — 「지금 신경 쓸 일」 영역 CLS: 로딩 스켈레톤 게이팅 + 모든 분기 공통 min-h 래퍼 ──────────
+// 데이터 도착 전후로 영역 높이가 바뀌면 아래 카드가 밀리며 CLS 가 난다. 로딩 중에는 실제와 같은 자리 수의
+// 스켈레톤을, 로딩·빈 상태·데이터·에러 어느 분기에서도 같은 최소 높이(min-h) 래퍼를 그린다.
+// jsdom 은 레이아웃을 재지 못하므로 높이 수치(CLS)는 단언하지 않고 스켈레톤 게이팅·래퍼 DOM 구조만 고정한다.
+
+/** 마감(due) 소스 응답을 늦춰 행을 아직 만들 수 없는 pending 상태를 만든다(WP-2076 — 스켈레톤 게이팅 확인용). */
+const slowDues = () =>
+  http.get('/api/v1/me/issues', async () => {
+    await delay(1500)
+    return HttpResponse.json(createIssueSearchResponse([createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2000-01-01' })]))
+  })
+
+test('합성 — 데이터가 오기 전에는 스켈레톤만, 빈 상태·포커스 카드는 없다 (WP-2076 · CLS)', async () => {
+  await renderDashboard(layout(['synthesis']), { widgets: false, handlers: [slowDues()] })
+  // 스켈레톤을 먼저 찾은 뒤 그 시점의 나머지 분기를 단언한다 — 응답 도착(1.5초) 전이라야 하는 검사.
+  expect(await screen.findByTestId('dashboard-attention-skeleton')).toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-attention-empty')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-attention-focus')).not.toBeInTheDocument()
+})
+
+test('합성 — 응답이 도착하면 스켈레톤이 실제 콘텐츠로 바뀌고 스켈레톤은 없어진다 (WP-2076 · CLS)', async () => {
+  await renderDashboard(layout(['synthesis']), { widgets: false, handlers: [slowDues()] })
+  expect(await screen.findByTestId('dashboard-attention-skeleton')).toBeInTheDocument()
+  // 지연 응답 도착 → 마감 지남 행(포커스 카드)으로 교체되고 스켈레톤은 사라진다.
+  expect(await screen.findByTestId('dashboard-attention-focus')).toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-attention-skeleton')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('dashboard-attention-empty')).not.toBeInTheDocument()
+})
+
+// 어느 분기에서도 최소 높이 래퍼가 있어야 아래 카드가 밀리지 않는다(WP-2076) — 로딩/빈 상태/데이터/에러 4종.
+// 분기별 핸들러를 한 맵으로 둔다 — 중첩 삼항 대신 분기가 늘어나도 한 자리에서 고친다.
+type AttentionBranch = '로딩' | '빈 상태' | '데이터' | '에러'
+const attentionBranchHandlers: Record<AttentionBranch, RequestHandler[]> = {
+  로딩: [slowDues()],
+  '빈 상태': [],
+  데이터: [myIssues([createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2000-01-01' })])],
+  에러: [http.get('/api/v1/me/issues', () => HttpResponse.json({ message: 'boom' }, { status: 500 }))],
+}
+test.each<AttentionBranch>(['로딩', '빈 상태', '데이터', '에러'])(
+  '합성 — %s 분기에서도 attention-body 래퍼가 배너까지 덮는 최소 높이를 갖는다 (WP-2076 · CLS)',
+  async (branch) => {
+    const handlers = attentionBranchHandlers[branch]
+    await renderDashboard(layout(['synthesis']), { widgets: false, handlers })
+    const shown: Record<string, string> = { 로딩: 'dashboard-attention-skeleton', '빈 상태': 'dashboard-attention-empty', 데이터: 'dashboard-attention-focus', 에러: 'dashboard-attention-error' }
+    expect(await screen.findByTestId(shown[branch])).toBeInTheDocument()
+    const wrapper = screen.getByTestId('dashboard-attention-body')
+    expect(wrapper.className).toContain('min-h-[240px]')
+  },
+)
+
+test('attention 스켈레톤은 로딩을 aria 로 알리고 자리 수는 한 상수에서 나온다 (WP-2076)', async () => {
+  await renderDashboard(layout(['synthesis']), { widgets: false, handlers: attentionBranchHandlers['로딩'] })
+  const skeleton = await screen.findByTestId('dashboard-attention-skeleton')
+  expect(skeleton).toHaveAttribute('aria-busy', 'true')
+  expect(skeleton).toHaveAccessibleName('지금 신경 쓸 일 불러오는 중')
+  // role="status" — role 없는 div 의 aria-label 은 AT 가 무시할 수 있어 라이브 리전임을 role 로 밝힌다(WP-2076 리뷰).
+  expect(skeleton).toHaveAttribute('role', 'status')
+  // 포커스 자리 1 + 행 자리 4 = ATTENTION_MAX_ROWS(5) — 상수가 바뀌면 이 자리 수도 함께 바뀐다.
+  expect(skeleton.querySelectorAll('[data-testid="dashboard-attention-skeleton-row"]')).toHaveLength(4)
+  expect(screen.getByTestId('dashboard-attention-body').className).toContain('min-h-[240px]')
 })
