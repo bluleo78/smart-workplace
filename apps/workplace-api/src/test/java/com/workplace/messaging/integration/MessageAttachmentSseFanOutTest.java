@@ -4,7 +4,7 @@ import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -21,6 +21,7 @@ import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -98,10 +99,14 @@ class MessageAttachmentSseFanOutTest extends ExternalClientMockedTestBase {
     messageService.create(uid, channelId, new CreateMessageRequest("첨부", null, List.of(fileId)));
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    // 다른 테스트의 늦은 AFTER_COMMIT 이벤트가 잡히지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2059).
     verify(registry, timeout(2000))
-        .fanOut(any(), eq("messaging.message.created"), payload.capture());
-
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.created"),
+            payload.capture());
     MessageResponse resp = (MessageResponse) payload.getValue();
+    assertThat(resp.channelId()).isEqualTo(channelId);
     assertThat(resp.attachments()).hasSize(1);
     assertThat(resp.attachments().get(0).originalName()).isEqualTo("fan.txt");
   }
@@ -129,9 +134,15 @@ class MessageAttachmentSseFanOutTest extends ExternalClientMockedTestBase {
     messageService.update(uid, msg.id(), new UpdateMessageRequest("첨부 하나", List.of(keep)));
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    // 수정 검증도 같은 방식으로 받는 사람을 이 테스트 유저로 좁힌다(WP-2059).
     verify(registry, timeout(2000))
-        .fanOut(any(), eq("messaging.message.updated"), payload.capture());
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.updated"),
+            payload.capture());
     Map<String, Object> p = (Map<String, Object>) payload.getValue();
+    // 잡은 이벤트가 이 테스트 채널의 메시지인지 확인
+    assertThat(p.get("channelId")).isEqualTo(channelId);
     assertThat((List<MessageAttachmentResponse>) p.get("attachments"))
         .extracting(MessageAttachmentResponse::fileId)
         .containsExactly(keep);

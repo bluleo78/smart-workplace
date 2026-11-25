@@ -5,7 +5,7 @@ import static com.workplace.jooq.Tables.MESSAGE_LINK_PREVIEW;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.timeout;
@@ -15,12 +15,14 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.LinkPreviewResponse;
+import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.FixtureHttpFetcherConfig;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -93,12 +95,29 @@ class LinkPreviewAsyncPipelineTest extends ExternalClientMockedTestBase {
             .id();
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    // 다른 테스트의 늦은 AFTER_COMMIT 이벤트가 잡히지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2059).
     verify(registry, timeout(5000))
-        .fanOut(anyCollection(), eq("messaging.message.link-previews"), payload.capture());
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.link-previews"),
+            payload.capture());
     // 한 스트림에서 created 가 미리보기보다 먼저 — 같은 커밋 뒤 콜백에서 created 를 보낸 다음에 가져오기를 제출한다.
+    ArgumentCaptor<Object> created = ArgumentCaptor.forClass(Object.class);
     InOrder order = inOrder(registry);
-    order.verify(registry).fanOut(anyCollection(), eq("messaging.message.created"), any());
-    order.verify(registry).fanOut(anyCollection(), eq("messaging.message.link-previews"), any());
+    order
+        .verify(registry)
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.created"),
+            created.capture());
+    order
+        .verify(registry)
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.link-previews"),
+            any());
+    // 잡은 created 이벤트가 이 테스트 채널의 메시지인지 확인
+    assertThat(((MessageResponse) created.getValue()).channelId()).isEqualTo(channelId);
 
     List<LinkPreviewResponse> expected =
         List.of(

@@ -1,7 +1,7 @@
 package com.workplace.chat.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -14,6 +14,7 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Collection;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -41,9 +42,14 @@ class ChatSseFanOutTest extends ExternalClientMockedTestBase {
 
     messageService.create(s.reporterId(), thread.threadId(), new CreateChatMessageRequest("hello"));
 
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    verify(registry, timeout(2000)).fanOut(ids.capture(), eq("chat.message.created"), any());
-    assertThat(ids.getValue()).contains(s.reporterId());
+    // 다른 테스트의 늦은 AFTER_COMMIT 이벤트가 이 검증에 잡히지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2059).
+    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    verify(registry, timeout(2000))
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(s.reporterId())),
+            eq("chat.message.created"),
+            payload.capture());
+    // 잡은 이벤트가 이 테스트 스레드의 메시지인지 확인(chat payload 는 threadId 를 싣는다)
+    assertThat(((Map<?, ?>) payload.getValue()).get("threadId")).isEqualTo(thread.threadId());
   }
 }
