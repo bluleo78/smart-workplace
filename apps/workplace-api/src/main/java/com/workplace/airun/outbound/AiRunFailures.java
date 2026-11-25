@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -69,40 +68,40 @@ public final class AiRunFailures {
     }
   }
 
-  /**
-   * 5xx 응답을 FAILED 로 기록한다. 사유(error_reason)에는 {@code http_<코드>} 표지를 남기고 상세(error_detail)는 비운다.
-   *
-   * <p>왜: 표지를 사유에 두면 사유 없는 FAILED 를 막고, 상세는 ai-agent 의 늦은 보고가 채울 수 있다. 표지 사유는 keep-first 의 예외로 그 뒤
-   * 온 실제 사유가 덮어쓴다 — 옛 구현은 사유를 비우고 상세에 {@code http_<코드>} 를 먼저 채워 ① ai-agent 가 보고한 실제 오류가 영구히 묻히고 ②
-   * 5xx 로 끝나 사유 없는 FAILED 가 남았다(WP-1827 규칙 위반, WP-1829 리뷰 반영).
-   */
-  private static void recordServerError(
-      AiRunRecorder r, AiRunHeader.Call call, int status, String body) {
-    recordFailure(r, call, serverErrorReason(status, body), null);
-  }
-
-  /** 응답이 5xx 면 {@link #recordServerError} 로 기록한다(본문 없이 — 사유는 http_코드). 4xx·200 은 기록하지 않는다. */
+  /** 응답이 5xx 면 본문 없이 기록한다(사유는 http_코드). 4xx·200 은 기록하지 않는다. */
   public static void recordIfServerError(AiRunRecorder r, AiRunHeader.Call call, int status) {
     recordIfServerError(r, call, status, null);
   }
 
-  /** 응답이 5xx 면 기록한다. 본문 JSON 의 reason 이 알려진 원인 코드면 그 소문자 코드를 사유로 쓴다(WP-2106). */
+  /**
+   * 응답이 5xx 면 FAILED 로 기록한다. 사유(error_reason)에는 {@link #serverErrorReason} 의 코드(본문 JSON 의 알려진
+   * reason 이면 그 소문자 코드, 아니면 {@code http_<코드>})를 남기고 상세(error_detail)는 비운다(WP-2106).
+   *
+   * <p>왜: 표지를 사유에 두면 사유 없는 FAILED 를 막고, 상세는 ai-agent 의 늦은 보고가 채울 수 있다. 표지·잠정 사유는 keep-first 의 예외로 그
+   * 뒤 온 실제 사유가 덮어쓴다(WP-1829 리뷰 반영).
+   */
   public static void recordIfServerError(
       AiRunRecorder r, AiRunHeader.Call call, int status, String body) {
     if (status >= 500) {
-      recordServerError(r, call, status, body);
+      recordFailure(r, call, serverErrorReason(status, body), null);
     }
   }
 
-  /** ai-agent 5xx 본문 {@code {"reason":"PROVIDER_LIMIT"}} 의 reason 으로 인정하는 원인 코드(대문자). */
-  private static final Set<String> KNOWN_REASONS =
-      Set.of(
-          "PROVIDER_LIMIT",
-          "PROVIDER_AUTH",
-          "PROVIDER_RATE",
-          "PROVIDER_OVERLOADED",
-          "PROVIDER_ERROR",
-          "RUNNER_UNAVAILABLE");
+  /**
+   * 5xx 의 잠정 사유 코드(소문자) — ai-agent 5xx 본문 {@code {"reason":"PROVIDER_LIMIT"}} 의 reason 으로 인정하는 원인
+   * 코드다. 이 값은 API 가 먼저 채운 잠정 값이라 ai-agent 가 같은 runId 로 보낸 더 정확한 사유가 덮을 수 있다(저장소 upsert 가 이 목록을 쓴다).
+   */
+  public static final List<String> PROVISIONAL_REASONS =
+      List.of(
+          "provider_limit",
+          "provider_auth",
+          "provider_rate",
+          "provider_overloaded",
+          "provider_error",
+          "runner_unavailable");
+
+  /** 사용 한도 초과 사유 코드 — 실패율에서 뺀다(AI 현황). */
+  public static final String LIMIT_REASON = "provider_limit";
 
   /**
    * 5xx 의 사유 코드. 본문 JSON 에 알려진 reason 이 있으면 소문자 코드(provider_limit 등), 없거나 본문이 JSON 이 아니면 {@code
@@ -115,8 +114,11 @@ public final class AiRunFailures {
     if (body != null && !body.isBlank()) {
       try {
         Object reason = JsonMappers.JACKSON2.readValue(body, Map.class).get("reason");
-        if (reason instanceof String s && KNOWN_REASONS.contains(s)) {
-          return s.toLowerCase(Locale.ROOT);
+        if (reason instanceof String s) {
+          String code = s.toLowerCase(Locale.ROOT);
+          if (PROVISIONAL_REASONS.contains(code)) {
+            return code;
+          }
         }
       } catch (RuntimeException e) {
         // JSON 이 아니거나 모양이 다르면 http_<코드> 로 둔다.

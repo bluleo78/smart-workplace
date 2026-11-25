@@ -9,6 +9,7 @@ import static org.jooq.impl.DSL.least;
 import static org.jooq.impl.DSL.val;
 
 import com.workplace.airun.dto.AiRunRecord;
+import com.workplace.airun.outbound.AiRunFailures;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Set;
@@ -74,20 +75,9 @@ public class AiRunRepository {
   private static Condition overwriteHttpMarkerReason() {
     Field<String> existing = AI_RUN.ERROR_REASON;
     Field<String> incoming = excluded(AI_RUN.ERROR_REASON);
-    // API 가 503 본문에서 얻은 provider_* 코드도 잠정 사유다 — ai-agent 가 같은 runId 로 보낸 더 정확한
-    // 사유(model_not_found·timeout 등)가
-    // 덮을 수 있어야 한다(WP-2106 리뷰 후속).
+    // API 가 503 본문에서 얻은 provider_* 코드도 잠정 사유다 — ai-agent 의 더 정확한 사유가 덮는다(WP-2106 리뷰 후속).
     Condition provisional =
-        existing
-            .like("http!_%", '!')
-            .or(
-                existing.in(
-                    "provider_limit",
-                    "provider_auth",
-                    "provider_rate",
-                    "provider_overloaded",
-                    "provider_error",
-                    "runner_unavailable"));
+        existing.like("http!_%", '!').or(existing.in(AiRunFailures.PROVISIONAL_REASONS));
     // 들어오는 사유가 같은 값이거나 http_ 표지면 덮지 않는다(표지가 더 정확한 사유를 지우지 않게).
     return provisional
         .and(incoming.isNotNull())

@@ -128,7 +128,7 @@ public class AiStatusOverviewService {
                     ? null
                     : new Slot(prevEnd.raw().slotUsed(), prevEnd.raw().slotLimit())),
             cur.limited(),
-            repo.limitedCredentials(from, now));
+            cur.limited() == 0 ? List.of() : repo.limitedCredentials(from, now));
 
     List<KindTotals> kindCur = repo.kindTotals(from, now);
     List<KindTotals> kindPrev = repo.kindTotals(prevFrom, from);

@@ -3,6 +3,7 @@ package com.workplace.airun.outbound;
 import com.workplace.airun.context.AiRunHeader;
 import com.workplace.airun.service.AiRunRecorder;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -55,9 +56,9 @@ public class AiRunClientInterceptor implements ClientHttpRequestInterceptor {
     }
     // 5xx 는 본문의 reason(사용 한도 초과 등)을 사유로 남기려 본문을 읽고, 호출자에게는 같은 본문을 다시 주는 응답을 돌려준다(WP-2106).
     // 중간에 읽기가 실패해도 반쯤 소비된 원 응답을 돌려주지 않는다 — 이미 읽은 바이트로 감싼 응답을 주고 사유는 http_<코드> 로 남긴다.
-    java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
     try {
-      java.io.InputStream in = response.getBody();
+      InputStream in = response.getBody();
       byte[] chunk = new byte[8192];
       int n;
       while ((n = in.read(chunk)) != -1) {
