@@ -543,11 +543,11 @@ export function IssueCommentList({
   // useMemo 로 참조를 고정한다 — order='newest' 면 orderActivity 가 매 렌더 새 배열을 만들어 효과 의존성이 흔들린다(WP-2073).
   const ordered = useMemo(() => orderActivity(comments, order), [comments, order]);
 
-  // 작성 성공 콜백(WP-2073) — 방금 쓴 코멘트는 어느 정렬에서도 보여야 한다: 오래된 순이면 목록 끝,
-  // 최신순이면 맨 앞에 붙어 렌더 윈도우(30건) 밖에 남을 수 있다. 전부 펼친 뒤 본래의 알림을 그대로 넘긴다.
+  // 작성 성공 콜백은 그대로 넘긴다(WP-2073 리뷰 ②) — 렌더 윈도우가 늘 최신 쪽을 잡으므로(아래 `windowed`)
+  // 방금 쓴 코멘트(가장 최신)는 어느 정렬에서도 창 안에 들어온다. 예전에는 여기서 전부 펼쳐, 작성할 때마다
+  // 200행을 다시 그려 INP 가 늘었다. 혹시 창 밖에 남으면 위 스크롤 효과가 그때만 전부 펼친다.
   const handleBodyPosted = useCallback(
     (body: string) => {
-      setVisibleCount(ALL_VISIBLE_COMMENTS);
       onBodyPosted?.(body);
     },
     [onBodyPosted],
@@ -578,10 +578,19 @@ export function IssueCommentList({
   // 넘겨 준 id 는 그 목록에 있거나 없거나다. 있으면 가운데로 스크롤하고 잠시 강조, 없으면 지워졌을 수 있다고 알린다.
   // 처리한 뒤 부모가 id 를 비워 다시 움직이지 않는다. 안내 토스트는 id 로 하나만 띄운다(개발 모드에서 효과가 두 번 돌아도).
   const [highlightId, setHighlightId] = useState<number | null>(null);
+  // 링크 처리는 링크 하나당 한 번만(WP-2073 리뷰 ⑤) — 아래 효과의 의존성에 ordered·visibleCount 가 있어
+  // 목록 갱신·창 확장 때마다 다시 돌아, 부모가 id 를 비우기 전에 스크롤·강조·안내가 겹쳐 실행됐다.
+  // 같은 id 로 다시 돌아오면 건너뛰고, 링크가 비워지면 다음 링크를 위해 표시를 지운다.
+  const handledLinkedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (linkedCommentId == null) return;
+    if (linkedCommentId == null) {
+      handledLinkedRef.current = null;
+      return;
+    }
+    if (handledLinkedRef.current === linkedCommentId) return;
     const row = rowOf(linkedCommentId);
     if (row) {
+      handledLinkedRef.current = linkedCommentId;
       scrollIntoViewCentered(row);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 행이 그려진 DOM 을 찾은 뒤에야 강조할지 알 수 있어 렌더 중으로 못 옮긴다(링크마다 한 번).
       setHighlightId(linkedCommentId);
@@ -592,6 +601,7 @@ export function IssueCommentList({
       return;
     } else {
       // 목록에 아예 없는 id(삭제됨) — 지금처럼 알리고 처리를 끝낸다.
+      handledLinkedRef.current = linkedCommentId;
       toast.info('링크한 코멘트를 찾을 수 없습니다 — 삭제됐을 수 있습니다', { id: 'issue-comment-link-missing' });
     }
     onLinkedCommentHandled?.();
@@ -620,10 +630,17 @@ export function IssueCommentList({
     </div>
   );
 
-  // 지금 그릴 코멘트 — 위에서 계산한 화면 순서(ordered)에서 윈도우 안의 것만(전부 보이면 slice 없이 그대로).
-  const visible = ordered.length <= visibleCount ? ordered : ordered.slice(0, visibleCount);
-  // 아직 안 그린 코멘트 수 — 「더 보기」 버튼 문구와 버튼 표시 여부를 정한다.
-  const hiddenCount = ordered.length - visible.length;
+  // 지금 그릴 코멘트(WP-2073 리뷰 ①) — 렌더 윈도우는 어느 정렬이든 최신 쪽을 잡는다.
+  // 오래된 순(기본)에서 앞쪽을 슬라이스하면 30건 창이 가장 오래된 댓글만 담아 최신 댓글·AI 보고가 가려진다 —
+  // 오래된 순은 뒤쪽(최신 30건), 최신순은 앞쪽(최신 30건)을 그려 둘 다 최신이 처음 보인다.
+  const windowed =
+    ordered.length <= visibleCount
+      ? ordered
+      : order === 'newest'
+        ? ordered.slice(0, visibleCount)
+        : ordered.slice(ordered.length - visibleCount);
+  // 아직 안 그린 코멘트 수 — 「더 보기」 버튼 문구와 버튼 표시 여부를 정한다(숨은 것은 늘 더 오래된 쪽).
+  const hiddenCount = ordered.length - windowed.length;
 
   // 「더 보기」 클릭(WP-2073) — 30건씩 늘려 그린다. 남은 개수가 끝나는 마지막 클릭은 버튼이 이번 렌더에서
   // 사라지므로 초점 이동까지 여기서 함께 처리한다.
@@ -631,13 +648,15 @@ export function IssueCommentList({
     const nextCount = visibleCount + MORE_VISIBLE_COMMENTS;
     // 남은 개수가 0이 되는 마지막 클릭 — 버튼이 이번 렌더에서 사라져 초점을 가진 컨트롤이 없어진다
     // (document.activeElement → body, 다음 Tab 이 페이지 맨 위에서 시작: WCAG 2.4.3). useListFocusRescue 는
-    // 버튼이 <ul> 밖에 있고 목록도 그대로라 잡지 못하므로, 확장 전에 막 드러날 마지막 행 id 를 정해 두고
-    // 그려진 뒤 그 행으로 초점을 옮긴다(초점 대상이 없으면 아무것도 하지 않는다).
-    const focusTargetId = nextCount >= ordered.length ? ordered[ordered.length - 1]?.id : undefined;
+    // 버튼이 <ul> 밖에 있고 목록도 그대로라 잡지 못하므로, 확장 전에 막 드러날 첫 행 id 를 정해 두고
+    // 그려진 뒤 그 행으로 초점을 옮긴다(WP-2073 리뷰 ④ — 이미 보이던 마지막 행이 아니라 새로 드러난 첫 행).
+    // 오래된 순은 위쪽에, 최신순은 아래쪽에 늘어나므로 새로 드러난 행들 중 화면 순서의 첫째를 고른다.
+    const firstRevealed = order === 'newest' ? visibleCount : Math.max(0, ordered.length - nextCount);
+    const focusTargetId = nextCount >= ordered.length ? ordered[firstRevealed]?.id : undefined;
     // DOM 이 갱신된 뒤에 초점을 옮기려면 상태 변경을 동기로 흘려야 한다 — 이벤트가 끝나기 전에 행이 그려진다.
     flushSync(() => setVisibleCount(nextCount));
     if (focusTargetId == null) return;
-    // 마우스로 눌렀어도 다른 곳으로 초점이 이미 옮겨 갔으면 빼앗지 않는다 — 버튼이 사라나며 초점을 잃었을 때만.
+    // 마우스로 눌렀어도 다른 곳으로 초점이 이미 옮겨 갔으면 빼앗지 않는다 — 버튼이 사라지며 초점을 잃었을 때만.
     const active = document.activeElement;
     if (active != null && active !== document.body && active.isConnected) return;
     const row = rowOf(focusTargetId);
@@ -645,11 +664,23 @@ export function IssueCommentList({
     else commentComposerInput()?.focus({ preventScroll: true });
   };
 
+  // 「더 보기」 단추 — 숨은 코멘트는 늘 더 오래된 쪽이라, 오래된 순(기본)의 창은 위쪽(최신)을 쥐고
+  // 아래로 늘어나는 게 아니라 위로 늘어난다 — 단추를 늘어나는 쪽(목록 위)에 둬야 새로 드러난 첫 행이 바로 옆이다.
+  // 최신순은 아래로 늘어나니 지금처럼 목록 아래에 둔다(WP-2073 리뷰 ①·④).
+  const moreButton = hiddenCount > 0 && (
+    <div className="flex justify-center">
+      <Button variant="outline" size="sm" data-testid="issue-comment-more" onClick={showMoreComments}>
+        댓글 {hiddenCount}개 더 보기
+      </Button>
+    </div>
+  );
+
   // "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거).
   const list = (
     <Fragment key="list">
+      {order === 'newest' ? null : moreButton}
       <ul ref={listRef} className="space-y-3" role="list" {...longPress}>
-        {visible.map((c) => (
+        {windowed.map((c) => (
           <CommentItem
             key={c.id}
             comment={c}
@@ -673,14 +704,8 @@ export function IssueCommentList({
           <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
         )}
       </ul>
-      {/* 「더 보기」(WP-2073) — <ul> 밖(섹션 안, 목록 다음)에 둬 행으로 세지 않게 한다. */}
-      {hiddenCount > 0 && (
-        <div className="flex justify-center">
-          <Button variant="outline" size="sm" data-testid="issue-comment-more" onClick={showMoreComments}>
-            댓글 {hiddenCount}개 더 보기
-          </Button>
-        </div>
-      )}
+      {/* 「더 보기」(WP-2073) — <ul> 밖(섹션 안)에 둬 행으로 세지 않게 한다. */}
+      {order === 'newest' ? moreButton : null}
     </Fragment>
   );
 

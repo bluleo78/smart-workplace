@@ -286,8 +286,9 @@ describe('방금 쓴 코멘트로 스크롤', () => {
 })
 
 // ─── 렌더 윈도우(WP-2073) ────────────────────────────────────────────────
-// 이슈 상세가 코멘트 200개를 한 번에 그려 LCP·INP 가 늘어났다 — 처음 30건만 그리고
-// 「더 보기」를 누를 때마다 30건씩 늘린다. 목록 크기는 「코멘트」 영역 안의 listitem 으로 센다
+// 이슈 상세가 코멘트 200개를 한 번에 그려 LCP·INP 가 늘어났다 — 최신 30건만 그리고
+// 「더 보기」를 누를 때마다 30건씩 늘린다(숨은 것은 늘 더 오래된 쪽 — 리뷰 ①).
+// 목록 크기는 「코멘트」 영역 안의 listitem 으로 센다
 // (「더 보기」 버튼은 <ul> 바깥이라 세는 데 섞이지 않는다).
 
 describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
@@ -295,8 +296,9 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
     renderList(manyComments(40))
 
     expect(countRows()).toBe(30)
-    // 40번째 코멘트는 아직 그려지지 않았다.
-    expect(screen.queryByTestId('issue-comment-header-40')).toBeNull()
+    // 윈도우는 최신 쪽을 잡으므로(리뷰 ①) 가장 최신(40)은 있고 가장 오래된(1)은 아직 그려지지 않았다.
+    expect(screen.getByTestId('issue-comment-header-40')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-1')).toBeNull()
   })
 
   it('「더 보기」를 누르면 30건씩 늘어난다', async () => {
@@ -316,7 +318,7 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
       <IssueCommentList projectKey="WP" issueNumber={1} issueId={issueId} comments={comments} canReact={false} hideComposer />
     )
     const view = renderWithProviders(build(100, manyComments(40)))
-    // 이슈 A 에서 「더 보기」 를 눌러 창을 늘린다 — 40건뿐이라 눌르면 40건이 전부 그려진다(작성 성공이면 ALL_VISIBLE 로 전부 펼쳐진다).
+    // 이슈 A 에서 「더 보기」 를 눌러 창을 늘린다 — 40건뿐이라 누르면 40건이 전부 그려진다(마지막 클릭).
     await userEvent.setup().click(screen.getByTestId('issue-comment-more'))
     expect(countRows()).toBe(40)
 
@@ -371,9 +373,50 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
     expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
   })
 
+  // 리뷰 ① — 오래된 순(기본)에서도 윈도우는 최신 쪽을 잡아야 한다. 앞쪽을 슬라이스하면 개수는 30건으로
+  // 같아 보이지만 가장 오래된 30건이 그려져 최신 댓글·AI 보고가 가려진다 — 경계 id 로 가른다.
+  it('오래된 순(기본)도 최신 30건(11~40)을 그린다 — 가장 오래된 30건을 그리지 않는다', () => {
+    renderList(manyComments(40))
+
+    expect(countRows()).toBe(30)
+    // 화면 순서는 1 → 40 이지만 그려진 것은 11 ~ 40 — 오래된 경계(10 이하)는 없다.
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
+    expect(screen.getByTestId('issue-comment-header-40')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+    // 숨은 것은 더 오래된 쪽 — 단추는 늘어나는 쪽(목록 위)에 있다.
+    expect(screen.getByTestId('issue-comment-more')).toBeInTheDocument()
+  })
+
+  it('두 정렬 모두 보이는 id 가 최신 30건으로 같다', () => {
+    const visibleIds = (order?: 'oldest' | 'newest') => {
+      const view = renderWithProviders(
+        <IssueCommentList
+          projectKey="WP"
+          issueNumber={1}
+          issueId={100}
+          comments={manyComments(40)}
+          canReact={false}
+          hideComposer
+          order={order}
+        />,
+      )
+      const ids = within(screen.getByRole('region', { name: '코멘트' }))
+        .getAllByRole('listitem')
+        .map((li) => Number(li.id.replace('comment-', '')))
+      view.unmount()
+      return ids
+    }
+
+    // 오래된 순은 오름차순(11…40), 최신순은 내림차순(40…11) — 둘 다 같은 30건(최신 쪽)이다.
+    expect(visibleIds('oldest')).toEqual(Array.from({ length: 30 }, (_, i) => i + 11))
+    expect(visibleIds('newest')).toEqual(Array.from({ length: 30 }, (_, i) => 40 - i))
+  })
+
   // 마지막 「더 보기」 클릭에서 버튼이 사라지면 초점을 가진 컨트롤이 없어져 document.activeElement 가 body 로
   // 떨어진다 — 다음 Tab 이 페이지 맨 위에서 시작한다(WCAG 2.4.3). useListFocusRescue 는 버튼이 <ul> 밖이라 잡지 못한다.
-  it('「더 보기」 마지막 클릭으로 버튼이 사라져도 초점이 body 로 떨어지지 않고 막 드러난 마지막 행으로 간다', async () => {
+  // 초점은 이미 보이던 마지막 행이 아니라 리뷰 ④ 대로 「막 드러난 첫 행」 으로 간다 — 오래된 순의 창은
+  // 위쪽(최신)을 쥐고(창: 11~40) 남은 것은 그 위쪽에 있어, 마지막 클릭에서 새로 드러난 첫 행은 1번째 코멘트다.
+  it('「더 보기」 마지막 클릭으로 버튼이 사라져도 초점이 body 로 떨어지지 않고 막 드러난 첫 행으로 간다', async () => {
     renderList(manyComments(40))
     const user = userEvent.setup()
     const more = screen.getByTestId('issue-comment-more')
@@ -385,8 +428,9 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
     // 40건 전부가 그려져 버튼이 남은 개수 0이 되어 사라진다.
     expect(screen.queryByTestId('issue-comment-more')).toBeNull()
     expect(countRows()).toBe(40)
-    // 초점은 body 가 아니라 이 클릭으로 막 드러난 마지막 행(40번째 코멘트)에 있다.
-    expect(document.getElementById('comment-40')).toHaveFocus()
+    // 초점은 body 가 아니라 이 클릭으로 막 드러난 첫 행(원래 안 보이던 1번째 코멘트)에 있다.
+    expect(document.getElementById('comment-1')).toHaveFocus()
+    expect(document.getElementById('comment-40')).not.toHaveFocus()
   })
 
   // 설계 결정 6 — 목록이 늘려 둔 윈도우(60) 아래로 줄어들면(삭제·다른 탭 갱신) 창은 그대로 두고
@@ -409,8 +453,9 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
 })
 
 // ─── 윈도우 밖 대상은 먼저 전부 펼친다(WP-2073) ──────────────────────────
-// 렌더 윈도우(30건) 바깥의 대상 — 링크로 온 코멘트·방금 쓴 코멘트는 아직 안 그려진 행이라
+// 렌더 윈도우(최신 30건) 바깥의 대상 — 링크로 온 코멘트는 아직 안 그려진 행이라
 // 그대로 두면 「찾을 수 없습니다」 토스트·아무 일도 없는 스크롤로 끝난다.
+// 방금 쓴 코멘트는 윈도우가 최신 쪽을 잡으므로 늘 창 안이다(리뷰 ②) — 창 밖이면 그때만 펼친다.
 // 목록에는 있는데 아직 안 그려졌으면 ALL_VISIBLE_COMMENTS 로 전부 펼친 뒤 다시 찾는다.
 
 describe('IssueCommentList — 윈도우 밖 대상은 전부 펼친다 (WP-2073)', () => {
@@ -427,22 +472,24 @@ describe('IssueCommentList — 윈도우 밖 대상은 전부 펼친다 (WP-2073
         comments={manyComments(40)}
         canReact={false}
         hideComposer
-        linkedCommentId={40}
+        // 윈도우가 최신 쪽(11~40)을 잡으므로 오래된 1번이 창 밖이다(리뷰 ①).
+        linkedCommentId={1}
         onLinkedCommentHandled={handled}
       />,
     )
 
     // 목록에 있는 코멘트라 「찾을 수 없습니다」 토스트 없이 40개가 전부 그려진다.
     await waitFor(() => expect(countRows()).toBe(40))
-    const row = document.getElementById('comment-40')
+    const row = document.getElementById('comment-1')
     expect(row).not.toBeNull()
     // 펼친 뒤 다시 찾아 그 코멘트를 강조하고 처리 완료를 알린다.
     await waitFor(() => expect(row).toHaveAttribute('data-highlighted', 'true'))
     expect(toast.info).not.toHaveBeenCalled()
-    expect(handled).toHaveBeenCalled()
+    // 링크 효과는 링크 하나당 한 번만 처리된다(리뷰 ⑤) — 목록 갱신·창 확장 때마다 다시 돌지 않는다.
+    expect(handled).toHaveBeenCalledTimes(1)
   })
 
-  it('방금 쓴 코멘트가 윈도우 밖이면 펼쳐지고 가운데로 간다', async () => {
+  it('창 밖 스크롤 대상이면 펼쳐지고 가운데로 간다', async () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
     const onScrolled = vi.fn()
     renderWithProviders(
@@ -453,16 +500,17 @@ describe('IssueCommentList — 윈도우 밖 대상은 전부 펼친다 (WP-2073
         comments={manyComments(40)}
         canReact={false}
         hideComposer
-        scrollToCommentId={40}
+        // 윈도우가 최신 쪽(11~40)을 잡으므로 오래된 1번이 창 밖이다(리뷰 ①).
+        scrollToCommentId={1}
         onScrolledToComment={onScrolled}
       />,
     )
 
     await waitFor(() => expect(countRows()).toBe(40))
-    expect(screen.getByTestId('issue-comment-header-40')).toBeInTheDocument()
+    expect(screen.getByTestId('issue-comment-header-1')).toBeInTheDocument()
     expect(onScrolled).toHaveBeenCalledTimes(1)
-    // 가운데로 옮긴 대상이 40번째 코멘트 행이다.
-    expect(scroll.mock.contexts.map((el) => (el as HTMLElement).dataset.messageId)).toEqual(['40'])
+    // 가운데로 옮긴 대상이 1번째 코멘트 행이다.
+    expect(scroll.mock.contexts.map((el) => (el as HTMLElement).dataset.messageId)).toEqual(['1'])
     expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
   })
 })
