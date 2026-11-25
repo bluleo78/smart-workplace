@@ -7,7 +7,7 @@
  */
 import { Document, isMap, isScalar, isSeq, type Pair, parseDocument, Scalar, YAMLMap, type YAMLSeq } from 'yaml'
 
-import { groupByEndpoints, joinEdgeLabels } from '../../../lib/parallelEdges'
+import { computeGraphLayout, type GraphLayoutResult, type VisibleGraph, visibleGraph } from './graphLayout'
 
 export type GraphNodeType = 'start' | 'agent_task' | 'human_task' | 'decision' | 'end' | string
 
@@ -622,36 +622,17 @@ function pruneList(doc: Document, path: string[], key: string, byContext = false
 }
 
 /**
- * start 에서 BFS 로 좌표를 계산한다 — 깊이 d 열, 같은 깊이 안의 순서 i 행. 닿지 않는 노드는 마지막 깊이 + 1 열.
- * 이미 읽은 그래프만 보는 순수 계산이라 문서를 파싱·직렬화하지 않는다. 가상 노드는 제외한다.
+ * 접힘 상태 배치(dagre 위→아래)를 정수 좌표로 돌려준다 — YAML layout 에 저장되는 기준이다.
+ * 실제(가상 아님) 노드 중 접힘 배치에 있는 노드만 담는다. 숨은 질문 노드는 저장하지 않는다 — 펼친 보기는 저장 좌표를 쓰지 않는다.
+ * 이미 읽은 그래프만 보는 순수 계산이라 문서를 파싱·직렬화하지 않는다.
  */
 export function computeLayout(graph: WorkflowGraph): Map<string, { x: number; y: number }> {
-  const real = graph.nodes.filter((n) => !n.virtual)
-  const keys = new Set(real.map((n) => n.key))
-  const next = new Map<string, string[]>()
-  for (const e of graph.edges) {
-    if (keys.has(e.from) && keys.has(e.to)) next.set(e.from, [...(next.get(e.from) ?? []), e.to])
-  }
-  const depth = new Map<string, number>()
-  const queue = real.filter((n) => n.type === 'start').map((n) => n.key)
-  queue.forEach((k) => depth.set(k, 0))
-  for (let i = 0; i < queue.length; i++) {
-    for (const t of next.get(queue[i]) ?? []) {
-      if (!depth.has(t)) {
-        depth.set(t, depth.get(queue[i])! + 1)
-        queue.push(t)
-      }
-    }
-  }
-  const last = Math.max(-1, ...depth.values()) + 1
-  const rows = new Map<number, number>()
+  const collapsed = computeGraphLayout(visibleGraph(graph, { showAsk: false })).positions
   const out = new Map<string, { x: number; y: number }>()
-  const order = [...queue, ...real.map((n) => n.key).filter((k) => !depth.has(k))]
-  for (const k of order) {
-    const d = depth.get(k) ?? last
-    const i = rows.get(d) ?? 0
-    rows.set(d, i + 1)
-    out.set(k, { x: d * 240, y: i * 120 })
+  for (const n of graph.nodes) {
+    if (n.virtual) continue
+    const p = collapsed.get(n.key)
+    if (p) out.set(n.key, { x: Math.round(p.x), y: Math.round(p.y) })
   }
   return out
 }
@@ -757,22 +738,22 @@ export function moveManyFromDrag(yaml: string, nodes: { id: string; position: { 
 }
 
 /**
- * 그래프 편집기가 그릴 좌표 — 좌표 없는 노드는 computeLayout 결과로, 가상 노드는 부모 아래로 놓는다. 문서는 바꾸지 않는다.
+ * 그래프 편집기가 그릴 좌표와 배치 결과 — 저장된 layout 이 있는 실제 노드는 그 자리를, 없는 노드와 가상 노드는 새 배치 자리를 쓴다(질문 경로를 펼친 보기는 모두 새 배치 자리).
+ * 문서는 바꾸지 않는다. view·layout 은 간선 그리기가 같은 배치를 쓰도록 함께 돌려준다.
  */
-export function placeNodes(graph: WorkflowGraph): Map<string, { x: number; y: number }> {
-  // 모든 노드에 좌표가 있으면 정렬을 계산할 필요가 없다 — 드래그마다 도는 계산이라 아낀다
-  const auto = graph.nodes.some((n) => !n.virtual && !n.position) ? computeLayout(graph) : new Map<string, { x: number; y: number }>()
-  const out = new Map<string, { x: number; y: number }>()
-  for (const n of graph.nodes) {
-    if (n.virtual) continue
-    out.set(n.key, n.position ?? auto.get(n.key) ?? { x: 0, y: 0 })
+export function placeNodes(
+  graph: WorkflowGraph,
+  opts: { showAsk?: boolean } = {},
+): { positions: Map<string, { x: number; y: number }>; layout: GraphLayoutResult; view: VisibleGraph } {
+  const view = visibleGraph(graph, { showAsk: opts.showAsk ?? false })
+  const layout = computeGraphLayout(view)
+  const positions = new Map<string, { x: number; y: number }>()
+  for (const n of view.nodes) {
+    // 질문 경로를 펼친 보기는 보기 전용 배치다 — 저장 좌표는 접힘 배치 기준이라 펼친 질문 노드와 겹치므로 모든 노드에 펼침 배치 자리를 쓴다
+    const saved = n.virtual || opts.showAsk ? undefined : n.position
+    positions.set(n.key, saved ?? layout.positions.get(n.key) ?? { x: 0, y: 0 })
   }
-  for (const n of graph.nodes) {
-    if (!n.virtual) continue
-    const parent = (n.virtualParent && out.get(n.virtualParent)) || { x: 0, y: 0 }
-    out.set(n.key, { x: parent.x, y: parent.y + 140 })
-  }
-  return out
+  return { positions, layout, view }
 }
 
 /** 되돌림 횟수 입력 → 패치 값. 빈칸은 지우기(null), 1 이상 정수만 받고 그 밖은 무시(undefined). */
@@ -781,33 +762,4 @@ export function parseMaxVisits(input: string): number | null | undefined {
   if (!/^\d+$/.test(input.trim())) return undefined
   const n = Number(input.trim())
   return n >= 1 ? n : undefined
-}
-
-/** 점선으로 그리는 간선 종류 — 오류·되돌림·질문 경로는 정상 흐름과 구분한다. */
-const DASHED_EDGE_KINDS: ReadonlySet<GraphEdgeKind> = new Set<GraphEdgeKind>(['onError', 'returnTo', 'ask'])
-
-/** 같은 출발·도착 간선을 합친 한 선 — 라벨은 " · " 로 이은 것, dashed 는 점선 종류가 하나라도 있으면 true. */
-export interface EdgeGroup {
-  id: string
-  from: string
-  to: string
-  label: string
-  dashed: boolean
-}
-
-/**
- * 같은 (출발, 도착) 간선을 한 선·한 라벨로 합친다(WP-2063, 읽기 전용 그래프의 WP-2048 과 같은 처리).
- * 왜: 질문 노드의 returnTo 와 answered outcome 처럼 평행 간선이 같은 자리에 겹치면 라벨이 포개져 읽히지 않는다.
- * 양 끝 노드가 그려지지 않는(keys 에 없는) 간선은 먼저 뺀다. 반대 방향(A→B, B→A)은 합치지 않는다.
- * 처음 나온 순서를 유지하고 묶음의 id 는 첫 간선의 id 다.
- */
-export function groupParallelEdges(edges: GraphEdge[], keys: Set<string>): EdgeGroup[] {
-  const drawn = edges.filter((e) => keys.has(e.from) && keys.has(e.to))
-  return groupByEndpoints(drawn).map(({ from, to, members }) => ({
-    id: members[0].id,
-    from,
-    to,
-    label: joinEdgeLabels(members.map((e) => e.label)),
-    dashed: members.some((e) => DASHED_EDGE_KINDS.has(e.kind)),
-  }))
 }
