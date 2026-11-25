@@ -202,8 +202,9 @@ test('편집 속성 레일 — 제안의 우선순위·유형·라벨을 각각 
  * 상위가 있는 이슈 상세를 열고 분류 제안을 적용한다 — 쓰기 요청 본문을 writes 에 모은다.
  * suggestion 을 넘기면 그 제안(유형)으로 분류 응답을 돌려준다. 이유 서브텍스트가 채워질 때까지
  * 기다려 통합 토스트까지 끝난 상태를 만든다(WP-2097).
+ * failWrites 를 주면 우선순위·라벨 쓰기도 500 으로 돌려줘 적용 성공이 하나도 없게 한다(WP-2097 리뷰 후속 ③).
  */
-async function classifyOnIssueWithParent(suggestion: object) {
+async function classifyOnIssueWithParent(suggestion: object, opts?: { failWrites?: boolean }) {
   const detail = createIssueDetail({
     summary: createIssue({
       projectKey: KEY,
@@ -215,9 +216,21 @@ async function classifyOnIssueWithParent(suggestion: object) {
     body: '기존 본문',
   })
   const writes: { method: string; path: string; body: unknown }[] = []
-  const record = async ({ request }: { request: Request }) => {
+  // 요청 본문 기록은 네 핸들러가 한 곳에서만 — 갈래는 응답만 다르다(failWrites: 적용 0건 만들기).
+  const pushWrite = async ({ request }: { request: Request }) => {
     writes.push({ method: request.method, path: new URL(request.url).pathname, body: await request.json() })
+  }
+  const record = async (ctx: { request: Request }) => {
+    await pushWrite(ctx)
     return HttpResponse.json(detail)
+  }
+  const failWrite = async (ctx: { request: Request }) => {
+    await pushWrite(ctx)
+    return HttpResponse.json({ message: '적용 실패' }, { status: 500 })
+  }
+  const labelsOk = async (ctx: { request: Request }) => {
+    await pushWrite(ctx)
+    return HttpResponse.json([{ id: 1, name: 'backend', colorToken: 'violet' }])
   }
   const { user } = await openIssueDetailScreen({
     key: KEY,
@@ -226,12 +239,9 @@ async function classifyOnIssueWithParent(suggestion: object) {
     project: { type: 'TEAM' },
     handlers: [
       classifyHandler([], undefined, undefined, suggestion),
-      http.patch(`/api/v1/projects/${KEY}/issues/1`, record),
+      http.patch(`/api/v1/projects/${KEY}/issues/1`, opts?.failWrites ? failWrite : record),
       http.patch(`/api/v1/projects/${KEY}/issues/1/type`, record),
-      http.put(`/api/v1/projects/${KEY}/issues/1/labels`, async ({ request }) => {
-        writes.push({ method: 'PUT', path: new URL(request.url).pathname, body: await request.json() })
-        return HttpResponse.json([{ id: 1, name: 'backend', colorToken: 'violet' }])
-      }),
+      http.put(`/api/v1/projects/${KEY}/issues/1/labels`, opts?.failWrites ? failWrite : labelsOk),
       ...projectMetaHandlers,
     ],
   })
@@ -270,4 +280,19 @@ test('편집 속성 레일 — 상위가 있어도 유형이 상위를 풀지 �
   )
   expect(await screen.findByText('AI 제안을 적용했습니다')).toBeInTheDocument()
   expect(screen.queryByText(/상위 연결 때문에/)).not.toBeInTheDocument()
+})
+
+test('편집 속성 레일 — 적용된 제안이 하나도 없어도 유형 스킵 사실은 토스트로 알린다(WP-2097 리뷰 후속 ③)', async () => {
+  const { writes } = await classifyOnIssueWithParent(EPIC_SUGGESTION, { failWrites: true })
+
+  // 유형 PATCH 는 스킵, 우선순위·라벨 쓰기는 실패 — 통합 토스트 문구를 만들 성공이 하나도 없다.
+  expect(writes.filter((w) => w.path.endsWith('/type'))).toEqual([])
+  expect(writes.filter((w) => w.path.endsWith('/issues/1'))).toHaveLength(1)
+  expect(writes.filter((w) => w.path.endsWith('/labels'))).toHaveLength(1)
+
+  // 그래도 건너뛴 사실은 무음으로 지나가지 않고 토스트로 보인다(WP-2097 리뷰 후속 ③).
+  expect(await screen.findByText('상위 연결 때문에 유형은 적용하지 않음')).toBeInTheDocument()
+  expect(screen.queryByText('AI 제안을 적용했습니다')).not.toBeInTheDocument()
+  // 이유 서브텍스트는 그대로 채워져 있다 — 왜 건너뛰었는지도 함께 보인다.
+  expect(screen.getByTestId('ai-classify-reason')).toHaveTextContent('500 오류')
 })

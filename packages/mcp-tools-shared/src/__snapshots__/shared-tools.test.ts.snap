@@ -3768,7 +3768,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "relateToReleasedParent": {
-          "description": "하위 태스크의 상위가 풀릴 때 옛 상위와 관련 관계를 남긴다 — type 과 함께 줄 때만 유효",
+          "description": "하위 태스크의 상위가 풀릴 때 옛 상위와 관련 관계를 남긴다 — type 과 함께, parent: null 은 에러",
           "type": "boolean",
         },
         "reporter": {
