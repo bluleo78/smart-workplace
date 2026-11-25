@@ -824,6 +824,126 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("켜기는 켜진 다른 정의와 시작 역할 구성원이 겹치면 409 이고 이름도 쓰지 않는다")
+  void enable_rejectsWhenStartRoleOverlapsEnabledWorkflow() {
+    long a = create("가 흐름", valid());
+    publish(a);
+    ok(patchReq(a, "enabled", true), ownerId);
+    long b = create("나 흐름", valid());
+    publish(b);
+
+    JsonNode body = expect(patchReq(b, "enabled", true, "name", "바꾼 이름"), ownerId, 409);
+
+    assertCode(body, "WORKFLOW_START_CONDITION_OVERLAP");
+    assertThat(body.get("message").asString()).contains("가 흐름");
+    JsonNode d = ok(get(path(b)), ownerId);
+    assertThat(d.get("enabled").asBoolean()).isFalse();
+    assertThat(d.get("name").asString()).isEqualTo("나 흐름");
+  }
+
+  @Test
+  @DisplayName("시작 역할 구성원이 서로 다르면 둘 다 켤 수 있다")
+  void enable_allowedWhenStartRolesDisjoint() {
+    long a = create("가 흐름", valid());
+    publish(a);
+    ok(patchReq(a, "enabled", true), ownerId);
+    long b = create("나 흐름", humanTask(username(memberId)));
+    publish(b);
+
+    assertThat(ok(patchReq(b, "enabled", true), ownerId).get("enabled").asBoolean()).isTrue();
+  }
+
+  @Test
+  @DisplayName("꺼진 정의는 겹쳐도 켜기를 막지 않는다")
+  void enable_ignoresDisabledWorkflows() {
+    long a = create("가 흐름", valid());
+    publish(a);
+    long b = create("나 흐름", valid());
+    publish(b);
+
+    assertThat(ok(patchReq(b, "enabled", true), ownerId).get("enabled").asBoolean()).isTrue();
+  }
+
+  @Test
+  @DisplayName("겹침 상태로 켜져 있어도 끄기는 언제나 된다")
+  void disable_alwaysAllowedEvenWhenOverlapping() {
+    long a = create("가 흐름", valid());
+    publish(a);
+    long b = create("나 흐름", valid());
+    publish(b);
+    // API 는 겹침을 막으므로 DB 로 겹친 채 켜진 상태를 만든다.
+    repo.updateEnabled(a, true);
+    repo.updateEnabled(b, true);
+
+    assertThat(ok(patchReq(b, "enabled", false), ownerId).get("enabled").asBoolean()).isFalse();
+  }
+
+  @Test
+  @DisplayName("enable=true 로 게시하면 같은 요청에서 켜진다")
+  void publish_withEnable_enablesInSameRequest() {
+    long id = create("흐름", valid());
+
+    ok(post(path(id) + "/publish").content(body("enable", true)), ownerId);
+
+    assertThat(ok(get(path(id)), ownerId).get("enabled").asBoolean()).isTrue();
+  }
+
+  @Test
+  @DisplayName("이미 게시 버전이 있으면 enable=true 를 보내도 켜지 않는다 — 다른 관리자가 끈 채 둔 선택을 덮지 않는다")
+  void publish_withEnable_ignoredAfterFirstPublish() {
+    long id = create("흐름", valid());
+    publish(id);
+
+    ok(post(path(id) + "/publish").content(body("enable", true)), ownerId);
+
+    assertThat(ok(get(path(id)), ownerId).get("enabled").asBoolean()).isFalse();
+    assertThat(versionCount(id)).isEqualTo(2);
+  }
+
+  @Test
+  @DisplayName("enable 이 없으면 게시해도 꺼진 채다")
+  void publish_withoutEnable_keepsDisabled() {
+    long id = create("흐름", valid());
+
+    publish(id);
+
+    assertThat(ok(get(path(id)), ownerId).get("enabled").asBoolean()).isFalse();
+  }
+
+  @Test
+  @DisplayName("enable=true 게시가 겹치면 409 이고 버전도 쌓지 않고 꺼진 채다")
+  void publish_withEnable_overlap_rejectsWholePublish() {
+    long a = create("가 흐름", valid());
+    publish(a);
+    ok(patchReq(a, "enabled", true), ownerId);
+    long b = create("나 흐름", valid());
+
+    JsonNode res = expect(post(path(b) + "/publish").content(body("enable", true)), ownerId, 409);
+
+    assertCode(res, "WORKFLOW_START_CONDITION_OVERLAP");
+    assertThat(versionCount(b)).isZero();
+    assertThat(ok(get(path(b)), ownerId).get("enabled").asBoolean()).isFalse();
+  }
+
+  @Test
+  @DisplayName("켜진 정의를 다른 켜진 정의와 겹치게 재게시하면 409 이고 활성 버전은 그대로다")
+  void republish_enabledWorkflow_creatingOverlap_rejected() {
+    long a = create("가 흐름", valid());
+    publish(a);
+    ok(patchReq(a, "enabled", true), ownerId);
+    long b = create("나 흐름", humanTask(username(memberId)));
+    publish(b);
+    ok(patchReq(b, "enabled", true), ownerId);
+    save(b, valid());
+
+    JsonNode res = expect(publishReq(b, null), ownerId, 409);
+
+    assertCode(res, "WORKFLOW_START_CONDITION_OVERLAP");
+    assertThat(versionCount(b)).isEqualTo(1);
+    assertThat(ok(get(path(b)), ownerId).get("activeVersion").get("no").asInt()).isEqualTo(1);
+  }
+
+  @Test
   @DisplayName("PATCH 는 보낸 칸만 바꾸고, 빈 본문이면 그대로 Detail")
   void patch_changesOnlySentFields() {
     long id = create("흐름", valid());
@@ -1098,6 +1218,8 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
       for (int i = 1; i < writes.size(); i++) {
         assertThat(send(writes.get(i), caller).status()).as("쓰기 %d", i).isEqualTo(200);
       }
+      // 같은 프로젝트의 다음 순회가 앞 정의와 시작 조건이 겹쳐 켜기에서 막히지 않게 끈다.
+      ok(patchReq(id, "enabled", false), ownerId);
     }
   }
 

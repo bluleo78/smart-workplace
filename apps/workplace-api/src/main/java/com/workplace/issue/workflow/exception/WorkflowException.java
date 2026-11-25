@@ -214,6 +214,22 @@ public class WorkflowException extends RuntimeException {
     return new WorkflowException(HttpStatus.CONFLICT, "WORKFLOW_NOT_PUBLISHED", message, List.of());
   }
 
+  /**
+   * 켜려는(게시하고 켜려는) 워크플로우의 시작 조건이 이미 켜진 다른 워크플로우와 같은 사람을 가리킨다(WP-2119). 화면이 어느 것을 끌지 고르도록 상대 이름과 겹친
+   * 사람을 문구에 싣는다 — 같은 프로젝트의 OWNER 만 닿는 경로라 이름이 새지 않는다.
+   */
+  public static WorkflowException startConditionOverlap(String otherName, String personName) {
+    return new WorkflowException(
+        HttpStatus.CONFLICT,
+        "WORKFLOW_START_CONDITION_OVERLAP",
+        "시작 조건이 켜져 있는 워크플로우 '"
+            + otherName
+            + "' 와 겹칩니다("
+            + personName
+            + "). 그 워크플로우를 먼저 끄거나 시작 조건을 바꿔 주세요.",
+        List.of());
+  }
+
   /** 오류가 있는 초안의 게시 거절 — 고칠 곳을 바로 보여 주도록 경고까지 모든 문제를 함께 담는다. */
   @SuppressWarnings("deprecation")
   public static WorkflowException invalid(List<WorkflowProblem> problems) {

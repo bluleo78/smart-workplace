@@ -124,7 +124,7 @@ class WorkflowRunConcurrencyTest extends IntegrationTestBase {
                   definitionService
                       .create(s.project().id(), new CreateWorkflowRequest("경합", yaml), a)
                       .id();
-              definitionService.publish(id, null, a);
+              definitionService.publish(id, null, false, a);
               definitionService.update(id, new UpdateWorkflowRequest(true, null), a);
               baseDsl
                   .insertInto(ISSUE_ASSIGNEE)

@@ -92,7 +92,7 @@ class WorkflowAssignStartRollbackTest extends IntegrationTestBase {
                   definitionService
                       .create(s.project().id(), new CreateWorkflowRequest("지정", yaml), s.ownerId())
                       .id();
-              definitionService.publish(id, null, s.ownerId());
+              definitionService.publish(id, null, false, s.ownerId());
               definitionService.update(id, new UpdateWorkflowRequest(true, null), s.ownerId());
               return id;
             });

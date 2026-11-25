@@ -4,6 +4,7 @@ import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.workflow.dto.CreateWorkflowRequest;
 import com.workplace.issue.workflow.dto.ExpectedDraftRequest;
 import com.workplace.issue.workflow.dto.PublishResult;
+import com.workplace.issue.workflow.dto.PublishWorkflowRequest;
 import com.workplace.issue.workflow.dto.SaveDraftResult;
 import com.workplace.issue.workflow.dto.SaveWorkflowDraftRequest;
 import com.workplace.issue.workflow.dto.UpdateWorkflowRequest;
@@ -86,16 +87,19 @@ public class WorkflowController {
     return ResponseEntity.ok(workflowService.validate(req, callerId(auth)));
   }
 
-  /** 게시 — 본문이 없으면 충돌 검사를 건너뛴다. */
+  /** 게시 — 본문이 없으면 충돌 검사를 건너뛰고, enable=true 면 게시와 함께 켠다. */
   @PostMapping("/workflows/{id}/publish")
   @RequirePermission("project:manage")
   public ResponseEntity<PublishResult> publish(
       Authentication auth,
       @PathVariable long id,
-      @Valid @RequestBody(required = false) ExpectedDraftRequest req) {
+      @Valid @RequestBody(required = false) PublishWorkflowRequest req) {
     return ResponseEntity.ok(
         workflowService.publish(
-            id, req == null ? null : req.expectedDraftUpdatedAt(), callerId(auth)));
+            id,
+            req == null ? null : req.expectedDraftUpdatedAt(),
+            req != null && Boolean.TRUE.equals(req.enable()),
+            callerId(auth)));
   }
 
   /** 게시 버전 목록. */

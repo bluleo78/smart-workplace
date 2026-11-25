@@ -245,6 +245,33 @@ public class WorkflowRepository {
         .fetch(WORKFLOW.ACTIVE_VERSION_ID);
   }
 
+  /**
+   * 프로젝트별 「켜기」 직렬화 잠금(WP-2119, 트랜잭션 종료 시 자동 해제) — 같은 프로젝트에서 두 정의가 동시에 켜져 서로의 겹침 검사를 지나치는 것을 막는다.
+   * 2-인자 pg_advisory_xact_lock(classId=2119, projectId) 이며 UserRepository.acquireTenantAdminLock 과
+   * 같은 관례다. 정의 행 잠금 뒤, 겹침 검사 앞에서 잡는다.
+   */
+  public void acquireProjectEnableLock(long projectId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", PROJECT_ENABLE_LOCK_CLASS, (int) projectId);
+  }
+
+  /** 켜기 잠금의 classId — 「classId = 이슈 번호」 관례. */
+  private static final int PROJECT_ENABLE_LOCK_CLASS = 2119;
+
+  /** 같은 프로젝트에서 켜져 있고 게시된 다른 정의의 이름과 활성 버전 id(겹침 검사용). {@code exceptId} 는 뺀다. 정의 id 순. */
+  public List<EnabledPublished> findOtherEnabledPublished(long projectId, long exceptId) {
+    return dsl.select(WORKFLOW.NAME, WORKFLOW.ACTIVE_VERSION_ID)
+        .from(WORKFLOW)
+        .where(WORKFLOW.PROJECT_ID.eq(projectId))
+        .and(WORKFLOW.ID.ne(exceptId))
+        .and(WORKFLOW.ENABLED.isTrue())
+        .and(WORKFLOW.ACTIVE_VERSION_ID.isNotNull())
+        .orderBy(WORKFLOW.ID)
+        .fetch(r -> new EnabledPublished(r.value1(), r.value2()));
+  }
+
+  /** 켜진 게시 정의의 이름과 활성 버전 id. */
+  public record EnabledPublished(String name, long activeVersionId) {}
+
   /** 요약에 쓰는 칸만 고른다(원문·모델 없이). */
   private SelectJoinStep<Record4<Long, Integer, OffsetDateTime, Long>> selectVersionSummary() {
     return dsl.select(

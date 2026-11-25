@@ -3,6 +3,7 @@ package com.workplace.issue.workflow.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.workflow.domain.ParseResult;
 import com.workplace.issue.workflow.domain.ProjectMembers;
+import com.workplace.issue.workflow.domain.StartOverlap;
 import com.workplace.issue.workflow.domain.WorkflowModel;
 import com.workplace.issue.workflow.domain.WorkflowModelJson;
 import com.workplace.issue.workflow.domain.WorkflowValidator;
@@ -67,6 +68,7 @@ public class WorkflowDefinitionService {
   private final ProjectRepository projectRepository;
   private final ProjectAccessGuard accessGuard;
   private final UserRepository userRepository;
+  private final WorkflowModelLoader modelLoader;
 
   /** 프로젝트의 워크플로우 목록(요약). */
   @Transactional(readOnly = true)
@@ -154,9 +156,15 @@ public class WorkflowDefinitionService {
    * 게시 — 잠근 초안을 검증해 ERROR 가 없으면 새 버전으로 쌓고 활성으로 바꾼다. 경고와 같은 내용의 재게시는 허용하고, 초안과 그 시각은 그대로 둔다. 버전의
    * 모델에만 저장된 정확한 username 을 남기고 원문은 적은 그대로 둔다.
    *
+   * <p>켜져 있거나 첫 게시의 enable 이면, 쓰기 전에 새 모델의 시작 조건이 켜진 다른 정의와 겹치는지 보고 겹치면 거절한다(버전을 쌓지 않는다). 통과하면 첫
+   * 게시의 enable 은 같은 요청에서 켠다(WP-2119). enable 은 첫 게시(활성 버전 없음)에만 따른다 — 화면이 「첫 게시」로 본 사이 다른 관리자가 끈 채
+   * 게시했으면 그 선택을 덮지 않는다.
+   *
    * @param expectedDraftUpdatedAt 게시하려고 본 초안의 시각(null 이면 충돌 검사 생략)
+   * @param enable true 면 첫 게시와 함께 켠다(이미 게시 버전이 있으면 무시)
    */
-  public PublishResult publish(long workflowId, Instant expectedDraftUpdatedAt, long actorId) {
+  public PublishResult publish(
+      long workflowId, Instant expectedDraftUpdatedAt, boolean enable, long actorId) {
     WorkflowRow locked = lockForWrite(workflowId, actorId);
     assertNotChanged(locked, expectedDraftUpdatedAt);
     Checked checked = check(locked.projectId(), locked.draftYaml());
@@ -165,11 +173,19 @@ public class WorkflowDefinitionService {
     }
     // 구성원을 다시 읽으면 검증한 사람과 남는 사람이 달라질 수 있어, 검증에 쓴 표로 바꾼다.
     WorkflowModel published = checked.model().withStoredUsernames(checked.members());
+    boolean enableNow = enable && locked.activeVersionId() == null && !locked.enabled();
+    boolean willBeEnabled = enableNow || locked.enabled();
+    if (willBeEnabled) {
+      assertNoStartOverlap(locked, published);
+    }
     // 번호 매김(max+1)은 위 행 잠금이 직렬화한다. 이곳의 유일 위반은 이름 중복이 아니므로 바꿔 읽지 않는다.
     WorkflowVersionRow version =
         workflowRepository.insertVersion(
             locked.id(), locked.draftYaml(), WorkflowModelJson.write(published), actorId);
     workflowRepository.setActiveVersion(locked.id(), version.id());
+    if (enableNow) {
+      workflowRepository.updateEnabled(locked.id(), true);
+    }
     // 옛 버전으로 도는(활성) 실행 수 — 실행은 시작한 버전에 고정이라 새 버전으로 옮겨 가지 않는다(WP-1985). 정의 행을 잠근 채 세므로
     // 같은 정의의 게시와는 겹치지 않는다. 방금 만든 버전에는 아직 실행이 없지만 뜻을 분명히 하려고 뺀다.
     int older =
@@ -203,6 +219,10 @@ public class WorkflowDefinitionService {
     if (Boolean.TRUE.equals(req.enabled()) && locked.activeVersionId() == null) {
       throw WorkflowException.notPublished();
     }
+    // 꺼져 있던 것을 켤 때만 시작 조건 겹침을 본다 — 이미 켜진 것의 재저장·끄기는 막지 않는다.
+    if (Boolean.TRUE.equals(req.enabled()) && !locked.enabled()) {
+      assertNoStartOverlap(locked, modelLoader.get(locked.activeVersionId()));
+    }
     if (req.name() != null && !req.name().equals(locked.name())) {
       assertNameFree(locked.projectId(), req.name(), locked.id());
       try {
@@ -215,6 +235,26 @@ public class WorkflowDefinitionService {
       workflowRepository.updateEnabled(locked.id(), req.enabled());
     }
     return detail(reload(locked.id()));
+  }
+
+  /**
+   * 시작 조건 겹침 거절(WP-2119) — 프로젝트 켜기 잠금을 잡은 뒤(동시에 켜는 두 정의가 서로를 못 보는 경합을 막는다) 켜진 다른 정의의 활성 모델과 비교한다.
+   * 구성원 표는 한 번만 읽어 모든 모델에 같이 쓴다. 쓰기 전에 부른다.
+   */
+  private void assertNoStartOverlap(WorkflowRow locked, WorkflowModel mine) {
+    workflowRepository.acquireProjectEnableLock(locked.projectId());
+    List<StartOverlap.Other> others =
+        workflowRepository.findOtherEnabledPublished(locked.projectId(), locked.id()).stream()
+            .map(o -> new StartOverlap.Other(o.name(), modelLoader.get(o.activeVersionId())))
+            .toList();
+    if (others.isEmpty()) {
+      return;
+    }
+    StartOverlap.find(mine, others, memberLookup.activeMembersOf(locked.projectId()))
+        .ifPresent(
+            o -> {
+              throw WorkflowException.startConditionOverlap(o.otherName(), o.personName());
+            });
   }
 
   // ───────────────────────── 접근 ─────────────────────────
