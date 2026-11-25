@@ -20,7 +20,7 @@ export interface QueryInputProps {
 interface QueryInputBaseProps extends QueryInputProps {
   /** 왼쪽 장식 아이콘 — 검색은 돋보기, 필터는 깔때기로 하는 일을 모양으로 구분한다(WP-1352). */
   icon: LucideIcon;
-  /** 지우기 버튼의 접근 가능 이름 — 「검색어 지우기」/「필터 지우기」. */
+  /** 지우기 버튼의 접근 가능 이름 — 「검색어 지우기」/「입력 지우기」(필터 줄 「필터 지우기」와 겹치지 않게). */
   clearLabel: string;
 }
 

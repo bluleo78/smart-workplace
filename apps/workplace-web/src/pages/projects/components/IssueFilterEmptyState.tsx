@@ -21,7 +21,7 @@ export function IssueFilterEmptyState({
       icon={SearchX}
       title={title}
       description={description}
-      action={{ label: '필터 초기화', onClick: handleResetFilters, testId: 'empty-reset-filter' }}
+      action={{ label: '필터 지우기', onClick: handleResetFilters, testId: 'empty-reset-filter' }}
       testId="empty-filter"
     />
   );

@@ -95,7 +95,7 @@ export function filterOnlyKey(f: IssueFilters): string {
 }
 
 /**
- * 필터 초기화(「필터 지우기」·빈 상태의 초기화)가 새로 쓰는 쿼리에 지금 정렬을 이어 붙인다 — 정렬은 그룹·보기처럼 필터가 아니라 남긴다.
+ * 필터 지우기(필터 줄·빈 상태 공통)가 새로 쓰는 쿼리에 지금 정렬을 이어 붙인다 — 정렬은 그룹·보기처럼 필터가 아니라 남긴다.
  * carryViewOptions 에 넣지 않는 까닭: 그 함수는 정렬을 바꾸는 쓰기(「기본으로」)도 거치므로, 거기서 옛 정렬을 되살리면 정렬을 지울 수 없다.
  */
 export function carrySort(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {

@@ -115,7 +115,7 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`/projects/${KEY}?${query}`);
       await expect(page.getByTestId('issue-row-7')).toBeVisible(FIRST_LOAD);
-      const r = await main.getByRole('button', { name: '필터 지우기' }).boundingBox();
+      const r = await main.getByTestId('quick-filter-clear-all').boundingBox();
       const line = await main.boundingBox();
       // 「필터 지우기」 는 줄 폭 안에 완전히 들어온다(스크롤에 잘리지 않는다)
       expect(r!.x).toBeGreaterThanOrEqual(line!.x);

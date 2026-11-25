@@ -4,7 +4,7 @@
 // - 일시 실패(5xx·네트워크): 「다시 시도」 — 공용 LoadErrorState 를 쓴다(WP-893). 다시 부르는 동안의 잠금(aria-disabled)과
 //   성공 뒤 초점 이동(불러온 목록으로)을 거기서 받는다 — disabled 로 잠그면 키보드 초점이 body 로 사라졌다(WP-881 과 같은 결함).
 //   쓰는 화면은 다시 부르는 동안에도 이 안내를 그대로 두도록 lib/queryFailure 의 failedWithoutData 로 판정한다.
-// - 다시 보내도 같은 실패(4xx — 주소의 필터 값을 서버가 받지 못함 등): 다시 시도 대신 「필터 초기화」.
+// - 다시 보내도 같은 실패(4xx — 주소의 필터 값을 서버가 받지 못함 등): 다시 시도 대신 「필터 지우기」.
 
 import { AlertTriangle } from 'lucide-react';
 
@@ -19,7 +19,7 @@ type FailedQuery = { error: unknown; isFetching: boolean; refetch: () => unknown
 export function IssueLoadErrorState({
   queries,
 }: {
-  /** 첫 로드에 실패한 쿼리들 — 첫 오류의 상태 코드로 다시 시도/필터 초기화를 가르고, 다시 시도는 모두 다시 부른다. */
+  /** 첫 로드에 실패한 쿼리들 — 첫 오류의 상태 코드로 다시 시도/필터 지우기를 가르고, 다시 시도는 모두 다시 부른다. */
   queries: FailedQuery[];
 }) {
   const resetFilters = useResetIssueFilters();
@@ -37,11 +37,11 @@ export function IssueLoadErrorState({
       <div className="space-y-1">
         <p className="text-sm font-medium">이슈를 불러오지 못했습니다</p>
         <p className="text-xs text-muted-foreground">
-          주소의 검색·필터 조건을 처리하지 못했어요. 필터를 초기화해 보세요.
+          주소의 검색·필터 조건을 처리하지 못했어요. 필터를 지워 보세요.
         </p>
       </div>
       <Button variant="outline" size="sm" onClick={resetFilters} data-testid="issue-load-reset-filter">
-        필터 초기화
+        필터 지우기
       </Button>
     </div>
   );

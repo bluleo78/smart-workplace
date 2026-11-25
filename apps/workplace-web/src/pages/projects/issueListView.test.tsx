@@ -148,8 +148,8 @@ describe('검색 쿼리', () => {
 })
 
 describe('빈 상태 (#337)', () => {
-  // 필터가 걸린 0건 → 「검색 결과가 없습니다」 + 「필터 초기화」, 누르면 q 가 빠진 주소·요청으로 다시 불러 행이 보인다.
-  test('필터 결과 0건이면 검색 빈 상태가 보이고 「필터 초기화」로 q 를 지우면 이슈가 보인다', async () => {
+  // 필터가 걸린 0건 → 「검색 결과가 없습니다」 + 「필터 지우기」, 누르면 q 가 빠진 주소·요청으로 다시 불러 행이 보인다.
+  test('필터 결과 0건이면 검색 빈 상태가 보이고 「필터 지우기」로 q 를 지우면 이슈가 보인다', async () => {
     const { user, location, lastSearch } = openList([], {
       path: `/projects/${KEY}?q=xxxxxxxxxnotfound`,
       search: (url) => (url.searchParams.has('q') ? [] : [createIssue({ number: 5, title: '정상 이슈' })]),
@@ -157,6 +157,10 @@ describe('빈 상태 (#337)', () => {
     expect(await screen.findByTestId('empty-filter')).toBeInTheDocument()
     expect(screen.getByText('검색 결과가 없습니다')).toBeInTheDocument()
     expect(screen.getByText('다른 키워드나 필터 조건을 사용해 보세요.')).toBeInTheDocument()
+    // WP-2086: 필터 줄과 빈 상태 CTA 가 같은 이름 「필터 지우기」 — 「필터 초기화」 버튼은 없다.
+    expect(screen.queryByRole('button', { name: '필터 초기화' })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('empty-filter')).getByRole('button', { name: '필터 지우기' })).toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-clear-all')).toHaveTextContent('필터 지우기')
     await user.click(screen.getByTestId('empty-reset-filter'))
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
     expect(await screen.findByTestId('issue-row-5')).toBeInTheDocument()

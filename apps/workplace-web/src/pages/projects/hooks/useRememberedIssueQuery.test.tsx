@@ -112,7 +112,7 @@ describe('useRememberedIssueQuery', () => {
     expect(localStorage.getItem(keyOf('WP'))).toBe('parent=12')
   })
 
-  it('조건을 바꾸면 기억하고, 「필터 초기화」로 보기만 남으면 보기만 기억한다', () => {
+  it('조건을 바꾸면 기억하고, 「필터 지우기」로 보기만 남으면 보기만 기억한다', () => {
     const { result } = renderAt('/projects/WP')
     act(() => result.current.setParams(new URLSearchParams('view=board&status=TODO&group=none'), { replace: true }))
     expect(localStorage.getItem(keyOf('WP'))).toBe('view=board&group=none&status=TODO')

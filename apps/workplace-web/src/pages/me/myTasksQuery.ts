@@ -26,17 +26,17 @@ export function overridesMyTasksClosedHiding(f: IssueFilters): boolean {
 }
 
 /**
- * 결과를 좁히는 필터가 걸려 있는지 — 빈 결과를 「데이터 없음」이 아니라 「필터 0건 + 필터 초기화」로 보일지 정한다(DS 06 §B).
+ * 결과를 좁히는 필터가 걸려 있는지 — 빈 결과를 「데이터 없음」이 아니라 「필터 0건 + 필터 지우기」로 보일지 정한다(DS 06 §B).
  * 서버로 보내는 facet(상태·우선순위·마감 범위·오늘 마감·막힘)과 같은 기준이다. closed=all 은 넓히는 쪽이라 필터가 아니다.
  */
 export function hasMyTasksFilters(params: URLSearchParams): boolean {
   return Object.keys(meFacetParams(params)).length > 0
 }
 
-/** 필터 초기화로 지우는 URL 키 — facet·완료일 기간(개요 「완료한 이슈」·추이 막대, WP-1484)과 「완료 모두 보기」. 탭은 경로라 그대로 남는다. */
+/** 필터 지우기로 지우는 URL 키 — facet·완료일 기간(개요 「완료한 이슈」·추이 막대, WP-1484)과 「완료 모두 보기」. 탭은 경로라 그대로 남는다. */
 const MY_TASKS_FILTER_KEYS = ['status', 'priority', 'dueFrom', 'dueTo', 'dueDate', 'blocked', 'closed', 'closedIn'] as const
 
-/** 필터 초기화 — 필터 키만 지운 새 URLSearchParams(다른 키는 보존). */
+/** 필터 지우기 — 필터 키만 지운 새 URLSearchParams(다른 키는 보존). */
 export function clearMyTasksFilters(params: URLSearchParams): URLSearchParams {
   const next = new URLSearchParams(params)
   for (const key of MY_TASKS_FILTER_KEYS) next.delete(key)

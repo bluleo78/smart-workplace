@@ -1,6 +1,6 @@
 // 이슈 불러오기 실패 상태 E2E(WP-858) — 키보드로 「다시 시도」를 누르는 동안·다시 실패해도 초점을 지키고,
 // 성공하면 불러온 목록으로 초점이 옮겨 가는지(WP-893, @input)만 남긴다.
-// 실패 안내·다시 시도(목록·보드·사이클 그룹)·필터 초기화·정수 아닌 id 미전송은
+// 실패 안내·다시 시도(목록·보드·사이클 그룹)·필터 지우기·정수 아닌 id 미전송은
 // 페이지 테스트 src/pages/projects/issueLoadError.test.tsx 가 지킨다(WP-980). 판정 경우의 수는 issueFilters 단위 테스트가 맡는다.
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';

@@ -1232,19 +1232,20 @@ describe('툴바 — 검색·필터·그룹 → URL·요청 파라미터', () =>
 })
 
 describe('빈 상태(#252·WP-918)', () => {
-  // 검색어로 0건 → 필터 0건 안내 + 초기화(빠른 추가 유도 없음). 초기화는 검색어만 지우고 그룹은 남긴다.
-  test('검색어 0건 → 필터 0건 빈 상태, 초기화는 q 만 지우고 group 은 남긴다', async () => {
+  // 검색어로 0건 → 필터 0건 안내 + 필터 지우기(빠른 추가 유도 없음). 필터 지우기는 검색어만 지우고 그룹은 남긴다.
+  test('검색어 0건 → 필터 0건 빈 상태, 필터 지우기는 q 만 지우고 group 은 남긴다', async () => {
     const api = personalApi([])
     const { user, location } = await open(`/projects/${KEY}?q=zzz없는검색어&group=priority`, api, 'personal-empty-filter')
     expect(screen.getByTestId('personal-empty-filter')).toHaveTextContent('일치하는 작업이 없습니다')
     expect(screen.queryByTestId('personal-empty-create')).not.toBeInTheDocument()
+    expect(screen.getByTestId('personal-empty-reset')).toHaveTextContent('필터 지우기') // WP-2086: 라벨 통일
     await user.click(screen.getByTestId('personal-empty-reset'))
     await waitFor(() => expect(paramsOf(location()).get('q')).toBeNull())
     expect(paramsOf(location()).get('group')).toBe('priority')
   })
 
   // 서버는 취소 이슈를 주지만 체크리스트는 CANCELED 를 섹션에 넣지 않는다 — 그릴 행 0개도 「필터 0건」이다(WP-918).
-  test('상태 「취소」로 거른 결과가 섹션에 안 보이면 필터 0건 빈 상태, 초기화는 status 만 지운다', async () => {
+  test('상태 「취소」로 거른 결과가 섹션에 안 보이면 필터 0건 빈 상태, 필터 지우기는 status 만 지운다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '취소된 작업', status: 'CANCELED' })])
     const { user, location } = await open(`/projects/${KEY}?status=CANCELED&group=priority`, api, 'personal-empty-filter')
     expect(screen.getByTestId('personal-empty-filter')).toHaveTextContent('일치하는 작업이 없습니다')

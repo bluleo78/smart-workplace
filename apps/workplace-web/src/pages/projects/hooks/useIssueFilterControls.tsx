@@ -143,7 +143,7 @@ export function useIssueFilterControls(
   const projectStatuses = useProjectStatusList(projectKey);
 
   // 검색어 draft — 300ms debounce 후 URL 에 반영해 매 키 입력마다 네트워크 호출을 막는다.
-  // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
+  // URL 의 q 가 외부 변경(예: 필터 지우기 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
   // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003). 쓰는 순간의 최신 필터·view·group 에 q 만 바꾼다.
   const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(filters.q, (q) =>
     writeFilters({ ...filters, q }, view, groupParam),
@@ -176,7 +176,7 @@ export function useIssueFilterControls(
   const { sort: sortKey, direction: sortDirection } = filters;
   const sort = useMemo(() => sortOf({ sort: sortKey, direction: sortDirection }), [sortKey, sortDirection]);
 
-  // 초기화는 view·group·정렬(WP-1238)(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
+  // 필터 지우기는 view·group·정렬(WP-1238)(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
   function reset() {
     setParams((prev) => {
       const p = new URLSearchParams();
