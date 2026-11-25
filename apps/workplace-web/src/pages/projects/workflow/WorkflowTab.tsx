@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/hooks/useAuth'
 import { DISABLED_REASON_WRAPPER_ATTR } from '@/hooks/useDialogFocusRestore'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
-import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit'
+import { useRestoreFocusAfterAction } from '@/hooks/useRestoreFocusAfterAction'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { apiErrorResponse, apiErrorStatus, extractApiError, extractApiErrorCode, isConflictError } from '@/lib/api-error'
 import type { WorkflowDraftSession } from '@/lib/workflowDraftSessions'
@@ -512,16 +512,26 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
 
   // 게시 단추. 변경이 없는 사유는 공용 DisabledReasonTooltip 으로 알린다(WP-2133) — 막힌 단추의 사유 툴팁·접근 이름·초점 이동을
   // 이미 맞춰 둔 부품이라 손으로 aria-disabled·sr-only 설명·클릭 가드를 다시 만들지 않는다. 변경이 없으면 채운 primary 대신 outline 으로 그린다.
-  // 되돌리기·초안 저장은 edit 가 null 이 되면 사라져 포커스가 body 로 떨어진다 — 공용 훅이 편집(저장 중 포함)이 끝난 뒤
-  // 포커스가 body 일 때만 게시 단추(변경 없음 사유로 막혔으면 그 감싸개)로 옮긴다. 다른 곳에 포커스가 있으면 건드리지 않는다.
+  // 되돌리기·초안 저장·충돌 배너의 「최신 초안 불러오기」는 누르면 사라져 포커스가 body 로 떨어진다 — 공용 훅이 그 단추를 키보드로 눌렀을 때만
+  // 편집·쓰기가 끝나고 잠깐의 막힘(busy·검사 중·변경 확인 중)이 풀린 뒤 옮긴다(막힘 중엔 게시가 disabled 라 스위치로 잘못 가지 않게).
+  // 대상: 게시가 변경 없음 사유로만 막혔으면 감싸개, 열려 있으면 게시 단추, 오래 막혔으면(ERROR·권한 등, focus() 가 무시된다) 사용 스위치 → 선택된 보기 탭.
   const publishRef = useRef<HTMLButtonElement | null>(null)
-  const exitFocusTarget = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    exitFocusTarget.current = showNoChangesReason
-      ? publishRef.current?.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`) ?? null
-      : publishRef.current
+  const switchRef = useRef<HTMLButtonElement | null>(null)
+  const tabsListRef = useRef<HTMLDivElement | null>(null)
+  const draftActionFocus = useRestoreFocusAfterAction({
+    active: edit !== null || write.isPending,
+    settling: busy || validation.pending || checkingChanges,
+    getTarget: () => {
+      const button = publishRef.current
+      const toggle = switchRef.current
+      if (showNoChangesReason) return button?.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)
+      if (button && !button.disabled) return button
+      if (toggle && !toggle.disabled) return toggle
+      return tabsListRef.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+    },
   })
-  useRestoreFocusOnExit(edit !== null || write.isPending, exitFocusTarget)
+  // 사라지는 단추의 쓰기 — 실패하면 편집·배너가 남으므로 복원 표지를 거둔다
+  const writeFromDraftAction = (action: WorkflowAction) => write.mutate(action, { onError: draftActionFocus.clear })
   const publishControl = (
     <DisabledReasonTooltip reason={showNoChangesReason ? NO_CHANGES_REASON : null} label="게시">
       <Button
@@ -551,6 +561,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       runsLoadError={versions.isError && !versions.isFetching}
       onRetryRuns={() => void versions.refetch()}
       busy={busy}
+      switchRef={switchRef}
       onChange={(next) => toggleEnabled.mutate(next)}
     />
   )
@@ -563,7 +574,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
         {picker}
         <span className={STATUS_PILL}>{activeVersionNo !== null ? `게시 버전 ${activeVersionNo}` : '게시 전'}</span>
         {canManage && draftChanged && <span className={STATUS_PILL}>초안 있음</span>}
-        <TabsList aria-label="워크플로우 보기">
+        <TabsList ref={tabsListRef} aria-label="워크플로우 보기">
           <TabsTrigger value="graph">그래프</TabsTrigger>
           <TabsTrigger value="yaml">YAML</TabsTrigger>
           <TabsTrigger value="runs">{running === null ? '실행' : `실행 ${running}`}</TabsTrigger>
@@ -587,17 +598,19 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
             />
             {/* 변경 수 — 바뀐 게 있을 때만 경고 톤 알약으로 보이고, 확인 중·실패는 짧은 글자로 같은 자리에 둔다(WP-2133).
                 role="status" 감싸개는 늘 마운트해 둔다 — 내용과 함께 마운트되는 라이브 영역은 0→N 변경을 스크린리더가 놓칠 수 있다.
-                접근성 트리에서 빠지지 않게 contents 가 아닌 인라인 요소로 두고, 세 상태(배지·확인 중·실패)는 서로 겹치지 않는다. 변경 0 이면 안이 비어 보이지 않는다. */}
+                접근성 트리에서 빠지지 않게 contents 가 아닌 인라인 요소로 두고, 세 상태(배지·확인 중·실패)는 서로 겹치지 않는다. 변경 0 이면 보이는 것은 없고 스크린리더용 「변경 없음」만 둔다. */}
             <span role="status" data-testid="workflow-change-status" className="inline-flex items-center gap-2">
               {changeStatus === 'badge' && <Badge variant="warning">변경 {unpostedChanges}</Badge>}
               {changeStatus === 'checking' && <span className="text-xs text-muted-foreground">변경 확인 중</span>}
               {changeStatus === 'failed' && <span className="text-xs text-muted-foreground">변경 수 불러오기 실패</span>}
+              {/* 변경 0 — 보이는 배지는 없지만 라이브 영역이 「0 이 됐다」를 읽어 주게 스크린리더용 글자만 둔다 */}
+              {noChanges && <span className="sr-only">변경 없음</span>}
             </span>
             {/* 되돌리기·초안 저장은 로컬 편집이 있을 때만 쓸 수 있으므로 그때만 그린다 — 꺼진 단추가 글자처럼 남지 않게(WP-2133) */}
             {edit && (
               <>
-                <Button size="sm" variant="ghost" disabled={busy || conflict || isLoggingOut} onClick={() => updateDraft(id, null)}>되돌리기</Button>
-                <Button size="sm" variant="outline" disabled={busy || conflict || isLoggingOut} onClick={() => write.mutate({ type: 'save' })}>초안 저장</Button>
+                <Button size="sm" variant="ghost" disabled={busy || conflict || isLoggingOut} {...draftActionFocus.triggerProps(() => updateDraft(id, null))}>되돌리기</Button>
+                <Button size="sm" variant="outline" disabled={busy || conflict || isLoggingOut} {...draftActionFocus.triggerProps(() => writeFromDraftAction({ type: 'save' }))}>초안 저장</Button>
               </>
             )}
             {publishControl}
@@ -612,7 +625,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
           {conflict && (
             <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm">
               <p>다른 곳에서 초안이 바뀌었습니다. 최신 초안을 불러오면 현재 편집 내용이 바뀝니다.</p>
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => write.mutate({ type: 'reload' })}>최신 초안 불러오기</Button>
+              <Button variant="outline" size="sm" disabled={busy} {...draftActionFocus.triggerProps(() => writeFromDraftAction({ type: 'reload' }))}>최신 초안 불러오기</Button>
             </div>
           )}
           {workError && <p role="alert" className="text-sm text-destructive">{workError}</p>}

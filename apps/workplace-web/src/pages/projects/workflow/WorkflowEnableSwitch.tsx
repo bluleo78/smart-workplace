@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type Ref, useState } from 'react'
 
 import { BusySwitch } from '@/components/BusySwitch'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,7 @@ const BADGE = 'rounded border px-1.5 text-xs text-muted-foreground'
  *   실행 수를 아직 모르면(null) 대화상자를 열어 불러오는 중이라고 알리고 확인을 잠근다.
  * 켜기·끄기 요청과 서버 오류 표시는 부모가 한다 — 여기는 눌림을 `onChange` 로 올릴 뿐 값은 늘 `enabled` 로 제어한다.
  */
-export function WorkflowEnableSwitch({ enabled, canManage, hasPublishedVersion, activeRuns, runsLoadError, onRetryRuns, busy, onChange }: {
+export function WorkflowEnableSwitch({ enabled, canManage, hasPublishedVersion, activeRuns, runsLoadError, onRetryRuns, busy, switchRef, onChange }: {
   enabled: boolean
   canManage: boolean
   hasPublishedVersion: boolean
@@ -28,6 +28,8 @@ export function WorkflowEnableSwitch({ enabled, canManage, hasPublishedVersion, 
   runsLoadError: boolean
   onRetryRuns: () => void
   busy: boolean
+  /** 스위치 요소 — 부모가 머리 단추가 사라질 때 초점을 옮길 대체 대상으로 쓴다(WP-2133) */
+  switchRef?: Ref<HTMLButtonElement>
   onChange: (next: boolean) => void
 }) {
   const [confirmingOff, setConfirmingOff] = useState(false)
@@ -46,6 +48,7 @@ export function WorkflowEnableSwitch({ enabled, canManage, hasPublishedVersion, 
     <>
       <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <BusySwitch
+          ref={switchRef}
           aria-label="워크플로우 사용"
           checked={enabled}
           // 버전이 사라진 채 켜진 워크플로우도 끌 수는 있어야 한다(서버는 끄기를 늘 받는다) — 막는 것은 켜기뿐.
