@@ -407,7 +407,10 @@ test('사유 provider_limit 행은 표에서 「사용 한도 초과」로 보�
   const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
   renderHistory('/settings/ai-status/history', h)
   const row = await screen.findByTestId('ai-run-row')
-  expect(within(row).getAllByRole('cell')[9]).toHaveTextContent('사용 한도 초과')
+  const cell = within(row).getAllByRole('cell')[9]
+  expect(cell).toHaveTextContent('사용 한도 초과')
+  // 칸 글은 한글 이름, title 은 원래 코드(운영자가 코드로 대조할 수 있게)
+  expect(cell).toHaveAttribute('title', 'provider_limit')
 })
 
 test('상세 시트: 사유 provider_limit 은 「사용 한도 초과」로 보인다', async () => {

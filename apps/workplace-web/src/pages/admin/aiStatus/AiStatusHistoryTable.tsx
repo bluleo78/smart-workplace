@@ -76,7 +76,7 @@ export function AiStatusHistoryTable({
                   <TableCell className="whitespace-nowrap">{msText(item.durationMs)}</TableCell>
                   <TableCell className="whitespace-nowrap">{tokensText(item.inputTokens, item.outputTokens)}</TableCell>
                   <TableCell>{item.model ?? EMPTY_GLYPH}</TableCell>
-                  <TableCell className="max-w-[16rem] truncate text-muted-foreground" title={item.errorReason == null ? undefined : aiRunReasonLabel(item.errorReason)}>
+                  <TableCell className="max-w-[16rem] truncate text-muted-foreground" title={item.errorReason ?? undefined}>
                     {item.errorReason == null ? EMPTY_GLYPH : aiRunReasonLabel(item.errorReason)}
                   </TableCell>
                 </TableRow>
