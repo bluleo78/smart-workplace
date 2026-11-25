@@ -753,6 +753,81 @@ describe('질문 노드 옆 배치 (WP-2123)', () => {
     expect(findCrossingEdges(aiDevGraph(), true)).toEqual([])
   })
 
+  // --- 끝점 맞추기가 긴 선을 옮기거나 카드를 가로지르지 않는다(WP-2123 리뷰 후속) ---
+  /** 판정 기준 — 옆 질문 선이 아닌 모든 간선이 양 끝이 아닌 노드(질문 노드 포함, 실제 크기)를 지나지 않고,
+   *  묻는 노드(옆 질문을 단 노드)로 드나드는 끝 구간은 실제 노드 가운데 x 의 세로 선이다. */
+  function snapViolations(g: WorkflowGraph): string[] {
+    const l = layoutOf(g)
+    const bad: string[] = []
+    const shapes = new Set(g.nodes.filter(isShapeNode).map((n) => n.key))
+    const hosts = new Set(l.edges.filter((e) => e.side).map((e) => (g.edges.some((x) => x.kind === 'ask' && x.from === e.from && x.to === e.to) ? e.from : e.to)))
+    for (const e of l.edges) {
+      if (e.side) continue
+      for (let i = 0; i + 1 < e.points.length; i++) {
+        for (const k of l.positions.keys()) {
+          if (k === e.from || k === e.to) continue
+          if (segmentEntersRect(e.points[i], e.points[i + 1], rectOfKey(l, k))) bad.push(`${e.from}→${e.to} 선분 ${i} 이 ${k} 를 지남`)
+        }
+      }
+      for (const [key, end, nb] of [[e.from, 0, 1], [e.to, e.points.length - 1, e.points.length - 2]] as const) {
+        if (!hosts.has(key)) continue
+        const r = rectOfKey(l, key)
+        const cx = r.x + (shapes.has(key) ? SHAPE_SIZE / 2 : r.w / 2)
+        if (Math.abs(e.points[end].x - cx) > 0.5 || Math.abs(e.points[nb].x - cx) > 0.5) bad.push(`${e.from}→${e.to} 의 ${key} 쪽 끝 구간이 가운데 세로 선이 아님`)
+      }
+    }
+    return bad
+  }
+  /** 이름이 곧 키인 노드들과 「출발>도착:라벨」 표기의 흐름 간선, 묻는 노드>질문 노드 쌍으로 그래프를 만든다(질문마다 ask·돌아가기 두 선). */
+  function flowGraph(keys: string[], flow: string[], asks: string[]): WorkflowGraph {
+    const nodes = [node(keys[0], 'start'), ...keys.slice(1).map((k) => node(k)), ...asks.map((a) => node(a.split('>')[1], 'human_task'))]
+    let seq = 0
+    const edge = (from: string, to: string, kind: GraphEdge['kind'], label: string): GraphEdge => ({ id: `${from}->${to}#${seq++}`, from, to, kind, label })
+    const edges = flow.map((f) => {
+      const [ends, label = ''] = f.split(':')
+      const [from, to] = ends.split('>')
+      return edge(from, to, 'outcome', label)
+    })
+    for (const a of asks) {
+      const [host, q] = a.split('>')
+      edges.push(edge(host, q, 'ask', 'q'), edge(q, host, 'returnTo', 'r'))
+    }
+    return graphOf(nodes, edges)
+  }
+
+  it('sideAsk_longEdgeFromAsker_notShiftedOntoOtherCard', () => {
+    // n1(묻는 노드)에서 여러 층 아래 n3 로 가는 긴 선 — dagre 가 넓힌 상자 가운데로 곧게 낸 세로 구간을 통째로 실제 가운데 x 로 옮기면
+    // 중간 층의 n6 카드를 지난다(리뷰 ①). 끝 구간만 넓힌 상자 바로 바깥에서 꺾어 들어가야 한다.
+    const g = flowGraph(
+      ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'],
+      ['n0>n1', 'n1>n2:라벨', 'n1>n3', 'n0>n4:라벨', 'n4>n5:라벨', 'n1>n6', 'n5>n7:라벨', 'n2>n3', 'n1>n6'],
+      ['n1>q0', 'n1>q1'],
+    )
+    expect(snapViolations(g)).toEqual([])
+  })
+
+  it('sideAsk_longEdgeIntoAsker_notShiftedOntoQuestionCard', () => {
+    // n0 에서 묻는 노드 n2 로 내려오는 긴 선 — 세로 구간을 옮기면 옆 묻는 노드 n1 의 질문 카드를 지난다(리뷰 ①)
+    const g = flowGraph(
+      ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'],
+      ['n0>n1:라벨', 'n0>n2', 'n1>n3:라벨', 'n3>n4', 'n4>n5', 'n4>n6', 'n2>n4', 'n2>n5:긴 라벨', 'n1>n5'],
+      ['n2>qa', 'n1>qb'],
+    )
+    expect(snapViolations(g)).toEqual([])
+  })
+
+  it('sideAsk_snappedEndsStayOutsideCards', () => {
+    // 꺾는 높이가 넓힌 상자 높이 안이면 가로 구간이 질문 카드·묻는 노드를 가로지른다(리뷰 ②) — 쌓인 질문·도형 묻는 노드·옆에서 들어오는 선 모두 기준을 지킨다
+    expect(snapViolations(askGraph())).toEqual([])
+    expect(snapViolations(askGraph(['q1', 'q2', 'q3']))).toEqual([])
+    expect(snapViolations(askGraph(['q1', 'q2'], 'decision'))).toEqual([])
+    expect(snapViolations(flowGraph(
+      ['start', 'a', 'b', 'dev', 'c', 'end'],
+      ['start>a', 'start>b', 'start>c', 'start>dev:진행', 'a>end', 'b>dev', 'c>dev', 'dev>end'],
+      ['dev>q1', 'dev>q2', 'dev>q3'],
+    ))).toEqual([])
+  })
+
   it('sideAsk_stackedRoundTripsLeaveAskerWithinItsHeight', () => {
     for (const qs of [['q1', 'q2'], ['q1', 'q2', 'q3']]) {
       const l = layoutOf(askGraph(qs))
