@@ -17,9 +17,9 @@ import { focusLostOrDetached as focusIsLost } from '@/hooks/useRestoreFocusOnExi
 import { extractApiErrorCode } from '@/lib/api-error'
 import { formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import {
-  type IssueWorkflowView,
   bannerOutcomes,
   isAskWaiting,
+  type IssueWorkflowView,
   useIssueWorkflow,
   useMoveIssueWorkflow,
   workflowErrorMessage,
