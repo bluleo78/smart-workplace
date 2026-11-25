@@ -108,6 +108,9 @@ spec:
               value: {{ .Values.dind.resources | toJson | quote }}
             - name: TERMINATION_GRACE_SECONDS
               value: {{ .Values.terminationGraceSeconds | quote }}
+            # ServiceAccount 허용 목록(WP-2135) — {AI 사용자 id: ServiceAccount}. runner 가 시작 때 모양을 검사한다
+            - name: AGENT_SERVICE_ACCOUNTS
+              value: {{ .Values.agent.serviceAccounts | default dict | toJson | quote }}
             # AI Pod 도 같은 pull secret 으로 작업 공간 이미지를 받는다(이름만 쉼표로).
             - name: AGENT_IMAGE_PULL_SECRETS
               value: {{ include "runner.pullSecretNames" . | quote }}

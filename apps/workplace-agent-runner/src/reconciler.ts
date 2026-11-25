@@ -400,14 +400,19 @@ export class Reconciler {
     // Secret 은 위에서 이미 새 값으로 고쳤고(떠 있는 Pod 의 토큰은 env 로 시작 때 고정이라 옛 계정으로 계속 일한다), 쉴 때 applyNow=true 가 되면
     // plan 이 recreate 해 새 Secret 으로 뜬다. 라벨이 없는(null) 옛 Pod 도 plan.ts 처럼 다른 generation 으로 본다.
     // 바로 적용해야 하는 교체(키·저장소 토큰 교체)는 Works 가 미뤄 둔 generation 을 NOW 로 바꿔 applyNow=true 로 온다.
+    // ServiceAccount 가 바뀐 Pod(WP-2135)는 미뤄 둔 generation 과 무관하게 바로 간다 — 허용 목록에서 뺀 AI 의 클러스터 권한이
+    // 쉴 때까지 남지 않게. Helm 값을 바꿔 runner 가 재시작한 회차에 생기는 드문 일이라 일하던 AI 가 끊기는 것을 받아들인다.
+    const serviceAccountChanged =
+      current.pod !== undefined && (current.pod.serviceAccount ?? '') !== (this.cfg.serviceAccounts[id] ?? '');
     const swapPod =
       kind === 'keep' &&
       current.pod !== undefined &&
       !current.pod.deleting &&
-      !generationPending &&
-      (versionChanged(current.pod.claudeVersion, secret.claudeVersion) ||
-        versionChanged(current.pod.loginVersion, secret.loginVersion) ||
-        versionChanged(current.pod.reposVersion, secret.repos.version));
+      (serviceAccountChanged ||
+        (!generationPending &&
+          (versionChanged(current.pod.claudeVersion, secret.claudeVersion) ||
+            versionChanged(current.pod.loginVersion, secret.loginVersion) ||
+            versionChanged(current.pod.reposVersion, secret.repos.version))));
     if (swapPod && imageProblem) {
       this.fail(id, imageProblem, { blocking: true, generation: failedGeneration });
       return undefined;
@@ -441,7 +446,8 @@ export class Reconciler {
       // 다만 미뤄 둔 generation 이 있으면(사람의 AI 계정 변경 등, WP-1515) swapPod 가 false 라 여기 오지 않고, 그 교체와 함께 쉴 때 간다.
       // 저장소 토큰도 같다 — gh 로그인이 Pod 시작 때 고정되고 Works 는 토큰 변경에 generation 을 올리지 않는다.
       // 로그인 정보(Gen:iA·ChatGPT)도 같다 — 이미지가 Pod 시작 때 파일을 시딩한다.
-      this.log.info('모델 연결·로그인 정보·저장소 토큰이 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });
+      // ServiceAccount 허용 목록(WP-2135)이 바뀐 때도 같은 길 — 붙은 계정은 Pod 를 만들 때만 정해진다.
+      this.log.info('모델 연결·로그인 정보·저장소 토큰·ServiceAccount 가 바뀌어 Pod 를 다시 만듭니다', { agentUserId: id });
       await this.cluster.delete('Pod', podName(id));
       return false;
     }

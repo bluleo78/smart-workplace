@@ -29,6 +29,7 @@ AI 한 명(`agentUserId`)마다 runner 가 설치된 네임스페이스에 아�
 | Secret 어노테이션 | `genia.works/repos-version` | 받은 저장소 토큰 `version`(epoch 밀리초). 같으면 다시 받지 않는다 |
 | Secret 어노테이션 | `genia.works/repo-hosts` | 받은 토큰의 `kind:host` 목록(`GITHUB:github.com,GITLAB:gitlab.iacloud.kr`, 원문 없음) — Pod 를 만들 때 볼륨 items 를 이것으로 만든다 |
 | Pod 어노테이션 | `genia.works/claude-version`·`genia.works/login-version`·`genia.works/repos-version` | Pod 를 만들 때 Secret 에 있던 값(없으면 어노테이션 없음). Secret 의 것과 다르면 Pod 를 다시 만든다 |
+| Pod 어노테이션 | `genia.works/service-account` | Pod 를 만들 때 붙인 ServiceAccount(허용 목록에 없으면 어노테이션 없음, WP-2135). runner 설정 `AGENT_SERVICE_ACCOUNTS` 의 것과 다르면 Pod 를 다시 만든다 |
 | Secret 어노테이션 | `genia.works/work-node` | hostPath 방식에서 Pod 가 처음 배치된 노드(`spec.nodeName`). 다시 만드는 Pod 를 이 노드에 고정한다 |
 
 runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/location` 이 자기 위치(desired `locationId`)인** 리소스만 만지고 지운다 — 한 네임스페이스에 runner(위치)가 둘이어도 서로의 리소스를 지우지도 관찰 보고에 넣지도 않는다. 다른 위치의 리소스와 이름이 겹치면(같은 AI) 만들지 않고 `FAILED` 로 알린다. 그래도 **위치당 네임스페이스 하나**를 권장한다. 어노테이션은 runner 가 재시작해도 「이미 받은 키」를 알게 하는 유일한 기록이다 — AI 키를 다시 받으면 곧 교체(generation+1 → Pod 재생성)이기 때문이다.
@@ -53,6 +54,7 @@ runner 는 `managed-by=genia-agent-runner` 라벨이 붙고 **`genia.works/locat
 | `/run/genia/login-info` | Secret 키 `login-info`(볼륨 `agent-secret`, subPath) | 읽기 전용. Secret 에 `login-version` 이 있을 때만 — 없으면 마운트 자체가 없다. 아래 「로그인 정보」 |
 | `/run/genia/repo-tokens/<github\|gitlab>/<host>` | Secret `agent-<id>` 의 `repo-<kind>-<host>` 키(볼륨 `repo-tokens`, items 마다 `path: <kind 소문자>/<host>`) | 읽기 전용. 호스트가 하나도 없으면 볼륨·마운트 자체가 없다 |
 | `/run/genia/ca/ca.crt` | 위치 값 `agent.caBundle` 의 ConfigMap 키 `ca.crt`(볼륨 `ca-bundle`, runner env `AGENT_CA_CONFIGMAP`) | 읽기 전용. 값이 없으면 볼륨·마운트 자체가 없다. 아래 「추가 CA」 |
+| `/var/run/secrets/kubernetes.io/serviceaccount/{token,ca.crt,namespace}` | 투영 볼륨 `service-account`(ServiceAccount 토큰 1시간·ConfigMap `kube-root-ca.crt`·downward API 네임스페이스) | agent 컨테이너에만, 읽기 전용. 허용 목록(`AGENT_SERVICE_ACCOUNTS`)에 든 AI 만 — 없으면 볼륨·마운트 자체가 없다. 아래 「클러스터 권한」 |
 | `/work` | 노드 폴더 `<agent.workDisk.hostPath>/agent-<id>`(기본 `/var/lib/genia-agents`, DirectoryOrCreate) 또는 PVC `agent-<id>-work` | 아래 「작업 디스크」 |
 | `/dind` | emptyDir | agent·dind·dind-gc 컨테이너가 docker 소켓을 나눠 쓴다 |
 
@@ -234,13 +236,21 @@ AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 
 - TERM 을 받으면 바로 끝난다.
 - runner 는 spec 이 달라졌다고 Pod 를 다시 만들지 않으므로, runner 를 올린 뒤 새로 만들어지는 Pod 부터 들어간다.
 
+## 클러스터 권한 (WP-2135)
+
+- 대부분의 AI 는 쿠버네티스 API 를 쓰지 않는다. 배포 담당 AI 처럼 권한이 꼭 필요한 AI 만 Helm 값 `agent.serviceAccounts`(`{AI 사용자 id: ServiceAccount 이름}`, runner env `AGENT_SERVICE_ACCOUNTS`)에 적는다. Works 의 템플릿·desired 로는 정할 수 없다 — Works 관리자가 임의의 AI 에 클러스터 권한을 붙이지 못하게. 이름이 아니라 id 로 고르는 것도 같은 까닭이다(사용자 이름은 Works 에서 바뀐다).
+- 허용 목록에 든 AI 의 Pod 는 `serviceAccountName` 을 그 이름으로 두되 `automountServiceAccountToken: false` 는 그대로고, 토큰은 투영 볼륨으로 **agent 컨테이너에만** 꽂는다 — 자동 마운트는 dind·dind-gc·사이드카에도 토큰을 넣어 특권 dind 를 통해서도 권한이 새기 때문이다. 경로·파일 이름은 kubectl·client 라이브러리의 클러스터 안 설정이 그대로 찾는 표준 자리다.
+- 다만 투영 토큰도 노드의 kubelet 폴더에 파일로 있어, 같은 노드에 뜬 특권 dind(다른 AI 의 것 포함)가 노드 디스크를 마운트하면 읽을 수 있다 — 사이드카와 나누지 않는 것까지가 이 장치의 범위고, 노드 수준 격리(배포 담당 AI 전용 위치·노드)는 따로 해야 한다. 배포 담당 AI 의 템플릿에는 dind 사이드카를 두지 않는다(docker 가 필요 없다).
+- ServiceAccount·Role·RoleBinding 은 runner·차트가 만들지 않는다(클러스터 운영자 몫). 없는 이름이면 Pod 가 거절되어 `FAILED` 로 보인다.
+- **Pod 재생성**: 허용 목록이 바뀌어도 desired `generation` 은 그대로라, Pod 어노테이션 `genia.works/service-account` 가 설정과 다르면(없음 ↔ 값 포함) 「모델 연결 교체」처럼 Pod 를 다시 만든다. 미뤄 둔 generation(applyNow=false)이 있어도 기다리지 않는다 — 허용 목록에서 뺀 AI 의 권한이 쉴 때까지 남지 않게.
+
 ## 위치 값
 
 nodeSelector·tolerations·hostAliases·storageClass·imagePullSecrets 는 위치(Helm 값)마다 하나다. runner 가 env 로 받아 그 위치의 모든 AI Pod 에 똑같이 넣는다. hostAliases 는 차트의 공용 `hostAliases`(runner Deployment 에도 들어감 — Works 에 내부 IP 로 닿는 위치) 뒤에 `agent.hostAliases`(AI Pod 에만)를 이어 붙인 값이다(WP-1269). 작업 공간 이미지는 비공개 Docker Hub 에 있어 Helm 기본값이 `dockerhub-pull` 이다.
 
 ## 시작·종료
 
-- `automountServiceAccountToken: false` — AI 는 쿠버네티스 API 를 쓰지 않는다(기본값이면 네임스페이스 기본 서비스 계정 토큰이 마운트된다).
+- `automountServiceAccountToken: false` — 기본값이면 네임스페이스 서비스 계정 토큰이 모든 컨테이너에 마운트된다. 허용 목록에 든 AI 만 agent 컨테이너에 토큰을 따로 꽂는다(위 「클러스터 권한」).
 - `restartPolicy: Always` — 컨테이너가 죽으면 kubelet 이 그 자리에서 다시 띄운다. Pod 를 지우고 다시 만드는 것(교체)은 runner 만 한다.
 - `terminationGracePeriodSeconds` 기본 60(Helm `terminationGraceSeconds`).
 - 엔트리포인트는 SIGTERM 을 받으면 work-loop 칸들을 정리하고 종료 코드 0 으로 끝낸다.

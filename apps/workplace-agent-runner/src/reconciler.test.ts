@@ -1273,6 +1273,56 @@ describe('Reconciler', () => {
     expect(works.reportObserved).toHaveBeenCalledWith([], true, undefined);
   });
 
+  describe('ServiceAccount 허용 목록(WP-2135)', () => {
+    it('restartWithUnchangedAllowlistKeepsPod', async () => {
+      // 허용 목록대로 떠 있는 Pod 는 runner 가 다시 떠도 건드리지 않는다
+      const cluster = new FakeCluster();
+      const agent = desiredAgent();
+      const cfg = runnerConfig({ serviceAccounts: { 42: 'deploy-bot' } });
+      const { pod } = buildAgentResources(agent, ctx, cfg, { claudeVersion: '57', repos: REPO_MOUNT });
+      seedRunningAgent(cluster, agent);
+      cluster.seed(pod);
+      await makeReconciler(cluster, new FakeWorks(desired([agent])), [], cfg).reconcileOnce();
+      expect(cluster.calls).toEqual([]);
+    });
+
+    it('addingAgentToAllowlistRecreatesPodWithServiceAccount', async () => {
+      // Helm 값만 바뀜 — generation 은 그대로라 기록(어노테이션)으로 알아채 Pod 를 다시 만든다
+      const cluster = new FakeCluster();
+      const agent = desiredAgent();
+      seedRunningAgent(cluster, agent);
+      const r = makeReconciler(cluster, new FakeWorks(desired([agent])), [], runnerConfig({ serviceAccounts: { 42: 'deploy-bot' } }));
+
+      const first = await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['delete Pod/agent-42']);
+      expect(first.retry).toBe('wait');
+
+      cluster.finishPodDeletion('agent-42');
+      cluster.calls.length = 0;
+      await r.reconcileOnce();
+      expect(cluster.calls).toEqual(['apply ConfigMap/agent-42', 'apply Pod/agent-42']);
+      const pod = cluster.get<V1Pod>('Pod', 'agent-42');
+      expect(pod?.spec?.serviceAccountName).toBe('deploy-bot');
+      expect(pod?.metadata?.annotations?.['genia.works/service-account']).toBe('deploy-bot');
+    });
+
+    it('removingAgentFromAllowlistRecreatesPodEvenWithPendingGeneration', async () => {
+      // 권한 회수는 쉴 때까지 미루지 않는다 — 미뤄 둔 generation(applyNow=false)이 있어도 바로 간다
+      const cluster = new FakeCluster();
+      const running = desiredAgent();
+      const { pod } = buildAgentResources(running, ctx, runnerConfig({ serviceAccounts: { 42: 'deploy-bot' } }), {
+        claudeVersion: '57',
+        repos: REPO_MOUNT,
+      });
+      seedRunningAgent(cluster, running);
+      cluster.seed(pod);
+      const pending = desiredAgent({ generation: running.generation + 1, applyNow: false });
+
+      await makeReconciler(cluster, new FakeWorks(desired([pending]))).reconcileOnce();
+      expect(cluster.calls).toEqual(['delete Pod/agent-42']);
+    });
+  });
+
   describe('쿼터 수용량 보고(WP-1819)', () => {
     const cfg = () => runnerConfig({ quotaName: 'agent-runner' });
     /** 이 AI 의 실제 Pod 요청량 — runner 가 띄우는 Pod 와 같은 경로(buildAgentResources)로 만든다. */

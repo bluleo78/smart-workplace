@@ -6,6 +6,7 @@ import {
   ANN_CLAUDE_VERSION,
   ANN_LOGIN_VERSION,
   ANN_REPOS_VERSION,
+  ANN_SERVICE_ACCOUNT,
   LOCATION_LABEL,
   MANAGED_BY_KEY,
   MANAGED_BY_VALUE,
@@ -29,6 +30,8 @@ export interface ActualAgent {
     claudeVersion?: string;
     loginVersion?: string;
     reposVersion?: string;
+    /** 만들 때 붙인 ServiceAccount(어노테이션, WP-2135) — 없으면 undefined(기본 계정·토큰 없음). */
+    serviceAccount?: string;
     nodeName?: string;
     finished?: boolean;
     finishReason?: string;
@@ -123,6 +126,7 @@ export function collectActual(res: ManagedResources): ActualAgent[] {
       claudeVersion: p.metadata?.annotations?.[ANN_CLAUDE_VERSION],
       loginVersion: p.metadata?.annotations?.[ANN_LOGIN_VERSION],
       reposVersion: p.metadata?.annotations?.[ANN_REPOS_VERSION],
+      serviceAccount: p.metadata?.annotations?.[ANN_SERVICE_ACCOUNT],
       nodeName: (p as V1Pod).spec?.nodeName || undefined,
       finished,
       finishReason: finished ? podFinishReason(p as V1Pod) : undefined,

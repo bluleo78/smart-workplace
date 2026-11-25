@@ -43,7 +43,23 @@ describe('loadConfig', () => {
       clusterCheckSeconds: 30,
       terminationGraceSeconds: 60,
       imagePullSecrets: [],
+      serviceAccounts: {},
     });
+  });
+
+  it('parsesAgentServiceAccountsById', () => {
+    const cfg = loadConfig({ ...BASE, AGENT_SERVICE_ACCOUNTS: '{"115":" deploy-bot ","7":"other.sa"}' }, readFile);
+    expect(cfg.serviceAccounts).toEqual({ 115: 'deploy-bot', 7: 'other.sa' });
+  });
+
+  it.each([
+    ['nonNumericKey', '{"deploy-ai":"deploy-bot"}', 'AGENT_SERVICE_ACCOUNTS 의 키는 AI 사용자 id(양의 정수)여야 합니다: deploy-ai'],
+    ['zeroKey', '{"0":"deploy-bot"}', 'AGENT_SERVICE_ACCOUNTS 의 키는 AI 사용자 id(양의 정수)여야 합니다: 0'],
+    ['badName', '{"115":"Deploy_Bot"}', 'AGENT_SERVICE_ACCOUNTS 의 값이 올바른 ServiceAccount 이름이 아닙니다: Deploy_Bot'],
+    ['notObject', '["deploy-bot"]', 'AGENT_SERVICE_ACCOUNTS 의 모양이 틀렸습니다'],
+    ['brokenJson', '{', 'AGENT_SERVICE_ACCOUNTS 가 올바른 JSON 이 아닙니다'],
+  ])('rejectsBadAgentServiceAccounts_%s', (_name, value, message) => {
+    expect(() => loadConfig({ ...BASE, AGENT_SERVICE_ACCOUNTS: value }, readFile)).toThrow(message);
   });
 
   it('ignoresLeftoverGithubSecretName', () => {

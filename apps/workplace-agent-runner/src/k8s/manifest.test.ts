@@ -222,6 +222,35 @@ describe('buildAgentResources', () => {
     expect(pod.spec?.imagePullSecrets).toEqual([{ name: 'dockerhub-pull' }]);
   });
 
+  it('allowedAgentGetsServiceAccountTokenOnlyInAgentContainer', () => {
+    // WP-2135 — 허용 목록에 든 AI 만 ServiceAccount 로 돌고, 토큰은 agent 컨테이너에만(특권 dind·dind-gc 에는 없다)
+    const cfg = runnerConfig({ serviceAccounts: { 42: 'deploy-bot' } });
+    const { pod } = buildAgentResources(desiredAgent(), ctx, cfg);
+
+    expect(pod.spec?.serviceAccountName).toBe('deploy-bot');
+    expect(pod.spec?.automountServiceAccountToken).toBe(false);
+    expect(pod.metadata?.annotations?.['genia.works/service-account']).toBe('deploy-bot');
+
+    const mount = container(pod, 'agent').volumeMounts?.find((m) => m.name === 'service-account');
+    expect(mount).toEqual({ name: 'service-account', mountPath: '/var/run/secrets/kubernetes.io/serviceaccount', readOnly: true });
+    const volume = pod.spec?.volumes?.find((v) => v.name === 'service-account');
+    expect(volume?.projected?.sources).toEqual([
+      { serviceAccountToken: { path: 'token', expirationSeconds: 3600 } },
+      { configMap: { name: 'kube-root-ca.crt', items: [{ key: 'ca.crt', path: 'ca.crt' }] } },
+      { downwardAPI: { items: [{ path: 'namespace', fieldRef: { fieldPath: 'metadata.namespace' } }] } },
+    ]);
+    for (const name of ['dind', 'dind-gc']) {
+      expect(container(pod, name).volumeMounts?.some((m) => m.name === 'service-account')).toBe(false);
+    }
+  });
+
+  it('agentOutsideAllowlistGetsNoServiceAccount', () => {
+    const { pod } = buildAgentResources(desiredAgent({ agentUserId: 43 }), ctx, runnerConfig({ serviceAccounts: { 42: 'deploy-bot' } }));
+    expect(pod.spec?.serviceAccountName).toBeUndefined();
+    expect(pod.spec?.volumes?.some((v) => v.name === 'service-account')).toBe(false);
+    expect(pod.metadata?.annotations?.['genia.works/service-account']).toBeUndefined();
+  });
+
   it('omitsClaudeEnvWhenNoClaudeSecret', () => {
     const agent = desiredAgent({
       secrets: [{ name: 'agent-key', source: 'WORKS', version: 812, rotateAfter: null }],
