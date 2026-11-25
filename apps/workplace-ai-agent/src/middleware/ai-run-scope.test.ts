@@ -147,6 +147,22 @@ describe('aiRunScopeMiddleware', () => {
     expect(records[1]).toMatchObject({ status: 'FAILED', errorReason: 'http_500' });
   });
 
+  it('러너 한도 오류가 다음 러너 성공으로 우회되고 라우트가 200 이면 provider_limit 로 남아 실패율에서 빠진다', async () => {
+    const { records, sink } = sinkOf();
+    const app = express();
+    app.use(aiRunScopeMiddleware(sink));
+    app.post('/ai/chat', (_req, res) => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'anthropic');
+      s.runnerFinished({ ok: false, usage: null, error: LIMIT });
+      const startSeq = s.runnerStarted('m', 'anthropic');
+      s.runnerFinished({ ok: true, usage: null, startSeq });
+      res.status(200).json({});
+    });
+    await request(app).post('/ai/chat').send({});
+    expect(records[1]).toMatchObject({ status: 'FAILED', errorReason: 'provider_limit' });
+  });
+
   it('잘못된 X-AI-Run 이어도 200 이고 새 runId 로 기록', async () => {
     const { records, sink } = sinkOf();
     const app = express();

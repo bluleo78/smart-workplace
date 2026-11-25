@@ -232,6 +232,79 @@ describe('AiRunScope', () => {
     }
   });
 
+  /** 한도 오류로 실패한 러너를 다음 러너 호출로 우회해 성공시킨 범위. */
+  function bypassedLimit() {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    const startSeq = scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: true, usage: null, startSeq });
+    return { sink, scope };
+  }
+
+  it('close_bypassedLimit_routeOk_keepsProviderLimit', () => {
+    // 라우트가 성공하면 우회된 한도 실패는 분류 사유를 지켜 실패율에서 빠진다 — runner_error 로 실패율에 다시 들어가지 않는다.
+    const { sink, scope } = bypassedLimit();
+    scope.close({ ok: true });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'provider_limit' });
+  });
+
+  it('close_bypassedLimit_routeHttp500_keepsHttp500', () => {
+    const { sink, scope } = bypassedLimit();
+    scope.close({ ok: false, reason: 'http_500' });
+    expect(sink[1].errorReason).toBe('http_500');
+  });
+
+  it('close_bypassedLimit_routeMarkedStreamError_losesClassification', () => {
+    // 라우트가 markFailed 로 스스로 실패를 알렸으면 우회된 한도 실패는 진다.
+    const { sink, scope } = bypassedLimit();
+    scope.markFailed('stream_error', 'socket');
+    scope.close({ ok: true });
+    expect(sink[1].errorReason).not.toBe('provider_limit');
+  });
+
+  it('close_bypassedLimit_eventErrorFromRunner_keepsProviderLimit', () => {
+    // 이벤트 경로: 우회됐더라도 라우트 실패가 바로 그 러너 오류에서 왔으면 분류 사유가 이긴다.
+    const { sink, scope } = bypassedLimit();
+    scope.close({ ok: false, reason: 'handler_error', error: LIMIT });
+    expect(sink[1].errorReason).toBe('provider_limit');
+  });
+
+  it('close_limitNotBypassed_http502_providerLimit', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    scope.close({ ok: false, reason: 'http_502' });
+    expect(sink[1].errorReason).toBe('provider_limit');
+  });
+
+  it('close_concurrentRunnerSuccess_doesNotBypassOtherRunnersFailure', () => {
+    // 함께 돌던 다른 러너(실패보다 먼저 시작)의 성공은 그 실패를 우회한 것이 아니다 — 우회되지 않은 실패처럼 http_5xx 에 이긴다.
+    const { sink, scope } = make();
+    const a = scope.runnerStarted('m', 'c');
+    const b = scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT, startSeq: a });
+    scope.runnerFinished({ ok: true, usage: null, startSeq: b });
+    scope.close({ ok: false, reason: 'http_500' });
+    expect(sink[1].errorReason).toBe('provider_limit');
+  });
+
+  it('cameFrom_sameMessage_onlyForClassifiedErrorInstances', () => {
+    // 같은 문구 비교는 둘 다 Error 이고 저장된 실패가 분류됐을 때만 — 분류 불가 실패·문자열 오류는 같은 문구여도 오지 않은 것으로 본다.
+    const boom = new Error('boom');
+    const unclassified = make();
+    unclassified.scope.runnerStarted('m', 'c');
+    unclassified.scope.runnerFinished({ ok: false, usage: null, error: boom });
+    unclassified.scope.close({ ok: false, reason: 'handler_error', error: new Error('boom') });
+    expect(unclassified.sink[1].errorReason).toBe('handler_error');
+
+    const str = make();
+    str.scope.runnerStarted('m', 'c');
+    str.scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    str.scope.close({ ok: false, reason: 'handler_error', error: LIMIT.message });
+    expect(str.sink[1].errorReason).toBe('handler_error');
+  });
+
   it('close_clientClosed_stays', () => {
     const { sink, scope } = make();
     scope.runnerStarted('m', 'c');
