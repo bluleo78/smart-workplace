@@ -356,6 +356,43 @@ describe('RichInput 본문 모드 — @단어와 멘션 팝업', () => {
     expect(lastArg(onBodyChange)).toContain('<@7>')
   })
 
+  it('검색어가 막 후보가 생기는 값이 된 직후(목록 갱신 전) Esc 는 본문 편집을 취소하지 않고 팝업만 닫는다 (WP-2124 리뷰 후속)', async () => {
+    const { el, onCancel } = renderBody({ initialBody: '첫 줄', members: [MEMBER] })
+    const editor = editorOf(el)
+    // 'ㄱ' — 맞는 멤버가 없어 목록(live)은 비어 있다.
+    await typeAtEnd(editor, ' @ㄱ')
+    expect(screen.queryByTestId('chat-mention-popover')).toBeNull()
+    // 검색어가 '김'(후보 있음)이 된 직후, 목록이 따라오기 전에 Esc — live 로 판정하면 취소로 간다.
+    await act(async () => {
+      const to = editor.state.selection.from
+      editor.chain().insertContentAt({ from: to - 1, to }, '김').run()
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+    // 팝업은 닫힌 채(dismissed)라 목록이 따라와도 다음 Enter 는 후보를 고르지 않고 줄바꿈한다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(editor.getJSON().content).toHaveLength(2)
+    expect(JSON.stringify(editor.getJSON())).not.toContain('mention')
+  })
+
+  it('보이던 후보가 맞지 않게 된 직후(목록 갱신 전) Esc 도 본문 편집을 취소하지 않고 팝업만 닫는다 (WP-2124 리뷰 후속)', async () => {
+    const { el, onCancel } = renderBody({ initialBody: '첫 줄', members: [MEMBER] })
+    const editor = editorOf(el)
+    await typeAtEnd(editor, ' @김')
+    expect(screen.getByTestId('chat-mention-popover')).toBeInTheDocument()
+    // 검색어가 맞는 멤버가 없는 값이 된 직후, 목록이 따라오기 전에 Esc — 화면엔 앞 후보가 남아 있다.
+    await act(async () => {
+      editor.commands.insertContent('zzz')
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
   it('멤버가 목록을 그린 뒤에 와도(같은 검색어, 빈 목록) Enter 는 삼켜지지 않고 줄바꿈한다 (WP-2124 리뷰)', async () => {
     // 멤버 조회가 끝나기 전에 본문을 열어 @ki 를 친다 — 목록은 빈 채로 그려진다.
     const props = {
@@ -415,6 +452,29 @@ describe('RichInput 본문 모드 — @단어와 멘션 팝업', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
+  it('팝업이 뜨기 전(onStart 전)에 온 Esc 도 본문 편집을 취소하지 않고, 팝업은 닫힌 채 시작한다 (WP-2124 반려)', async () => {
+    const { el, onCancel } = renderBody({ initialBody: '첫 줄', members: [MEMBER] })
+    const editor = editorOf(el)
+    // @김 입력과 Esc 를 await 없이 잇달아 보내 — suggestion 의 onStart(팝업 띄우기)가 돌기 전에 Esc 가 닿는다.
+    // (mentionPopupOpenForEsc 만 보면 hide 가 없어 팝업이 없다고 보고 onCancel 이 불려 실패한다.)
+    await act(async () => {
+      editor.commands.focus('end')
+      editor.commands.insertContent(' @김')
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+    // 그 Esc 는 팝업을 닫은 것이다 — onStart 뒤에도 후보 목록이 뜨지 않는다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // 다음 Esc 는 본문 편집을 취소한다(열린 팝업의 Esc 뒤 두 번째 Esc 와 같은 순서).
+    act(() => {
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
   // 바깥 모달(개인 작업 상세)이 글 칸 Esc 를 문서 캡처 단계에서 막아도(preventDefault) 편집칸 Esc 는 동작한다 —
   // 팝업이 있으면 팝업만 닫고, 없으면 onCancel.
   describe('바깥이 막은 Esc', () => {
@@ -444,6 +504,26 @@ describe('RichInput 본문 모드 — @단어와 멘션 팝업', () => {
         fireEvent.keyDown(el, { key: 'Escape' })
       })
       expect(onCancel).not.toHaveBeenCalled()
+      act(() => {
+        fireEvent.keyDown(el, { key: 'Escape' })
+      })
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('팝업이 뜨기 전(onStart 전)에 온 막힌 Esc 도 취소하지 않고 팝업을 닫힌 채 시작한다, 다음 Esc 는 취소 (WP-2124 반려)', async () => {
+      blockEscapeAtDocument()
+      const { el, onCancel } = renderBody({ initialBody: '첫 줄', members: [MEMBER] })
+      const editor = editorOf(el)
+      await act(async () => {
+        editor.commands.focus('end')
+        editor.commands.insertContent(' @김')
+        fireEvent.keyDown(el, { key: 'Escape' })
+      })
+      expect(onCancel).not.toHaveBeenCalled()
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 30))
+      })
+      expect(screen.queryByRole('listbox')).toBeNull()
       act(() => {
         fireEvent.keyDown(el, { key: 'Escape' })
       })
