@@ -1,11 +1,11 @@
 import '@xyflow/react/dist/style.css'
 
 import {
-  Background, type Connection, type Edge, Handle, type Node, type NodeProps, Position, ReactFlow,
+  Background, type Connection, type Edge, Handle, type Node, type NodeProps, type OnNodesChange, Position, ReactFlow,
   ReactFlowProvider, useNodesInitialized, useNodesState, useReactFlow, useViewport,
 } from '@xyflow/react'
 import { Minus, Plus } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import type { WorkflowProblem } from '@/lib/workflows'
 
 import { applyConnection } from './applyConnection'
+import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeActorLabel, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
 import {
   addAskPath, addNode, autoLayout, type GraphEdge, type GraphNode, groupParallelEdges, moveManyFromDrag, type NewNodeType,
   parseWorkflowGraph, placeNodes, type WorkflowGraph,
@@ -37,7 +38,8 @@ const NEW_NODE_MENU: { type: NewNodeType; label: string }[] = [
 /** 노드 한 장 — 종류 아이콘, 이름, 담당(AI·사람 + 역할 이름). 가상 노드는 점선 테두리. */
 function WorkflowNodeCard({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   const { node, roleName } = data
-  const actor = node.type === 'agent_task' ? 'AI' : node.type === 'human_task' ? '사람' : null
+  // 담당 줄은 접근 이름(nodeAriaLabel)과 같은 함수로 만들어 화면 글자와 스크린리더 이름이 어긋나지 않게 한다
+  const actor = nodeActorLabel(node, roleName)
   return (
     <div
       className={`min-w-36 rounded-md border bg-card px-3 py-2 text-sm ${node.virtual ? 'border-dashed' : ''} ${selected ? 'ring-2 ring-ring' : ''}`}
@@ -47,7 +49,7 @@ function WorkflowNodeCard({ data, selected }: NodeProps<Node<FlowNodeData>>) {
         <NodeKindIcon type={node.type} />
         <span>{node.name ?? node.key}</span>
       </div>
-      {actor && <div className="mt-1 text-xs text-muted-foreground">{roleName ? `${actor} · ${roleName}` : actor}</div>}
+      {actor && <div className="mt-1 text-xs text-muted-foreground">{actor}</div>}
       <Handle type="source" position={Position.Right} />
     </div>
   )
@@ -59,11 +61,17 @@ const nodeTypes = { workflow: WorkflowNodeCard }
  * 그래프 선을 ReactFlow 선으로 바꾼다. 양 끝 노드가 그려지는 것(keys)만 남긴다 — 없는 노드를 가리키는 선(YAML 의 오타 등)을
  * 넘기면 ReactFlow 가 경고를 내고 그리지 못한다. 같은 출발·도착 간선은 한 선·한 라벨로 합치고(WP-2063), 오류·되돌림·질문 경로가 낀 묶음은 점선으로 정상 흐름과 구분한다.
  */
-function toFlowEdges(edges: GraphEdge[], keys: Set<string>): Edge[] {
-  return groupParallelEdges(edges, keys).map((e) => ({
-    id: e.id, source: e.from, target: e.to, label: e.label, type: 'smoothstep',
-    style: e.dashed ? { strokeDasharray: '5 4' } : undefined,
-  }))
+function toFlowEdges(edges: GraphEdge[], names: Map<string, string>): Edge[] {
+  return groupParallelEdges(edges, new Set(names.keys())).map((e) => {
+    // 합친 묶음이 모두 질문 경로 선이면 접근 이름을 「(질문)」으로 읽는다 — 묶음에는 종류가 없어 원래 간선에서 본다
+    const askOnly = edges.filter((x) => x.from === e.from && x.to === e.to).every((x) => x.kind === 'ask')
+    return {
+      id: e.id, source: e.from, target: e.to, label: e.label, type: 'smoothstep',
+      // 스크린리더용 한국어 이름(출발 → 도착)
+      ariaLabel: edgeAriaLabel({ id: e.id, from: e.from, to: e.to, label: e.label, kind: askOnly ? 'ask' : 'outcome' }, names),
+      style: e.dashed ? { strokeDasharray: '5 4' } : undefined,
+    }
+  })
 }
 
 /** 확대·축소 단추와 현재 배율. ReactFlow 안(Provider 아래)에서만 쓸 수 있다. */
@@ -122,16 +130,21 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   const canvasRef = useRef<HTMLDivElement>(null)
   const roleNames = useMemo(() => new Map(graph.roles.map((r) => [r.key, r.name ?? r.key])), [graph.roles])
   const positions = useMemo(() => placeNodes(graph), [graph])
-  const derivedNodes: Node<FlowNodeData>[] = useMemo(() => graph.nodes.map((n) => ({
+  const derivedNodes: Node<FlowNodeData>[] = useMemo(() => graph.nodes.map((n) => {
+    const roleName = n.role ? roleNames.get(n.role) ?? n.role : undefined
+    return {
     id: n.key,
     type: 'workflow',
     position: positions.get(n.key) ?? { x: 0, y: 0 },
-    data: { node: n, roleName: n.role ? roleNames.get(n.role) ?? n.role : undefined },
+    data: { node: n, roleName },
+    // 스크린리더용 한국어 이름(표시 이름, 담당) — React Flow 기본은 영어 안내라 직접 준다
+    ariaLabel: nodeAriaLabel(n, roleName),
     selected: n.key === selected,
     // 가상 노드만 막고, 나머지는 undefined 로 두어 ReactFlow 의 nodesDraggable·nodesConnectable(readOnly)을 따르게 한다
     draggable: n.virtual ? false : undefined,
     connectable: n.virtual ? false : undefined,
-  })), [graph.nodes, positions, roleNames, selected])
+    }
+  }), [graph.nodes, positions, roleNames, selected])
   // 드래그 중 노드가 커서를 따라오려면 ReactFlow 가 바뀐 좌표를 들고 있어야 한다(v12 의 제어 노드는 onNodesChange 가 적용해야 움직인다).
   // YAML 에서 만든 노드가 바뀌면 지역 상태를 다시 맞춘다 — 드래그가 끝나면 moveManyFromDrag 가 YAML 을 고쳐 같은 좌표로 수렴한다.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(derivedNodes)
@@ -168,9 +181,42 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 영구 대기를 막는 소진(pendingReveal 비움)은 effect 안에서만 가능하다.
     setPendingReveal(null)
   }, [pendingReveal, nodesInitialized, derivedNodes, flow])
-  const edges = useMemo(() => toFlowEdges(graph.edges, new Set(graph.nodes.map((n) => n.key))), [graph])
+  // 선 이름용 「노드 키 → 표시 이름」 맵 — 렌더마다 새로 만들지 않는다
+  const nodeNames = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n.name ?? n.key])), [graph.nodes])
+  const edges = useMemo(() => toFlowEdges(graph.edges, nodeNames), [graph.edges, nodeNames])
   // YAML 에 실제로 있는 노드의 키(가상 노드 제외)
   const realKeys = useMemo(() => new Set(graph.nodes.filter((n) => !n.virtual).map((n) => n.key)), [graph])
+  // 편집 패널은 마우스 클릭(onNodeClick)과 키보드 Enter·Space 로만 연다. onSelectionChange 로 열지 않는 까닭: React Flow 는
+  // 드래그를 시작할 때도 노드를 선택하므로, 선택 변경을 패널 열기로 받으면 노드를 끌기만 해도 패널이 열린다(마우스 동작을 바꾸면 안 된다).
+  // 노드 wrapper 의 keydown 은 ReactFlow 루트로 버블링되므로 여기서 받아 눌린 곳의 노드(data-id)를 찾는다.
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement
+    const nodeId = target.closest('.react-flow__node')?.getAttribute('data-id') ?? null
+    const action = panelActionFromKeyDown(e.key, nodeId, realKeys)
+    if (!action) return
+    if ('open' in action) {
+      // Space 의 기본 동작(페이지 스크롤)을 막는다 — 노드를 고르는 키로 쓰기 때문이다
+      e.preventDefault()
+      setSelected(action.open)
+    } else {
+      // React Flow 가 Esc 로 선택을 풀므로 패널도 닫아 둘이 어긋나지 않게 한다
+      setSelected(null)
+    }
+  }
+  // 노드 자리를 YAML 에 쓰는 곳은 여기 한 곳이다. React Flow 는 마우스 드래그가 끝날 때와 키보드(화살표)로 옮길 때 모두
+  // onNodesChange 로 position 변경(dragging:false)을 보낸다 — 키보드 이동은 onNodeDragStop 을 부르지 않으므로 거기서 쓰면
+  // 다시 그릴 때 노드가 제자리로 되돌아간다. 여러 노드를 함께 끌었으면 모두의 자리를 한 번에 쓴다.
+  // v13 의 변경 묶음은 배열이 아니라 Changeset 이라 getByType 으로 position 변경만 꺼낸다
+  const handleNodesChange: OnNodesChange<Node<FlowNodeData>> = (changes) => {
+    onNodesChange(changes)
+    if (readOnly) return
+    const moved = changes.getByType('position')
+      .filter((c) => c.dragging === false && c.position && realKeys.has(c.id))
+      .map((c) => ({ id: c.id, position: c.position! }))
+    if (moved.length === 0) return
+    const next = moveManyFromDrag(yaml, moved)
+    if (next !== yaml) onChange(next)
+  }
   // 지워진 노드를 가리키는 선택은 패널이 스스로 비어 있으므로 여기서 걸러 둔다.
   const panelKey = selected && realKeys.has(selected) ? selected : null
   // 시작 노드가 없는 초안(만들기 템플릿 등)은 시작 노드를 그래프에서 더할 수 있어야 한다
@@ -217,8 +263,11 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
         <div ref={canvasRef} className="relative h-[28rem] min-h-[28rem] min-w-0 @3xl:flex-1" data-testid="workflow-graph-canvas">
           <ReactFlow
             nodes={nodes}
-            onNodesChange={onNodesChange}
+            onNodesChange={handleNodesChange}
             edges={edges}
+            aria-label={GRAPH_EDITOR_ARIA_LABEL}
+            ariaLabelConfig={readOnly ? GRAPH_ARIA_LABEL_CONFIG_READONLY : GRAPH_ARIA_LABEL_CONFIG}
+            onKeyDown={onKeyDown}
             nodeTypes={nodeTypes}
             fitView
             nodesDraggable={!readOnly}
@@ -227,10 +276,6 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
             proOptions={{ hideAttribution: true }}
             onNodeClick={(_, node) => { if (realKeys.has(node.id)) setSelected(node.id) }}
             onPaneClick={() => setSelected(null)}
-            onNodeDragStop={(_, __, dragged) => {
-              // 여러 노드를 함께 끌었으면 모두의 자리를 한 번에 쓴다(마지막 노드만 쓰면 나머지가 되돌아간다)
-              if (!readOnly) onChange(moveManyFromDrag(yaml, dragged))
-            }}
             onConnect={onConnect}
           >
             <Background />

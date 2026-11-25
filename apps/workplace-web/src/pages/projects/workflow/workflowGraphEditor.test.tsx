@@ -423,3 +423,46 @@ it('warningBar_showsFirstErrorMessage', () => {
   expect(screen.getByText('오류 문구')).toBeInTheDocument()
   expect(screen.queryByText('경고 문구')).not.toBeInTheDocument()
 })
+
+// jsdom 스텁은 노드 크기를 재지 못해 React Flow 가 노드를 visibility:hidden 으로 두므로 접근 이름이 계산되지 않아(role 조회 불가) 노드는 aria-label 로 찾는다.
+// WP-2052 — 접근 이름(한국어)·키보드(Enter·Space)로 편집 패널 열기
+it('graphEditor_a11y_namesCanvasAndNodesInKorean', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  expect(screen.getByRole('application', { name: '워크플로우 그래프 편집' })).toBeInTheDocument()
+  expect(screen.getByLabelText('분류, AI · 팀장')).toBeInTheDocument()
+  expect(screen.getByLabelText('기획 확정, 사람 · 확인자')).toBeInTheDocument()
+})
+it('graphEditor_keyboardEnterOrSpace_opensNodePanel', async () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  const node = screen.getByLabelText('개발, AI · developer')
+  node.focus()
+  fireEvent.keyDown(node, { key: 'Enter' })
+  expect(await screen.findByLabelText('노드 이름')).toHaveValue('개발')
+  // 다른 노드로 Space
+  const plan = screen.getByLabelText('기획 확정, 사람 · 확인자')
+  fireEvent.keyDown(plan, { key: ' ' })
+  await waitFor(() => expect(screen.getByLabelText('노드 이름')).toHaveValue('기획 확정'))
+})
+it('graphEditor_keyboardOpenedPanel_closesOnPaneClick_andOpensWhenReadOnly', async () => {
+  renderWithProviders(<Harness initial={FIXTURE} readOnly />)
+  fireEvent.keyDown(screen.getByLabelText('분류, AI · 팀장'), { key: 'Enter' })
+  expect(await screen.findByLabelText('노드 이름')).toHaveValue('분류')
+  fireEvent.click(document.querySelector('.react-flow__pane')!)
+  await waitFor(() => expect(screen.queryByLabelText('노드 이름')).toBeNull())
+})
+
+// Space 는 페이지 스크롤이 아니라 노드 선택으로만 쓰인다
+it('graphEditor_space_preventsDefaultScroll', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  const notPrevented = fireEvent.keyDown(screen.getByLabelText('개발, AI · developer'), { key: ' ' })
+  expect(notPrevented).toBe(false)
+})
+// Esc 는 선택을 풀고 패널도 닫는다
+it('graphEditor_escapeOnNode_closesPanel', async () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  const node = screen.getByLabelText('개발, AI · developer')
+  fireEvent.keyDown(node, { key: 'Enter' })
+  expect(await screen.findByLabelText('노드 이름')).toHaveValue('개발')
+  fireEvent.keyDown(node, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByLabelText('노드 이름')).toBeNull())
+})
