@@ -4,7 +4,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { UserPlus, X } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { type FocusEvent, Fragment, useState } from 'react';
 
 import {
   DropdownMenu,
@@ -45,6 +45,7 @@ import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import { findStatus, statusesByCategory } from '../../../lib/projectStatuses';
+import { HIDE_SCROLLBAR } from '../../../lib/scrollStyles';
 import type { ProjectStatus } from '../../../types/projectStatus';
 import { statusPickerOptions } from '../hooks/statusFacets';
 
@@ -55,6 +56,31 @@ import { statusPickerOptions } from '../hooks/statusFacets';
 export function BulkBarSpacer({ active }: { active: boolean }) {
   const isMobile = useIsMobile();
   return isMobile && active ? <div aria-hidden className="h-[calc(4rem+env(safe-area-inset-bottom))]" /> : null;
+}
+
+/** 바 안에서 초점 단추를 드러낼 때 바 테두리와 띄우는 좌우 여백 — 바의 px-3(12px)과 같다(WP-2070). */
+const BAR_REVEAL_PAD = 12;
+
+/**
+ * 데스크톱 일괄 작업 바(가로 스크롤 영역) 안에서 키보드 초점을 받은 단추가 바 밖으로 잘려 있으면, 바만 가로로 스크롤해 보여 준다(WP-2070).
+ * 브라우저(Chromium)는 초점 요소가 조금이라도 보이면 스크롤하지 않아, 바 오른쪽 끝에 반쯤 걸린 「선택 해제」에 Tab 으로 가도 잘린 채 남았다.
+ * - 바 요소의 scrollLeft 만 바꾼다. scrollIntoView 는 조상(목록 슬롯)까지 움직여, 슬롯의 scroll-pt-11 여백 때문에 바 단추에 초점이 갈 때마다
+ *   목록이 약 35px 위로 튀었다. 단추와 바의 사각형으로 넘친 만큼(좌우 여백 BAR_REVEAL_PAD 포함)만 옮기고, 이미 다 보이면 움직이지 않는다.
+ *   (브라우저 자체의 초점 스크롤이 슬롯을 끌어올리던 것은 바 단추의 scroll-margin 이 막는다 — 바 className 의 *:-scroll-mt-9 *:scroll-mb-11 주석.)
+ * - React onFocus 는 포털 자손(드롭다운 메뉴 항목)의 초점에도 버블된다 — 바 DOM 안의 자손일 때만 다룬다.
+ * - 키보드 초점(:focus-visible)일 때만 — 반쯤 잘린 단추를 마우스로 누르면 mousedown 초점에 바가 스크롤돼 mouseup 이 다른 곳에 떨어져 클릭이 빗나갔다.
+ */
+function revealFocusedInBar(e: FocusEvent<HTMLDivElement>) {
+  const bar = e.currentTarget;
+  const target = e.target as Element;
+  if (target === bar || !bar.contains(target) || !target.matches(':focus-visible')) return;
+  const b = bar.getBoundingClientRect();
+  const t = target.getBoundingClientRect();
+  // 바의 안쪽 가장자리(테두리 제외)에서 여백만큼 들어간 선을 기준으로 넘친 거리를 잰다.
+  const left = b.left + bar.clientLeft + BAR_REVEAL_PAD;
+  const right = b.left + bar.clientLeft + bar.clientWidth - BAR_REVEAL_PAD;
+  const delta = t.left < left ? t.left - left : t.right > right ? t.right - right : 0;
+  if (delta !== 0) bar.scrollTo({ left: bar.scrollLeft + delta });
 }
 
 /** 선택이 있을 때만 툴바를 노출한다. 삭제 확인 다이얼로그는 포털이라 항상 마운트해 둔다. */
@@ -187,15 +213,27 @@ export function IssueBulkActions({
         <div
           data-testid="issue-bulk-toolbar"
           data-mobile={isMobile || undefined}
+          onFocus={isMobile ? undefined : revealFocusedInBar}
           className={
             isMobile
               ? // 하단 탭바(--mobile-tabbar-h, MobileTabBar 가 공개) 바로 위에 고정 — 키보드가 열려 있으면 키보드 위.
                 'fixed inset-x-0 z-40 flex items-center gap-1 border-t bg-popover text-popover-foreground px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)] bottom-[max(var(--mobile-tabbar-h,0px),var(--kb-inset,0px))]'
               : // 데스크톱은 스크롤 영역 위쪽에 붙어 있게(sticky) — 사이클 구간 목록처럼 바가 스크롤 영역 안에 있으면 아래에서 체크했을 때
                 // 바가 화면 위쪽 밖(top -1590px)에 남아 선택 표시도 조작도 보이지 않았다(WP-485). 표 머리(z-10) 위에 그린다.
-                // WP-2070: 이 높이(38px)를 바꾸면 ProjectDetailPage 슬롯의 has-[[data-sticky-bulk-bar]]:scroll-pt-11(44px) 도 함께 고친다.
+                // WP-2070: 이 높이(38px = py-2 16 + text-sm 줄 20 + 테두리 2)를 바꾸면 ProjectDetailPage 슬롯의 has-[[data-sticky-bulk-bar]]:scroll-pt-11(44px) 도 함께 고친다.
+                // whitespace-nowrap — 좁은 lg 폭 + 옆 패널에서 단추 글자가 두 줄로 접히면 바가 약 58px 로 커져 44px 여백을 넘고 초점이 다시 가려졌다.
+                // 한 줄을 지켜 높이를 38px 로 고정한다.
+                // overflow-x-auto + 스크롤바 숨김(WP-2070) — 바보다 글자가 넓으면(에픽·AI 패널을 연 1024px 등) 넘친 단추를 바 안 가로 스크롤로 담는다.
+                // 사이클 목록의 바 감싸개는 sticky left-0 w-[100cqw] 라 슬롯을 가로로 밀어도 바가 따라와 넘친 단추에 닿지 못했고, 넘친 글자가 바 배경 밖으로 나가 행과 겹쳤다.
+                // Tab 으로 단추에 초점이 가면 revealFocusedInBar 가 바만 가로로 스크롤해 그 단추를 좌우 여백(px-3)과 함께 보여 준다(마우스는 가로 휠·트랙패드).
+                // scroll-px-3 은 브라우저가 스스로 초점 스크롤할 때(단추가 통째로 가려진 경우)도 같은 여백을 두게 한다. 스크롤바를 숨기는 까닭은
+                // 클래식 스크롤바(Windows 등)가 바 높이를 늘려 위 44px 여백을 넘기 때문이다.
+                // *:scroll-mb-11(WP-2070) — 슬롯의 scroll-pt-11 은 바가 떠 있는 위 44px 를 「가려진 곳」으로 친다. 그러면 바 단추가 초점을 받을 때 브라우저가
+                // 단추를 안 보인다고 보고 슬롯을 세로로 끌어올렸다(아래로 내린 목록이 맨 위 근처로 튐). 그래서 단추의 스크롤 기준 사각형을 위는 36px 줄이고(단추 위끝 9px → 45px)
+                // 아래는 44px 늘려 슬롯의 보이는 영역(44px 아래) 안에 들게 한다 — 브라우저는 다 보인다고 보고 세로로는 움직이지 않는다. 가로는 그대로라 넘친 단추는 드러낸다.
+                // 바 높이·여백(py-2·테두리)이나 슬롯 scroll-pt-11 을 바꾸면 이 값도 함께 고친다. 드롭다운 메뉴는 포털이라 이 overflow 에 잘리지 않는다.
                 // WP-1019: 바탕은 불투명 popover(떠 있는 패널 표면) — 다크의 muted(흰 5% 알파)는 비쳐서 아래 목록 글자가 겹쳐 보였다. 테두리·그림자로 목록과 구분.
-                'sticky top-0 z-20 mb-2 flex shrink-0 items-center gap-2 rounded border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm'
+                `sticky top-0 z-20 mb-2 flex shrink-0 items-center gap-2 overflow-x-auto scroll-px-3 *:-scroll-mt-9 *:scroll-mb-11 ${HIDE_SCROLLBAR} whitespace-nowrap rounded border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm`
           }
         >
           {isMobile ? (

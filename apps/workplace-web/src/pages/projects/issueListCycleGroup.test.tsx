@@ -335,7 +335,7 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
 })
 
 // WP-2070 — sticky 일괄 작업 바 표지(data-sticky-bulk-bar). 슬롯의 scroll-padding(:has) 이 바 높이만큼 위 여백을 줘 Shift+Tab 초점이 바 뒤로 가려지지 않게 하는 근거다.
-// 기하는 E2E(@layout·@input)가 보고, 모바일은 뷰포트가 달라 IssueCycleGroupedList.stickyBar.mobile.test.tsx 에서 본다.
+// 기하는 E2E(@layout·@input)가 보고, 모바일은 뷰포트가 달라 src/pages/mobile/issueRowActions.test.tsx 에서 본다.
 describe('사이클 구간 sticky 바 표지 (WP-2070)', () => {
   const marker = () => document.querySelector('[data-sticky-bulk-bar]')
 
