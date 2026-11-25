@@ -310,6 +310,22 @@ test('상세 시트: AI 처리 행을 누르면 상세를 불러 요약·오류 
   expect(paths).toEqual([`/api/v1/admin/ai-status/runs/${DETAIL_UUID}`])
 })
 
+// WP-2106: 상세 원문이 있어도 사유 이름을 함께 보인다 — 원문만 보이면 한도 초과가 영문 메시지로만 남는다
+test('상세 시트: 사유가 provider_limit 이고 상세 원문이 있으면 사유 이름과 원문을 둘 다 보인다', async () => {
+  const raw = "API Error: You've hit your org's monthly spend limit"
+  const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+  const { user } = renderScreen(<AiStatusHistoryPage />, {
+    path: '/settings/ai-status/history',
+    auth: { isAdmin: true },
+    handlers: [h.handler, http.get(`${RUNS}/:id`, () => HttpResponse.json(createAiRunDetail({ errorDetail: raw })))],
+  })
+  await user.click(await screen.findByTestId('ai-run-row'))
+  const dialog = await screen.findByRole('dialog')
+  const errorSection = await within(dialog).findByRole('region', { name: '오류' })
+  expect(await within(errorSection).findByText(raw)).toBeInTheDocument()
+  expect(within(errorSection).getByText('사용 한도 초과')).toBeInTheDocument()
+})
+
 test('상세 시트: 위임 작업 행은 상세 API 를 부르지 않는다', async () => {
   let detailCalls = 0
   const h = runsHandler([createAiRunPage([createAiRunItem({ id: 'W-9', kind: 'DELEGATED_WORK' })])])

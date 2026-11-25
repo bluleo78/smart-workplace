@@ -67,6 +67,13 @@ public class AiRunClientInterceptor implements ClientHttpRequestInterceptor {
       }
     } catch (RuntimeException | IOException e) {
       AiRunFailures.recordIfServerError(recorder, call, status);
+      // 호출자에게 응답을 돌려주지 않고 던지므로 아무도 닫지 않는다 — 여기서 닫아 연결이 풀로 돌아가게 한다(WP-2106).
+      // 닫기 실패는 원래 예외를 가리지 않도록 suppressed 로만 붙인다.
+      try {
+        response.close();
+      } catch (RuntimeException closeError) {
+        e.addSuppressed(closeError);
+      }
       throw e;
     }
     byte[] bytes = buf.toByteArray();

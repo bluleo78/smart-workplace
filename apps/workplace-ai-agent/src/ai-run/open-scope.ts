@@ -43,7 +43,7 @@ export function openAiRunScope(
   }
 }
 
-/** 범위를 닫되 기록 쪽 오류는 삼킨다 — 기록이 처리 결과를 바꾸면 안 된다. */
-export function safeClose(scope: AiRunScope, outcome: { ok: boolean; reason?: string; detail?: string }): void {
+/** 범위를 닫되 기록 쪽 오류는 삼킨다 — 기록이 처리 결과를 바꾸면 안 된다. error 는 처리를 실패시킨 오류(알 때만, WP-2106: 러너 오류에서 왔는지 가린다). */
+export function safeClose(scope: AiRunScope, outcome: { ok: boolean; reason?: string; detail?: string; error?: unknown }): void {
   swallowRecording('범위 닫기', () => scope.close(outcome));
 }

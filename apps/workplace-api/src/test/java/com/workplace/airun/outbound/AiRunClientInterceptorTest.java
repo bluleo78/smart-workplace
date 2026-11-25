@@ -144,7 +144,10 @@ class AiRunClientInterceptorTest {
     assertThat(captured().errorReason()).isEqualTo("http_503");
   }
 
-  /** 5xx 본문 읽기가 중간에 실패하면 http_<코드> 로 기록한 뒤 원래 예외를 다시 던진다 — 잘린 응답을 성공처럼 돌려주지 않는다(WP-2106). */
+  /**
+   * 5xx 본문 읽기가 중간에 실패하면 http_<코드> 로 기록하고 응답을 닫은 뒤 원래 예외를 다시 던진다 — 잘린 응답을 성공처럼 돌려주지 않고, 호출자가 받지 못한
+   * 응답의 연결이 풀에서 새지 않게 한다(WP-2106).
+   */
   @Test
   void failure_5xxBodyReadFails_recordsHttpCodeAndRethrows() throws Exception {
     var req =
@@ -172,6 +175,33 @@ class AiRunClientInterceptorTest {
             () -> new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig))
         .isInstanceOf(java.io.IOException.class)
         .hasMessage("reset");
+
+    assertThat(captured().errorReason()).isEqualTo("http_503");
+    org.mockito.Mockito.verify(orig).close();
+  }
+
+  /** 본문 읽기 실패 뒤 응답 닫기마저 실패하면 원래 예외를 그대로 던지고 닫기 오류는 suppressed 로만 붙인다(WP-2106). */
+  @Test
+  void failure_5xxBodyReadFails_closeFails_keepsOriginalWithSuppressed() throws Exception {
+    var req =
+        new org.springframework.mock.http.client.MockClientHttpRequest(
+            org.springframework.http.HttpMethod.POST,
+            java.net.URI.create("http://x/mail/classify-batch"));
+    var orig = mock(org.springframework.http.client.ClientHttpResponse.class);
+    org.mockito.Mockito.when(orig.getStatusCode())
+        .thenReturn(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+    org.mockito.Mockito.when(orig.getBody()).thenThrow(new java.io.IOException("reset"));
+    org.mockito.Mockito.doThrow(new IllegalStateException("close failed")).when(orig).close();
+
+    assertThatThrownBy(
+            () -> new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig))
+        .isInstanceOf(java.io.IOException.class)
+        .hasMessage("reset")
+        .satisfies(
+            e ->
+                assertThat(e.getSuppressed())
+                    .extracting(Throwable::getMessage)
+                    .containsExactly("close failed"));
 
     assertThat(captured().errorReason()).isEqualTo("http_503");
   }

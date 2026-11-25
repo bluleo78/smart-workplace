@@ -192,13 +192,43 @@ describe('AiRunScope', () => {
     expect(sink[1].errorReason).toBe('http_502');
   });
 
-  it('close_limitRunnerError_beatsHandlerAndStreamError', () => {
-    for (const reason of ['handler_error', 'stream_error', 'runner_error', 'failed']) {
+  it('close_limitRunnerError_beatsHandlerError_whenFailureCameFromIt', () => {
+    // 라우트의 실패 오류가 그 러너 오류 자체이거나, cause 로 감싼 것이거나, 같은 메시지로 다시 던진 것이면 분류 사유가 이긴다.
+    for (const error of [LIMIT, new Error('wrapped', { cause: LIMIT }), new Error(LIMIT.message)]) {
+      const { sink, scope } = make();
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+      scope.close({ ok: false, reason: 'handler_error', error });
+      expect(sink[1].errorReason).toBe('provider_limit');
+    }
+  });
+
+  it('close_bypassedLimitRunnerError_thenOtherFailure_keepsRouteReason', () => {
+    // 앞서 우회된 러너 한도 오류가 있어도 라우트가 다른 오류로 실패했으면 그 표지가 남는다 — 한도 초과로 실패율에서 빠지면 안 된다.
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: true, usage: null });
+    scope.close({ ok: false, reason: 'handler_error', error: new Error('db down') });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'handler_error', errorDetail: LIMIT.message });
+  });
+
+  it('close_limitRunnerError_withoutRouteError_onlyBeatsGenericReasons', () => {
+    // 오류 객체 없이 닫으면(미들웨어) 없음·http_5xx·runner_error 에만 이기고, handler_error·stream_error·failed 는 그대로 둔다.
+    for (const reason of [undefined, 'http_500', 'runner_error']) {
       const { sink, scope } = make();
       scope.runnerStarted('m', 'c');
       scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
       scope.close({ ok: false, reason });
       expect(sink[1].errorReason).toBe('provider_limit');
+    }
+    for (const reason of ['handler_error', 'stream_error', 'failed']) {
+      const { sink, scope } = make();
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+      scope.close({ ok: false, reason });
+      expect(sink[1].errorReason).toBe(reason);
     }
   });
 

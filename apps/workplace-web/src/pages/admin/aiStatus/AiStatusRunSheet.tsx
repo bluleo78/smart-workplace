@@ -76,7 +76,10 @@ export function AiStatusRunSheet({
   // 상세를 기다리는 중 — 열려 있는 처리(R-)만(위임 작업 W- 는 상세가 없다)
   const loadingDetail = item !== null && runId !== null && detailQuery.isPending
   const detail = detailQuery.data
-  const errorText = detail?.errorDetail ?? (shown?.errorReason == null ? null : aiRunReasonLabel(shown.errorReason))
+  // 오류는 사유 이름(예: 사용 한도 초과)을 늘 먼저 보이고, 상세 원문(errorDetail)이 있으면 그 아래 부가 정보로 함께 보인다(WP-2106)
+  // 원문만 보이면 한도 초과 실행이 영문 메시지로만 남아 사유를 알아보기 어렵다
+  const reasonText = shown?.errorReason == null ? null : aiRunReasonLabel(shown.errorReason)
+  const errorDetail = detail?.errorDetail ?? null
   const hasCache = detail != null && (detail.cacheReadTokens !== null || detail.cacheWriteTokens !== null)
   const maxMs = Math.max(shown?.waitMs ?? 0, shown?.durationMs ?? 0)
 
@@ -139,10 +142,13 @@ export function AiStatusRunSheet({
                 <Bar label="대기" ms={shown.waitMs} max={maxMs} testId="ai-run-bar-wait" />
                 <Bar label="처리 시간" ms={shown.durationMs} max={maxMs} testId="ai-run-bar-duration" />
               </section>
-              {errorText && (
+              {(reasonText || errorDetail) && (
                 <section className="space-y-1" aria-label="오류">
                   <h3 className="text-sm font-medium">오류</h3>
-                  <pre className="whitespace-pre-wrap break-words rounded-md border border-destructive p-2 font-mono text-xs">{errorText}</pre>
+                  {reasonText && <p className="text-sm">{reasonText}</p>}
+                  {errorDetail && (
+                    <pre className="whitespace-pre-wrap break-words rounded-md border border-destructive p-2 font-mono text-xs">{errorDetail}</pre>
+                  )}
                 </section>
               )}
               {/* 실패한 처리에만 — 성공·진행 건에서 「실패만 보기」는 맥락이 맞지 않는다 */}
