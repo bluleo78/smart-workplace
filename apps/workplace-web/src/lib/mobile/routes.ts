@@ -1,7 +1,7 @@
 // 모바일 경로 판정 — 탭바를 보일지(탭 루트), 뒤로가기가 어디로 갈지(모듈 루트)를 경로만으로 결정한다.
 // 상태 없이 렌더 시점에 판정하므로 회전·딥링크 진입에도 일관된다.
 
-import { PROJECT_TAB_PATHS } from '../projectTabPaths'
+import { PROJECT_TAB_PATHS, projectIssuesPath } from '../projectTabPaths'
 import { DEFAULT_TAB_SLOTS } from './tabConfig'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId, under } from './tabs'
 
@@ -32,6 +32,10 @@ const PROJECT_SUB = /^(\/projects\/[^/]+)\/.+$/
 // 이슈 상세(/projects/:key/issues/:n, WP-2085) — 뒤로가기 대상은 이슈 목록의 정식 주소(/projects/:key/issues).
 // 프로젝트 홈으로 보내면 기억한 탭(개요 등)으로 튕겨 목록이 아닌 곳에 도착한다.
 const PROJECT_ISSUE_DETAIL = /^(\/projects\/[^/]+\/issues)\/[^/]+$/
+
+// 프로젝트 설정(/projects/:key/settings, WP-2085) — 데스크탑 「프로젝트로 돌아가기」와 같이 이슈 목록의 정식 주소로 돌아간다.
+// 프로젝트 홈으로 보내면 기억한 탭(개요 등)으로 튕겨 버튼과 ‹ 의 도착지가 갈린다.
+const PROJECT_SETTINGS = /^\/projects\/([^/]+)\/settings$/
 
 // 프로젝트 탭 길(WP-1477) — 개요·타임라인·사이클·버전은 하위 화면이 아니라 프로젝트 화면(이슈 탭 /projects/:key/issues)의 다른 탭이다.
 // 뒤로가기 대상을 이슈 탭과 같게(작업 모듈 루트) 둬, 탭에서 ‹ 를 누르면 프로젝트 화면을 떠난다(다른 탭으로 한 단계 내려가지 않는다).
@@ -68,6 +72,8 @@ export function moduleRootFor(pathname: string): string {
   if (projectTab) return moduleRootFor(projectTab[1])
   const issueDetail = PROJECT_ISSUE_DETAIL.exec(p)
   if (issueDetail) return issueDetail[1]
+  const settings = PROJECT_SETTINGS.exec(p)
+  if (settings) return projectIssuesPath(settings[1])
   const project = PROJECT_SUB.exec(p)
   if (project) return project[1]
   const extra = EXTRA_ROOTS.find(([match]) => match(p))

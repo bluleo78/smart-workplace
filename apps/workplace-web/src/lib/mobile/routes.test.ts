@@ -31,7 +31,8 @@ describe('moduleRootFor', () => {
     // 프로젝트 하위 화면은 그 프로젝트로(병합 헤더의 ‹ 가 "프로젝트로 돌아가기" 아이콘을 대체).
     ['/projects/MOB/issues/1', '/projects/MOB/issues'],
     ['/projects/MOB/versions/3', '/projects/MOB'],
-    ['/projects/MOB/settings', '/projects/MOB'],
+    // 설정은 데스크탑 「프로젝트로 돌아가기」와 같이 이슈 목록 주소로(WP-2085).
+    ['/projects/MOB/settings', '/projects/MOB/issues'],
     // 프로젝트 탭 길(WP-1477)은 이슈 탭(/projects/:key/issues)과 같은 곳으로 — 탭은 하위 화면이 아니다.
     ['/projects/MOB/overview', '/tasks'],
     ['/projects/MOB/issues', '/tasks'],

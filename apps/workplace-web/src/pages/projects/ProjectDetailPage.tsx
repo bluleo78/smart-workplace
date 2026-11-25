@@ -43,7 +43,7 @@ import { useIssueListColumns } from './hooks/useIssueListColumns';
 import { useRememberedIssueQuery } from './hooks/useRememberedIssueQuery';
 import { useProjectTabs } from './tabs/ProjectTabsContext';
 
-// 팀·공개 프로젝트 이슈 탭 — 이슈 필터/뷰 영역. URL: /projects/:key (ProjectTabsLayout 의 index 자식, WP-1477)
+// 팀·공개 프로젝트 이슈 탭 — 이슈 필터/뷰 영역. URL: /projects/:key/issues = 목록, /projects/:key = 홈(같은 화면을 그리되 마지막 탭을 되살린다) (ProjectTabsLayout 의 index·issues 자식, WP-1477·WP-2085)
 // view / 필터는 URL SearchParams 가 단일 source of truth. 로딩·오류·머리줄·탭 줄·새 이슈 대화상자는 레이아웃이 맡는다.
 // 개인 프로젝트는 레이아웃이 이 화면 대신 개인 전용 화면(PersonalProjectDetail)을 바로 그린다 — 여기는 팀 전용.
 export default function ProjectDetailPage() {

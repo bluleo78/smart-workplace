@@ -44,6 +44,7 @@ import { ReportSettings } from './components/ReportSettings';
 import { RepositorySettings } from './components/RepositorySettings';
 import { StatusManagement } from './components/status/StatusManagement';
 import { StatusSummarySettings } from './components/StatusSummarySettings';
+import { ISSUES_TAB_STATE, projectTabPath } from './tabs/projectTabs';
 
 /** 위험 구역 설명 — 처음부터 있던 기본 개인 프로젝트는 삭제 버튼 대신 이 안내를 보인다(WP-857). */
 const DEFAULT_PROJECT_UNDELETABLE = '처음부터 있던 기본 개인 프로젝트는 지울 수 없어요.';
@@ -143,7 +144,7 @@ export default function ProjectSettingsPage() {
           variant="ghost"
           size="icon"
           aria-label="프로젝트로 돌아가기"
-          onClick={() => navigate(`/projects/${key}`)}
+          onClick={() => navigate(projectTabPath(key, 'issues'), { state: ISSUES_TAB_STATE })}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
