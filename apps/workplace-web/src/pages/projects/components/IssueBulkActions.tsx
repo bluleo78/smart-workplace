@@ -193,6 +193,7 @@ export function IssueBulkActions({
                 'fixed inset-x-0 z-40 flex items-center gap-1 border-t bg-popover text-popover-foreground px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)] bottom-[max(var(--mobile-tabbar-h,0px),var(--kb-inset,0px))]'
               : // 데스크톱은 스크롤 영역 위쪽에 붙어 있게(sticky) — 사이클 구간 목록처럼 바가 스크롤 영역 안에 있으면 아래에서 체크했을 때
                 // 바가 화면 위쪽 밖(top -1590px)에 남아 선택 표시도 조작도 보이지 않았다(WP-485). 표 머리(z-10) 위에 그린다.
+                // WP-2070: 이 높이(38px)를 바꾸면 ProjectDetailPage 슬롯의 has-[[data-sticky-bulk-bar]]:scroll-pt-11(44px) 도 함께 고친다.
                 // WP-1019: 바탕은 불투명 popover(떠 있는 패널 표면) — 다크의 muted(흰 5% 알파)는 비쳐서 아래 목록 글자가 겹쳐 보였다. 테두리·그림자로 목록과 구분.
                 'sticky top-0 z-20 mb-2 flex shrink-0 items-center gap-2 rounded border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm'
           }
