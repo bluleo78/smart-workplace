@@ -269,6 +269,38 @@ describe('맞는 멤버가 없는 @ 뒤 Enter (WP-2107)', () => {
   })
 })
 
+// 검색어가 바뀐 직후(목록 갱신 전) Enter (WP-2124) — 목록은 비동기로 갱신돼 앞 검색어의 항목이 남아 있다. 그 항목을 넣으면 안 된다.
+describe('낡은 후보 목록의 Enter (WP-2124)', () => {
+  it('검색어가 바뀐 직후(목록 갱신 전) Enter 는 앞 목록의 항목을 넣지 않고, 목록이 따라오면 새 후보를 고른다', async () => {
+    const onSubmit = vi.fn()
+    const el = renderComment(onSubmit, 'mention-enter-stale')
+    const editor = editorOf(el)
+    // '@k' — 후보 김개발·강기획, 0번(김개발) 선택.
+    await typeAtEnd(editor, '@k')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    // 검색어 'ka'(강기획만)가 된 직후 목록이 따라오기 전에 Enter — await 없이 한 act 안에서 보낸다.
+    await act(async () => {
+      editor.commands.insertContent('a')
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+    const afterStale = JSON.stringify(editor.getJSON())
+    expect(afterStale).not.toContain('김개발') // 낡은 목록의 0번 항목이 들어가지 않는다
+    expect(afterStale).not.toContain('mention')
+    // 목록이 따라온 뒤 Enter 는 새 후보(강기획)를 고른다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    const picked = JSON.stringify(editor.getJSON())
+    expect(picked).toContain('강기획')
+    expect(picked).not.toContain('김개발')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
 describe('MentionList 빈 목록 키 (WP-2107)', () => {
   it('빈 목록은 Enter·ArrowDown 을 삼키지 않는다', () => {
     const ref = createRef<MentionListHandle>()
