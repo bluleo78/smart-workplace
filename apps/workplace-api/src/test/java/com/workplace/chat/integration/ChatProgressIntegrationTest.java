@@ -125,12 +125,19 @@ class ChatProgressIntegrationTest extends ExternalClientMockedTestBase {
         .andExpect(status().isForbidden())
         // 멤버십·필터가 아니라 내부 호출 확인에서 막혔다
         .andExpect(jsonPath("$.message").value(AiProgressRequest.INTERNAL_ONLY_MESSAGE));
-    // WP-2117: 다른 테스트의 progress fan-out 에 거짓으로 깨지지 않게, 이 테스트가 보낸 가짜 streamId 만 본다.
+    // WP-2117: 다른 테스트의 progress fan-out 에 거짓으로 깨지지 않게 이 테스트의 것만 본다 — 가짜 streamId 이거나
+    // 이 테스트 스레드(threadId)로 간 progress 면 새어 나간 것이다(streamId 가 바뀌어 나가도 잡게, WP-2117 리뷰 후속).
+    // threadId 는 문자열로 견준다 — payload 의 숫자 타입(Long/Integer)이 바뀌어도 조용히 놓치지 않게.
     verify(registry, never())
         .fanOut(
             any(),
             eq("chat.message.progress"),
-            argThat((Map<String, Object> p) -> p != null && "fake-c3".equals(p.get("streamId"))));
+            argThat(
+                (Map<String, Object> p) ->
+                    p != null
+                        && ("fake-c3".equals(p.get("streamId"))
+                            || String.valueOf(threadId)
+                                .equals(String.valueOf(p.get("threadId"))))));
   }
 
   @Test
