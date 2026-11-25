@@ -26,7 +26,7 @@ import { MyOverviewTab, OverviewPeriodPicker } from './overview/MyOverviewTab'
 // 할당/내가 만든 탭은 /me/issues 기반 — 프로젝트 묶음 정렬(group)과 facet 을 서버 쿼리로 합친다(myTasksQuery, WP-916).
 // 할당 탭은 내가 맡은 일이라 담당자 열을 두지 않고, 내가 만든·구독 탭은 남이 맡은 일이 섞여 담당자 열을 둔다.
 
-/** URL 필터 상태 — 필터 0건 판정과 필터 초기화(탭 경로는 두고 필터 키만 지움)를 두 탭이 함께 쓴다. */
+/** URL 필터 상태 — 필터 0건 판정과 필터 지우기(탭 경로는 두고 필터 키만 지움)를 두 탭이 함께 쓴다. */
 function useMyTasksFilters() {
   const [params, setParams] = useSearchParams()
   return {
@@ -50,7 +50,7 @@ function AssignedTab({ scrollRoot }: { scrollRoot: Element | null }) {
   const { params, filtered, resetFilters, showAllClosed } = useMyTasksFilters()
   const query = useMeIssues(myTasksQueryParams('assigned', params))
   // 완료를 숨겨 비었을 수 있다 — 숨겼다고 알리고 「완료 모두 보기」를 다음 행동으로 준다(프로젝트 목록 WP-606 과 같은 안내).
-  // 필터 0건에서도 같다 — 걸린 이슈가 완료라 숨겨진 것인지 구분하게, 초기화 옆에 바로가기를 둔다(WP-941).
+  // 필터 0건에서도 같다 — 걸린 이슈가 완료라 숨겨진 것인지 구분하게, 필터 지우기 옆에 바로가기를 둔다(WP-941).
   const hiding = isHidingClosed(params)
   const showClosedAction = hiding ? { label: '완료 모두 보기', onClick: showAllClosed, testIdSuffix: 'show-closed' } : undefined
   return (

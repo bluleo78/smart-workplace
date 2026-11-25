@@ -136,12 +136,12 @@ export function IssueCycleGroupedList({
   }
   if (cycles.isLoading) return <IssueCycleListSkeleton />;
 
-  // 사이클 필터로 고른 사이클이 목록에 없으면(삭제 등) 보여줄 구간이 없다 — 평면 목록 빈 상태와 같은 구성(필터 초기화 포함).
+  // 사이클 필터로 고른 사이클이 목록에 없으면(삭제 등) 보여줄 구간이 없다 — 평면 목록 빈 상태와 같은 구성(필터 지우기 포함).
   if (sections.length === 0) {
     return (
       <IssueFilterEmptyState
         title="조건에 맞는 사이클이 없습니다"
-        description="선택한 사이클이 삭제되었을 수 있습니다. 필터를 초기화해 보세요."
+        description="선택한 사이클이 삭제되었을 수 있습니다. 필터를 지워 보세요."
       />
     );
   }

@@ -41,7 +41,7 @@ describe('이슈 불러오기 실패 상태 (WP-858)', () => {
     expect(screen.queryByTestId('issue-load-error')).not.toBeInTheDocument()
   })
 
-  test('목록: 다시 보내도 같은 실패(400)면 다시 시도 대신 필터 초기화 — 누르면 필터 없이 다시 불러온다', async () => {
+  test('목록: 다시 보내도 같은 실패(400)면 다시 시도 대신 필터 지우기 — 누르면 필터 없이 다시 불러온다', async () => {
     // 서버가 주소의 조건(q)을 받지 못하면 400, 조건이 없으면 이슈 1건.
     const { handlers } = mockSearch(
       () => false,
@@ -49,7 +49,7 @@ describe('이슈 불러오기 실패 상태 (WP-858)', () => {
     )
     const { user, location } = renderProjectScreen(`/projects/${KEY}?q=broken`, { handlers })
 
-    await waitFor(() => expect(screen.getByTestId('issue-load-error')).toHaveTextContent('필터를 초기화해 보세요'))
+    await waitFor(() => expect(screen.getByTestId('issue-load-error')).toHaveTextContent('필터를 지워 보세요'))
     expect(screen.queryByTestId('issue-load-error-retry')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('issue-load-reset-filter'))
 

@@ -263,8 +263,8 @@ describe('내 작업 묶음 목록(WP-916)', () => {
     expect(screen.getByTestId('show-all-closed-toggle')).toBeDisabled()
   })
 
-  // WP-1484: 개요 「완료한 이슈」·추이 막대 주소(status=DONE&closedIn=기간)는 완료일 기간을 서버 closedFrom/closedTo 로 보내고, 필터 초기화가 함께 지운다.
-  test('완료일 기간(closedIn)은 closedFrom·closedTo 로 조회하고, 필터로 세어 초기화가 지운다', async () => {
+  // WP-1484: 개요 「완료한 이슈」·추이 막대 주소(status=DONE&closedIn=기간)는 완료일 기간을 서버 closedFrom/closedTo 로 보내고, 필터 지우기가 함께 지운다.
+  test('완료일 기간(closedIn)은 closedFrom·closedTo 로 조회하고, 필터로 세어 필터 지우기가 지운다', async () => {
     const done = createIssue({ id: 77, title: '기간 안 완료', status: 'DONE' })
     const { seen } = renderMyTasks('/me/tasks/assigned?status=DONE&closedIn=2026-11-01~2026-11-11', (sp) =>
       createIssueSearchResponse(sp.get('closedFrom') ? [done] : []),
@@ -274,7 +274,7 @@ describe('내 작업 묶음 목록(WP-916)', () => {
     expect(seen[0].get('closedTo')).toBe('2026-11-11')
     expect(seen[0].get('status')).toBe('DONE')
     expect(seen[0].has('hideClosed')).toBe(false)
-    // 필터로 센다(0건이면 「필터 0건 + 초기화」) — 초기화는 closedIn 도 지운다.
+    // 필터로 센다(0건이면 「필터 0건 + 필터 지우기」) — 필터 지우기는 closedIn 도 지운다.
     const sp = new URLSearchParams('status=DONE&closedIn=2026-11-01~2026-11-11&x=1')
     expect(hasMyTasksFilters(new URLSearchParams('closedIn=2026-11-01~2026-11-11'))).toBe(true)
     expect(clearMyTasksFilters(sp).toString()).toBe('x=1')
@@ -339,14 +339,15 @@ describe('내 작업 상태 화면(WP-916)', () => {
     expect(document.querySelector('[aria-busy="true"]')).toBeNull()
   })
 
-  // 필터 0건(완료 숨김 아님: status 지정) → 조건 문구 + 초기화, 누르면 status·priority 가 주소에서 빠지고 목록이 돌아온다.
-  test('필터 0건은 초기화 버튼, 누르면 status 쿼리가 사라진다', async () => {
+  // 필터 0건(완료 숨김 아님: status 지정) → 조건 문구 + 필터 지우기, 누르면 status·priority 가 주소에서 빠지고 목록이 돌아온다.
+  test('필터 0건은 필터 지우기 버튼, 누르면 status 쿼리가 사라진다', async () => {
     const { user, location } = renderMyTasks('/me/tasks/assigned?status=IN_PROGRESS&priority=HIGH', (sp) =>
       createIssueSearchResponse(sp.get('status') ? [] : twoProjectItems()),
     )
     const empty = await screen.findByTestId('assigned-row-empty')
     expect(empty).toHaveTextContent('조건에 맞는 작업이 없습니다')
     expect(empty).toHaveTextContent('할당된 작업은 있지만 필터에 걸러졌습니다')
+    expect(screen.getByTestId('assigned-row-empty-reset')).toHaveTextContent('필터 지우기') // WP-2086: 라벨 통일
     await user.click(screen.getByTestId('assigned-row-empty-reset'))
     await waitFor(() => expect(location()).toBe('/me/tasks/assigned'))
     expect(await screen.findByTestId('assigned-row-52')).toBeInTheDocument()
@@ -383,7 +384,7 @@ describe('내 작업 상태 화면(WP-916)', () => {
     expect(await screen.findByTestId('reported-row-empty')).toHaveTextContent('내가 만든 작업은 있지만 필터에 걸러졌습니다')
   })
 
-  // 데이터 없음(필터 없음) → 「완료 모두 보기」 안내(초기화 없음), 누르면 closed=all·hideClosed 없이 다시 조회.
+  // 데이터 없음(필터 없음) → 「완료 모두 보기」 안내(필터 지우기 없음), 누르면 closed=all·hideClosed 없이 다시 조회.
   test('데이터 없음(필터 없음)은 「완료 모두 보기」 안내', async () => {
     const { user, location, seen } = renderMyTasks('/me/tasks/assigned', () => createIssueSearchResponse([]))
     const empty = await screen.findByTestId('assigned-row-empty')

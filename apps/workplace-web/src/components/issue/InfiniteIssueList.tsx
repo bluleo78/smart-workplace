@@ -1,6 +1,6 @@
 // 무한스크롤 이슈 목록 — useInfiniteQuery 결과를 받아 테이블 + sentinel 렌더(내 작업 탭들이 공유).
 // 상태 화면을 서로 다르게 보인다(WP-916, 프로젝트 목록 IssueListView 와 같은 분기 순서):
-// 실패(빈 상태로 오해하지 않게) → 로딩(스켈레톤) → 필터 0건(+필터 초기화) → 데이터 없음(+다음 행동) → 목록.
+// 실패(빈 상태로 오해하지 않게) → 로딩(스켈레톤) → 필터 0건(+필터 지우기) → 데이터 없음(+다음 행동) → 목록.
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query'
 import { ClipboardList, SearchX } from 'lucide-react'
 
@@ -33,11 +33,11 @@ export function InfiniteIssueList({
   showAssignee: boolean
   /** 데이터 없음 안내 — 필터가 없을 때. action 으로 다음 행동(예: 「완료 모두 보기」)을 준다. */
   empty: { title: string; description?: string; action?: EmptyAction }
-  /** 필터(상태 범주·우선순위 등)가 걸려 있으면 필터 0건 화면 + 초기화 */
+  /** 필터(상태 범주·우선순위 등)가 걸려 있으면 필터 0건 화면 + 필터 지우기 */
   filtered: boolean
   /** 필터 0건 설명 — 탭마다 무엇이 걸러졌는지(「할당된 작업은 있지만…」). 필터를 거는 탭은 늘 넘긴다(필터 없는 탭은 쓰지 않음). */
   filteredDescription?: string
-  /** 필터 0건에서 「필터 초기화」 옆에 둘 다음 행동 — 할당 탭이 완료를 숨기는 중이면 「완료 모두 보기」(WP-941). */
+  /** 필터 0건에서 「필터 지우기」 옆에 둘 다음 행동 — 할당 탭이 완료를 숨기는 중이면 「완료 모두 보기」(WP-941). */
   filteredAction?: EmptyAction
   onResetFilters?: () => void
   /** 목록을 감싼 스크롤 요소(Page.Body) — 무한 로드 sentinel 의 root(DS 05 §A-3). 뷰포트로 두면 선행 로드 여유가 스크롤 클리핑에 먹혀 끝에 닿아야 불러온다. */
@@ -64,7 +64,7 @@ export function InfiniteIssueList({
     body = <ListLoadingSkeleton label="작업 불러오는 중" />
   } else if (items.length === 0 && !hasNextPage && !isFetching) {
     // 마지막 페이지까지 받은 뒤에만 빈 상태 — 스트리밍 중 깜빡임 방지.
-    // 필터가 걸렸으면 「데이터 없음」과 구분해 초기화를 준다(DS 06 §B).
+    // 필터가 걸렸으면 「데이터 없음」과 구분해 필터 지우기를 준다(DS 06 §B).
     const emptyTid = `${rowTestIdPrefix}-empty`
     const toAction = (a: EmptyAction) => ({ label: a.label, onClick: a.onClick, testId: `${emptyTid}-${a.testIdSuffix}` })
     body = filtered ? (
@@ -72,7 +72,7 @@ export function InfiniteIssueList({
         icon={SearchX}
         title="조건에 맞는 작업이 없습니다"
         description={filteredDescription}
-        action={onResetFilters && { label: '필터 초기화', onClick: onResetFilters, testId: `${emptyTid}-reset` }}
+        action={onResetFilters && { label: '필터 지우기', onClick: onResetFilters, testId: `${emptyTid}-reset` }}
         secondaryAction={filteredAction && toAction(filteredAction)}
         testId={emptyTid}
       />

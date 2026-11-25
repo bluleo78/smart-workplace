@@ -1,6 +1,6 @@
 // AI 위임 작업(WP-377) 데스크톱 — 화면 테스트(WP-971, WP-995).
 // 서버 순서 그대로의 행·AI 진행 배지·최근 보고·진행률·에이전트 유형·마지막 보고, 범위·빠른 필터 칩 → URL·요청 파라미터,
-// 칩 건수(counts), 완료 칩 배지 톤, 빈 상태·조건 빈 상태·필터 초기화, 첫 페이지 실패·다시 시도, 에픽·프로젝트 묶음,
+// 칩 건수(counts), 완료 칩 배지 톤, 빈 상태·조건 빈 상태·필터 지우기, 첫 페이지 실패·다시 시도, 에픽·프로젝트 묶음,
 // 다음 회차 대기 라벨은 API 응답이 화면 문구·순서·주소로 바뀌는 것이라 브라우저 없이 판정되므로
 // e2e/pages/me/ai-tasks.spec.ts 에서 옮겼다. 폭에 따른 접기·헤더 정렬·표 넘침(@layout)·다시 시도 초점(@input)·
 // 대표 행 구조(@wiring)는 E2E 에 남는다.
@@ -307,7 +307,7 @@ describe('AI 위임 작업 표', () => {
 })
 
 describe('AI 위임 작업 빈·실패 상태', () => {
-  // 필터 없는 빈 상태(4요소 + 「AI 배정하기」) → 빠른 필터 중 빈 상태(조건 문구 + 필터 초기화, 배정 버튼 없음).
+  // 필터 없는 빈 상태(4요소 + 「AI 배정하기」) → 빠른 필터 중 빈 상태(조건 문구 + 필터 지우기, 배정 버튼 없음).
   test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', async () => {
     const { user } = renderAiTasks('/me/ai-tasks', [], createAiTaskCounts())
     const empty = await screen.findByTestId('ai-row-empty')
@@ -320,7 +320,7 @@ describe('AI 위임 작업 빈·실패 상태', () => {
     await user.click(screen.getByTestId('ai-quick-blocked'))
     await waitFor(() => expect(screen.getByTestId('ai-row-empty')).toHaveTextContent('조건에 맞는 AI 작업이 없어요'))
     expect(screen.getByTestId('ai-row-empty')).not.toHaveTextContent('AI가 진행 중인 작업이 없어요')
-    expect(screen.getByTestId('ai-empty-reset')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-empty-reset')).toHaveTextContent('필터 지우기') // WP-2086: 라벨 통일
     expect(screen.queryByTestId('ai-empty-assign')).not.toBeInTheDocument()
   })
 
@@ -331,8 +331,8 @@ describe('AI 위임 작업 빈·실패 상태', () => {
     await waitFor(() => expect(location()).toBe('/me/tasks/assigned'))
   })
 
-  // facet 만 걸려도 조건 빈 상태, 필터 초기화는 빠른 필터·facet 을 지우고 범위(scope)만 남긴다.
-  test('facet 만 걸려도 조건 문구 — 필터 초기화는 빠른 필터·facet 을 지우고 범위는 남긴다', async () => {
+  // facet 만 걸려도 조건 빈 상태, 필터 지우기는 빠른 필터·facet 을 지우고 범위(scope)만 남긴다.
+  test('facet 만 걸려도 조건 문구 — 필터 지우기는 빠른 필터·facet 을 지우고 범위는 남긴다', async () => {
     const { user, location } = renderAiTasks('/me/ai-tasks?scope=all&state=BLOCKED&status=DONE&priority=HIGH', [], createAiTaskCounts())
     expect(await screen.findByTestId('ai-row-empty')).toHaveTextContent('조건에 맞는 AI 작업이 없어요')
     await user.click(screen.getByTestId('ai-empty-reset'))
@@ -342,14 +342,14 @@ describe('AI 위임 작업 빈·실패 상태', () => {
     expect(screen.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'true')
   })
 
-  test('facet(status) 하나만 걸린 주소도 조건 빈 상태와 필터 초기화를 보인다', async () => {
+  test('facet(status) 하나만 걸린 주소도 조건 빈 상태와 필터 지우기를 보인다', async () => {
     renderAiTasks('/me/ai-tasks?status=DONE', [], createAiTaskCounts())
     expect(await screen.findByTestId('ai-row-empty')).toHaveTextContent('조건에 맞는 AI 작업이 없어요')
     expect(screen.getByTestId('ai-empty-reset')).toBeInTheDocument()
   })
 
-  // 완료 칩 0건은 「완료 기록 없음」 안내(초기화·배정 버튼 없음), 완료 칩 + facet 0건은 조건 문구 + 초기화.
-  test('완료 칩 0건은 「아직 완료된 AI 작업이 없습니다」이고 필터 초기화가 없다', async () => {
+  // 완료 칩 0건은 「완료 기록 없음」 안내(필터 지우기·배정 버튼 없음), 완료 칩 + facet 0건은 조건 문구 + 필터 지우기.
+  test('완료 칩 0건은 「아직 완료된 AI 작업이 없습니다」이고 필터 지우기가 없다', async () => {
     renderAiTasks('/me/ai-tasks?state=DONE', [], createAiTaskCounts())
     const empty = await screen.findByTestId('ai-row-empty')
     expect(empty).toHaveTextContent('아직 완료된 AI 작업이 없습니다')
@@ -359,7 +359,7 @@ describe('AI 위임 작업 빈·실패 상태', () => {
     expect(screen.queryByTestId('ai-empty-assign')).not.toBeInTheDocument()
   })
 
-  test('완료 칩 + facet 0건은 조건 문구와 필터 초기화를 유지한다', async () => {
+  test('완료 칩 + facet 0건은 조건 문구와 필터 지우기를 유지한다', async () => {
     renderAiTasks('/me/ai-tasks?state=DONE&priority=HIGH', [], createAiTaskCounts())
     expect(await screen.findByTestId('ai-row-empty')).toHaveTextContent('조건에 맞는 AI 작업이 없어요')
     expect(screen.getByTestId('ai-empty-reset')).toBeInTheDocument()

@@ -44,7 +44,7 @@ export function PersonalChecklistView({
   const items = q.data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
   const [showDone, setShowDone] = useState(false);
   const [, setParams] = useSearchParams();
-  // 필터 초기화 — 필터 키만 지우고 뷰·그룹·열린 작업(task)은 남긴다. 오른쪽 패널이 열린 채 필터로 0건이 돼도 패널이 닫히지 않게
+  // 필터 지우기 — 필터 키만 지우고 뷰·그룹·열린 작업(task)은 남긴다. 오른쪽 패널이 열린 채 필터로 0건이 돼도 패널이 닫히지 않게
   // (프로젝트 목록 useResetIssueFilters 는 task 를 모르므로 여기서 따로 둔다).
   const resetFilters = () =>
     setParams((prev) => {
@@ -86,13 +86,13 @@ export function PersonalChecklistView({
     filters.labelIds.length > 0 ||
     filters.assigneeIds.length > 0 ||
     filters.includeUnassigned;
-  // 필터 0건 — 데이터 없음과 구분해 초기화를 준다(DS 06 §B).
+  // 필터 0건 — 데이터 없음과 구분해 필터 지우기를 준다(DS 06 §B).
   const filterEmpty = (
     <ListEmptyState
       icon={SearchX}
       title="일치하는 작업이 없습니다"
       description="다른 키워드나 필터 조건을 사용해 보세요."
-      action={{ label: '필터 초기화', onClick: resetFilters, testId: 'personal-empty-reset' }}
+      action={{ label: '필터 지우기', onClick: resetFilters, testId: 'personal-empty-reset' }}
       testId="personal-empty-filter"
     />
   );
