@@ -1,12 +1,28 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { preloadableLazy } from './preloadableLazy'
 import { type Preload, type RoutePreloadKey, selectRoutePreloads, startRoutePreloads } from './routePreloads'
 
+// 테스트 대역(vi.fn)을 표 로더로 본다 — preloadableLazy 표식은 타입에만 있어 대역에 한 번 붙인다(WP-2104 — 실제 앱만 표식을 강제).
+// 같은 함수를 그대로 돌려줘 호출 여부 단언은 대역 그대로 한다.
+const asPreload = (fn: () => Promise<unknown>) => fn as Preload
+
 // 일부 키만 채운 로더 맵을 전체 Record 로 본다 — 고르지 않은 키는 호출되지 않아야 하므로 비워 둔다.
-// 테스트 대역(vi.fn)은 preloadableLazy 표식이 없어 표 타입으로 바꿔 넘긴다(WP-2104 — 실제 앱만 표식을 강제)
 const partial = (loaders: Partial<Record<RoutePreloadKey, () => Promise<unknown>>>) =>
-  loaders as unknown as Record<RoutePreloadKey, Preload>
+  Object.fromEntries(Object.entries(loaders).map(([key, fn]) => [key, asPreload(fn)])) as Record<RoutePreloadKey, Preload>
+
+describe('Preload 타입 표식(WP-2104)', () => {
+  it('preloadableLazy 가 돌려준 로더만 표 로더로 받는다 — 일반 import 함수는 타입 검사에서 막힌다', () => {
+    const [, loader] = preloadableLazy(() => Promise.resolve({ default: () => null }))
+    const ok: Preload = loader
+    const plain = () => Promise.resolve({ default: () => null })
+    // @ts-expect-error 일반 import 함수에는 preloadableLazy 표식이 없어 표 로더가 될 수 없다
+    const rejected: Preload = plain
+    expect(typeof ok).toBe('function')
+    expect(rejected).toBe(plain)
+  })
+})
 
 describe('selectRoutePreloads', () => {
   it('첫 일치 항목의 키를 돌려준다', () => {

@@ -7,7 +7,6 @@ import type { PreloadableLoader } from './preloadableLazy'
  */
 export type Preload = PreloadableLoader<unknown>
 
-
 /**
  * 주소(pathname)에 맞는 미리 받기 키를 고른다(WP-2021) — ROUTE_PRELOADS 에서 첫 일치 항목의 키들, 없으면 [].
  * 순수 함수라 표 순서(구체적인 것 먼저)만 지키면 된다.
