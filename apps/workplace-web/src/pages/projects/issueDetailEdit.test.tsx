@@ -347,10 +347,10 @@ describe('삭제 확인 AlertDialog (#161)', () => {
     return { ...view, dialog, deletes: () => deletes }
   }
 
-  test('삭제 버튼은 확인창(태스크 삭제)을 열고, 취소하면 닫히며 DELETE 는 없다', async () => {
+  test('삭제 버튼은 확인창(이슈 삭제)을 열고, 취소하면 닫히며 DELETE 는 없다', async () => {
     const { user, dialog, deletes } = await openDeletable()
-    expect(within(dialog).getByText('태스크 삭제')).toBeInTheDocument()
-    expect(within(dialog).getByText(/이 태스크를 삭제하시겠습니까\?/)).toBeInTheDocument()
+    expect(within(dialog).getByText('이슈 삭제')).toBeInTheDocument()
+    expect(within(dialog).getByText(/이 이슈를 삭제하시겠습니까\?/)).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: '취소' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     await settle()
@@ -380,7 +380,7 @@ describe('삭제 확인 AlertDialog (#161)', () => {
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '삭제' }))
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
     expect(await screen.findByRole('link', { name: '남은 태스크' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '태스크' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '이슈' })).toBeInTheDocument()
     expect(screen.queryByTestId('project-overview')).not.toBeInTheDocument()
   })
 
@@ -402,7 +402,7 @@ describe('삭제 확인 AlertDialog (#161)', () => {
 
   test('하위가 있으면 하위 태스크 수와 함께 삭제된다는 경고를 보인다', async () => {
     const { dialog } = await openDeletable({ childCount: 3 })
-    expect(within(dialog).getByText('이 태스크에는 하위 태스크가 3개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.')).toBeInTheDocument()
+    expect(within(dialog).getByText('이 이슈에는 하위 태스크가 3개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.')).toBeInTheDocument()
   })
 
   // WP-469: 에픽은 「에픽 삭제」로 알리고, WP-1038 부터 하위 이슈는 지우지 않고 에픽 연결만 푼다고 알린다.

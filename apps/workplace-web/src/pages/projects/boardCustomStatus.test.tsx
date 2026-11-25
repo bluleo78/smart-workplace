@@ -98,6 +98,8 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
     const api = boardApi()
     const { user } = await openBoard(api)
     await user.click(screen.getByTestId('board-band-add-IN_PROGRESS'))
+    // WP-2067 — 열린 팝오버는 범주 라벨로 이름이 붙은 대화상자다.
+    expect(await screen.findByRole('dialog', { name: '진행 중에 상태 추가' })).toBeInTheDocument()
     await submitName(user, 'QA 대기')
     await waitFor(() => expect(api.posts).toEqual([{ name: 'QA 대기', category: 'IN_PROGRESS' }]))
     expect(await screen.findByTestId('board-col-28')).toHaveTextContent('QA 대기')
@@ -139,6 +141,8 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
     const { user } = await openBoard(api)
     await user.click(screen.getByTestId('board-col-menu-2'))
     await user.click(await screen.findByRole('menuitem', { name: '이 뒤에 상태 추가' }))
+    // WP-2067 — 열린 팝오버는 그 컬럼 상태 이름으로 이름이 붙은 대화상자다.
+    expect(await screen.findByRole('dialog', { name: '진행 중 뒤에 상태 추가' })).toBeInTheDocument()
     await submitName(user, 'QA 대기')
     await waitFor(() => expect(api.posts).toEqual([{ name: 'QA 대기', category: 'IN_PROGRESS', afterStatusId: 2 }]))
   })

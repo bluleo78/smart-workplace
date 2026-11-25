@@ -148,6 +148,29 @@ describe('MonthView 접근성', () => {
     expect(document.activeElement).toBe(more)
   })
 
+  it('「+N」 팝오버는 「{날짜} 일정 목록」 이름을 가진다(WP-2067)', async () => {
+    const user = userEvent.setup()
+    const events = [1, 2, 3, 4, 5].map((n) =>
+      calendarEvent({ id: n, title: `일정 ${n}`, startsAt: `2026-11-21T0${n}:00:00Z`, endsAt: `2026-11-21T0${n}:30:00Z` }),
+    )
+    renderWithProviders(
+      <MonthView events={events} issueDues={[]} anchor={new Date(2026, 10, 1)} onCreateAt={vi.fn()} onSelectEvent={vi.fn()} onSelectIssue={vi.fn()} />,
+    )
+    await user.click(screen.getByTestId('calendar-more-2026-11-21'))
+    expect(await screen.findByRole('dialog', { name: '11월 21일 일정 목록' })).toBeInTheDocument()
+  })
+
+  it('마감 이슈가 든 날의 「+N」 팝오버는 「{날짜} 일정·마감 이슈 목록」 이름을 가진다(WP-2067 리뷰)', async () => {
+    const user = userEvent.setup()
+    // 일정 없이 마감 이슈만 5건 — 넘친 칸의 트리거·팝오버 모두 마감 이슈를 말해야 한다.
+    const issueDues = [1, 2, 3, 4, 5].map((n) => ({ issueId: n, projectKey: 'WP', number: n, title: `마감 ${n}`, dueDate: '2026-11-21' })) as unknown as IssueDueMarker[]
+    renderWithProviders(
+      <MonthView events={[]} issueDues={issueDues} anchor={new Date(2026, 10, 1)} onCreateAt={vi.fn()} onSelectEvent={vi.fn()} onSelectIssue={vi.fn()} />,
+    )
+    await user.click(screen.getByTestId('calendar-more-2026-11-21'))
+    expect(await screen.findByRole('dialog', { name: '11월 21일 일정·마감 이슈 목록' })).toBeInTheDocument()
+  })
+
   it('초점이 tabIndex=-1 칸에도 가면 그 칸이 로빙 초점 칸이 된다(리뷰 후속 1)', () => {
     setup()
     const cell = screen.getByRole('gridcell', { name: '2026년 11월 18일 수요일' })

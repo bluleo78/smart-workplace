@@ -200,7 +200,7 @@ describe('팀 리스트 뷰 — 일괄 작업 (#606)', () => {
     await selectBoth(user)
     await user.click(screen.getByTestId('bulk-delete'))
     expect(await screen.findByTestId('issue-bulk-delete-dialog')).toHaveTextContent(
-      '선택한 2개 태스크를 삭제할까요? 하위 태스크 2개도 함께 삭제됩니다.',
+      '선택한 2개 이슈를 삭제할까요? 하위 태스크 2개도 함께 삭제됩니다.',
     )
     expect(api.calls).toHaveLength(0)
     await user.click(screen.getByTestId('issue-bulk-delete-confirm'))

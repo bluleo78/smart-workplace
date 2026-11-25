@@ -196,6 +196,7 @@ function LinkButton({ editor, active, testId }: { editor: Editor; active: boolea
       <PopoverContent
         side="top"
         align="start"
+        aria-label={active ? '링크 고치기' : '링크 넣기'}
         className="w-80 max-w-[calc(100vw-2rem)] rounded-lg p-2"
         data-testid={`${testId}-popover`}
         // 닫히면 에디터로 포커스를 돌린다(트리거 버튼은 포커스를 받지 않는 버튼이라 Radix 기본 복원 대상이 없다).

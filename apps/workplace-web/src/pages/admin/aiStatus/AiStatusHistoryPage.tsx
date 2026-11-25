@@ -82,7 +82,7 @@ function MobilePeriodChip({
           <ChevronDown className="size-3" aria-hidden />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-40 p-1" align="start">
+      <PopoverContent aria-label="조회 기간 선택" className="w-40 p-1" align="start">
         {PERIOD_OPTIONS.map((o) => (
           <Button
             key={o.value}

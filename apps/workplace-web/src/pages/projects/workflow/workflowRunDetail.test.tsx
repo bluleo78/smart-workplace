@@ -87,6 +87,29 @@ describe('실행 상세', () => {
     await waitFor(() => expect(gets.detail).toBeGreaterThan(before))
   })
 
+  // WP-2055 리뷰 후속: 넘긴 뒤 다음 단계가 남의 차례라 배너가 물러나면 초점이 body 가 아니라 실행 제목으로 간다.
+  it('waitingBanner_movedAway_focusesRunHeading', async () => {
+    let moved = false
+    const r = renderScreen(<WorkflowRunDetail runId={7} workflowId={42} projectKey="WP" canManage={false} canRecover meId={4} />, {
+      path: '/projects/WP/workflow?view=runs&run=7',
+      handlers: [
+        // 넘긴 뒤에는 담당이 이(5)로 바뀐 상세·보기를 돌려준다.
+        http.get(base + '/workflow-runs/7', () => HttpResponse.json(moved ? detail('WAITING', { assignees: [lee] }, { revision: 4 }) : detail('WAITING'))),
+        http.get(base + '/issues/70/workflow', () =>
+          HttpResponse.json(moved ? { ...issueView(4), currentNode: { ...issueView(4).currentNode, assignees: [lee] } } : issueView()),
+        ),
+        http.post(base + '/issues/70/workflow/move', () => {
+          moved = true
+          return HttpResponse.json(issueView(4))
+        }),
+      ],
+    })
+    await r.user.click(await screen.findByRole('button', { name: 'approve' }))
+    await r.user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /WP-70/ })).toHaveFocus())
+  })
+
   it('waitingBanner_notAssignee_showsQuestionOnly', async () => {
     setup(detail('WAITING', {}, { context: { _qa: [{ answerNode: 'b', question: '배포해도 될까요?', answer: null }] } }), { meId: 1 })
     expect(await screen.findByText('「배포해도 될까요?」')).toBeVisible()

@@ -7,6 +7,8 @@
  */
 import { Document, isMap, isScalar, isSeq, type Pair, parseDocument, Scalar, YAMLMap, type YAMLSeq } from 'yaml'
 
+import { groupByEndpoints, joinEdgeLabels } from '../../../lib/parallelEdges'
+
 export type GraphNodeType = 'start' | 'agent_task' | 'human_task' | 'decision' | 'end' | string
 
 export interface GraphNode {
@@ -779,4 +781,33 @@ export function parseMaxVisits(input: string): number | null | undefined {
   if (!/^\d+$/.test(input.trim())) return undefined
   const n = Number(input.trim())
   return n >= 1 ? n : undefined
+}
+
+/** 점선으로 그리는 간선 종류 — 오류·되돌림·질문 경로는 정상 흐름과 구분한다. */
+const DASHED_EDGE_KINDS: ReadonlySet<GraphEdgeKind> = new Set<GraphEdgeKind>(['onError', 'returnTo', 'ask'])
+
+/** 같은 출발·도착 간선을 합친 한 선 — 라벨은 " · " 로 이은 것, dashed 는 점선 종류가 하나라도 있으면 true. */
+export interface EdgeGroup {
+  id: string
+  from: string
+  to: string
+  label: string
+  dashed: boolean
+}
+
+/**
+ * 같은 (출발, 도착) 간선을 한 선·한 라벨로 합친다(WP-2063, 읽기 전용 그래프의 WP-2048 과 같은 처리).
+ * 왜: 질문 노드의 returnTo 와 answered outcome 처럼 평행 간선이 같은 자리에 겹치면 라벨이 포개져 읽히지 않는다.
+ * 양 끝 노드가 그려지지 않는(keys 에 없는) 간선은 먼저 뺀다. 반대 방향(A→B, B→A)은 합치지 않는다.
+ * 처음 나온 순서를 유지하고 묶음의 id 는 첫 간선의 id 다.
+ */
+export function groupParallelEdges(edges: GraphEdge[], keys: Set<string>): EdgeGroup[] {
+  const drawn = edges.filter((e) => keys.has(e.from) && keys.has(e.to))
+  return groupByEndpoints(drawn).map(({ from, to, members }) => ({
+    id: members[0].id,
+    from,
+    to,
+    label: joinEdgeLabels(members.map((e) => e.label)),
+    dashed: members.some((e) => DASHED_EDGE_KINDS.has(e.kind)),
+  }))
 }

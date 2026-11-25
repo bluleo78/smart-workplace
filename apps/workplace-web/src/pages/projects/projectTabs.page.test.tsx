@@ -170,7 +170,7 @@ describe('프로젝트 탭 — 앱 라우트', () => {
     expect(location()).toBe(`/projects/${KEY}/overview`)
   })
 
-  test('처음 /projects/WP 에 들어오면(기억 없음) 개요 탭으로 열리고, 머리줄은 설정·+ 새 태스크만 둔다 — 이슈 탭을 누르면 이슈 목록이 열리고 기억된다', async () => {
+  test('처음 /projects/WP 에 들어오면(기억 없음) 개요 탭으로 열리고, 머리줄은 설정·+ 새 이슈만 둔다 — 이슈 탭을 누르면 이슈 목록이 열리고 기억된다', async () => {
     const setItem = spySetItem()
     const { user, location } = renderPage(`/projects/${KEY}`, { handlers: appHandlers(), projectTabs: NO_MEMORY })
     // 기본 탭은 개요(DEFAULT_PROJECT_TAB, WP-1478) — 처음 들어오는 사람은 개요부터. 이슈 목록은 그리지 않는다.
@@ -178,7 +178,7 @@ describe('프로젝트 탭 — 앱 라우트', () => {
     expect(location()).toBe(`/projects/${KEY}/overview`)
     expect(tab('overview')).toHaveAttribute('aria-current', 'page')
     expect(tab('issues')).not.toHaveAttribute('aria-current')
-    expect(screen.queryByRole('region', { name: '태스크' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '이슈' })).not.toBeInTheDocument()
     // 되돌리는 렌더는 이슈 탭을 기억에 쓰지 않고, 도착한 개요를 기억한다.
     await waitFor(() => expect(stored()).toBe('overview'))
     expect(setItem.mock.calls.filter(([k, v]) => k === STORE_KEY && v === 'issues')).toEqual([])
@@ -193,19 +193,19 @@ describe('프로젝트 탭 — 앱 라우트', () => {
     expect(tab('issues')).toHaveAttribute('href', `/projects/${KEY}`)
     expect(tab('cycles')).toHaveAttribute('href', `/projects/${KEY}/cycles`)
 
-    // 머리줄 — 이름·키, 설정·+ 새 태스크. 예전 사이클·버전·타임라인 단추는 없다.
+    // 머리줄 — 이름·키, 설정·+ 새 이슈. 예전 사이클·버전·타임라인 단추는 없다.
     const header = screen.getByTestId('page-header')
     expect(within(header).getByRole('heading', { name: '워크플레이스' })).toBeInTheDocument()
     expect(header).toHaveTextContent(KEY)
     expect(within(header).getByRole('link', { name: '설정' })).toHaveAttribute('href', `/projects/${KEY}/settings`)
-    expect(within(header).getByRole('button', { name: '+ 새 태스크' })).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: '+ 새 이슈' })).toBeInTheDocument()
     for (const name of ['사이클', '버전', '타임라인']) {
       expect(within(header).queryByRole('link', { name })).not.toBeInTheDocument()
     }
 
     // 이슈 탭 클릭 — 이슈 목록이 열리고(되돌리지 않음), 이슈 탭을 기억한다.
     await user.click(tab('issues'))
-    expect(await screen.findByRole('region', { name: '태스크' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '이슈' })).toBeInTheDocument()
     expect(location()).toBe(`/projects/${KEY}`)
     expect(tab('issues')).toHaveAttribute('aria-current', 'page')
     await waitFor(() => expect(stored()).toBe('issues'))
@@ -231,7 +231,7 @@ describe('프로젝트 탭 — 앱 라우트', () => {
     await user.click(tab('issues'))
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
     expect(tab('issues')).toHaveAttribute('aria-current', 'page')
-    expect(await screen.findByRole('region', { name: '태스크' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '이슈' })).toBeInTheDocument()
     await waitFor(() => expect(stored()).toBe('issues'))
 
     // 다시 사이드바 링크 — 기억이 이슈라 이슈 탭 그대로.
@@ -450,8 +450,8 @@ describe('프로젝트 탭 — 마지막 탭으로 되돌리기', () => {
     const header = screen.getByTestId('page-header')
     expect(within(header).getByRole('heading', { name: title })).toBeInTheDocument()
     expect(header).toHaveTextContent(KEY)
-    // 팀 머리줄 단추(설정·+ 새 태스크)는 없다 — 개인 프로젝트 화면 머리줄은 main 과 같다.
-    expect(within(header).queryByRole('button', { name: '+ 새 태스크' })).not.toBeInTheDocument()
+    // 팀 머리줄 단추(설정·+ 새 이슈)는 없다 — 개인 프로젝트 화면 머리줄은 main 과 같다.
+    expect(within(header).queryByRole('button', { name: '+ 새 이슈' })).not.toBeInTheDocument()
     await user.click(within(header).getByRole('button', { name: '프로젝트로 돌아가기' }))
     expect(await screen.findByText('개인 이슈 화면')).toBeInTheDocument()
     expect(location()).toBe(`/projects/${KEY}`)

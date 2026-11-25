@@ -1,5 +1,5 @@
 // 이슈 상세 채움 버튼(저장·삭제 확인) 글자 대비 E2E(WP-322) — 브라우저가 실제로 칠한 색으로 재야 해서 E2E 에 남는다(@layout).
-// 삭제 확인창 문구(태스크·하위·에픽)·취소·DELETE 는 src/pages/projects/issueDetailEdit.test.tsx 페이지 테스트가 지킨다(WP-971).
+// 삭제 확인창 문구(이슈·하위·에픽)·취소·DELETE 는 src/pages/projects/issueDetailEdit.test.tsx 페이지 테스트가 지킨다(WP-971).
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast';

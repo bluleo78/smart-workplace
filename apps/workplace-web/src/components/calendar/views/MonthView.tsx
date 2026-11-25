@@ -326,7 +326,10 @@ function MoreEvents({
   const [open, setOpen] = useState(false)
   // 접근 이름·머리말 — 마감 이슈가 없는 날은 기존 문구 그대로, 있으면 「일정·마감 이슈」 로 부른다.
   const dayLabel = format(day, 'M월 d일')
-  const moreLabel = dues.length > 0 ? `${dayLabel} 일정·마감 이슈 ${overflow}개 더 보기` : `${dayLabel} 일정 ${overflow}개 더 보기`
+  // 트리거와 팝오버(role=dialog) 이름이 같은 말을 쓰게 한 곳에서 정한다 — 마감 이슈가 든 날은 「일정·마감 이슈」(WP-2067 리뷰).
+  const kind = dues.length > 0 ? '일정·마감 이슈' : '일정'
+  const moreLabel = `${dayLabel} ${kind} ${overflow}개 더 보기`
+  const popoverLabel = `${dayLabel} ${kind} 목록`
   const headerLabel = [
     events.length > 0 ? `일정 ${events.length}개` : null,
     dues.length > 0 ? `마감 이슈 ${dues.length}개` : null,
@@ -348,6 +351,7 @@ function MoreEvents({
       </PopoverTrigger>
       <PopoverContent
         align="start"
+        aria-label={popoverLabel}
         collisionPadding={16}
         className="w-64 max-w-[calc(100vw-2rem)] p-2"
         data-testid={`calendar-more-popover-${dateLabel}`}

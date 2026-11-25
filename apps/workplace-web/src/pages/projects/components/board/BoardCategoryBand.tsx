@@ -101,6 +101,7 @@ function BandAddButton({
           </Button>
         </PopoverTrigger>
         <PopoverContent
+          aria-label={`${span.label}에 상태 추가`}
           align="end"
           className="w-72 space-y-2 p-3"
           // 닫히며 Radix 가 초점을 트리거로 돌리는데, 20번째 상태를 저장해 트리거가 막힌 뒤면 막힌 버튼은 초점을 못 받아 body 로 빠진다.

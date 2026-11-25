@@ -122,7 +122,7 @@ describe('개요 화면이 열려 있을 때(WP-1652)', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={qc}>{children}</QueryClientProvider>
     )
-    // 개요 구독자와 생성 mutation 을 한 화면에 함께 둔다 — 개요 탭에 머문 채 「+ 새 태스크」를 누르는 상황.
+    // 개요 구독자와 생성 mutation 을 한 화면에 함께 둔다 — 개요 탭에 머문 채 「+ 새 이슈」를 누르는 상황.
     const { result } = renderHook(() => ({ overview: useProjectOverview('P'), create: useCreateIssue('P') }), { wrapper })
     await waitFor(() => expect(result.current.overview.isSuccess).toBe(true))
     expect(fetchProjectOverview).toHaveBeenCalledTimes(1)

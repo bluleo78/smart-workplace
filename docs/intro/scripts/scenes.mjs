@@ -360,7 +360,7 @@ export const scenes = [
       await withRealClock(async () => {
         await guardReadOnly(page.context(), { allowWrite: ALLOW_AI_CLASSIFY });
         await openProject(page, '목록');
-        await page.getByRole('button', { name: /새 태스크/ }).click();
+        await page.getByRole('button', { name: /새 이슈/ }).click();
         const d = dialog(page);
         await d.getByRole('heading', { name: '새 이슈' }).waitFor();
         await d.getByLabel(/제목/).first().fill('iOS 17 에서 쿠폰을 적용하면 결제 버튼이 눌리지 않음');

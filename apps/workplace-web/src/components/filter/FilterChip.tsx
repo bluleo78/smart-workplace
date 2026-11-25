@@ -51,7 +51,7 @@ export function FilterChip({
               ))}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-64 p-2" align="start">
+        <PopoverContent className="w-64 p-2" align="start" aria-label={`${facet.label} 선택`}>
           <FacetValueList facet={facet} selected={selected} onToggle={onToggle} />
         </PopoverContent>
       </Popover>

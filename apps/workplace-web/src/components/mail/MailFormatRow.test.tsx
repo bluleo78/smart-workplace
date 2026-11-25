@@ -169,6 +169,8 @@ describe('MailFormatRow', () => {
     const { user, editor } = await setup('dock')
     await user.click(btn('표 넣기'))
     const grid = await screen.findByTestId('mail-table-grid')
+    // 팝오버(role=dialog)에 접근 가능한 이름이 있다(WP-2067).
+    expect(screen.getByRole('dialog', { name: '표 크기 선택' })).toBeInTheDocument()
     expect(within(grid).getAllByRole('button')).toHaveLength(36)
     await user.click(within(grid).getByRole('button', { name: '3행 2열 표' }))
     const doc = new DOMParser().parseFromString(editor.getHTML(), 'text/html')

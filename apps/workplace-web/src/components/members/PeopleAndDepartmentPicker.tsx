@@ -572,6 +572,7 @@ export function PeopleAndDepartmentPicker({
           최소 높이(min-h-60)는 최대 높이보다 앞선다 — 이쪽 남은 높이가 그보다 작으면 창이 넘쳐 Radix 가 반대쪽으로 뒤집는다.
           최소가 없으면 창이 늘 남은 높이에 맞춰 줄어 뒤집히지 않고, 좁은 쪽에 후보가 한두 줄만 보인다. */}
       <PopoverContent
+        aria-label="사람·조직 선택"
         className="flex max-h-(--radix-popover-content-available-height) min-h-60 w-[min(380px,calc(100vw-32px))] flex-col p-0"
         align="start"
         collisionPadding={16}

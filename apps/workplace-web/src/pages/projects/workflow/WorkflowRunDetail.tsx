@@ -1,11 +1,12 @@
 // 워크플로우 실행 상세(WP-1991) — 머리·사람 차례/조치 필요 배너·그래프(지나온 노드 칠하기)·이동 기록.
 // 왜: 어느 이슈가 어느 단계에서 누구를 기다리는지 한 화면에서 보고, 막힌 실행은 여기서 바로 조치하게 한다.
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useWorkflowRun } from '@/hooks/queries/useWorkflowRuns'
+import { focusRow } from '@/hooks/useListFocusRescue'
 import { isNotFoundError } from '@/lib/api-error'
 import { issuePath } from '@/lib/appUrl'
 import { formatDateTimeMinute } from '@/lib/formatters'
@@ -34,6 +35,12 @@ interface Props {
 export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, canRecover, meId }: Props) {
   const query = useWorkflowRun(runId)
   const headingId = useId()
+  // WP-2055 리뷰 후속: 배너에서 넘긴 뒤 다음 단계가 남의 차례라 배너가 물러나면 초점을 실행 제목으로 옮긴다(body 로 떨어지지 않게).
+  // 제목은 탭 순서에 없으니 초점 받는 동안만 tabindex=-1 을 단다(focusRow). 배너 효과가 렌더마다 다시 돌지 않게 참조를 고정한다.
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const focusHeading = useCallback(() => {
+    if (headingRef.current) focusRow(headingRef.current)
+  }, [])
   const detail = query.data
   // 낮은 곳의 그래프 칠하기·소요 시간 — 상세가 바뀔 때만 다시 계산한다(소요 시간은 그때의 now 까지).
   const paint = useMemo(() => (detail ? paintRun(detail) : undefined), [detail])
@@ -74,7 +81,7 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className={RUN_STATUS_TONE[run.status]}>{RUN_STATUS_LABEL[run.status]}</Badge>
-          <h2 id={headingId} className="flex min-w-0 flex-1 items-center gap-2 text-base font-normal">
+          <h2 ref={headingRef} id={headingId} className="flex min-w-0 flex-1 items-center gap-2 text-base font-normal">
             {/* 두 span 사이 공백 — 없으면 영역 이름이 「WP-1제목 1」로 붙어 읽힌다(WP-2053 리뷰). */}
             <span className="font-medium">{run.issueKey}</span>{' '}
             <span className="min-w-0 flex-1 truncate">{run.title}</span>
@@ -85,7 +92,7 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
           {`실행 #${run.runId} · 버전 ${run.versionNo} · ${formatDateTimeMinute(run.startedAt)}${run.startedBy ? ` · ${run.startedBy.name} 시작` : ''}`}
         </p>
       </div>
-      <RunBanner detail={detail} visit={visit} projectKey={projectKey} canManage={canManage} canRecover={canRecover} meId={meId} onDone={() => void query.refetch()} />
+      <RunBanner detail={detail} visit={visit} projectKey={projectKey} canManage={canManage} canRecover={canRecover} meId={meId} onLeave={focusHeading} onDone={() => void query.refetch()} />
       <WorkflowGraphView model={detail.model} readOnly paint={paint} durations={durations} />
       <section aria-label="이동 기록" className="space-y-1">
         <h3 className="text-sm font-medium">이동 기록</h3>
@@ -106,13 +113,15 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
 }
 
 /** 상태별 배너 — 사람 차례(주황)·조치 필요(빨강). 그 밖의 상태는 배너가 없다. */
-function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onDone }: {
+function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onLeave, onDone }: {
   detail: RunDetail
   visit: RunDetail['nodeRuns'][number] | null
   projectKey: string
   canManage: boolean
   canRecover: boolean
   meId: number
+  /** 내가 넘겨 사람 차례 배너가 물러났을 때 — 초점을 둘 곳(실행 제목). */
+  onLeave: () => void
   onDone: () => void
 }) {
   const { run, model } = detail
@@ -123,7 +132,7 @@ function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onD
   if (run.status === 'WAITING' && node?.type === 'human_task') {
     const assignees = visit?.assignees ?? []
     // 내가 지금 방문의 담당이면 답할 수 있는 배너, 아니면 질문과 담당만 보인다.
-    if (assignees.some((a) => a.id === meId)) return <IssueWorkflowBanner issueId={run.issueId} projectKey={projectKey} meId={meId} />
+    if (assignees.some((a) => a.id === meId)) return <IssueWorkflowBanner issueId={run.issueId} projectKey={projectKey} meId={meId} onLeave={onLeave} />
     const q = pendingQuestion(run.context, run.currentNode)
     return (
       <div className="space-y-1 rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm" data-testid="run-waiting-banner">

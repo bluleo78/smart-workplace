@@ -22,6 +22,14 @@ describe('selectRoutePreloads', () => {
     expect(selectRoutePreloads('/projects/WP/versions/3')).toEqual([])
     expect(selectRoutePreloads('/projects/WP/settings')).toEqual([])
   })
+  it('이슈 상세 주소는 상세 청크만 받는다(WP-2074)', () => {
+    expect(selectRoutePreloads('/projects/WP/issues/12')).toEqual(['issueDetail'])
+    expect(selectRoutePreloads('/projects/WP/issues/12/')).toEqual(['issueDetail'])
+    expect(selectRoutePreloads('/projects/WP/issues/abc')).toEqual([])
+    expect(selectRoutePreloads('/projects/WP/issues/0')).toEqual([])
+    expect(selectRoutePreloads('/projects/WP/issues/12/edit')).toEqual([])
+    expect(selectRoutePreloads('/projects/WP/issues')).toEqual([])
+  })
   it('셸 밖 화면은 아무것도 미리 받지 않는다', () => {
     expect(selectRoutePreloads('/mail/compose')).toEqual([])
     expect(selectRoutePreloads('/wiki/share/abc')).toEqual([])

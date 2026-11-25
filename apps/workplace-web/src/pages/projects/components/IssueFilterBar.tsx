@@ -1,4 +1,4 @@
-// 태스크 필터/검색 + 뷰(list/board) 토글 바.
+// 이슈 필터/검색 + 뷰(list/board) 토글 바.
 // URL 의 SearchParams 가 단일 source of truth — 로직은 useIssueFilterControls 훅이 담당하고 이 컴포넌트는 렌더만 한다.
 
 import { LayoutGrid, List } from 'lucide-react';
@@ -46,8 +46,8 @@ export function IssueFilterBar({
       data-testid="issue-filter-main"
       keyword={
         // 길이 상한(WP-732)은 FilterInput 내부에서 건다.
-        // 자리표시는 대상 필드만, 접근성 이름은 목적까지(「태스크 필터: 제목·키」).
-        <FilterInput value={c.qDraft} onChange={c.setQDraft} placeholder="제목·키" aria-label="태스크 필터: 제목·키" />
+        // 자리표시는 대상 필드만, 접근성 이름은 목적까지(「이슈 필터: 제목·키」).
+        <FilterInput value={c.qDraft} onChange={c.setQDraft} placeholder="제목·키" aria-label="이슈 필터: 제목·키" />
       }
       // 빠른 필터 칩 — 자주 쓰는 facet 은 칩으로 바로, 나머지는 「더 보기」(WP-1020). 칩 고정·숨김은 화면·사용자별로 기억한다.
       // 필터 줄 안에서는 FilterLine 이 줄바꿈을 막고, 넘치면 칩 묶음만 가로 스크롤한다(필터 줄 규칙 5).

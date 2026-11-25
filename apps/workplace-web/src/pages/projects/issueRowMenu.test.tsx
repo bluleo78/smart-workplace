@@ -242,6 +242,19 @@ describe('이슈 행 메뉴 — 목록', () => {
   })
 })
 
+describe('이슈 행 메뉴 — 여러 개 삭제 확인창(WP-2035)', () => {
+  test('선택 2개를 지우면 확인창 제목·본문의 대상 이름이 일반 명칭 「이슈」다', async () => {
+    const { user } = await open()
+    await user.click(screen.getByTestId('select-issue-7'))
+    await user.click(screen.getByTestId('select-issue-8'))
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId('issue-row-8') })
+    await user.click(await screen.findByTestId('row-menu-delete'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByRole('heading', { name: '이슈 삭제' })).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('선택한 2개 이슈를 삭제할까요?')
+  })
+})
+
 describe('이슈 카드 메뉴 — 보드', () => {
   test('카드 ⋯ → 상태 › 완료 → PATCH statusId, 상세로 이동하지 않는다', async () => {
     const { user, api, location } = await open('board')

@@ -266,7 +266,7 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     await waitFor(() => expect(api.params().filter((p) => !p.has('cycle') && p.get('size') === '30')).toHaveLength(1))
 
     // 필터 변경 — 검색어(debounce) 하나만 바꾼다. 구간 쿼리는 새 필터로 다시 나가야 바뀐 게 확인된다.
-    const box = await screen.findByLabelText('태스크 필터: 제목·키')
+    const box = await screen.findByLabelText('이슈 필터: 제목·키')
     fireEvent.change(box, { target: { value: 'login' } })
     await waitFor(() => expect(location()).toMatch(/q=login/))
     await waitFor(() => expect(api.params().some((p) => p.has('cycle') && p.get('q') === 'login')).toBe(true))
@@ -277,7 +277,7 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
   test('명시 ?group=cycle 진입에선 평면 요청이 아예 나가지 않는다 — 필터를 바꿔도 (WP-1929)', async () => {
     const { location, api } = await open(`/projects/${KEY}?group=cycle`)
     // 명시 group=cycle 은 판정이 처음부터 확정이라(pending 없음) 평면 프리페치 자체가 없다.
-    const box = await screen.findByLabelText('태스크 필터: 제목·키')
+    const box = await screen.findByLabelText('이슈 필터: 제목·키')
     fireEvent.change(box, { target: { value: 'login' } })
     await waitFor(() => expect(location()).toMatch(/q=login/))
     // 구간 쿼리가 새 필터로 나온 뒤에 세면, 진입 시점의 느린 평면 응답까지 잡아 잴 수 있다.

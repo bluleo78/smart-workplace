@@ -1,4 +1,4 @@
-// WP-1777: 태스크 탭의 필터·검색 결과 건수를 스크린리더에 알리는 화면 밖(sr-only) live region.
+// WP-1777: 이슈 탭의 필터·검색 결과 건수를 스크린리더에 알리는 화면 밖(sr-only) live region.
 // 목록이 바뀌어도 낭독기는 자동으로 읽지 않으므로, 조건이 바뀐 뒤 서버 총계가 오면 건수를 문장으로 넣어 읽게 한다.
 import { useEffect, useState } from 'react';
 

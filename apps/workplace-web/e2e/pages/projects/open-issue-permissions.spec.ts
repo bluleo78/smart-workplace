@@ -1,6 +1,6 @@
 // OPEN 프로젝트 이슈 상세 권한 E2E — 브라우저가 있어야 판정되는 것만 남긴다.
 // 남는 것: reporter 의 첨부 파일 선택 업로드(multipart 파일 이름)·본문 이미지 붙여넣기 업로드(@input), 열람자의 인증 blob 이미지(@platform).
-// 보드의 비멤버/멤버 분기(새 태스크·카드 aria·저장된 뷰 요청·접수 다이얼로그 payload)와 상세의 잠김 안내·꺼진 위젯은
+// 보드의 비멤버/멤버 분기(새 이슈·카드 aria·저장된 뷰 요청·접수 다이얼로그 payload)와 상세의 잠김 안내·꺼진 위젯은
 // 페이지 테스트 src/pages/projects/openIssuePermissions.test.tsx 가 지킨다(WP-980).
 
 import { expect, test } from '../../fixtures/auth.fixture';

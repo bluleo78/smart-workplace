@@ -53,28 +53,28 @@ describe('IssueResultStatus', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('검색어를 바꾸면 새 총계로 「태스크 N건」을 알린다', async () => {
+  it('검색어를 바꾸면 새 총계로 「이슈 N건」을 알린다', async () => {
     const { handler } = setup({ a: 3 })
     const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [handler] })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 3건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 3건'))
   })
 
   it('0건이면 없음 문구', async () => {
     const { handler } = setup({ a: 0 })
     const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [handler] })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('조건에 맞는 태스크가 없습니다'))
+    await waitFor(() => expect(region().textContent).toBe('조건에 맞는 이슈가 없습니다'))
   })
 
   it('같은 건수라도 조건이 바뀌면 비웠다가 다시 채운다', async () => {
     const { handler } = setup({ a: 3, b: 3 })
     const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [handler] })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 3건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 3건'))
     await user.click(screen.getByText('검색 b'))
     expect(region().textContent).toBe('')
-    await waitFor(() => expect(region().textContent).toBe('태스크 3건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 3건'))
   })
 
   it('같은 조건의 재조회로는 바꾸지 않는다', async () => {
@@ -82,12 +82,12 @@ describe('IssueResultStatus', () => {
     const { calls, handler } = setup(counts)
     const { user, queryClient } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [handler] })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 3건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 3건'))
     counts.a = 4
     await queryClient.invalidateQueries({ queryKey: ['issues', 'search', 'WP'] })
     await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2))
     await settle()
-    expect(region().textContent).toBe('태스크 3건')
+    expect(region().textContent).toBe('이슈 3건')
   })
 
   it('정렬만 바꾸면 안내하지 않는다', async () => {
@@ -113,7 +113,7 @@ describe('IssueResultStatus', () => {
     const other = setup({ c: 7, d: 2 }, 'OTHER')
     const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [wp.handler, other.handler] })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 3건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 3건'))
     await user.click(screen.getByText('프로젝트 전환'))
     expect(region().textContent).toBe('')
     await settle()
@@ -127,7 +127,7 @@ describe('IssueResultStatus', () => {
     const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [wp.handler, other.handler] })
     await user.click(screen.getByText('프로젝트 전환'))
     await user.click(screen.getByText('검색 b'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 2건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 2건'))
     expect(other.calls.length).toBeGreaterThanOrEqual(1)
   })
   it('예전에 본 조건으로 돌아오면 캐시의 옛 건수가 아니라 새로 받은 건수를 알린다', async () => {
@@ -135,13 +135,13 @@ describe('IssueResultStatus', () => {
     const wp = setup(counts)
     const { user, queryClient } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [wp.handler] })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 3건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 3건'))
     await user.click(screen.getByText('검색 b'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 1건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 1건'))
     // 그 사이 다른 사람이 이슈를 더해 a 의 건수가 바뀌었고, 캐시는 오래돼(staleTime 지남) 돌아오면 다시 받는다 — 다시 받지는 않고 오래됨만 표시한다.
     counts.a = 5
     await queryClient.invalidateQueries({ queryKey: ['issues', 'search', 'WP'], refetchType: 'none' })
     await user.click(screen.getByText('검색 a'))
-    await waitFor(() => expect(region().textContent).toBe('태스크 5건'))
+    await waitFor(() => expect(region().textContent).toBe('이슈 5건'))
   })
 })

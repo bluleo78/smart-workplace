@@ -32,7 +32,7 @@ export function MobileFilterSheet({
       open={open}
       onClose={onClose}
       title="필터"
-      description="태스크 목록에 적용할 필터를 고르세요."
+      description="이슈 목록에 적용할 필터를 고르세요."
       testId="mobile-filter-sheet"
       className="min-h-[55dvh]"
       headerAction={

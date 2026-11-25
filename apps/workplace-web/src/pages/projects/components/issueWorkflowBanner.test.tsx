@@ -1,7 +1,8 @@
 // 워크플로우 사람 차례 배너(WP-1989) — 결과 고르기·넘기기·「답으로 보내기」.
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent,screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
@@ -41,6 +42,7 @@ function setup(view: object | ((gets: number) => object), moves: Record<string, 
       http.post(`${API}/issues/7/workflow/move`, async ({ request }) => {
         moves.push((await request.json()) as Record<string, unknown>)
         if (moveStatus === 409) return HttpResponse.json({ errors: { code: 'WORKFLOW_STALE' }, message: 'stale' }, { status: 409 })
+        if (moveStatus === 500) return HttpResponse.json({ message: 'boom' }, { status: 500 })
         return HttpResponse.json(run())
       }),
     ],
@@ -228,6 +230,58 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인 — 내 차례/)
   })
 
+  // WP-2055 리뷰 후속: 넘기기가 실패(500)하면 표지를 지운다 — 뒤에 남이 옮겨 배너가 사라져도 onLeave 로 초점을 뺏지 않는다.
+  test('moveFailed_thenOthersMove_doesNotCallOnLeave', async () => {
+    const counter = { gets: 0 }
+    const onLeave = vi.fn()
+    const away = run({ revision: 5, currentNode: { ...run().currentNode, assignees: [{ ...me, id: 2 }] } })
+    const { queryClient } = setup((gets) => (gets <= 1 ? run() : away), [], { onLeave }, 500, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await screen.findByText('다음 단계로 넘기지 못했어요.')
+    await act(() => queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    expect(onLeave).not.toHaveBeenCalled()
+  })
+
+  // 리뷰 후속(code-review): 다른 이슈로 바뀌면 앞 이슈의 표지를 버린다.
+  test('issueChangedWhileMoving_doesNotCallOnLeaveForNewIssue', async () => {
+    const onLeave = vi.fn()
+    let release: () => void = () => {}
+    // 같은 자리에서 이슈만 바꾸는 부모 — 단추로 7 → 8.
+    function Switcher() {
+      const [id, setId] = useState(7)
+      return (
+        <>
+          <button type="button" onClick={() => setId(8)}>이슈 바꾸기</button>
+          <IssueWorkflowBanner issueId={id} projectKey="WP" meId={1} onLeave={onLeave} />
+        </>
+      )
+    }
+    renderScreen(<Switcher />, {
+      handlers: [
+        http.get(`${API}/issues/7/workflow`, () => HttpResponse.json(run())),
+        http.get(`${API}/issues/8/workflow`, () => HttpResponse.json(run({ runId: 99, currentNode: { ...run().currentNode, assignees: [{ ...me, id: 2 }] } }))),
+        http.post(`${API}/issues/7/workflow/move`, async () => {
+          await new Promise<void>((res) => { release = res })
+          return HttpResponse.json(run())
+        }),
+      ],
+    })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    // 요청이 걸린 동안 같은 자리에서 다른 이슈(8)로 바뀐다.
+    // 초점을 잃은 상태(body)에서 바꾼다 — fireEvent 는 초점을 옮기지 않는다(바뀐 이슈의 상태 변화를 내 떠남으로 오해하면 onLeave 가 불린다).
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.click(screen.getByRole('button', { name: '이슈 바꾸기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    await act(() => new Promise((res) => setTimeout(res, 50)))
+    release()
+    expect(onLeave).not.toHaveBeenCalled()
+  })
+
   test('movedAway_callsOnLeaveOnce', async () => {
     const counter = { gets: 0 }
     const onLeave = vi.fn()
@@ -316,6 +370,38 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(await screen.findByText('그사이 단계가 바뀌었어요. 새로 불러왔어요.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인/))
     await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveFocus())
+  })
+
+  // WP-2060 — 결과를 고르면 스크린리더가 고른 결과·아래 폼을 듣는다(aria-pressed·status·group).
+  test('outcome_pick_announcesFormAndPressedState', async () => {
+    setup(run({ outcomes: [outcome({ key: 'a', requireComment: true }), outcome({ key: 'b' })] }))
+    const user = userEvent.setup()
+    const banner = await screen.findByTestId('issue-workflow-banner')
+    const status = within(banner).getByRole('status')
+    expect(status).toHaveTextContent(/^$/)
+    expect(screen.getByRole('button', { name: 'a' })).toHaveAttribute('aria-pressed', 'false')
+    await user.click(screen.getByRole('button', { name: 'a' }))
+    expect(screen.getByRole('button', { name: 'a' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'b' })).toHaveAttribute('aria-pressed', 'false')
+    expect(status).toHaveTextContent('「a」 결과를 골랐어요. 아래에서 의견(필수)을 적고 넘기기를 누르세요.')
+    expect(screen.getByRole('group', { name: '「a」 결과 입력' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'b' }))
+    expect(status).toHaveTextContent('「b」 결과를 골랐어요. 아래에서 의견을 적고 넘기기를 누르세요.')
+    expect(screen.getByRole('group', { name: '「b」 결과 입력' })).toBeInTheDocument()
+  })
+
+  test('outcome_pick_announcesRequiredFieldsAndNoCandidate', async () => {
+    const cand = { id: 5, username: 'dev', name: '개발자', kind: 'HUMAN' }
+    setup(run({ outcomes: [
+      outcome({ key: 'a', requiredOutputs: [{ key: 'link', type: 'url' }], assigneeRequired: true, candidateAssignees: [cand] }),
+      outcome({ key: 'b', assigneeRequired: true }),
+    ] }))
+    const user = userEvent.setup()
+    const status = within(await screen.findByTestId('issue-workflow-banner')).getByRole('status')
+    await user.click(screen.getByRole('button', { name: 'a' }))
+    expect(status).toHaveTextContent('「a」 결과를 골랐어요. 아래에서 필수 항목(link·다음 담당)을 채우고 의견을 적고 넘기기를 누르세요.')
+    await user.click(screen.getByRole('button', { name: 'b' }))
+    expect(status).toHaveTextContent('「b」 결과를 골랐어요. 넘길 수 있는 담당 후보가 없어 넘길 수 없어요.')
   })
 
   test('header_showsElapsedSinceEntered', async () => {

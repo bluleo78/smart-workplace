@@ -152,6 +152,69 @@ describe('내 차례 탭', () => {
     await waitFor(() => expect(within(screen.getByTestId('my-turn-row-2')).getByRole('button', { name: /WP-20/ })).toHaveFocus())
   })
 
+  // WP-2055 리뷰 후속: 넘긴 뒤 초점은 「고른 줄이 빠짐」 한 경로로만 옮긴다 — 패널 제목을 거쳐 두 번 옮기지 않는다.
+  // 리뷰 후속(code-review): 배너는 물러났는데 목록에 줄이 남으면(재조회 지연·실패) 초점이 body 에 남지 않고 패널 제목으로 간다.
+  it('myTurns_bannerLeftButRowStays_focusesPanelHeading', async () => {
+    let moved = false
+    const r = renderScreen(<MyTurnsTab />, {
+      path: '/me/tasks/turns',
+      handlers: [
+        http.get(base + '/me/workflow-turns', () => HttpResponse.json({ items: [turn(1), turn(2)] })),
+        http.get(base + '/issues/:id/workflow', ({ params }) => {
+          const v = issueView(Number(params.id) / 10)
+          return HttpResponse.json(moved ? { ...v, revision: 4, currentNode: { ...v.currentNode, assignees: [kim] } } : v)
+        }),
+        http.post(base + '/issues/:id/workflow/move', () => {
+          moved = true
+          return HttpResponse.json(issueView(1))
+        }),
+      ],
+    })
+    await r.user.click(within(await screen.findByTestId('my-turn-row-1')).getByRole('button', { name: /WP-10/ }))
+    const heading = within(await screen.findByTestId('my-turn-panel')).getByRole('heading', { level: 2 })
+    await r.user.click(await screen.findByRole('button', { name: 'approve' }))
+    await r.user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
+    await waitFor(() => expect(heading).toHaveFocus())
+  })
+
+  it('myTurns_movedRowRemoved_focusMovesOnce_notViaPanelHeading', async () => {
+    // 넘긴 뒤 배너 조회(담당이 남으로 바뀜)가 목록 조회보다 먼저 와서 배너가 패널 안에서 먼저 물러나는 순서를 만든다.
+    let moved = false
+    const r = renderScreen(<MyTurnsTab />, {
+      path: '/me/tasks/turns',
+      handlers: [
+        http.get(base + '/me/workflow-turns', async () => {
+          if (!moved) return HttpResponse.json({ items: [turn(1), turn(2)] })
+          await new Promise((res) => setTimeout(res, 150))
+          return HttpResponse.json({ items: [turn(2)] })
+        }),
+        http.get(base + '/issues/:id/workflow', ({ params }) => {
+          const v = issueView(Number(params.id) / 10)
+          return HttpResponse.json(moved ? { ...v, revision: 4, currentNode: { ...v.currentNode, assignees: [kim] } } : v)
+        }),
+        http.post(base + '/issues/:id/workflow/move', () => {
+          moved = true
+          return HttpResponse.json(issueView(1))
+        }),
+      ],
+    })
+    await r.user.click(within(await screen.findByTestId('my-turn-row-1')).getByRole('button', { name: /WP-10/ }))
+    const heading = within(await screen.findByTestId('my-turn-panel')).getByRole('heading', { level: 2 })
+    const focused: Element[] = []
+    const onFocusIn = (e: FocusEvent) => focused.push(e.target as Element)
+    document.addEventListener('focusin', onFocusIn)
+    try {
+      await r.user.click(await screen.findByRole('button', { name: 'approve' }))
+      await r.user.click(screen.getByRole('button', { name: '넘기기' }))
+      await waitFor(() => expect(within(screen.getByTestId('my-turn-row-2')).getByRole('button', { name: /WP-20/ })).toHaveFocus())
+      // 패널 제목을 거치지 않고 첫 줄로 한 번만 옮겼다.
+      expect(focused).not.toContain(heading)
+    } finally {
+      document.removeEventListener('focusin', onFocusIn)
+    }
+  })
+
   it('myTurns_lastRowMoved_focusesEmptyTitle', async () => {
     const { user } = setup([[turn(1)], []])
     await user.click(await screen.findByRole('button', { name: /WP-10/ }))

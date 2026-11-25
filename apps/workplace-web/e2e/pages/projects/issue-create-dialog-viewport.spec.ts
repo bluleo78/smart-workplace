@@ -62,7 +62,7 @@ test.describe('새 이슈 창 — 화면보다 길면 창 안에서 스크롤 (W
     );
     await page.setViewportSize(VIEWPORT);
     await page.goto(`/projects/${PROJECT_KEY}`);
-    await page.getByRole('button', { name: '+ 새 태스크' }).click();
+    await page.getByRole('button', { name: '+ 새 이슈' }).click();
     const dialog = page.getByRole('dialog', { name: '새 이슈' });
     await expect(dialog).toBeVisible();
 

@@ -1,6 +1,6 @@
 // 이슈 단건 조회 + 수정 mutation 훅.
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 
 import { issuesApi } from '../../api/issues';
@@ -10,10 +10,20 @@ import { issueKeys } from './useIssues';
 import { projectOverviewKey } from './useProjectOverview';
 import { refreshStatusesIfGone } from './useProjectStatuses';
 
-export function useIssue(projectKey: string, number: number) {
-  return useQuery({
+/**
+ * 이슈 상세 조회 정의(키 + 조회 함수) — useIssue 와 첫 진입 미리 요청(useInitialIssuePrefetch, WP-2074)이 같은 정의를 써서
+ * 캐시 키·응답 모양이 어긋나지 않게 한다.
+ */
+export function issueDetailQuery(projectKey: string, number: number) {
+  return queryOptions({
     queryKey: issueKeys.detail(projectKey, number),
     queryFn: () => issuesApi.get(projectKey, number).then(r => r.data),
+  });
+}
+
+export function useIssue(projectKey: string, number: number) {
+  return useQuery({
+    ...issueDetailQuery(projectKey, number),
     enabled: !!projectKey && Number.isFinite(number),
   });
 }

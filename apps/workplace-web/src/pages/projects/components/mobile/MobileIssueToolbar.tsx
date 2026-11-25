@@ -63,7 +63,7 @@ function ToolbarBody({
             value={c.qDraft}
             onChange={c.setQDraft}
             placeholder="제목·키"
-            aria-label="태스크 필터: 제목·키"
+            aria-label="이슈 필터: 제목·키"
             inputTestId="mobile-search-input"
           />
         }

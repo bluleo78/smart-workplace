@@ -19,12 +19,12 @@ const AGENTS = [
   { id: 7, username: 'team-ai', name: '팀 AI', personalAssistant: false },
 ]
 
-/** 「+ 새 태스크」 버튼 + initialAgentId 를 받는 대화상자. */
+/** 「+ 새 이슈」 버튼 + initialAgentId 를 받는 대화상자. */
 function Harness({ initialAgentId }: { initialAgentId?: number }) {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+      <Button onClick={() => setOpen(true)}>+ 새 이슈</Button>
       <IssueCreateDialog projectKey={KEY} open={open} onOpenChange={setOpen} initialAgentId={initialAgentId} />
     </>
   )
@@ -41,7 +41,7 @@ async function openWith(initialAgentId?: number) {
       http.get(`/api/v1/projects/${KEY}/:sub`, () => HttpResponse.json([])),
     ],
   })
-  await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: SCREEN_LOAD_TIMEOUT }))
+  await view.user.click(await screen.findByRole('button', { name: '+ 새 이슈' }, { timeout: SCREEN_LOAD_TIMEOUT }))
   const dialog = await screen.findByRole('dialog', { name: '새 이슈' })
   return { ...view, dialog }
 }

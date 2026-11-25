@@ -71,7 +71,7 @@ export function AuditUserFilter({
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[280px] p-0" align="start" data-testid="audit-user-filter-popover">
+      <PopoverContent aria-label="사용자 선택" className="w-[280px] p-0" align="start" data-testid="audit-user-filter-popover">
         <Command shouldFilter={false}>
           <CommandInput
             value={query}

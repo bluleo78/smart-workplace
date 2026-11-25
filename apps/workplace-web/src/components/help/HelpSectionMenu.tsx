@@ -76,6 +76,7 @@ export function HelpSectionMenu({ chapter, currentId, related, onSelect, childre
       <PopoverContent
         data-help-panel
         data-testid="help-section-menu"
+        aria-label="이 화면 도움말 목록"
         align="start"
         collisionPadding={8}
         // 항목을 고르면 닫힐 때 ⌄ 로 포커스를 되돌리지 않는다 — 패널이 새 절 본문으로 포커스를 옮긴다(⌄ 는 다른 장이면 받는 동안 사라진다).

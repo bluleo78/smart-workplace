@@ -55,7 +55,7 @@ const ISSUE: IssueResponse = createIssue({
 });
 
 /** 공통 목 — 사이클 유무에 따라 기본 그룹이 달라진다(사이클 있으면 사이클 그룹). */
-async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE, fields = FIELD_DEFS } = {}) {
+async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE, issues = [] as IssueResponse[], fields = FIELD_DEFS } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(`**/api/v1/projects/${KEY}`, (route) => route.fulfill(json(createProject())));
@@ -71,7 +71,8 @@ async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE
       if (route.request().method() !== 'GET') return route.fallback();
       // 사이클 그룹은 구간별(cycle=3·null) 요청 — 진행 중 구간에만 이슈를 둔다.
       const cycle = new URL(route.request().url()).searchParams.get('cycle');
-      return route.fulfill(json(createIssueSearchResponse(cycle === 'null' ? [] : [issue], null)));
+      // issues 를 주면 그 목록(긴 목록 스크롤용, WP-2068), 아니면 이슈 하나.
+      return route.fulfill(json(createIssueSearchResponse(cycle === 'null' ? [] : issues.length ? issues : [issue], null)));
     },
   );
 }
@@ -337,5 +338,72 @@ test.describe('이슈 목록 열 고르기 — 개인 저장 (WP-270)', { tag: '
     await page.reload();
     await expect(page.getByTestId('issue-row-1')).toBeVisible();
     await expect.poll(() => visibleHeaders(page, 'thead')).toEqual(['ID', '제목', '담당자', '마감']);
+  });
+});
+
+test.describe('이슈 목록 키보드 초점과 sticky 머리글 (WP-2068)', () => {
+  test('키보드로 위로 이동해도 초점이 sticky 머리글에 가려지지 않는다(WP-2068)', { tag: ['@layout', '@input'] }, async ({
+    authenticatedPage: page,
+  }) => {
+    // 표를 벗어날 때까지(40행이면 170번 안팎) 키를 누르며 매번 재므로 부하 속 커밋 훅에서도 시간이 모자라지 않게 한도를 늘린다.
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // 이슈 40개 — 표 본문이 세로로 스크롤되는 길이.
+    const issues = Array.from({ length: 40 }, (_, i) =>
+      createIssue({ id: i + 1, number: i + 1, title: `키보드 이동 이슈 ${i + 1}` }),
+    );
+    await setup(page, { issues });
+    await page.goto(`/projects/${KEY}?group=none`);
+    const last = page.getByTestId('issue-row-40');
+    await expect(last).toBeVisible(FIRST_LOAD);
+    await last.getByRole('link').first().focus();
+
+    // Shift+Tab 으로 위로 거슬러 오르며, 표 안 초점의 위쪽(초점 링 2px 포함)이 머리글에 덮이는지 매번 잰다(완전 가림도 위쪽 덮임에 든다).
+    // 표 본문은 tbody 가 여럿일 수 있어 첫 tbody 가 아니라 초점이 든 tbody 로 판정하고, 첫 행까지 실제로 닿았는지도 본다.
+    // 행마다 탭 정지가 넷(행·선택 칸·제목 링크·작업 메뉴)이라 40행 전체를 오르도록 넉넉히 누르고, 초점이 표를 벗어나면 멈춘다.
+    let inTable = 0;
+    let reachedFirst = false;
+    const covered: string[] = [];
+    // 링이 transition 으로 자라는 도중에 재지 않는다 — 공통 fixture(auth.fixture 의 data-test-no-animation)가 전환을 0초로 끈다.
+    // 행 탭 정지 수가 늘어도 첫 행까지 닿게 넉넉한 안전 상한을 두고, 초점이 표를 벗어나면 멈춘다.
+    for (let i = 0; i < 400; i++) {
+      await page.keyboard.press('Shift+Tab');
+      const r = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement;
+        const scroll = document.querySelector('[data-testid="issue-list-scroll"]')!;
+        if (!el || !scroll.contains(el) || !el.closest('tbody')) return null;
+        const head = scroll.querySelector('thead')!.getBoundingClientRect();
+        // 바깥 초점 링은 요소 위로 링 두께만큼 그려지므로 그만큼 위까지 보여야 한다. 두께는 계산된 box-shadow 에서 inset 이 아닌 층의 퍼짐(spread) 중 가장 큰 값
+        // (ring-2 = 2px, 체크박스 ring-[3px] = 3px). 행처럼 안쪽 링(ring-inset)만 있으면 요소 안이라 0 이다.
+        // 색 표기(rgb·oklch·color-mix 등)와 무관하게 읽도록, 괄호(색 함수 — 겹쳐도 안쪽부터)를 지운 뒤 쉼표로 층을 나눠 px 길이만 본다.
+        const shadow = getComputedStyle(el).boxShadow;
+        let bareAll = shadow === 'none' ? '' : shadow;
+        while (/\([^()]*\)/.test(bareAll)) bareAll = bareAll.replace(/\([^()]*\)/g, '');
+        let RING = 0;
+        for (const bare of bareAll ? bareAll.split(',') : []) {
+          const lengths = [...bare.matchAll(/(-?[\d.]+)px/g)].map((m) => Number(m[1]));
+          // 계산된 box-shadow 는 층마다 x·y·흐림·퍼짐 네 길이를 낸다. 못 읽으면 조용히 0 으로 재지 않고 덮임으로 올려 테스트가 알린다.
+          if (lengths.length !== 4) return { covered: true, first: false, name: `링을 읽지 못함: ${shadow}` };
+          // 요소 위로 닿는 거리 = 퍼짐 + 흐림 - y 오프셋(위로 밀린 그림자·흐림까지 포함). 링(ring-2)은 0 0 0 2px 라 2px 다.
+          const [, y, blur, spread] = lengths;
+          if (!/\binset\b/.test(bare)) RING = Math.max(RING, spread + blur - y);
+        }
+        return {
+          covered: el.getBoundingClientRect().top - RING < head.bottom - 0.5,
+          first: el.closest('[data-testid="issue-row-1"]') != null,
+          name: el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '',
+        };
+      });
+      if (!r) {
+        if (inTable > 0) break;
+        continue;
+      }
+      inTable++;
+      if (r.first) reachedFirst = true;
+      if (r.covered) covered.push(r.name);
+    }
+    expect(inTable).toBeGreaterThan(10);
+    expect(reachedFirst, '첫 행(issue-row-1)까지 올라갔다').toBe(true);
+    expect(covered, '위쪽이 머리글에 덮인 초점 요소').toEqual([]);
   });
 });

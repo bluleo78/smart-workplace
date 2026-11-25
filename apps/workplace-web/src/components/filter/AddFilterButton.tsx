@@ -49,6 +49,7 @@ export function AddFilterButton({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        aria-label="필터 항목 선택"
         className={cn(
           'w-64 p-2',
           // 방향 고정 시 화면 밖으로 넘치지 않게 Radix 가 계산한 남은 높이까지만 쓰고, 스크롤은 안쪽 상자가 한다 —
