@@ -199,6 +199,16 @@ describe('useRememberedIssueQuery', () => {
       expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
     })
 
+    it('지운 뒤 검색의 AI 대화 결과(지금 주소에 aiChat 만 더해 PUSH)로 와도 보이는 조건을 바꾸지 않고 대화 링크 처리를 덮지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS', 'WP', true, true)
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      // 검색 팔레트는 화면을 그대로 두고 지금 쿼리에 aiChat 만 더해 push 한다 → 처리기가 대화를 열고 replace 로 지운다.
+      act(() => result.current.navigate('/projects/WP?aiChat=11111111-1111-1111-1111-111111111111'))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
     it('지운 뒤에도 같은 프로젝트 링크(PUSH)로 조건 없이 다시 들어오면 평소처럼 되살린다', () => {
       localStorage.setItem(keyOf('WP'), 'status=TODO')
       const { result } = renderAt('/projects/WP?status=BOGUS')

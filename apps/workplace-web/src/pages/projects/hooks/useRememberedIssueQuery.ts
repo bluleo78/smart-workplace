@@ -6,7 +6,7 @@
 // - 알 수 없는 필터 값만 든 주소(?status=BOGUS, WP-2083)는 조건이 있는 주소로 보아 되살리지 않고, 기억도 쓰지도 지우지도 않는다 — 오타 주소가 기억을 덮거나 지우지 않게.
 //   그 값을 「주소에서 지우기」로 치운 이동(state IGNORED_CLEARED_STATE)은 기억을 되살리지도 cleared 로 지우지도 않는다(남은 조건이 있으면 평소처럼 기억).
 //   「지운 뒤」 동작(WP-2083 리뷰): 지워 조건 없는 목록이 된 화면은, 같은 화면에 머무는 동안 오는 조건 없는 replace(AI 대화 링크의 aiChat 지우기 등)로
-//   보이는 목록 조건을 바꾸지 않는다(되살리지도, 기억을 지우지도 않는다). 링크·뒤로/앞으로·새로고침(PUSH·POP)이나 목록 화면이 새로 붙는 진입(모바일 뒤로 가기)은
+//   보이는 목록 조건을 바꾸지 않는다(되살리지도, 기억을 지우지도 않는다). 검색의 AI 대화 결과처럼 지금 쿼리에 aiChat 만 더한 PUSH 도 같은 화면 이동으로 본다. 링크·뒤로/앞으로·새로고침(PUSH·POP)이나 목록 화면이 새로 붙는 진입(모바일 뒤로 가기)은
 //   평소처럼 조건 없는 주소로 들어온 것이라 기억을 되살리고, 화면에 조건이 다시 생기면 이 유지도 끝난다.
 // - 들어온 주소에 조건이 없을 때만 되살린다 — 공유 링크·에픽 링크·저장된 뷰처럼 주소에 조건이 있으면 그것을 따르고 기억을 바꾼다.
 // - 개요 탭(WP-1478)의 링크는 조건을 단 주소로 이슈 탭을 열지만 기억은 바꾸지 않는다(state FROM_OVERVIEW_STATE) — 「오래 멈춤」·
@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/hooks/useAuth'
+import { CHAT_PARAM } from '@/lib/aiChatLink'
 import { readStored, writeStored } from '@/lib/storageWithFallback'
 import { userScopedKey } from '@/lib/userScopedKey'
 
@@ -87,7 +88,9 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   // 알 수 없는 값을 지워 조건 없는 목록이 된 화면(이 프로젝트의 기억) — 이 화면에 머무는 동안의 조건 없는 replace 는 보이는 조건을 그대로 둔다.
   // 조건이 다시 생기거나 replace 가 아닌 이동(PUSH·POP)이 오면 끝난다. 렌더 중 갱신이라 같은 렌더에서는 아래 keepCleared 가 바로 계산한다.
   const [keepClearedFor, setKeepClearedFor] = useState<string | null>(null)
-  const stillReplacing = !recordable && navigationType === 'REPLACE'
+  // 검색의 AI 대화 결과는 화면을 그대로 두고 지금 쿼리에 aiChat 만 더해 PUSH 한다 — 같은 화면에 머무는 이동이라 replace 처럼 본다.
+  // PUSH 로 보아 되살리면 되살리기의 replace 가 대화 링크 처리기의 aiChat 지우기를 덮어 대화가 열리지 않는다(WP-2083 라이브 검증).
+  const stillReplacing = !recordable && (navigationType === 'REPLACE' || params.has(CHAT_PARAM))
   if (!stillReplacing) {
     if (keepClearedFor !== null) setKeepClearedFor(null)
   } else if (ignoredCleared && storageKey && keepClearedFor !== storageKey) {
