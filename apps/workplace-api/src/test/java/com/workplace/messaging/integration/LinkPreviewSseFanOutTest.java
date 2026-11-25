@@ -3,6 +3,7 @@ package com.workplace.messaging.integration;
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -74,12 +75,13 @@ class LinkPreviewSseFanOutTest extends ExternalClientMockedTestBase {
 
     linkPreviewService.dismiss(uid, msgId);
 
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    // 다른 테스트의 늦은 AFTER_COMMIT 이벤트를 잡지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2110).
     verify(registry, timeout(2000))
-        .fanOut(ids.capture(), eq("messaging.message.link-previews"), payload.capture());
-    assertThat(ids.getValue()).contains(uid);
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(uid)),
+            eq("messaging.message.link-previews"),
+            payload.capture());
     assertThat(payload.getValue())
         // 지운 경우에만 linkPreviewsDismissed 를 싣는다(WP-896 — 다른 사람 화면의 앱 링크 카드도 감춘다).
         .isEqualTo(
