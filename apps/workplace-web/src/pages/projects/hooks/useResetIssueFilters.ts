@@ -12,21 +12,26 @@ export function readIssueFiltersReset(state: unknown): number | undefined {
   return typeof v === 'number' ? v : undefined;
 }
 
-/** 지우기 신호용 모듈 단위 증가 카운터 — Date.now() 는 같은 ms 에 두 번 지우면 값이 같아 draft 가 접히지 않는다. */
+/** 지우기 신호용 모듈 단위 값 — 마지막으로 낸 신호값. */
 let resetSeq = 0;
 
 /**
- * 「필터 지우기」 이동의 state — 지우기 신호만 새 값으로 싣는다(이전 state 는 모두 버린다). 신호값은 호출마다 달라야 draft 가 접힌다.
- *
- * 이전 state 에서 살릴 키는 허용 목록 방식으로 고르되 지금 살릴 키는 없다(빈 허용 목록 — 그래서 이전 state 를 인자로 받지 않는다).
- * 이후 「필터 지우기」 뒤에도 남겨야 하는 키가 생기면 이 함수가 이전 state 를 받아 허용 목록의 키만 골라 담도록 고친다.
- * 통째로 복사하지 않는 이유: 새 location.key 로 옛 표지가 다시 읽혀 되살아난다 —
- * 사이드바 고정 보기 링크의 savedViewId 는 그 보기를 다시 고르게 하고(useSavedViewState), projectTab 은 「그 이동 한 번에만」 붙는 표지다.
- * 개요 표지(fromOverview)·알 수 없는 값 지우기 표지(ignoredCleared)도 결과에 남지 않는다 —
- * 이 이동은 「필터를 지운 것」이라 useRememberedIssueQuery 가 조건 기억도 지워야 하기 때문이다(기존 의도 유지).
+ * 다음 지우기 신호값 — 지금 시각(ms)과 직전 값 + 1 중 큰 값이라 호출마다 반드시 커진다.
+ * Date.now() 만 쓰면 같은 ms 에 두 번 지울 때 값이 같고, 0 부터 세는 카운터만 쓰면 새로고침·탭 복제 뒤
+ * history.state 에 남은 옛 값과 첫 신호가 겹쳐 — 어느 쪽이든 cancelKey 가 바뀌지 않아 draft 가 접히지 않는다.
+ */
+function nextResetSeq(): number {
+  resetSeq = Math.max(resetSeq + 1, Date.now());
+  return resetSeq;
+}
+
+/**
+ * 「필터 지우기」 이동의 state — 지우기 신호만 싣고 이전 state 는 모두 버린다.
+ * 이전 state 를 복사하면 새 location.key 로 옛 표지가 다시 읽힌다 — 고정 보기 링크의 savedViewId 가 그 보기를 다시 고르고(useSavedViewState),
+ * 「그 이동 한 번에만」 붙는 projectTab·개요(fromOverview)·알 수 없는 값 지우기(ignoredCleared) 표지가 남아 조건 기억이 지워지지 않는다.
  */
 export function withIssueFiltersReset(): object {
-  return { [ISSUE_FILTERS_RESET_KEY]: ++resetSeq };
+  return { [ISSUE_FILTERS_RESET_KEY]: nextResetSeq() };
 }
 
 /** 「필터 지우기」 이동의 navigate 옵션 — replace 이동에 지우기 신호 state 를 싣는다. 호출부가 각자 조립하지 않게 모은 헬퍼. */

@@ -115,12 +115,14 @@ describe('useRememberedIssueQuery', () => {
   })
 
   // 이전 state(고정 보기 savedViewId·projectTab·개요·지우기 표지)는 하나도 따라오지 않는다 — 새 location.key 로 되살아나지 않게.
-  it('withIssueFiltersReset — 지우기 신호 숫자 키 하나만 담고, 신호값은 호출마다 달라진다', () => {
-    const a = withIssueFiltersReset() as Record<string, unknown>
-    const b = withIssueFiltersReset() as Record<string, unknown>
+  // 신호값은 지금 시각(ms) 이상이라 새로고침·탭 복제 전 history.state 에 남은 옛 값과도 겹치지 않는다.
+  it('withIssueFiltersReset — 지우기 신호 숫자 키 하나만 담고, 신호값은 호출마다 커지며 지금 시각 이상이다', () => {
+    const before = Date.now()
+    const a = withIssueFiltersReset() as Record<string, number>
+    const b = withIssueFiltersReset() as Record<string, number>
     expect(Object.keys(a)).toEqual(['issueFiltersReset'])
-    expect(typeof a.issueFiltersReset).toBe('number')
-    expect(b.issueFiltersReset).not.toBe(a.issueFiltersReset)
+    expect(a.issueFiltersReset).toBeGreaterThanOrEqual(before)
+    expect(b.issueFiltersReset).toBeGreaterThan(a.issueFiltersReset)
   })
 
   it('프로젝트를 불러오기 전(또는 볼 수 없는 프로젝트)에는 되살리지도 기억하지도 않는다', () => {
