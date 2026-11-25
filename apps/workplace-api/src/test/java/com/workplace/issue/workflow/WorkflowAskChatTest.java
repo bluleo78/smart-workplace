@@ -26,6 +26,7 @@ import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.dto.IssueUserTokenRequest;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.auth.service.UserApiTokenService;
+import com.workplace.chat.outbound.ChatAgentWake;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.chat.repository.ChatThreadRepository;
@@ -44,11 +45,13 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.service.ServerAgentResolver;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -91,6 +94,7 @@ class WorkflowAskChatTest extends IntegrationTestBase {
   @Autowired ImplicitChatAgents implicitAgents;
   @Autowired RecurringQuestionAnswers recurringAnswers;
   @Autowired WorkflowRunRepository runRepository;
+  @Autowired ServerAgentResolver serverAgentResolver;
 
   private long pm;
   private long lead;
@@ -333,6 +337,56 @@ class WorkflowAskChatTest extends IntegrationTestBase {
     IssueHumanReplyPosted replied =
         events.stream(IssueHumanReplyPosted.class).findFirst().orElseThrow();
     assertThat(replied.chatWokenAgentIds()).containsExactly(bot);
+  }
+
+  @Test
+  @DisplayName("AI 담당이 둘인 노드로 돌아가는 답 글이 둘째 AI 를 멘션해도 그 AI 는 이동 진입으로 한 번만 깨어난다 — 멘션 챗 응답 대행이 없다")
+  void replyMentioningSecondAgent_ofMultiAgentNode_wakesOnce() {
+    long bot = agent();
+    long bot2 = agent();
+    // 둘째 AI 는 서버가 실행하는(INTERNAL) AI — 이미 깨운 AI 에서 빠지면 멘션 챗 응답(chat.message.posted)의 대행으로 골린다.
+    dsl.update(USER).set(USER.AGENT_RUNTIME, "INTERNAL").where(USER.ID.eq(bot2)).execute();
+    String twoBots =
+        yaml(bot)
+            .replace(
+                "bot: { members: [\"" + username(bot) + "\"] }",
+                "bot: { members: [\"" + username(bot) + "\", \"" + username(bot2) + "\"] }");
+    long wf = publish(twoBots);
+    // 시작 노드 담당은 「이슈 담당 ∩ 역할」이라 두 AI 를 이슈 담당으로 넣어야 work 노드 담당이 둘이 된다.
+    long issue = issue(lead, bot, bot2);
+    ok(startReq(issue, wf), pm);
+    expectAsAgent(move(issue, "work", "ask", QUESTION, 0, "k-ask"), bot);
+    events.clear();
+
+    long msg = chat(issue, lead, "<@" + bot2 + "> A 로 해 주세요");
+
+    assertThat(run(issue).get(WORKFLOW_RUN.CURRENT_NODE)).isEqualTo("work");
+    // 노드 진입이 두 AI 를 한 번 깨운다.
+    List<WorkflowNodeWakeEvent> wakes = events.stream(WorkflowNodeWakeEvent.class).toList();
+    assertThat(wakes).hasSize(1);
+    assertThat(wakes.getFirst().agentIds()).containsExactlyInAnyOrder(bot, bot2);
+    ChatMessageCreatedEvent created =
+        events.stream(ChatMessageCreatedEvent.class)
+            .filter(e -> e.messageId() == msg)
+            .findFirst()
+            .orElseThrow();
+    assertThat(created.alreadyWokenAgentIds()).containsExactlyInAnyOrder(bot, bot2);
+    // dispatcher 와 같은 판정으로 멘션 챗 응답을 대행할 AI 가 없다 — 둘째 AI 가 두 번 시작되지 않는다.
+    assertThat(
+            ChatAgentWake.actingAgent(
+                serverAgentResolver,
+                1L,
+                created.actor(),
+                created.mentions(),
+                created.alreadyWokenAgentIds(),
+                created.implicitAgentId()))
+        .isNull();
+    // 대조: 이미 깨운 AI 집합이 없으면 멘션된 둘째 AI 가 대행으로 골린다(이 검증이 헛돌지 않음을 확인).
+    assertThat(
+            ChatAgentWake.actingAgent(
+                serverAgentResolver, 1L, created.actor(), created.mentions(), Set.of(), null))
+        .isEqualTo(bot2);
+    assertThat(events.stream(AgentsResumedByChatReply.class)).isEmpty();
   }
 
   @Test

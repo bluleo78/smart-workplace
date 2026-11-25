@@ -27,9 +27,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *   <li>props.enabled() == true
  *   <li>actor.kind() != "AGENT" (self-loop 차단)
  *   <li>mentions 에 서버가 실행하는(kind == "AGENT" 이면서 runtime == INTERNAL) 에이전트가 1명 이상 (WP-371)
- *   <li>그 에이전트가 이 글로 반복 회차 이어 처리를 이미 받은 AI(followUpAgentId)가 아님 (WP-1312)
+ *   <li>그 에이전트가 이 글로 반복 회차 이어 처리를 이미 받은 AI(followUpAgentId, WP-1312)나 워크플로우 답 이동이 깨운 AI(WP-2093)가
+ *       아님
  *   <li>또는 멘션으로 고른 AI 가 없을 때, 실행 일정이 걸린 작업의 담당 AI(implicitAgentId — 저장 트랜잭션이 멘션 없는 글에만 싣는다)가 서버
- *       실행·활성이고 followUpAgentId 와 다름 (WP-1377)
+ *       실행·활성이고 이 글로 이미 깨운 AI 가 아님 (WP-1377)
  * </ul>
  *
  * 다른 모든 조건은 skip — 일반 사람간 메시지나 mention 안 한 메시지(실행 일정 담당 AI 경우 제외)는 ai-agent 로 가지 않는다.
@@ -69,7 +70,7 @@ public class ChatEventDispatcher {
             TenantContext.get(),
             e.actor(),
             e.mentions(),
-            e.followUpAgentId(),
+            e.alreadyWokenAgentIds(),
             e.implicitAgentId());
     if (acting == null) return;
     client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));

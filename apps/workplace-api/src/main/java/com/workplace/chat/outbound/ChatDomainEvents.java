@@ -6,7 +6,9 @@ import com.workplace.global.dto.AiProgressStep;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.dto.IssueRecurrenceSummary;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /** chat 도메인 이벤트. AFTER_COMMIT 단계에서 dispatcher 가 수신해 ai-agent 로 발사한다. */
 public final class ChatDomainEvents {
@@ -23,6 +25,9 @@ public final class ChatDomainEvents {
    * <p>implicitAgentId(WP-1377): 멘션 없는 사람 글이라도 실행 일정이 걸린 작업의 담당 AI 가 답해야 하면 그 AI id, 아니면 null.
    * 판정(일정·서버 실행·글쓴이·개인/팀·스레드 멤버·직전 글)은 글을 저장한 트랜잭션에서 끝내고, dispatcher 는 멘션으로 고른 AI 가 없을 때 이 AI 를
    * 대행으로 쓴다.
+   *
+   * <p>workflowWokenAgentIds(WP-2093): 이 글이 워크플로우 질문의 답이라 AI 노드로 돌아가며 진입이 깨운 AI 담당 전부.
+   * followUpAgentId 에는 그 첫째만 실리므로, 판정은 둘을 합친 {@link #alreadyWokenAgentIds()} 를 쓴다.
    */
   public record ChatMessageCreatedEvent(
       long threadId,
@@ -56,7 +61,27 @@ public final class ChatDomainEvents {
       // WP-1377: 멘션 없이 답할 실행 일정 담당 AI(클래스 주석 참고). 없으면 null.
       Long implicitAgentId,
       // WP-1569: AI 질문 글에 보고와 함께 저장한 답 선택지(2~4개). 없으면 null — 질문이면 커밋 뒤 서버가 뽑아 채운다.
-      List<String> options) {}
+      List<String> options,
+      // WP-2093: 이 글이 워크플로우 질문의 답이라 answered 이동이 돌아간 AI 노드에서 깨운 AI 담당 전부. 없으면 빈 목록.
+      List<Long> workflowWokenAgentIds) {
+
+    public ChatMessageCreatedEvent {
+      // null 로 만들어도(테스트·다른 발행처) 빈 목록으로 맞춘다 — 판정 쪽이 null 검사 없이 쓰게.
+      workflowWokenAgentIds =
+          workflowWokenAgentIds == null ? List.of() : List.copyOf(workflowWokenAgentIds);
+    }
+
+    /**
+     * 이 글로 다른 경로가 이미 깨운 AI 집합 — 반복 회차 이어 처리 AI(followUpAgentId, WP-1312)와 워크플로우 답 이동이 깨운 AI
+     * 전부(WP-2093). 멘션 챗 응답·암묵 응답이 이들을 같은 글로 또 깨우지 않게 {@link ChatAgentWake} 가 뺀다. AI 담당이 여럿인 노드로
+     * 돌아가면 둘째 AI 를 멘션해도 그 AI 가 두 번 시작되지 않는다.
+     */
+    public Set<Long> alreadyWokenAgentIds() {
+      Set<Long> woken = new LinkedHashSet<>(workflowWokenAgentIds);
+      if (followUpAgentId != null) woken.add(followUpAgentId);
+      return woken;
+    }
+  }
 
   /**
    * 서버가 질문 글에서 뽑은 답 선택지를 저장한 직후(WP-1569). SSE {@code chat.message.options} 로 스레드 멤버에게 그 메시지의 선택지만

@@ -247,7 +247,8 @@ class NotificationDispatcherTest {
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /** AI 질문: 멘션된 사람·AI 를 중복 없이 AI_QUESTION 경로(관계자는 서비스 트랜잭션에서 조회)로 넘긴다 — 작성자 제외는 서비스(WP-720). */

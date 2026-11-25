@@ -133,7 +133,8 @@ class ChatEventDispatcherTest {
         followUpAgentId,
         recurrence,
         implicitAgentId,
-        null);
+        null,
+        List.of());
   }
 
   /**
