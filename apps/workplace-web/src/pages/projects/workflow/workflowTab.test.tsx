@@ -974,6 +974,15 @@ it('enableSwitch_manager_on_showsInUseAndConfirmsBeforeTurningOffWithRuns', asyn
   expect(screen.getByText('사용 안 함')).toBeVisible()
 })
 
+it('enableSwitch_sitsNextToPublishButtonInRightGroup', async () => {
+  renderWorkflow()
+  enabledWorkflow()
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  // 시안: 스위치는 머리 오른쪽 묶음(검사·초안 저장·게시)의 게시 단추 옆이다.
+  const publish = screen.getByRole('button', { name: '게시' })
+  expect(publish.parentElement).toContainElement(toggle)
+})
+
 it('enableSwitch_cancelDialog_sendsNothing', async () => {
   renderWorkflow()
   const bodies = enabledWorkflow()
