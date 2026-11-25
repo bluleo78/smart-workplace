@@ -88,19 +88,21 @@ test('workflowTab_desktopShowsProblemsBesideEditor_mobileStacksProblems', { tag:
   }).toBe(true)
 })
 
-test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+test('workflowGraph_drawerBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockWorkflow(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects/WP/workflow')
   const canvas = page.getByTestId('workflow-graph-canvas')
-  const panel = page.getByRole('complementary', { name: '노드 편집' })
-  // 노드 하나를 눌러 편집 패널을 연다 — 노드 카드 제목은 YAML 의 노드 키다
+  const panel = page.getByRole('complementary', { name: '노드 설정' })
+  // 노드 하나를 눌러 노드 서랍을 연다 — 노드 카드 제목은 YAML 의 노드 키다
   await page.locator('.react-flow__node').filter({ hasText: 'review' }).click()
   await expect(panel).toBeVisible()
 
   const canvasWide = (await canvas.boundingBox())!
   const panelWide = (await panel.boundingBox())!
   expect(panelWide.x).toBeGreaterThanOrEqual(canvasWide.x + canvasWide.width)
+  // 넓은 폭의 서랍 폭은 380px(@3xl:w-[380px])
+  expect(Math.abs(panelWide.width - 380)).toBeLessThanOrEqual(2)
   expect(canvasWide.width).toBeGreaterThanOrEqual(300)
   expect(canvasWide.height).toBeGreaterThanOrEqual(400)
 
@@ -130,7 +132,7 @@ test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '
   await page.locator('.react-flow__node').filter({ hasText: 'review' }).click()
   await expect(panel).toBeVisible()
   await expect(panel).toBeInViewport()
-  await expect(panel.getByRole('button', { name: '패널 닫기' })).toBeInViewport()
+  await expect(panel.getByRole('button', { name: '서랍 닫기' })).toBeInViewport()
 
   // 세로로 쌓일 때는 패널 높이가 화면의 60% 로 막히고 안쪽(overflow-y-auto)에서 스크롤한다 —
   // 막지 않으면 패널이 길어질 때마다 페이지가 아래로 늘어나 스크롤이 두 겹이 된다.
@@ -195,7 +197,7 @@ test('workflowGraph_dragNode_doesNotOpenPanel', { tag: '@input' }, async ({ auth
   await page.mouse.up()
   const after = (await node.boundingBox())!
   expect(Math.abs(after.x - before.x)).toBeGreaterThan(20)
-  await expect(page.getByRole('complementary', { name: '노드 편집' })).not.toBeVisible()
+  await expect(page.getByRole('complementary', { name: '노드 설정' })).not.toBeVisible()
 })
 
 // WP-2052 — 노드에 포커스를 두고 Enter 를 누르면 편집 패널이 열린다
@@ -207,7 +209,7 @@ test('workflowGraph_keyboardEnter_opensPanel', { tag: '@input' }, async ({ authe
   await expect(node).toBeVisible()
   await node.focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('complementary', { name: '노드 편집' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: '노드 설정' })).toBeVisible()
 })
 
 // WP-2052 — 화살표로 옮긴 노드 자리는 YAML 에 저장되어, 다른 노드를 골라 다시 그려져도 되돌아가지 않는다
@@ -218,18 +220,27 @@ test('workflowGraph_keyboardMove_persistsAfterRedraw', { tag: '@input' }, async 
   const review = page.locator('.react-flow__node').filter({ hasText: 'review' })
   const other = page.locator('.react-flow__node').filter({ hasText: 'other' })
   await expect(review).toBeVisible()
-  const before = (await review.boundingBox())!
   await review.focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('complementary', { name: '노드 편집' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: '노드 설정' })).toBeVisible()
+  // 서랍이 캔버스를 줄이면 고른 노드가 보이도록 시야가 옮겨진다(WP-2091) — 옮겨 끝난 자리(연속 두 표본이 같을 때)를 기준으로 삼는다.
+  // 서랍 열기 전 위치(before)와 비교하면 시야 이동분이 섞여 키보드 이동량이 아니게 된다.
+  let prevX = Number.NaN
+  await expect.poll(async () => {
+    const x = (await review.boundingBox())!.x
+    const same = Math.abs(x - prevX) < 0.5
+    prevX = x
+    return same
+  }, { intervals: [200] }).toBe(true)
+  const settled = (await review.boundingBox())!
   await review.focus()
   for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight')
-  await expect.poll(async () => (await review.boundingBox())!.x).toBeGreaterThan(before.x + 10)
+  await expect.poll(async () => (await review.boundingBox())!.x).toBeGreaterThan(settled.x + 10)
   // 다른 노드를 골라 다시 그리게 한다
   await other.focus()
   await page.keyboard.press('Enter')
   await expect(other).toHaveClass(/selected/)
-  expect((await review.boundingBox())!.x).toBeGreaterThan(before.x + 10)
+  expect((await review.boundingBox())!.x).toBeGreaterThan(settled.x + 10)
   // YAML 탭에서도 새 좌표가 보인다 — review 의 x 가 0 보다 커졌음을 양성으로 단언한다(직렬화 공백이 바뀌어도 거짓 통과하지 않게)
   await page.getByRole('tab', { name: 'YAML' }).click()
   // YAML 을 파싱해 읽으므로 줄 꼴(인라인·블록)과 상관없고, 편집기 값이 늦게 채워져도 다시 읽는다
@@ -291,4 +302,76 @@ test('workflowGraph_canvasFillsRemainingHeight', { tag: '@layout' }, async ({ au
   const tabs = page.getByRole('tablist', { name: '워크플로우 보기' }).getByRole('tab')
   await expect(tabs).toHaveCount(4)
   for (const tab of await tabs.all()) await expect(tab).toBeInViewport()
+})
+
+/** 서랍은 AI 옆 패널과 겹치지 않고(열렸을 때 서랍 오른쪽 ≤ AI 패널 왼쪽), 선택한 노드는 캔버스 안에 머문다. */
+test('workflowGraph_drawerDoesNotOverlapAiPanel', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  const canvas = page.getByTestId('workflow-graph-canvas')
+  const drawer = page.getByRole('complementary', { name: '노드 설정' })
+  const node = page.locator('.react-flow__node').filter({ hasText: 'review' })
+
+  // AI 패널을 연 채로 노드를 고른다
+  await page.getByTestId('chat-launcher').click()
+  const ai = page.getByTestId('ai-side-panel')
+  await expect(ai).toBeVisible()
+  await node.click()
+  await expect(drawer).toBeVisible()
+  // 두 패널의 자리는 레이아웃이 가라앉은 뒤에 재야 한다 — 한 번 재면 AI 패널이 들어오며 본문이 줄어드는 도중의 값을 볼 수 있다(드물게 14px 겹침으로 실패)
+  await expect.poll(async () => {
+    const aiBox = (await ai.boundingBox())!
+    const drawerBox = (await drawer.boundingBox())!
+    return aiBox.x + 1 - (drawerBox.x + drawerBox.width)
+  }).toBeGreaterThanOrEqual(0)
+  // AI 패널이 본문을 좁히면 서랍이 캔버스 옆이 아니라 아래로 쌓일 수 있고(컨테이너 폭 @3xl 미만) 그때 캔버스도 줄어든다.
+  // 선택 노드는 그렇게 레이아웃이 가라앉은 뒤에도 캔버스 안에 다 보여야 한다(WP-2091 라이브 검증: 아래쪽에 반쯤 걸림).
+  // 시야 이동(250ms 애니메이션)과 크기 변화가 끝나기를 poll 로 기다려 네 변 모두 잰다 — 한 번 재면 이동 도중 값을 본다.
+  await expect.poll(async () => {
+    const c = (await canvas.boundingBox())!
+    const n = (await node.boundingBox())!
+    return Math.min(n.x - c.x, c.x + c.width - (n.x + n.width), n.y - c.y, c.y + c.height - (n.y + n.height))
+  }).toBeGreaterThanOrEqual(0)
+
+  // AI 패널을 닫은 채로도 선택 노드가 캔버스 안에 있다.
+  // 칩은 닫힘 → 옆 패널 → 전체 화면 → 닫힘으로 돈다 — 한 번 더 누르면 옆 패널이 사라지지만 닫힌 것이 아니라 전체 화면(캔버스를 덮는다)이다.
+  // 전체 화면은 늦게 불러와 그려지므로 뜬 것을 확인한 뒤 한 번 더 눌러 닫지 않으면 노드 클릭이 덮개에 걸리는지가 타이밍에 달린다.
+  await page.getByTestId('chat-launcher').click()
+  const aiFullscreen = page.getByTestId('ai-fullscreen')
+  await expect(aiFullscreen).toBeVisible()
+  await page.getByTestId('chat-launcher').click()
+  await expect(aiFullscreen).toBeHidden()
+  await expect(ai).toBeHidden()
+  await page.getByRole('button', { name: '서랍 닫기' }).click()
+  await node.click()
+  await expect(drawer).toBeVisible()
+  const canvasNoAi = (await canvas.boundingBox())!
+  const nodeNoAi = (await node.boundingBox())!
+  expect(nodeNoAi.x).toBeGreaterThanOrEqual(canvasNoAi.x)
+  expect(nodeNoAi.x + nodeNoAi.width).toBeLessThanOrEqual(canvasNoAi.x + canvasNoAi.width)
+  expect(nodeNoAi.y + nodeNoAi.height).toBeLessThanOrEqual(canvasNoAi.y + canvasNoAi.height)
+})
+
+// 빈 캔버스를 끌어 화면을 옮기기만 해서는 워크플로우 개요가 열리지 않는다(드래그 끝의 click 이 빈 곳 클릭으로 오인되면 안 된다)
+test('workflowGraph_panCanvas_doesNotOpenOverview', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  const canvas = page.getByTestId('workflow-graph-canvas')
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'review' })).toBeVisible()
+  const box = (await canvas.boundingBox())!
+  // 노드·도구와 겹치지 않는 캔버스 오른쪽 아래 근처에서 끈다
+  const startX = box.x + box.width * 0.75
+  const startY = box.y + box.height * 0.6
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX - 90, startY - 40, { steps: 8 })
+  await page.mouse.up()
+  const overview = page.getByRole('complementary', { name: '워크플로우 개요' })
+  await expect(overview).toHaveCount(0)
+  // 양성 대조 — 같은 빈 곳을 한 번 누르면 개요가 열린다. 끌기 직후 부재 확인이 렌더 전이라 거짓으로 통과한 게 아님을 보장한다
+  // (빈 캔버스 클릭 → 개요 배선 자체는 vitest graphEditor_paneClick_opensOverview 가 덮는다)
+  await page.mouse.click(startX - 90, startY - 40)
+  await expect(overview).toBeVisible()
 })

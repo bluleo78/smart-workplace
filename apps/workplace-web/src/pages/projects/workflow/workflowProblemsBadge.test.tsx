@@ -5,6 +5,7 @@ import type { WorkflowProblem } from '@/lib/workflows'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { WorkflowProblemsBadge } from './WorkflowProblemsBadge'
+import { WorkflowProblemsList } from './WorkflowProblemsList'
 
 const err = (message: string, nodeKey: string | null = null, code = 'E'): WorkflowProblem => ({ severity: 'ERROR', code, message, line: 1, column: 1, nodeKey })
 const warn = (message: string, nodeKey: string | null = null, code = 'W'): WorkflowProblem => ({ severity: 'WARNING', code, message, line: 1, column: 1, nodeKey })
@@ -133,4 +134,39 @@ it('failed_offersRetry', () => {
   const { props } = setup({ failed: true })
   fireEvent.click(screen.getByRole('button', { name: '다시 확인' }))
   expect(props.onRetry).toHaveBeenCalled()
+})
+
+it('badge_onOpen_callsInsteadOfPopover', () => {
+  // WP-2091: onOpen 이 있으면 팝오버 대신 서랍을 여는 콜백만 부른다
+  const onOpen = vi.fn()
+  setup({ problems: [err('틀림')], onOpen })
+  fireEvent.click(screen.getByRole('button', { name: '검사 결과 오류 1' }))
+  expect(onOpen).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('dialog', { name: /검사 결과/ })).not.toBeInTheDocument()
+})
+
+// WP-2091 최종 리뷰 — 개요 서랍이 쓰는 목록의 실패·빈 상태
+it('problemsList_failed_showsRetry', () => {
+  const onRetry = vi.fn()
+  renderWithProviders(<WorkflowProblemsList problems={[]} checking={false} failed stale={false} readOnly={false} onRetry={onRetry} onAddAskPath={vi.fn()} onOpenYaml={vi.fn()} />)
+  expect(screen.getByRole('status')).toHaveTextContent('검증 결과를 불러오지 못했습니다.')
+  fireEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+  expect(onRetry).toHaveBeenCalledTimes(1)
+})
+
+it('problemsList_empty_showsNoProblemsOrChecking', () => {
+  const props = { problems: [], failed: false, stale: false, readOnly: false, onRetry: vi.fn(), onAddAskPath: vi.fn(), onOpenYaml: vi.fn() }
+  const { rerender } = renderWithProviders(<WorkflowProblemsList {...props} checking={false} />)
+  expect(screen.getByText('문제가 없습니다.')).toBeInTheDocument()
+  rerender(<WorkflowProblemsList {...props} checking />)
+  expect(screen.getByText('검증 중…')).toBeInTheDocument()
+})
+
+it('problemsList_onSelect_rowsAreButtons', () => {
+  // WP-2091: onSelect 가 있으면 각 행이 단추(접근 이름 = 행 글자)
+  const onSelect = vi.fn()
+  const p = err('틀렸습니다.', 'dev')
+  renderWithProviders(<WorkflowProblemsList problems={[p]} checking={false} failed={false} stale={false} readOnly={false} onRetry={vi.fn()} onAddAskPath={vi.fn()} onOpenYaml={vi.fn()} onSelect={onSelect} />)
+  fireEvent.click(screen.getByRole('button', { name: /틀렸습니다\./ }))
+  expect(onSelect).toHaveBeenCalledWith(p)
 })

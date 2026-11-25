@@ -6,7 +6,7 @@ import {
 } from '@xyflow/react'
 import { MessageCircle } from 'lucide-react'
 
-import { directionParticle } from '@/lib/utils'
+import { cn, directionParticle } from '@/lib/utils'
 
 import { nodeActorLabel } from './graphA11y'
 import { CARD_HEIGHT, CARD_WIDTH, isAtLayoutPosition, isShapeNode, nodeSize, SHAPE_LABEL_GAP, SHAPE_SIZE } from './graphLayout'
@@ -25,6 +25,26 @@ export interface FlowNodeData extends Record<string, unknown> {
   askHost: boolean
   /** 공통 오류 처리 목적지(view.commonErrorTo) — 「↺ 모든 단계에서」 표식 */
   commonRecovery: boolean
+  /** 이 노드에 걸린 가장 센 검사 결과(WP-2091) — 오른쪽 위 「!」 배지. 없으면 배지를 달지 않는다 */
+  problem?: 'ERROR' | 'WARNING'
+}
+
+/**
+ * 검사 결과 배지(WP-2091) — 오류는 빨간, 경고는 노란 「!」. 뜻은 노드 접근 이름(「, 오류 있음」)이 전하므로 배지 자체는 aria-hidden.
+ * 자리(absolute 위치)는 부르는 쪽이 className 으로 준다 — 카드는 💬 왼쪽, 도형은 도형 오른쪽 위.
+ */
+function ProblemBadge({ level, className }: { level: 'ERROR' | 'WARNING'; className: string }) {
+  return (
+    <span
+      data-problem-badge
+      aria-hidden="true"
+      className={cn(
+        'absolute flex size-4 items-center justify-center rounded-full text-[11px] leading-none font-bold',
+        level === 'ERROR' ? 'bg-destructive text-destructive-foreground' : 'bg-warning text-warning-foreground',
+        className,
+      )}
+    >!</span>
+  )
 }
 
 /** 마름모 안쪽 정사각형 한 변 — 45° 돌렸을 때 대각선이 SHAPE_SIZE 가 되게 해 dagre 에 넣은 상자를 넘지 않는다. */
@@ -54,7 +74,9 @@ function SideHandles({ shape = false }: { shape?: boolean }) {
 
 /** 작업 노드 카드 — 종류 아이콘·이름(잘림)·담당 줄. 크기는 CARD_WIDTH×CARD_HEIGHT 로 고정해 배치 계산과 같게 한다. */
 function NodeCard({ data, selected }: { data: FlowNodeData; selected: boolean }) {
-  const { node, roleName, askHost, commonRecovery } = data
+  const { node, roleName, askHost, commonRecovery, problem } = data
+  // 오른쪽 위에 얹는 표식 수(💬·「!」) — 이름 줄이 그 밑으로 들어가지 않게 그만큼 비운다
+  const marks = (askHost ? 1 : 0) + (problem ? 1 : 0)
   // 담당 줄은 접근 이름(nodeAriaLabel)과 같은 함수로 만들어 화면 글자와 스크린리더 이름이 어긋나지 않게 한다(WP-2052)
   const actor = nodeActorLabel(node, roleName)
   return (
@@ -66,7 +88,7 @@ function NodeCard({ data, selected }: { data: FlowNodeData; selected: boolean })
       <SideHandles />
       {/* 긴 글자를 자르는 overflow-hidden 은 글자 줄을 감싼 안쪽에만 둔다 — 손잡이를 가진 바깥 상자에 두면 바깥 절반이 잘린다 */}
       <div className="flex min-w-0 flex-col justify-center overflow-hidden">
-        <div className={`flex min-w-0 items-center gap-2 font-medium ${askHost ? 'pr-5' : ''}`}>
+        <div className={cn('flex min-w-0 items-center gap-2 font-medium', marks === 1 && 'pr-5', marks === 2 && 'pr-10')}>
           <NodeKindIcon type={node.type} />
           <span className="truncate">{node.name ?? node.key}</span>
         </div>
@@ -85,6 +107,8 @@ function NodeCard({ data, selected }: { data: FlowNodeData; selected: boolean })
           <MessageCircle className="size-3.5" aria-hidden="true" />
         </span>
       )}
+      {/* 💬 와 겹치지 않게 💬 가 있으면 그 왼쪽에 둔다 */}
+      {problem && <ProblemBadge level={problem} className={askHost ? 'top-1.5 right-6' : 'top-1.5 right-1.5'} />}
       <Handle id="s-bottom" type="source" position={Position.Bottom} />
     </div>
   )
@@ -92,16 +116,19 @@ function NodeCard({ data, selected }: { data: FlowNodeData; selected: boolean })
 
 /** 분기(마름모)·시작·끝(원) — 도형 오른쪽에 이름을 붙인다. 바깥 상자는 nodeSize 와 같다. */
 function NodeShape({ data, selected }: { data: FlowNodeData; selected: boolean }) {
-  const { node, commonRecovery } = data
+  const { node, commonRecovery, problem } = data
   const size = nodeSize(node)
+  // 도형 오른쪽 위 모서리에 걸친 배지(WP-2091) — 도형 상자(SHAPE_SIZE)를 기준으로 둔다
+  const badge = problem ? <ProblemBadge level={problem} className="-top-1 -right-1" /> : null
   const ring = selected ? 'ring-2 ring-ring' : ''
   let shape
   if (node.type === 'decision') {
     shape = (
-      <div data-shape="diamond" className="flex shrink-0 items-center justify-center" style={{ width: SHAPE_SIZE, height: SHAPE_SIZE }}>
+      <div data-shape="diamond" className="relative flex shrink-0 items-center justify-center" style={{ width: SHAPE_SIZE, height: SHAPE_SIZE }}>
         <div className={`flex rotate-45 items-center justify-center border bg-card ${ring}`} style={{ width: DIAMOND_SIDE, height: DIAMOND_SIDE }}>
           <NodeKindIcon type={node.type} className="size-3 shrink-0 -rotate-45 text-muted-foreground" />
         </div>
+        {badge}
       </div>
     )
   } else {
@@ -110,9 +137,9 @@ function NodeShape({ data, selected }: { data: FlowNodeData; selected: boolean }
     shape = (
       <div
         data-shape="circle"
-        className={`shrink-0 rounded-full bg-card ${border} ${ring}`}
+        className={`relative shrink-0 rounded-full bg-card ${border} ${ring}`}
         style={{ width: SHAPE_SIZE, height: SHAPE_SIZE }}
-      />
+      >{badge}</div>
     )
   }
   return (

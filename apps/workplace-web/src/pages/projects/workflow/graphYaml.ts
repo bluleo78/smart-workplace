@@ -48,6 +48,8 @@ export interface NodeDetail {
   outputs: { key: string; type: string; required: boolean }[]
   outcomes: { key: string; to: string; assignTo?: string; requireComment: boolean }[]
   maxVisits?: number
+  /** 오류가 났을 때 가는 곳(WP-2091) — 서랍이 도착 노드를 고르고 assignTo 는 읽기만 한다 */
+  onError?: { to: string; assignTo?: string }
 }
 
 export interface WorkflowGraph {
@@ -68,6 +70,8 @@ export interface NodePatch {
   outputs?: NodeDetail['outputs']
   outcomes?: NodeDetail['outcomes']
   maxVisits?: number | null
+  /** onError 의 to 만 바꾼다(WP-2091). null 이면 onError 칸을 지운다. assignTo 등 다른 키는 보존한다. */
+  onError?: string | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -298,6 +302,9 @@ export function readNodeDetail(yaml: string, key: string): NodeDetail | null {
       requireComment: isPlain(o) && o.requireComment === true,
     })),
     maxVisits: typeof n.maxVisits === 'number' ? n.maxVisits : undefined,
+    ...(isPlain(n.onError) && str(n.onError.to)
+      ? { onError: { to: str(n.onError.to) as string, ...(str(n.onError.assignTo) ? { assignTo: str(n.onError.assignTo) as string } : {}) } }
+      : {}),
   }
 }
 
@@ -463,9 +470,39 @@ function applyPatch(doc: Document, key: string, patch: NodePatch, hints: RenameH
     if (v !== undefined) setOrDelete(doc, p(f), v, v.length === 0, () => flowSeq(doc, v))
   }
   if (patch.maxVisits !== undefined) setOrDelete(doc, p('maxVisits'), patch.maxVisits, patch.maxVisits === null)
+  if (patch.onError !== undefined && !applyOnError(doc, key, patch.onError)) return false
   if (patch.outputs !== undefined && !applyOutputs(doc, key, patch.outputs, hints)) return false
   if (patch.outcomes !== undefined && !applyOutcomes(doc, key, patch.outcomes)) return false
   return true
+}
+
+/**
+ * onError 의 to 만 갱신한다(WP-2091) — 이미 맵이면 to 만 set 해 assignTo·주석·서식을 그대로 두고(원문 병합 경로),
+ * 없으면 { to } 를 새로 만든다. null 이면 칸째 지운다. onError 가 맵이 아닌 값이면 사람이 쓴 값을 덮지 않고 false.
+ */
+function applyOnError(doc: Document, key: string, to: string | null): boolean {
+  const path = ['nodes', key, 'onError']
+  if (to === null) {
+    doc.deleteIn(path)
+    return true
+  }
+  const cur = doc.getIn(path, true)
+  if (isMap(cur)) {
+    cur.set('to', to)
+    return true
+  }
+  if (cur !== undefined && cur !== null && !(isScalar(cur) && cur.value == null)) return false
+  doc.setIn(path, flowMap(doc, { to }))
+  return true
+}
+
+/** top-level shared 맵의 (이름, 본문) 목록(WP-2091) — 파싱 오류·맵 아님 → []. 본문이 문자열이 아니면 빈 글. */
+export function readShared(yaml: string): { name: string; text: string }[] {
+  const doc = parseDocument(yaml)
+  if (doc.errors.length > 0) return []
+  const shared = js(doc).shared
+  if (!isPlain(shared)) return []
+  return Object.entries(shared).map(([name, v]) => ({ name, text: typeof v === 'string' ? v : '' }))
 }
 
 function flowSeq(doc: Document, items: string[]) {

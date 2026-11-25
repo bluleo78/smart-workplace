@@ -15,6 +15,14 @@ export function isEscapeForInnerOverlay(e: KeyboardEvent, self?: Element | null)
   return Array.from(document.querySelectorAll(OPEN_OVERLAY_SELECTOR)).some((el) => el !== self);
 }
 
+/**
+ * 그냥 Esc 인지 — Esc 이고, 다른 핸들러가 이미 처리하지 않았고, 한글 조합 중이 아니다. 서랍(DrawerShell)과 이슈 상세 복귀(useIssueOrigin)가
+ * 같은 가드를 쓰도록 한 곳에 둔다(WP-2091). 열린 오버레이 판정은 호출부 몫이다.
+ */
+export function isPlainEscape(e: { key: string; defaultPrevented: boolean; isComposing: boolean }): boolean {
+  return e.key === 'Escape' && !e.defaultPrevented && !e.isComposing;
+}
+
 /** 글을 쓰는 곳(입력칸·편집기)인지 — 단축키가 그 글자를 가로채지 않게 하는 공용 판정(useIssueOrigin·전역 이슈 검색). */
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;

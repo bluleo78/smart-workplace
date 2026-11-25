@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { isEditableTarget, OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
+import { isEditableTarget, isPlainEscape, OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
 import { currentHistoryIdx } from '@/lib/historyParam';
 import { backDeltaToOrigin, type HistoryEntries, isIssueDetailPath } from '@/lib/issueOrigin';
 import { ISSUES_TAB_STATE, projectTabPath } from '@/pages/projects/tabs/projectTabs';
@@ -59,7 +59,7 @@ export function useReturnOnEscape(onReturn: () => void, enabled: boolean): void 
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+      if (!isPlainEscape(e)) return;
       if (isEditableTarget(e.target)) return;
       if (document.querySelector(OPEN_OVERLAY_SELECTOR) || hasUnsentText()) return;
       onReturn();

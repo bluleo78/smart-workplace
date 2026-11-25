@@ -18,6 +18,7 @@ import {
   parseWorkflowGraph,
   placeNodes,
   readNodeDetail,
+  readShared,
   REFUSE_DECISION_DEFAULT,
   REFUSE_FROM_END,
   REFUSE_INTO_START,
@@ -1061,5 +1062,56 @@ layout: { b: { x: 3, y: 4 } }      # 그래프 편집기 좌표(선택)
     expect(out).toContain('    outcomes: { done: { to: b } }') // 한 줄 흐름으로 이어 붙는다(전문 재직렬화 아님)
     expect(out).toContain('  b: { type: end }') // 손대지 않은 줄은 글자 그대로
     expect(parse(out).nodes.a.outcomes).toEqual({ done: { to: 'b' } })
+  })
+
+  // WP-2091 — 서랍이 읽고 쓰는 onError·shared
+  const ON_ERROR = `nodes:
+  a:
+    type: agent_task
+    onError:
+      to: fix   # 오류 처리
+      assignTo: lead
+  fix: { type: end }
+  b: { type: end }
+`
+
+  it('readNodeDetail_readsOnError', () => {
+    expect(readNodeDetail(ON_ERROR, 'a')?.onError).toEqual({ to: 'fix', assignTo: 'lead' })
+  })
+
+  it('updateNode_onError_changesToKeepsAssignTo', () => {
+    const out = updateNode(ON_ERROR, 'a', { onError: 'b' })
+    expect(out).toContain('      to: b   # 오류 처리')
+    expect(out).toContain('      assignTo: lead')
+    expect(parse(out).nodes.a.onError).toEqual({ to: 'b', assignTo: 'lead' })
+  })
+
+  it('updateNode_onErrorNull_removes', () => {
+    const out = updateNode(ON_ERROR, 'a', { onError: null })
+    expect(parse(out).nodes.a.onError).toBeUndefined()
+  })
+
+  it('updateNode_onError_createsWhenMissing', () => {
+    const out = updateNode(ON_ERROR, 'b', { onError: 'fix' })
+    expect(parse(out).nodes.b.onError).toEqual({ to: 'fix' })
+  })
+
+  it('updateNode_onError_nonMap_returnsInput', () => {
+    const y = 'nodes:\n  a: { type: agent_task, onError: fix }\n  fix: { type: end }\n'
+    expect(updateNode(y, 'a', { onError: 'fix' })).toBe(y)
+  })
+
+  it('updateNode_onErrorNull_withoutOnError_returnsInput', () => {
+    expect(updateNode(ON_ERROR, 'b', { onError: null })).toBe(ON_ERROR)
+  })
+
+  it('readShared_readsNameAndText', () => {
+    const y = 'shared:\n  rules: |\n    규칙 하나\n  tone: 친절\n'
+    expect(readShared(y)).toEqual([
+      { name: 'rules', text: '규칙 하나\n' },
+      { name: 'tone', text: '친절' },
+    ])
+    expect(readShared('shared: [')).toEqual([])
+    expect(readShared('shared: 3')).toEqual([])
   })
 })
