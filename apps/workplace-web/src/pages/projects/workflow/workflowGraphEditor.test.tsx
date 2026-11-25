@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 
-import type { WorkflowProblem } from '@/lib/workflows'
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { applyConnection } from './applyConnection'
@@ -102,15 +102,14 @@ beforeAll(() => {
 })
 
 /** 부모가 yaml 을 들고 있는 것처럼 onChange 결과를 다시 내려 주는 하네스 — 연속 편집이 쌓이는지 본다. */
-function Harness({ initial, problems = [], readOnly = false, onYaml, onOpenYaml = () => {} }: {
-  initial: string; problems?: WorkflowProblem[]; readOnly?: boolean; onYaml?: (y: string) => void; onOpenYaml?: () => void
+function Harness({ initial, readOnly = false, onYaml, onOpenYaml = () => {} }: {
+  initial: string; readOnly?: boolean; onYaml?: (y: string) => void; onOpenYaml?: () => void
 }) {
   const [yaml, setYaml] = useState(initial)
   return (
     <div style={{ width: 1000, height: 600 }}>
       <WorkflowGraphEditor
         yaml={yaml}
-        problems={problems}
         readOnly={readOnly}
         onChange={(next) => { setYaml(next); onYaml?.(next) }}
         onOpenYaml={onOpenYaml}
@@ -222,29 +221,6 @@ it('nodePanel_deleteNode', async () => {
   fireEvent.click(screen.getByText('개발'))
   fireEvent.click(await screen.findByRole('button', { name: '노드 지우기' }))
   expect(doc(onYaml.mock.lastCall![0]).nodes.dev).toBeUndefined()
-})
-
-it('warningBar_quickFixAddsAskPath', async () => {
-  const onYaml = vi.fn()
-  const problems: WorkflowProblem[] = [{
-    severity: 'WARNING', code: 'ASK_PATH_MISSING', nodeKey: 'triage', message: '사람에게 물어볼 길이 없습니다.', line: 1, column: 1,
-  }]
-  renderWithProviders(<Harness initial={FIXTURE} problems={problems} onYaml={onYaml} />)
-  expect(screen.getByText(/경고 1/)).toBeInTheDocument()
-  expect(screen.getByText(/사람에게 물어볼 길이 없습니다\./)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '질문 경로 추가' }))
-  const out = doc(onYaml.mock.lastCall![0])
-  expect(out.nodes.triage_ask).toBeDefined()
-  expect(out.nodes.triage.outcomes.ask).toBeDefined()
-})
-
-it('warningBar_errors_offerOpenYaml', () => {
-  const onOpenYaml = vi.fn()
-  const problems: WorkflowProblem[] = [{ severity: 'ERROR', code: 'X', message: '틀렸습니다.', line: 1, column: 1, nodeKey: null }]
-  renderWithProviders(<Harness initial={FIXTURE} problems={problems} onOpenYaml={onOpenYaml} />)
-  expect(screen.getByText(/오류 1/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'YAML 오류 확인' }))
-  expect(onOpenYaml).toHaveBeenCalled()
 })
 
 it('graphEditor_invalidYaml_showsHint', () => {
@@ -436,17 +412,6 @@ it('nodePanel_maxVisits_badInputKeepsValue_emptyDeletes', async () => {
   expect(doc(onYaml.mock.lastCall![0]).nodes.dev.maxVisits).toBeUndefined()
 })
 
-// 코드 리뷰 8 — 오류가 있으면 첫 오류의 메시지를 보인다
-it('warningBar_showsFirstErrorMessage', () => {
-  const problems: WorkflowProblem[] = [
-    { severity: 'WARNING', code: 'W', message: '경고 문구', line: 1, column: 1, nodeKey: null },
-    { severity: 'ERROR', code: 'E', message: '오류 문구', line: 1, column: 1, nodeKey: null },
-  ]
-  renderWithProviders(<Harness initial={FIXTURE} problems={problems} />)
-  expect(screen.getByText('오류 문구')).toBeInTheDocument()
-  expect(screen.queryByText('경고 문구')).not.toBeInTheDocument()
-})
-
 // jsdom 스텁은 노드 크기를 재지 못해 React Flow 가 노드를 visibility:hidden 으로 두므로 접근 이름이 계산되지 않아(role 조회 불가) 노드는 aria-label 로 찾는다.
 // WP-2052 — 접근 이름(한국어)·키보드(Enter·Space)로 편집 패널 열기
 it('graphEditor_a11y_namesCanvasAndNodesInKorean', () => {
@@ -484,11 +449,22 @@ it('graphEditor_space_preventsDefaultScroll', () => {
 it('graphEditor_spaceOnVirtualNode_preventsScrollWithoutOpeningPanel', async () => {
   renderWithProviders(<Harness initial={'name: 질문\nnodes:\n  work:\n    name: 작업\n    type: agent_task\n    ask: { role: owner }'} />)
   // 질문 경로 노드는 기본으로 접혀 있어(WP-2089) 펼친 뒤에 본다
-  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로' }))
   const virtualNode = await screen.findByLabelText(/질문 경로\(편집 불가\)$/)
   const notPrevented = fireEvent.keyDown(virtualNode, { key: ' ' })
   expect(notPrevented).toBe(false)
   expect(screen.queryByLabelText('노드 이름')).toBeNull()
+})
+// 떠 있는 도구 패널은 ReactFlow 가 쓰는 키(Space·화살표·Delete/Backspace)만 막고, 나머지 키는 앱 전역 단축키에 닿게 둔다
+it('graphEditor_floatingPanelKeys_onlyReactFlowKeysStopped', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  const zoom = screen.getByRole('button', { name: '확대' })
+  const seen: string[] = []
+  const spy = (event: KeyboardEvent) => seen.push(event.key)
+  document.addEventListener('keydown', spy)
+  for (const key of [' ', 'ArrowLeft', 'ArrowDown', 'Delete', 'Backspace', 'Escape', 'k']) fireEvent.keyDown(zoom, { key })
+  document.removeEventListener('keydown', spy)
+  expect(seen).toEqual(['Escape', 'k'])
 })
 // Esc 는 선택을 풀고 패널도 닫는다
 it('graphEditor_escapeOnNode_closesPanel', async () => {
@@ -568,17 +544,32 @@ it('askCollapsed_byDefault_showsIconHidesQuestionNode', () => {
   renderWithProviders(<Harness initial={RECOVERY} />)
   expect(within(flowNode('dev')!).getByLabelText(ASK_TIP)).toHaveAttribute('title', ASK_TIP)
   expect(document.querySelector('.react-flow__node[data-id$="_ask"]')).toBeNull()
-  expect(screen.getByRole('button', { name: '질문 경로 보기' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('button', { name: '질문 경로' })).toHaveAttribute('aria-pressed', 'false')
 })
 
 it('askToggle_showsQuestionNodes', async () => {
   // 읽기 전용이어도 보기 토글은 켤 수 있다
   renderWithProviders(<Harness initial={RECOVERY} readOnly />)
-  const toggle = screen.getByRole('button', { name: '질문 경로 보기' })
+  const toggle = screen.getByRole('button', { name: '질문 경로' })
   expect(toggle).toBeEnabled()
   fireEvent.click(toggle)
   expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await waitFor(() => expect(flowNode('dev_ask')).not.toBeNull())
+})
+
+// 질문 경로 토글은 켜지면 디자인 시스템의 「토글 켜짐」 클래스(TOGGLE_ON_CLASS)를 붙여 켜짐을 보인다(WP-2090 리뷰 반려)
+it('askToggle_onShowsToggleOnClass_offRemovesIt', () => {
+  renderWithProviders(<Harness initial={RECOVERY} />)
+  const toggle = screen.getByRole('button', { name: '질문 경로' })
+  // TOGGLE_ON_CLASS 의 각 클래스 토큰이 버튼에 모두 있는지 본다
+  const onTokens = TOGGLE_ON_CLASS.split(' ')
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  for (const token of onTokens) expect(toggle).toHaveClass(token)
+  // 다시 누르면 꺼짐 — 켜짐 클래스가 남지 않아야 한다
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  for (const token of onTokens) expect(toggle).not.toHaveClass(token)
 })
 
 it('commonError_badgeAndLegend_noEdges', async () => {
@@ -640,18 +631,18 @@ it('showAsk_nodesAreNotDraggable', async () => {
   const { container } = renderWithProviders(<Harness initial={RECOVERY} />)
   const node = () => container.querySelector('.react-flow__node[data-id="dev"]')!
   await waitFor(() => expect(node()).toHaveClass('draggable'))
-  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로' }))
   await waitFor(() => expect(node()).not.toHaveClass('draggable'))
 })
 
 it('showAsk_collapse_closesPanelOfHiddenQuestionNode', async () => {
   // 실제 질문 노드(dev_ask)를 펼친 보기에서 골랐다가 접으면 보이지 않는 노드의 패널이 남지 않는다
   renderWithProviders(<Harness initial={addAskPath(RECOVERY, 'dev')} />)
-  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로' }))
   await waitFor(() => expect(flowNode('dev_ask')).not.toBeNull())
   fireEvent.click(within(flowNode('dev_ask')!).getByText('개발 질문 답변'))
   expect(await screen.findByLabelText('노드 이름')).toHaveValue('개발 질문 답변')
-  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로' }))
   await waitFor(() => expect(screen.queryByLabelText('노드 이름')).toBeNull())
 })
 
@@ -660,7 +651,7 @@ it('addNode_whileShowAsk_usesCollapsedPositions', async () => {
   const onYaml = vi.fn()
   const laid = autoLayout(RECOVERY)
   renderWithProviders(<Harness initial={laid} onYaml={onYaml} />)
-  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로' }))
   await userEvent.click(screen.getByRole('button', { name: '+ 노드' }))
   await userEvent.click(await screen.findByRole('menuitem', { name: '사람 차례' }))
   const collapsed = [...placeNodes((parseWorkflowGraph(laid) as { graph: WorkflowGraph }).graph).positions.values()]
@@ -808,4 +799,31 @@ it('onConnect_selfConnection_refusedWithToast', () => {
   captured.props!.onConnect!({ source: 'dev', target: 'dev', sourceHandle: 's-right', targetHandle: 's-top' })
   expect(onYaml).not.toHaveBeenCalled()
   expect(toastInfo).toHaveBeenCalledWith(REFUSE_SELF)
+})
+
+// WP-2090 — 도구는 캔버스 위에 뜨고, 미니맵이 함께 있다
+it('floatingTools_render_inCanvas', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  const canvas = screen.getByTestId('workflow-graph-canvas')
+  for (const name of ['+ 노드', '자동 정렬', '질문 경로', '축소', '확대', '맞춤']) {
+    expect(within(canvas).getByRole('button', { name })).toBeInTheDocument()
+  }
+})
+
+it('minimap_rendered', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  expect(screen.getByTestId('workflow-graph-canvas').querySelector('.react-flow__minimap')).not.toBeNull()
+})
+
+it('readOnly_disablesFloatingTools', () => {
+  renderWithProviders(<Harness initial={FIXTURE} readOnly />)
+  expect(screen.getByRole('button', { name: '+ 노드' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '자동 정렬' })).toBeDisabled()
+  for (const name of ['질문 경로', '축소', '확대', '맞춤']) expect(screen.getByRole('button', { name })).toBeEnabled()
+})
+
+it('fitButton_click_doesNotThrow', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  fireEvent.click(screen.getByRole('button', { name: '맞춤' }))
+  expect(screen.getByRole('button', { name: '맞춤' })).toBeInTheDocument()
 })

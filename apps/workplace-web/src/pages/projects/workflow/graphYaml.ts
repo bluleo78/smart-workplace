@@ -371,6 +371,11 @@ export function addAskPath(yaml: string, nodeKey: string): string {
   const nodes: Record<string, Json> = js(doc).nodes ?? {}
   const node = nodes[nodeKey]
   if (!isPlain(node)) return yaml
+  // 이미 ask 결과가 있고 ask.to 가 human_task 노드를 가리키면 또 더하지 않는다(낡은 배지로 두 번 눌러도 노드가 늘지 않게).
+  // 서버 WorkflowValidator.checkAskPath 와 같은 규칙 — 깨진 ask(to 없음·없는 노드·human_task 아님)는 아래에서 다시 채운다
+  const existingAsk = isPlain(node.outcomes) ? node.outcomes.ask : undefined
+  const askTo = isPlain(existingAsk) ? existingAsk.to : undefined
+  if (typeof askTo === 'string' && isPlain(nodes[askTo]) && nodes[askTo].type === 'human_task') return yaml
   const human = Object.values(nodes).find((n) => isPlain(n) && n.type === 'human_task' && str(n.role))
   // ask 줄임 표기에 역할이 적혀 있으면 사람이 정한 그 역할이 먼저다
   const role = (isPlain(node.ask) ? str(node.ask.role) : undefined) ?? (human ? str(human.role) : undefined) ?? str(node.role)

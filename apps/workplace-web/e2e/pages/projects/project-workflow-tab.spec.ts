@@ -33,6 +33,8 @@ test('프로젝트 워크플로우 탭에서 YAML 경고 위치를 찾아간다'
   await page.getByRole('navigation', { name: '프로젝트 탭' }).getByRole('link', { name: '워크플로우' }).click()
   await expect(page).toHaveURL(/\/projects\/WP\/workflow$/)
 
+  // 기본 보기는 그래프 — YAML 보기로 바꿔 편집기를 연다
+  await page.getByRole('tab', { name: 'YAML' }).click()
   const editor = page.getByRole('textbox', { name: '워크플로우 YAML' })
   await editor.fill('name: 수정\nnodes:\n  review: {}')
   await page.getByRole('button', { name: /3행 3열.*검토 단계를 확인하세요/ }).click()
@@ -49,7 +51,7 @@ test('프로젝트 워크플로우 탭에서 YAML 경고 위치를 찾아간다'
 
 test('다른 프로젝트 탭을 다녀와도 저장하지 않은 워크플로 YAML을 복원한다', { tag: ['@flow'] }, async ({ authenticatedPage: page }) => {
   await mockWorkflow(page)
-  await page.goto('/projects/WP/workflow')
+  await page.goto('/projects/WP/workflow?view=yaml')
   const changedYaml = 'name: 편집 중\nnodes:\n  review: {}\nnotes: 아직 저장 안 함'
   await page.getByRole('textbox', { name: '워크플로우 YAML' }).fill(changedYaml)
 
@@ -57,6 +59,7 @@ test('다른 프로젝트 탭을 다녀와도 저장하지 않은 워크플로 Y
   await tabs.getByRole('link', { name: '개요' }).click()
   await expect(page).toHaveURL(/\/projects\/WP\/overview$/)
   await tabs.getByRole('link', { name: '워크플로우' }).click()
+  await page.getByRole('tab', { name: 'YAML' }).click()
 
   await expect(page.getByRole('textbox', { name: '워크플로우 YAML' })).toHaveValue(changedYaml)
 })
@@ -64,7 +67,7 @@ test('다른 프로젝트 탭을 다녀와도 저장하지 않은 워크플로 Y
 test('workflowTab_desktopShowsProblemsBesideEditor_mobileStacksProblems', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockWorkflow(page)
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/projects/WP/workflow')
+  await page.goto('/projects/WP/workflow?view=yaml')
   const editor = page.getByRole('textbox', { name: '워크플로우 YAML' })
   const gutter = page.getByTestId('workflow-yaml-gutter')
   const problems = page.getByRole('region', { name: '검증 결과' })
@@ -89,7 +92,6 @@ test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '
   await mockWorkflow(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects/WP/workflow')
-  await page.getByRole('button', { name: '그래프' }).click()
   const canvas = page.getByTestId('workflow-graph-canvas')
   const panel = page.getByRole('complementary', { name: '노드 편집' })
   // 노드 하나를 눌러 편집 패널을 연다 — 노드 카드 제목은 YAML 의 노드 키다
@@ -110,14 +112,21 @@ test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '
   }).toBe(true)
   const canvasNarrow = (await canvas.boundingBox())!
   expect(canvasNarrow.width).toBeGreaterThanOrEqual(300)
-  expect(canvasNarrow.height).toBeGreaterThanOrEqual(400)
+  // 좁은 폭의 캔버스는 24rem(384px) 고정 높이 — 한 단 보기로 바뀌며 400 기준을 이 값에 맞췄다(WP-2090)
+  expect(canvasNarrow.height).toBeGreaterThanOrEqual(380)
   await expect(page.getByRole('button', { name: '+ 노드' })).toBeVisible()
+  // 좁은 캔버스에서 떠 있는 두 도구 패널(왼쪽 위 도구·배율)이 서로 겹치지 않는다
+  const toolsBox = (await page.getByTestId('workflow-graph-tools').boundingBox())!
+  const zoomBox = (await page.getByTestId('workflow-graph-zoom').boundingBox())!
+  const overlaps = toolsBox.x < zoomBox.x + zoomBox.width && zoomBox.x < toolsBox.x + toolsBox.width && toolsBox.y < zoomBox.y + zoomBox.height && zoomBox.y < toolsBox.y + toolsBox.height
+  expect(overlaps).toBe(false)
+  // 미니맵은 좁은 폭에서 숨는다
+  await expect(page.locator('.react-flow__minimap')).toBeHidden()
 
   // 좁은 폭에서 처음부터 열어 보면(390 에서 노드를 누르면) 패널 머리 줄이 뷰포트 안에 있어야 한다 —
   // 캔버스 아래 바깥에 열리면 노드를 누른 것이 티가 나지 않아 아무 일도 안 일어난 것처럼 보이고,
   // 머리 줄이 바깥이면 이름을 고칠 수도 없다(WP-2041 리뷰 후속 지적 1·2 — 머리 줄만 뷰포트에 넣는다).
   await page.reload()
-  await page.getByRole('button', { name: '그래프' }).click()
   await page.locator('.react-flow__node').filter({ hasText: 'review' }).click()
   await expect(panel).toBeVisible()
   await expect(panel).toBeInViewport()
@@ -150,7 +159,6 @@ test('workflowGraph_addNode_keepsNewNodeInsideCanvas', { tag: ['@layout'] }, asy
   await page.route('**/api/v1/workflows/42/draft', (route) => route.fulfill({ json: { draftUpdatedAt: '2026-11-24T10:00:00Z', problems: [] } }))
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects/WP/workflow')
-  await page.getByRole('button', { name: '그래프' }).click()
   await page.getByRole('button', { name: '+ 노드' }).click()
   await page.getByRole('menuitem', { name: '시작' }).click()
   await page.getByRole('button', { name: '+ 노드' }).click()
@@ -176,7 +184,6 @@ test('workflowGraph_dragNode_doesNotOpenPanel', { tag: '@input' }, async ({ auth
   await mockWorkflow(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects/WP/workflow')
-  await page.getByRole('button', { name: '그래프' }).click()
   const node = page.locator('.react-flow__node').filter({ hasText: 'review' })
   await expect(node).toBeVisible()
   const before = (await node.boundingBox())!
@@ -196,7 +203,6 @@ test('workflowGraph_keyboardEnter_opensPanel', { tag: '@input' }, async ({ authe
   await mockWorkflow(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects/WP/workflow')
-  await page.getByRole('button', { name: '그래프' }).click()
   const node = page.locator('.react-flow__node').filter({ hasText: 'review' })
   await expect(node).toBeVisible()
   await node.focus()
@@ -209,7 +215,6 @@ test('workflowGraph_keyboardMove_persistsAfterRedraw', { tag: '@input' }, async 
   await mockWorkflow(page, 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task\n  other:\n    type: agent_task\nlayout:\n  review: { x: 0, y: 0 }\n  other: { x: 0, y: 200 }')
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects/WP/workflow')
-  await page.getByRole('button', { name: '그래프' }).click()
   const review = page.locator('.react-flow__node').filter({ hasText: 'review' })
   const other = page.locator('.react-flow__node').filter({ hasText: 'other' })
   await expect(review).toBeVisible()
@@ -226,7 +231,7 @@ test('workflowGraph_keyboardMove_persistsAfterRedraw', { tag: '@input' }, async 
   await expect(other).toHaveClass(/selected/)
   expect((await review.boundingBox())!.x).toBeGreaterThan(before.x + 10)
   // YAML 탭에서도 새 좌표가 보인다 — review 의 x 가 0 보다 커졌음을 양성으로 단언한다(직렬화 공백이 바뀌어도 거짓 통과하지 않게)
-  await page.getByRole('button', { name: 'YAML' }).click()
+  await page.getByRole('tab', { name: 'YAML' }).click()
   // YAML 을 파싱해 읽으므로 줄 꼴(인라인·블록)과 상관없고, 편집기 값이 늦게 채워져도 다시 읽는다
   const yamlBox = page.getByRole('textbox', { name: '워크플로우 YAML' })
   await expect.poll(async () => Number(parse(await yamlBox.inputValue())?.layout?.review?.x ?? 0)).toBeGreaterThan(0)
@@ -241,7 +246,6 @@ for (const offset of [0, 8]) {
     await mockWorkflow(page, 'name: 작업 정리\nroles:\n  lead: { name: 팀장 }\nnodes:\n  review:\n    type: agent_task\n    role: lead\n  other:\n    type: agent_task\n    role: lead\nlayout:\n  review: { x: 0, y: 0 }\n  other: { x: 0, y: 200 }')
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/projects/WP/workflow')
-    await page.getByRole('button', { name: '그래프' }).click()
     const from = page.locator('.react-flow__node').filter({ hasText: 'review' }).locator('[data-handleid="s-bottom"]')
     const to = page.locator('.react-flow__node').filter({ hasText: 'other' }).locator('[data-handleid="s-top"]')
     await expect(from).toBeVisible()
@@ -251,7 +255,7 @@ for (const offset of [0, 8]) {
     await page.mouse.down()
     await page.mouse.move(b.x + b.width / 2 + offset, b.y + b.height / 2 + offset / 2, { steps: 12 })
     await page.mouse.up()
-    await page.getByRole('button', { name: 'YAML' }).click()
+    await page.getByRole('tab', { name: 'YAML' }).click()
     const yamlBox = page.getByRole('textbox', { name: '워크플로우 YAML' })
     await expect.poll(async () => {
       const outcomes = parse(await yamlBox.inputValue())?.nodes?.review?.outcomes ?? {}
@@ -260,3 +264,31 @@ for (const offset of [0, 8]) {
     expect(warnings).toEqual([])
   })
 }
+
+// WP-2090 — 그래프 캔버스는 머리 한 줄 아래 남는 화면 높이를 채우고, 페이지 자체는 세로로 넘치지 않는다. 좁은 폭에서는 머리가 줄바꿈돼도 보기 탭 4개가 보인다.
+test('workflowGraph_canvasFillsRemainingHeight', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto('/projects/WP/workflow')
+  const canvas = page.getByTestId('workflow-graph-canvas')
+  await expect(canvas).toBeVisible()
+  // 레이아웃이 자리 잡을 때까지 조건 대기 — 캔버스 아래 끝이 창 아래 여백(p-4 = 16px) 앞에 닿는다
+  await expect.poll(async () => {
+    const box = await canvas.boundingBox()
+    return box ? Math.abs(box.y + box.height - (1000 - 16)) <= 6 : false
+  }).toBe(true)
+  const box = (await canvas.boundingBox())!
+  expect(box.height).toBeGreaterThanOrEqual(600)
+  const overflow = await page.evaluate(() => {
+    const root = document.scrollingElement!
+    const body = document.querySelector('[data-testid="workflow-page-body"]')!
+    return { page: root.scrollHeight - window.innerHeight, body: body.scrollHeight - body.clientHeight }
+  })
+  expect(overflow.page).toBeLessThanOrEqual(0)
+  expect(overflow.body).toBeLessThanOrEqual(0)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  const tabs = page.getByRole('tablist', { name: '워크플로우 보기' }).getByRole('tab')
+  await expect(tabs).toHaveCount(4)
+  for (const tab of await tabs.all()) await expect(tab).toBeInViewport()
+})

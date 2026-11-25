@@ -1,23 +1,24 @@
 import '@xyflow/react/dist/style.css'
 
 import {
-  Background, type Connection, ConnectionMode, type Edge, MarkerType, type Node, type OnNodesChange, ReactFlow,
+  Background, type Connection, ConnectionMode, type Edge, MarkerType, MiniMap, type Node, type OnNodesChange, Panel, type PanelPosition, ReactFlow,
   ReactFlowProvider, useNodesState, useReactFlow, useViewport,
 } from '@xyflow/react'
-import { Minus, Plus, Undo2 } from 'lucide-react'
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { MessageCircleQuestion, Minus, Plus, Undo2 } from 'lucide-react'
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import type { WorkflowProblem } from '@/lib/workflows'
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
+import { cn } from '@/lib/utils'
 
 import { applyConnection } from './applyConnection'
 import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
 import { drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './graphLayout'
 import {
-  addAskPath, addNodeAtFreeSpot, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
+  addNodeAtFreeSpot, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
 import { NodePanel } from './NodePanel'
 import { revealOffset } from './viewportReveal'
@@ -38,52 +39,54 @@ const edgeTypes = { routed: RoutedEdge }
 const EDGE_MARKER = { type: MarkerType.ArrowClosed, width: 16, height: 16 }
 const BACK_EDGE_MARKER = { ...EDGE_MARKER, color: 'var(--warning-text)' }
 
-/** 확대·축소 단추와 현재 배율. ReactFlow 안(Provider 아래)에서만 쓸 수 있다. */
-function ZoomControls() {
-  const { zoomIn, zoomOut } = useReactFlow()
-  const { zoom } = useViewport()
+/** ReactFlow 가 캔버스 조작에 쓰는 키 — 패널 단추에서 눌러도 이동·삭제로 읽히지 않게 막는다(그 밖의 키는 앱 전역 단축키로 올려 보낸다) */
+const FLOW_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace'])
+function stopFlowKeys(event: KeyboardEvent<HTMLElement>) {
+  if (FLOW_KEYS.has(event.key)) event.stopPropagation()
+}
+
+/**
+ * 캔버스 위에 떠 있는 도구 패널 — 카드 배경·테두리로 얹혀도 읽히게 하고, ReactFlow 키(Space·화살표·Delete/Backspace)만 올리지 않는다
+ * (단추의 Space 가 이동 켜짐으로 읽히지 않게). 위치·testid·추가 class 만 받는다.
+ */
+function FloatingPanel({ position, testId, className, children }: {
+  position: PanelPosition
+  testId: string
+  className?: string
+  children: ReactNode
+}) {
   return (
-    <div className="absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-md border bg-card p-1 text-xs">
-      <Button type="button" variant="ghost" size="icon-xs" aria-label="축소" onClick={() => void zoomOut()}><Minus /></Button>
-      <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-      <Button type="button" variant="ghost" size="icon-xs" aria-label="확대" onClick={() => void zoomIn()}><Plus /></Button>
-    </div>
+    <Panel position={position} data-testid={testId} onKeyDown={stopFlowKeys} className={cn('flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm', className)}>
+      {children}
+    </Panel>
   )
 }
 
-/** 캔버스 아래 경고 줄 — 첫 문제와 빠른 해결 단추. 문제가 없으면 그리지 않는다. */
-function WarningBar({ yaml, problems, onChange, onOpenYaml }: {
-  yaml: string; problems: WorkflowProblem[]; onChange: (yaml: string) => void; onOpenYaml: () => void
-}) {
-  if (problems.length === 0) return null
-  const errors = problems.filter((p) => p.severity === 'ERROR').length
-  const warnings = problems.length - errors
-  // 오류가 하나라도 있으면 첫 오류를, 아니면 첫 문제를 보인다
-  const shown = problems.find((p) => p.severity === 'ERROR') ?? problems[0]
-  const askProblem = problems.find((p) => p.code === 'ASK_PATH_MISSING' && p.nodeKey)
+/** 확대·축소·맞춤 단추와 현재 배율. ReactFlow 안(Provider 아래)에서만 쓸 수 있다. 읽기 전용이어도 보기 조작이라 켜 둔다. */
+function ZoomControls() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow()
+  const { zoom } = useViewport()
+  // 좁은 캔버스(@3xl 미만)에서는 왼쪽 위 도구와 겹치지 않게 오른쪽 아래로 내린다. keydown 은 ReactFlow 로 올리지 않는다(단추의 Space 가 이동 켜짐으로 읽히지 않게)
   return (
-    <div role="status" className="flex flex-wrap items-center gap-2 border-t bg-warning-subtle px-3 py-2 text-sm">
-      <strong>{errors > 0 ? `오류 ${errors} · 경고 ${warnings}` : `⚠ 경고 ${warnings}`}</strong>
-      <span className="min-w-0 flex-1">{shown.message}</span>
-      {askProblem?.nodeKey && (
-        <Button type="button" variant="outline" size="sm" onClick={() => onChange(addAskPath(yaml, askProblem.nodeKey!))}>질문 경로 추가</Button>
-      )}
-      {errors > 0 && <Button type="button" variant="outline" size="sm" onClick={onOpenYaml}>YAML 오류 확인</Button>}
-    </div>
+    <FloatingPanel position="top-right" testId="workflow-graph-zoom" className="text-xs !top-auto !bottom-0 @3xl:!top-0 @3xl:!bottom-auto">
+      <Button type="button" variant="ghost" size="icon-xs" aria-label="축소" onClick={() => void zoomOut()}><Minus /></Button>
+      <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+      <Button type="button" variant="ghost" size="icon-xs" aria-label="확대" onClick={() => void zoomIn()}><Plus /></Button>
+      <Button type="button" variant="ghost" size="xs" onClick={() => void fitView({ duration: 200 })}>맞춤</Button>
+    </FloatingPanel>
   )
 }
 
 /**
- * 그래프 편집 화면의 본체 — 도구 줄(+ 노드·자동 정렬·실행 취소·질문 경로 보기), ReactFlow 캔버스·범례, 고른 노드의 편집 패널, 경고 줄.
+ * 그래프 편집 화면의 본체 — ReactFlow 캔버스 위에 떠 있는 도구(+ 노드·자동 정렬·실행 취소·질문 경로, 배율·맞춤)·미니맵·범례, 고른 노드의 편집 패널.
+ * 검사 결과(경고·오류)는 여기서 그리지 않는다 — 탭 머리의 WorkflowProblemsBadge 가 맡는다.
  * 노드·선은 매번 graph(YAML 을 읽은 것)에서 만들고, 끌기·연결·추가는 graphYaml 함수로 YAML 을 고쳐 onChange 로 올린다.
  * 지역 상태는 고른 노드·드래그 중 좌표·질문 경로 펼침·자동 정렬 실행 취소 기억뿐이다 — 원본을 둘로 들지 않으려는 것이다.
  */
-function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
+function Canvas({ yaml, readOnly, onChange, graph }: {
   yaml: string
-  problems: WorkflowProblem[]
   readOnly: boolean
   onChange: (yaml: string) => void
-  onOpenYaml: () => void
   graph: WorkflowGraph
 }) {
   const [selected, setSelected] = useState<string | null>(null)
@@ -243,61 +246,14 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
 
   return (
     // @container — 아래 행·패널의 @3xl 판정 기준은 여기(뷰포트가 아니라 편집기 폭)다. YAML 모드와 같은 규약.
-    <div className="@container flex min-w-0 flex-col rounded-md border">
-      {/* 저장·게시 중(readOnly)에도 도구 줄은 자리를 지키고 꺼진 채 보인다 — 사라졌다 나타나며 화면이 흔들리지 않게 */}
-      <div className="flex items-center gap-2 border-b p-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild disabled={readOnly}><Button type="button" variant="outline" size="sm" disabled={readOnly}>+ 노드</Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {menu.map((item) => (
-              <DropdownMenuItem
-                key={item.type}
-                onSelect={() => {
-                  // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 저장·자동 배치 자리를 모두 피한 빈 자리(가장 아래 노드 밑, 가장 왼쪽 x)에 놓는다.
-                  const added = addNodeAtFreeSpot(yaml, item.type)
-                  onChange(added.yaml)
-                  setSelected(added.key)
-                  // addNode 가 실패하면(yaml·layout 없음 등) 새 키가 없다 — 앞서 기다리던 노드도 그 시점에 대체된 것이므로
-                  // 측정되지 못한 채 계속 기다리는 pendingReveal 을 남기지 않기 위해 통째로 비운다.
-                  setPendingReveal(added.key || null)
-                }}
-              >{item.label}</DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={readOnly}
-          onClick={() => {
-            const after = autoLayout(yaml)
-            // 이미 정렬된 상태에서 또 누르면 before===after 가 되어 실행 취소가 사라지므로 원래 before 를 지킨다
-            setUndoLayout((prev) => ({ before: yaml === prev?.after ? prev.before : yaml, after }))
-            onChange(after)
-          }}
-        >자동 정렬</Button>
-        {canUndoLayout && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={readOnly}
-            onClick={() => {
-              onChange(undoLayout.before)
-              setUndoLayout(null)
-            }}
-          ><Undo2 aria-hidden="true" />실행 취소</Button>
-        )}
-        <Button type="button" variant="outline" size="sm" aria-pressed={showAsk} onClick={() => setShowAsk((v) => !v)}>질문 경로 보기</Button>
-      </div>
+    <div className="@container flex h-full min-h-0 min-w-0 flex-col rounded-md border">
       {/* 좁으면 세로로 쌓아 캔버스 폭을 지키고, @3xl 이상에서만 YAML 모드와 같은 옆으로 배치 */}
-      <div className="flex min-h-96 flex-col @3xl:flex-row">
-        {/* 캔버스 높이는 늘 28rem 으로 확정해 둔다 — ReactFlow 가 쓰는 `.react-flow` 는 `height: 100%` 이라
-            부모 높이가 확정(definite)이 아니면 0 으로 풀려 캔버스가 통째로 사라진다.
-            세로 쌓기(main 축 = 높이)에서 `flex-1`(flex-basis 0%) 을 쓰면 부모 높이가 내용 기준이 되어 그렇게 되므로,
-            가로 배치일 때만(폭이 main 축) flex-1 을 건다. min-h 는 눌리지 않게 하는 안전판. */}
-        <div ref={canvasRef} className="relative h-[28rem] min-h-[28rem] min-w-0 @3xl:flex-1" data-testid="workflow-graph-canvas">
+      <div className="flex min-h-0 flex-1 flex-col @3xl:flex-row">
+        {/* ReactFlow 가 쓰는 `.react-flow` 는 `height: 100%` 이라 부모 높이가 확정(definite)이 아니면 0 으로 풀려 캔버스가 통째로 사라진다.
+            세로 쌓기(main 축 = 높이)에서 `flex-1`(flex-basis 0%) 은 부모 높이가 불확정일 때 내용 기준이 되어 그렇게 되므로,
+            좁을 때는 `flex-auto`(basis auto → h-[24rem])로 높이를 확정해 두고 부모가 더 크면 늘어난다.
+            가로 배치(@3xl)에서는 높이가 교차 축이라 `h-full`(부모를 채움)로 확정하고 폭만 flex-1. min-h 는 눌리지 않게 하는 안전판. */}
+        <div ref={canvasRef} className="relative h-[24rem] min-h-[24rem] min-w-0 flex-auto @3xl:h-full @3xl:flex-1" data-testid="workflow-graph-canvas">
           <ReactFlow
             nodes={nodes}
             onNodesChange={handleNodesChange}
@@ -318,7 +274,65 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
             onConnect={onConnect}
           >
             <Background />
+            {/* 저장·게시 중(readOnly)에도 도구는 자리를 지키고 꺼진 채 보인다 — 사라졌다 나타나며 화면이 흔들리지 않게 */}
+            <FloatingPanel position="top-left" testId="workflow-graph-tools" className="max-w-[calc(100%-1.5rem)] flex-wrap">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild disabled={readOnly}><Button type="button" variant="outline" size="sm" disabled={readOnly}>+ 노드</Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {menu.map((item) => (
+                    <DropdownMenuItem
+                      key={item.type}
+                      onSelect={() => {
+                        // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 저장·자동 배치 자리를 모두 피한 빈 자리(가장 아래 노드 밑, 가장 왼쪽 x)에 놓는다.
+                        const added = addNodeAtFreeSpot(yaml, item.type)
+                        onChange(added.yaml)
+                        setSelected(added.key)
+                        // addNode 가 실패하면(yaml·layout 없음 등) 새 키가 없다 — 앞서 기다리던 노드도 그 시점에 대체된 것이므로
+                        // 측정되지 못한 채 계속 기다리는 pendingReveal 을 남기지 않기 위해 통째로 비운다.
+                        setPendingReveal(added.key || null)
+                      }}
+                    >{item.label}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={readOnly}
+                onClick={() => {
+                  const after = autoLayout(yaml)
+                  // 이미 정렬된 상태에서 또 누르면 before===after 가 되어 실행 취소가 사라지므로 원래 before 를 지킨다
+                  setUndoLayout((prev) => ({ before: yaml === prev?.after ? prev.before : yaml, after }))
+                  onChange(after)
+                }}
+              >자동 정렬</Button>
+              {canUndoLayout && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={readOnly}
+                  onClick={() => {
+                    onChange(undoLayout.before)
+                    setUndoLayout(null)
+                  }}
+                ><Undo2 aria-hidden="true" />실행 취소</Button>
+              )}
+              {/* 켜짐은 디자인 시스템 「토글 켜짐」 클래스로 보인다 — aria-pressed 만으로는 색·테두리 변화가 없어 켠 상태를 알기 어렵다 */}
+              <Button type="button" variant="outline" size="sm" aria-pressed={showAsk} className={cn(showAsk && TOGGLE_ON_CLASS)} onClick={() => setShowAsk((v) => !v)}><MessageCircleQuestion aria-hidden="true" />질문 경로</Button>
+            </FloatingPanel>
             <ZoomControls />
+            {/* 미니맵은 넓은 캔버스(@3xl 이상)의 오른쪽 아래 — 범례(왼쪽 아래)와 겹치지 않게 범례 폭을 미니맵만큼 줄여 둔다. 좁으면 숨긴다 */}
+            <MiniMap
+              position="bottom-right"
+              pannable
+              zoomable
+              ariaLabel="미니맵"
+              className="!hidden !rounded-md !border !bg-card !shadow-sm @3xl:!block"
+              nodeColor="var(--muted-foreground)"
+              maskColor="color-mix(in oklab, var(--background) 70%, transparent)"
+            />
           </ReactFlow>
           <GraphLegend commonRecoveryName={commonRecoveryName} />
         </div>
@@ -326,7 +340,6 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
           <NodePanel key={panelKey} yaml={yaml} graph={graph} nodeKey={panelKey} readOnly={readOnly} onChange={onChange} onClose={() => setSelected(null)} />
         )}
       </div>
-      <WarningBar yaml={yaml} problems={problems} onChange={onChange} onOpenYaml={onOpenYaml} />
     </div>
   )
 }
@@ -335,11 +348,11 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
  * 워크플로우 초안을 그래프로 보고 고치는 편집기. 그래프의 모든 편집은 graphYaml 함수로 YAML 문자열을 고쳐
  * onChange 로 올릴 뿐이다 — 원본은 언제나 YAML 이다.
  */
-export function WorkflowGraphEditor({ yaml, problems, readOnly, onChange, onOpenYaml }: {
+export function WorkflowGraphEditor({ yaml, readOnly, onChange, onOpenYaml }: {
   yaml: string
-  problems: WorkflowProblem[]
   readOnly: boolean
   onChange: (yaml: string) => void
+  /** YAML 문법 오류로 그래프를 못 그릴 때 「YAML 에서 고치기」가 YAML 보기로 넘어가는 데만 쓴다(검사 결과·빠른 조치는 탭 머리 배지가 맡는다) */
   onOpenYaml: () => void
 }) {
   const parsed = useMemo(() => parseWorkflowGraph(yaml), [yaml])
@@ -353,7 +366,7 @@ export function WorkflowGraphEditor({ yaml, problems, readOnly, onChange, onOpen
   }
   return (
     <ReactFlowProvider>
-      <Canvas yaml={yaml} problems={problems} readOnly={readOnly} onChange={onChange} onOpenYaml={onOpenYaml} graph={parsed.graph} />
+      <Canvas yaml={yaml} readOnly={readOnly} onChange={onChange} graph={parsed.graph} />
     </ReactFlowProvider>
   )
 }

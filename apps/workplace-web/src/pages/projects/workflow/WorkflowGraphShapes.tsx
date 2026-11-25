@@ -198,7 +198,7 @@ export function RoutedEdge(props: EdgeProps<Edge<RoutedEdgeData, 'routed'>>) {
 /** 캔버스 왼쪽 아래 범례 — 선 모양의 뜻과, 공통 오류 처리 노드가 있으면 그 안내 한 줄. */
 export function GraphLegend({ commonRecoveryName }: { commonRecoveryName: string | null }) {
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-10rem)] flex-col gap-1 rounded-md border bg-card px-2 py-1.5 text-xs text-muted-foreground">
+    <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-11rem)] @3xl:max-w-[calc(100%-15rem)] flex-col gap-1 rounded-md border bg-card px-2 py-1.5 text-xs text-muted-foreground">
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex items-center gap-1">
           <svg width="20" height="6" aria-hidden="true"><line x1="0" y1="3" x2="20" y2="3" stroke="currentColor" strokeWidth="1.5" /></svg>
