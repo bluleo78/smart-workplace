@@ -28,6 +28,7 @@ import { canCreateIssueIn, canManageProject, isProjectOwner } from '../../lib/pr
 import { canEditStatuses } from '../../lib/projectStatuses';
 import type { ProjectResponse } from '../../types/project';
 import { EpicSidePanel } from './components/EpicSidePanel';
+import { IgnoredFilterNotice } from './components/IgnoredFilterNotice';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/IssueCycleGroupedList';
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
@@ -290,6 +291,8 @@ function ProjectIssuesSection({
               <IssueFilterBar projectKey={projectKey} />
             </>
           )}
+          {/* WP-2083: 주소의 알 수 없는 필터 값이 무시됐음을 알린다(모바일·데스크톱 공통). */}
+          <IgnoredFilterNotice />
           {/* WP-1777: 필터·검색 결과 건수를 스크린리더에 알리는 화면 밖 live region(모바일·데스크톱 공통). 프로젝트가 바뀌면 key 로 다시 마운트해 첫 진입처럼 조용히 둔다. */}
           <IssueResultStatus key={projectKey} projectKey={projectKey} filters={filters} />
         </div>

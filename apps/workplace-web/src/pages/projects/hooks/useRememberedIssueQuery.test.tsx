@@ -14,7 +14,7 @@ import { AuthContext } from '@/hooks/auth-context-value'
 import { memoryStorage } from '@/test/memoryStorage'
 import { testAuthValue } from '@/test/renderWithProviders'
 
-import { rememberedIssueQuery, useRememberedIssueQuery } from './useRememberedIssueQuery'
+import { IGNORED_CLEARED_STATE, rememberedIssueQuery, useRememberedIssueQuery } from './useRememberedIssueQuery'
 
 // AI 대화 링크가 기대는 패널·대화 세션 — 열기 동작은 이 테스트의 관심 밖이라 끊는다.
 vi.mock('@/components/ai/AIAssistantContext', () => ({ useAssistant: () => ({ mode: 'side', open: vi.fn() }) }))
@@ -144,6 +144,52 @@ describe('useRememberedIssueQuery', () => {
     localStorage.setItem(keyOf('WP'), 'priority=NOPE&label=abc')
     const { result } = renderAt('/projects/WP')
     expect(result.current.location.search).toBe('')
+  })
+
+  describe('알 수 없는 필터 값(WP-2083)', () => {
+    it('기억이 있어도 알 수 없는 값만 든 주소는 되살리지 않고, 기억도 그대로 둔다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      expect(result.current.restoring).toBe(false)
+      expect(result.current.location.search).toBe('?status=BOGUS')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('기억이 없으면 알 수 없는 값만 든 주소로 기억을 만들지 않는다', () => {
+      renderAt('/projects/WP?status=BOGUS')
+      expect(localStorage.getItem(keyOf('WP'))).toBeNull()
+    })
+
+    it('알 수 없는 값을 지워 조건 없는 주소가 돼도(표지 state) 기억을 되살리지도 지우지도 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지우고 남은 조건이 있으면(표지 state) 그 조건을 기억한다', () => {
+      const { result } = renderAt('/projects/WP?priority=HIGH,BOGUS')
+      // 진입 때 쓴 기억을 되돌려 놓고, 지우기 뒤에 다시 쓰이는지 본다.
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      act(() => result.current.setParams(new URLSearchParams('priority=HIGH'), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('?priority=HIGH')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    })
+
+    it('기억할 조건 없이 알 수 없는 값만 있던 화면은 지운 뒤 상태 없는 replace 가 와도 기억을 지우지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      act(() => result.current.setParams((prev) => { prev.set('aiChat', '1'); return prev }, { replace: true }))
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+      expect(searchOf(result)).toEqual(new URLSearchParams('aiChat=1&status=TODO'))
+    })
+
+    it('알 수 없는 값이 섞여도 알려진 값은 기억한다', () => {
+      renderAt('/projects/WP?priority=HIGH,BOGUS')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    })
   })
 
   describe('앱의 다른 replace 로 조건 없이 들어와도 지우지 않고 되살린다', () => {
