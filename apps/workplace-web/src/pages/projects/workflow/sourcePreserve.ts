@@ -378,7 +378,9 @@ function placeAdded(out: string, column: number, text: string, dash: boolean, eo
   return s + head + (dash ? '- ' : '') + body + eol
 }
 
-/** 잎 — 원문 범위를 통째로 새 값으로 갈아 끼운다. 흐름 자리면 한 줄, 블록 자리면 본문을 키 줄 아래 한 단계로 세운다. */
+/**
+ * 잎 — 원문 범위를 통째로 새 값으로 갈아 끼운다. 흐름 자리면 한 줄, 블록 자리면 본문을 키 줄 아래 한 단계로 세운다.
+ */
 function emitLeaf(src: string, bVal: unknown, aVal: unknown): string {
   const range = rangeOf(bVal)
   const orig = range ? src.slice(range[0], range[1]) : ''
@@ -393,9 +395,25 @@ function emitLeaf(src: string, bVal: unknown, aVal: unknown): string {
   if (text.endsWith('\n')) text = text.slice(0, -1)
   // 원문 자리가 줄 끝으로 끝났으면 새 글자도 줄 끝으로 — 아니면 뒤에 오는 원문이 한 줄에 붙는다.
   if (orig.endsWith('\n') !== text.endsWith('\n')) text = orig.endsWith('\n') ? `${text}\n` : text.slice(0, -1)
+  if (!flow) text = keepBlockHeaderTail(orig, text)
   // 새로 넣는 줄은 문서 개행으로 — CRLF 원문에 LF 를 끼우면 한 파일 안에서 개행이 섞인다(WP-2040 리뷰 2).
   const eol = eolOf(src)
   return eol === '\n' ? text : text.replace(/\n/g, eol)
+}
+
+/**
+ * 블록 스칼라 머리 줄의 표시자 뒤 주석을 새 글자 첫 줄 끝에 다시 붙인다 — `instructions: |   # 설명`
+ * 처럼 사람이 표시자 뒤에 단 주석이다. 값만 바꾸는 편집이라도 원문 범위를 통째로 갈아 끼우면 그 주석이
+ * 함께 사라지니(WP-2040 리뷰 후속 ①), 원문 머리 줄(`|`·`>` 표시자 한 줄)에 주석이 있으면 남겨 붙인다.
+ * 새 글자에 줄이 없으면(한 줄짜리 값) 개행 없이 뒤에 덧붙인다.
+ */
+function keepBlockHeaderTail(orig: string, text: string): string {
+  const origBr = lineBreakOf(orig, 0)
+  const origHead = origBr < 0 ? orig : orig.slice(0, origBr)
+  const tail = /^[ \t]*[|>][-+0-9]*([ \t]+#[^\r\n]*)$/.exec(origHead)?.[1]
+  if (!tail) return text
+  const br = lineBreakOf(text, 0)
+  return br < 0 ? text + tail : text.slice(0, br) + tail + text.slice(br)
 }
 
 /**
@@ -435,6 +453,15 @@ function containerEntry(key: string, value: unknown): string {
     .map((line) => (line === '' ? line : `  ${line}`))
     .join('\n')
   return `${key}:\n${inner}`
+}
+
+/**
+ * 블록 자리의 새 항목 한 덩어리 — 컨테이너는 `containerEntry` 가 노드 표기를, 잎은 흐름 한 줄을 쓴다.
+ * 항목을 새로 세우는 자리와 이름 바뀐 자리 갈아끼우기가 함께 쓴다(흐름 컨테이너는 `flowEntry` 를 따로 쓴다).
+ */
+function blockEntry(key: string, value: unknown): string {
+  if (isMap(value) || isSeq(value)) return containerEntry(key, value)
+  return stringify(new Map([[key, jsValue(value)]]), { lineWidth: 0 })
 }
 
 /**
@@ -622,10 +649,8 @@ function emitMap(src: string, bMap: YAMLMap, aMap: YAMLMap, path: (string | numb
         continue
       }
       const pos = anchor ?? rangeOf(bMap.items[bMap.items.length - 1].key)?.[0] ?? 0
-      // 값이 흐름 스타일이면 그 스타일 그대로, 블록 컨테이너면 노드를 그대로 직렬화해 한 줄을 지킨다 —
-      // bare JS 값으로 직렬화하면 graphYaml 이 세운 flow 표기가 블록 여러 줄로 흩어진다(WP-2040 최종 리뷰 finding 3·4)
-      const text = isMap(ap.value) || isSeq(ap.value) ? containerEntry(key, ap.value) : stringify(new Map([[key, jsValue(ap.value)]]), { lineWidth: 0 })
-      out = placeAdded(out, columnOf(src, pos), text, false, eolOf(src))
+      // 항목을 새로 세운다 — 컨테이너는 노드 표기를, 잎은 흐름 한 줄을 그대로 두어 flow 표기가 흩어지지 않는다(WP-2040 최종 리뷰 finding 3·4)
+      out = placeAdded(out, columnOf(src, pos), blockEntry(key, ap.value), false, eolOf(src))
       continue
     }
     const region = regions[hit.index]
@@ -655,7 +680,24 @@ function emitMap(src: string, bMap: YAMLMap, aMap: YAMLMap, path: (string | numb
     } else {
       // 자식 경로는 after 의 키 이름으로 — 힌트도 after 자리(path)를 기준으로 남긴다
       const mid = emitValue(src, bVal, ap.value, [...path, key], hints)
-      if (mid === null) return null
+      if (mid === null) {
+        // 이름이 바뀐 자리인데 값 모양이 달라 자리 병합이 안 된다(잎 ↔ 컨테이너 교체 — ask 줄임 표기를
+        // outcomes 로 펼치는 자리). 병합을 포기해 전문 정규화 출력으로 넘기지 않고, 그 자리(키 줄) 전체를
+        // 새 항목 하나로 갈아 끼운다 — 손대지 않은 줄은 여전히 원문 그대로다(WP-2040 리뷰 후속 ③).
+        if (oldKey === undefined || !keyRange) return null
+        const entry = close !== null ? flowEntry(key, ap.value) : blockEntry(key, ap.value)
+        anchor = rangeOf(hit.pair.key)?.[0] ?? anchor
+        // 열 기준은 키가 선 칸으로 — 위 주석 줄·빈 줄을 region 시작으로 삼으면 0칸이라 본문이 틀린 곳에 선다.
+        const indented = indentLines(entry.replace(/\n+$/, ''), columnOf(src, keyRange[0])).replace(/\n/g, eolOf(src))
+        const rest = src.slice(bRange[1], end) // 값 뒤 원문(줄 끝 주석·개행) — 새 값 끝에 그대로 이어 붙인다
+        let body = indented + rest
+        // 원문 자리가 줄 끝으로 끝나는데 그 개행을 블록 값 range 가 삼켜 rest 에 없으면, 새 항목 끝에 직접
+        // 넣어야 뒤에 오는 줄이 한 줄로 붙지 않는다(indentLines 는 끝 개행을 남기지 않으므로 받은 뒤 더한다).
+        if (/\n$/.test(src.slice(region.start, end)) && !/\n$/.test(body)) body += eolOf(src)
+        out += src.slice(region.start, keyRange[0]) + body
+        emitted++
+        continue
+      }
       const cut = valueStart(src, bVal, ap.value, bRange)
       let keyTail = '' // 키 줄에 남길 값 뒤 글자(줄 끝 주석 등) — 값을 아래 줄로 옮길 때만 쓴다
       let tail = src.slice(bRange[1], end)
