@@ -1,5 +1,5 @@
-/** 패널이 고치는 칸(노드 이름 제외). */
-export type PanelField = 'role' | 'requires' | 'instructions' | 'use' | 'outcomes' | 'outputs' | 'maxVisits'
+/** 노드 서랍이 고치는 칸(노드 이름 제외). ask·onError 는 「사람에게 묻기」「막혔을 때」(WP-2091). */
+export type PanelField = 'role' | 'requires' | 'instructions' | 'use' | 'outcomes' | 'outputs' | 'maxVisits' | 'ask' | 'onError'
 
 /**
  * 노드 종류별로 패널에 보일 칸 — 서버 스키마(packages/mcp-tools-shared/src/workflow-schema.json 의 x-nodeTypes)와 맞춘다.
@@ -12,7 +12,8 @@ export const NODE_FIELDS: Record<string, ReadonlySet<PanelField>> = {
   end: new Set(),
   // decision 은 conditions·default 를 YAML 에서 쓴다 — 패널은 이름만
   decision: new Set(),
-  agent_task: new Set(['role', 'requires', 'instructions', 'use', 'outcomes', 'outputs', 'maxVisits']),
+  // ask(질문 경로 줄임 표기)는 agent_task 만 허용한다 — 사람에게 묻는 것은 AI 차례의 일이다
+  agent_task: new Set(['role', 'requires', 'instructions', 'use', 'outcomes', 'outputs', 'maxVisits', 'ask', 'onError']),
   // human_task 는 requires 를 허용하지 않는다(사람에게 로컬 저장소 능력은 의미가 없다)
-  human_task: new Set(['role', 'instructions', 'use', 'outcomes', 'outputs', 'maxVisits']),
+  human_task: new Set(['role', 'instructions', 'use', 'outcomes', 'outputs', 'maxVisits', 'onError']),
 }

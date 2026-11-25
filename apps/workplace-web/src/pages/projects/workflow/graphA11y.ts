@@ -22,14 +22,19 @@ export function nodeActorLabel(node: GraphNode, roleName?: string): string | nul
   return roleName ? `${actor} · ${roleName}` : actor
 }
 
+/** 검사 결과 등급을 노드 접근 이름 끝에 붙이는 말(WP-2091) — 「!」 배지는 aria-hidden 이라 뜻은 이름이 전한다. */
+const PROBLEM_NAME_SUFFIX = { ERROR: ', 오류 있음', WARNING: ', 경고 있음' } as const
+
 /**
  * 노드의 스크린리더용 접근 이름. 「표시 이름, 담당(또는 종류)」 꼴. 이름이 없으면 key 로 대신한다.
+ * problem(그 노드의 가장 센 검사 등급)이 있으면 끝에 「, 오류 있음」·「, 경고 있음」을 붙인다.
  */
-export function nodeAriaLabel(node: GraphNode, roleName?: string): string {
+export function nodeAriaLabel(node: GraphNode, roleName?: string, problem?: 'ERROR' | 'WARNING'): string {
   const title = node.name ?? node.key
   const tail = nodeActorLabel(node, roleName) ?? KIND_LABEL[node.type] ?? node.type
   // 가상 노드(질문 경로)는 YAML 에 없는 노드라 편집할 수 없음을 이름에 밝힌다
-  return node.virtual ? `${title}, ${tail}, 질문 경로(편집 불가)` : `${title}, ${tail}`
+  const base = node.virtual ? `${title}, ${tail}, 질문 경로(편집 불가)` : `${title}, ${tail}`
+  return problem ? base + PROBLEM_NAME_SUFFIX[problem] : base
 }
 
 /**

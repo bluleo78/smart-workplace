@@ -27,7 +27,8 @@ import {
 
 import { useProjectTabs } from '../tabs/ProjectTabsContext'
 import type { ProjectWorkflowContext } from '../tabs/ProjectTabsLayout'
-import { addAskPath } from './graphYaml'
+import type { DrawerState, GraphProblems } from './drawerModel'
+import { addAskPath, parseWorkflowGraph } from './graphYaml'
 import { PublishDialog } from './PublishDialog'
 import { WorkflowEnableSwitch } from './WorkflowEnableSwitch'
 import { WorkflowGraphEditor } from './WorkflowGraphEditor'
@@ -36,7 +37,7 @@ import { WorkflowProblemsBadge } from './WorkflowProblemsBadge'
 import { WorkflowProblemsPanel } from './WorkflowProblemsPanel'
 import { WorkflowRuns } from './WorkflowRuns'
 import { workflowSelectClass, WorkflowVersions } from './WorkflowVersions'
-import { workflowViewFromParam } from './workflowView'
+import { workflowTabSearch, workflowViewFromParam } from './workflowView'
 import { countWorkflowYamlChanges } from './workflowYamlDiff'
 import { WorkflowYamlEditor } from './WorkflowYamlEditor'
 
@@ -281,13 +282,13 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
   const view = workflowViewFromParam(searchParams.get('view'))
   const setView = useCallback((next: string) => {
     setSearchParams((prev) => {
-      const params = new URLSearchParams(prev)
-      params.set('view', next)
-      if (next !== 'runs') { params.delete('run'); params.delete('runsView') }
-      return params
+      return workflowTabSearch(prev, { view: next })
     }, { replace: true })
   }, [setSearchParams])
   const [publishConfirmation, setPublishConfirmation] = useState<PublishConfirmation | null>(null)
+  // 그래프 편집기의 서랍(노드 설정·워크플로우 개요, WP-2091) — 탭 머리 검사 배지도 열므로 여기서 든다.
+  // 그래프 보기를 떠나도 지우지 않는다 — 돌아오면 보던 서랍이 그대로 있다(정의를 바꾸면 이 컴포넌트가 key 로 새로 그려져 비워진다).
+  const [drawer, setDrawer] = useState<DrawerState>(null)
   const [workError, setWorkError] = useState<string | null>(null)
   // 첫 게시 대화상자의 「게시하고 바로 사용」 — 열 때마다 기본 켜짐으로 시작한다.
   const [enableOnPublish, setEnableOnPublish] = useState(true)
@@ -328,6 +329,10 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
   const publishedYaml = activeVersionNo === null ? '' : published.data?.sourceYaml
     ?? (publishedByThisEditor ? publishedHere?.yaml : undefined)
   // 모아 보기 그래프가 빼는 옛 버전 실행의 안내 — 머리글 수와 같은 versions 에서 만든다(WP-2044).
+  // 그래프로 파싱되는 초안인지 — 파싱 오류면 그래프 보기에 서랍이 없어 배지가 열 곳이 없다(WP-2091)
+  // YAML 은 한 번만 읽어 편집기에 내려 준다(편집기가 다시 파싱하지 않게)
+  const parsedGraph = useMemo(() => parseWorkflowGraph(yaml), [yaml])
+  const graphParsable = 'graph' in parsedGraph
   const olderNotice = useMemo(
     () => olderRunsNotice(olderVersionRuns(versions.data, activeVersionNo), activeVersionNo),
     [versions.data, activeVersionNo],
@@ -461,6 +466,13 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
 
   // 전환 중에도 같은 정의로 돌아오면 쓰기 응답이 올 때까지 입력을 막는다.
   const busy = useIsMutating({ mutationKey: workflowKeys.detail(id), exact: true }) > 0
+  // 그래프 편집기(개요 서랍·노드 배지)에 내리는 검사 결과 — 배지와 같은 값이라 두 곳이 어긋나지 않는다(WP-2091)
+  // 노드 배지 계산은 편집기가 problems 배열로 메모하므로 묶음 객체 자체는 매 렌더 새로 만들어도 된다
+  const graphProblems: GraphProblems = {
+    problems: badgeProblems, checking: validation.pending, failed: validation.failed, stale: badgeStale, onRetry: validation.retry,
+    // 헤더 배지와 같은 판정 — 충돌 중에는 개요 목록의 「질문 경로 추가」도 끈다
+    readOnly: busy || isLoggingOut || conflict,
+  }
   const hasErrors = problems.some((problem) => problem.severity === 'ERROR')
   // 검증 요청에 실패하면 진단 목록이 비어 있어도 검증이 끝날 때까지 게시를 막는다.
   // 게시 안 한 변경이 0 이면 같은 원문으로 게시본 버전만 하나 더 쌓인다(WP-2043). 서버는 같은 내용 재게시를 허용하므로 화면이 막는다.
@@ -532,6 +544,9 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
               onRetry={validation.retry}
               onAddAskPath={(nodeKey) => editDraft(addAskPath(yaml, nodeKey))}
               onOpenYaml={openYamlDiagnostics}
+              // 그래프 보기에서는 팝오버 대신 개요 서랍의 검사 결과 탭을 연다(WP-2091) — 문제 행에서 바로 그 노드로 갈 수 있게.
+              // YAML 이 파싱되지 않으면 서랍이 없으니 예전 팝오버(「YAML 오류 확인」)를 그대로 쓴다
+              onOpen={view === 'graph' && graphParsable ? () => setDrawer({ kind: 'overview', tab: 'problems' }) : undefined}
             />
             <span className="text-xs text-muted-foreground" role="status">
               {changeCountLabel}
@@ -569,9 +584,14 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
         {canManage ? (
           <WorkflowGraphEditor
             yaml={yaml}
+            parsed={parsedGraph}
             readOnly={busy || isLoggingOut}
             onChange={editDraft}
             onOpenYaml={openYamlDiagnostics}
+            drawer={drawer}
+            onDrawerChange={setDrawer}
+            problems={graphProblems}
+            workflowId={id}
           />
         ) : (
           <PublishedWorkflow mode="graph" published={published} hasVersion={activeVersionNo !== null} editor={editorRef} />

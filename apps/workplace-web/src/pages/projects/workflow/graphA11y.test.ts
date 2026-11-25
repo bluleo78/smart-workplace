@@ -10,6 +10,13 @@ import {
 } from './graphA11y'
 
 describe('graphA11y', () => {
+  it('nodeAriaLabel_problemSuffix', () => {
+    const node = { key: 'dev', type: 'agent_task', name: '개발' }
+    expect(nodeAriaLabel(node, undefined, 'ERROR')).toBe('개발, AI, 오류 있음')
+    expect(nodeAriaLabel(node, '팀장', 'WARNING')).toBe('개발, AI · 팀장, 경고 있음')
+    expect(nodeAriaLabel(node, undefined, undefined)).toBe('개발, AI')
+  })
+
   it('nodeAriaLabel_actorWithRole', () => {
     expect(nodeAriaLabel({ key: 'work', type: 'human_task', name: '작업' }, '확인자')).toBe('작업, 사람 · 확인자')
     expect(nodeAriaLabel({ key: 'triage', type: 'agent_task', name: '분류' }, '팀장')).toBe('분류, AI · 팀장')

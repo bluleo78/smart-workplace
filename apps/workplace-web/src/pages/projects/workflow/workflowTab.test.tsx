@@ -627,15 +627,16 @@ function headingSkips() {
   return levels.flatMap((l, i) => (i > 0 && l > levels[i - 1] + 1 ? [[levels[i - 1], l]] : []))
 }
 
-it('tab_graphNodePanel_noHeadingLevelSkip', async () => {
+it('tab_graphNodeDrawer_noHeadingLevelSkip', async () => {
   renderWorkflow({ search: '?workflow=42' })
   server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
-  // 노드를 더하면 그 노드가 선택되어 노드 패널이 열린다 — 패널 절 제목이 h2 다음 h4 로 건너뛰지 않아야 한다(WP-2054)
+  // 노드를 더하면 그 노드가 선택되어 노드 서랍이 열린다 — 서랍 제목(h3)·절 제목(h4)이 h2 아래에서 단계를 건너뛰지 않아야 한다(WP-2054, WP-2091)
   await userEvent.click(await screen.findByRole('button', { name: '+ 노드' }))
   await userEvent.click(await screen.findByRole('menuitem', { name: 'AI 작업' }))
-  await screen.findByRole('button', { name: '노드 지우기' })
+  const drawer = await screen.findByRole('complementary', { name: '노드 설정' })
   expect(headingSkips()).toEqual([])
-  expect(screen.getAllByRole('heading', { level: 3 }).length).toBeGreaterThan(0)
+  expect(within(drawer).getByRole('heading', { level: 3, name: '새 AI 작업 노드 설정' })).toBeInTheDocument()
+  expect(within(drawer).getAllByRole('heading', { level: 4 }).length).toBeGreaterThan(0)
 })
 
 it('workflowTab_viewerSeesReadOnlyGraph', async () => {
@@ -760,6 +761,39 @@ it('problemsBadge_showsCounts_andOpensYamlDiagnostics', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'YAML 오류 확인' }))
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
   await waitFor(() => expect(yaml).toHaveFocus())
+})
+
+// WP-2091 — 그래프 보기의 검사 배지는 팝오버 대신 워크플로우 개요 서랍의 검사 결과 탭을 연다
+it('tab_graphBadge_opensOverviewProblems', async () => {
+  renderWorkflow({ search: '?view=graph' })
+  server.use(http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, draftProblems: [workflowProblem] })))
+  await userEvent.click(await screen.findByRole('button', { name: '검사 결과 오류 1' }))
+  const drawer = await screen.findByRole('complementary', { name: '워크플로우 개요' })
+  expect(within(drawer).getByRole('tab', { name: '검사 결과 1' })).toHaveAttribute('aria-selected', 'true')
+  expect(within(drawer).getByRole('button', { name: /노드를 확인하세요\./ })).toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  // 행을 누르면 그 노드의 서랍으로 바뀐다
+  fireEvent.click(within(drawer).getByRole('button', { name: /노드를 확인하세요\./ }))
+  expect(await screen.findByRole('complementary', { name: '노드 설정' })).toBeInTheDocument()
+})
+
+// WP-2091 리뷰 — 초안 YAML 이 파싱되지 않으면 그래프 보기에는 서랍이 없으니 배지는 예전 팝오버(「YAML 오류 확인」)를 연다
+it('tab_graphBadge_unparsableYaml_keepsPopover', async () => {
+  renderWorkflow({ search: '?view=graph' })
+  server.use(http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, draftYaml: 'nodes: [', draftProblems: [workflowProblem] })))
+  await userEvent.click(await screen.findByRole('button', { name: '검사 결과 오류 1' }))
+  expect(await screen.findByRole('dialog', { name: '검사 결과 오류 1' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'YAML 오류 확인' })).toBeInTheDocument()
+  expect(screen.queryByRole('complementary', { name: '워크플로우 개요' })).not.toBeInTheDocument()
+})
+
+// WP-2091 — YAML 보기에서는 배지가 그대로 팝오버로 목록을 보인다
+it('tab_yamlBadge_keepsPopover', async () => {
+  renderWorkflow({ search: '?view=yaml' })
+  server.use(http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, draftProblems: [workflowProblem] })))
+  await userEvent.click(await screen.findByRole('button', { name: '검사 결과 오류 1' }))
+  expect(await screen.findByRole('dialog', { name: '검사 결과 오류 1' })).toBeInTheDocument()
+  expect(screen.queryByRole('complementary', { name: '워크플로우 개요' })).not.toBeInTheDocument()
 })
 
 it('readOnlyHeader_hasNoSaveButtons', async () => {

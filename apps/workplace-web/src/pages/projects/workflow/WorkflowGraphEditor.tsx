@@ -5,7 +5,7 @@ import {
   ReactFlowProvider, useNodesState, useReactFlow, useViewport,
 } from '@xyflow/react'
 import { MessageCircleQuestion, Minus, Plus, Undo2 } from 'lucide-react'
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -13,14 +13,19 @@ import {
 import { Button } from '@/components/ui/button'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
+import type { WorkflowProblem } from '@/lib/workflows'
 
 import { applyConnection } from './applyConnection'
+import {
+  type DrawerState, type GraphProblems, type NodeDrawerTab, nodeProblemLevels, problemTab, problemTargetNode,
+} from './drawerModel'
 import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
 import { drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './graphLayout'
 import {
-  addNodeAtFreeSpot, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
+  addAskPath, addNodeAtFreeSpot, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
-import { NodePanel } from './NodePanel'
+import { NodeDrawer } from './NodeDrawer'
+import { OverviewDrawer } from './OverviewDrawer'
 import { revealOffset } from './viewportReveal'
 import { type FlowNodeData, GraphLegend, RoutedEdge, type RoutedEdgeData, WorkflowNodeView } from './WorkflowGraphShapes'
 
@@ -78,26 +83,38 @@ function ZoomControls() {
 }
 
 /**
- * 그래프 편집 화면의 본체 — ReactFlow 캔버스 위에 떠 있는 도구(+ 노드·자동 정렬·실행 취소·질문 경로, 배율·맞춤)·미니맵·범례, 고른 노드의 편집 패널.
- * 검사 결과(경고·오류)는 여기서 그리지 않는다 — 탭 머리의 WorkflowProblemsBadge 가 맡는다.
+ * 그래프 편집 화면의 본체 — ReactFlow 캔버스 위에 떠 있는 도구(+ 노드·자동 정렬·실행 취소·질문 경로, 배율·맞춤)·미니맵·범례와,
+ * 캔버스 옆 서랍(노드 설정 또는 워크플로우 개요, WP-2091). 검사 결과는 노드 「!」 배지와 개요 서랍의 「검사 결과」 탭으로 보인다.
  * 노드·선은 매번 graph(YAML 을 읽은 것)에서 만들고, 끌기·연결·추가는 graphYaml 함수로 YAML 을 고쳐 onChange 로 올린다.
- * 지역 상태는 고른 노드·드래그 중 좌표·질문 경로 펼침·자동 정렬 실행 취소 기억뿐이다 — 원본을 둘로 들지 않으려는 것이다.
+ * 서랍 상태(drawer)는 부모가 든다 — 탭 머리 검사 배지도 같은 서랍을 열어야 하기 때문이다.
+ * 지역 상태는 드래그 중 좌표·질문 경로 펼침·자동 정렬 실행 취소 기억뿐이다 — 원본을 둘로 들지 않으려는 것이다.
  */
-function Canvas({ yaml, readOnly, onChange, graph }: {
+function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, problems, onOpenYaml, workflowId }: {
   yaml: string
   readOnly: boolean
   onChange: (yaml: string) => void
   graph: WorkflowGraph
+  drawer: DrawerState
+  onDrawerChange: (drawer: DrawerState) => void
+  problems: GraphProblems
+  onOpenYaml: () => void
+  /** 노드 서랍 「최근 실행」 조회용 정의 id */
+  workflowId: number
 }) {
-  const [selected, setSelected] = useState<string | null>(null)
+  // 노드 서랍이 열려 있으면 그 노드가 캔버스에서도 선택 표시된다(선택의 원본은 서랍 상태 하나)
+  const nodeDrawer = drawer?.kind === 'node' ? drawer : null
+  const selected = nodeDrawer?.key ?? null
   // 「+ 노드」로 방금 더한 노드가 화면에 들어올 때까지 기다리는 키 — 비면 더 옮길 것이 없어 멈춘다.
   const [pendingReveal, setPendingReveal] = useState<string | null>(null)
   const flow = useReactFlow()
   // 캔버스 컨테이너 자체의 화면 사각형을 재기 위한 ref — 노드와 캔버스를 같은 기준으로 비교한다.
   const canvasRef = useRef<HTMLDivElement>(null)
   const roleNames = useMemo(() => new Map(graph.roles.map((r) => [r.key, r.name ?? r.key])), [graph.roles])
+  // 노드별 가장 센 검사 등급 — 숨은 질문 노드의 문제는 그 질문을 낸 노드에 단다(WP-2091)
   // 질문 경로(ask) 펼침 여부 — 보기만 바꾸는 지역 상태라 읽기 전용이어도 켤 수 있다(기본은 접힘).
   const [showAsk, setShowAsk] = useState(false)
+  // 펼치면 질문 노드가 화면에 있으니 그 노드 자신에게 단다(접힌 동안만 호스트로 옮긴다)
+  const problemLevels = useMemo(() => nodeProblemLevels(graph, problems.problems, showAsk), [graph, problems.problems, showAsk])
   // 「자동 정렬」 직전·직후 YAML — 지금 YAML 이 직후와 같은 동안만 「실행 취소」를 보인다(다른 편집이 끼면 덮지 않게).
   const [undoLayout, setUndoLayout] = useState<{ before: string; after: string } | null>(null)
   const placed = useMemo(() => placeNodes(graph, { showAsk }), [graph, showAsk])
@@ -107,6 +124,7 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
   const derivedNodes: Node<FlowNodeData>[] = useMemo(() => view.nodes.map((n) => {
     const size = nodeSize(n)
     const roleName = n.role ? roleNames.get(n.role) ?? n.role : undefined
+    const problem = problemLevels.get(n.key)
     return {
       id: n.key,
       type: 'workflow',
@@ -119,20 +137,40 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
         roleName,
         askHost: !showAsk && view.askHosts.has(n.key),
         commonRecovery: n.key === view.commonErrorTo,
+        problem,
       },
-      // 스크린리더용 한국어 이름(표시 이름, 담당) — React Flow 기본은 영어 안내라 직접 준다(WP-2052)
-      ariaLabel: nodeAriaLabel(n, roleName),
+      // 스크린리더용 한국어 이름(표시 이름, 담당) — React Flow 기본은 영어 안내라 직접 준다(WP-2052). 검사 결과가 있으면 끝에 붙인다(WP-2091)
+      ariaLabel: nodeAriaLabel(n, roleName, problem),
       selected: n.key === selected,
       // 가상 노드만 막고, 나머지는 undefined 로 두어 ReactFlow 의 nodesDraggable·nodesConnectable(readOnly)을 따르게 한다
       // 질문 경로를 펼친 보기는 보기 전용 배치라 끌어 옮길 수 없다(끌면 접힘 배치 좌표를 덮어쓴다)
       draggable: n.virtual || showAsk ? false : undefined,
       connectable: n.virtual ? false : undefined,
     }
-  }), [view, positions, roleNames, selected, showAsk])
+  }), [view, positions, roleNames, selected, showAsk, problemLevels])
   // 드래그 중 노드가 커서를 따라오려면 ReactFlow 가 바뀐 좌표를 들고 있어야 한다(v12 의 제어 노드는 onNodesChange 가 적용해야 움직인다).
   // YAML 에서 만든 노드가 바뀌면 지역 상태를 다시 맞춘다 — 드래그가 끝나면 moveManyFromDrag 가 YAML 을 고쳐 같은 좌표로 수렴한다.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(derivedNodes)
   useEffect(() => { setNodes(derivedNodes) }, [derivedNodes, setNodes])
+  // 노드를 캔버스 안에 들이는 시야 이동 — 지금 캔버스 크기 기준으로 그 노드 상자를 재서 벗어난 만큼만 옮긴다(effect 와 크기 변화 뒤 재맞춤이 함께 쓴다)
+  const applyReveal = useCallback((key: string) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const canvasRect = canvas.getBoundingClientRect()
+    const bounds = flow.getNodesBounds([key])
+    // 화면 좌표는 두 점 다 flowToScreenPosition 으로 받아야 한다 — bounds 는 그래프 단위라 배율이 1 이 아니면
+    // 크기에 배율이 빠져 모자란 만큼만 옮기고 노드 오른쪽이 캔버스 밖에 남는다(WP-2039, 배율 2 에서 142px 부족).
+    const topLeft = flow.flowToScreenPosition({ x: bounds.x, y: bounds.y })
+    const bottomRight = flow.flowToScreenPosition({ x: bounds.x + bounds.width, y: bounds.y + bounds.height })
+    const nodeRect = { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y }
+    const { dx, dy } = revealOffset(canvasRect, nodeRect)
+    if (dx !== 0 || dy !== 0) {
+      const { x, y, zoom } = flow.getViewport()
+      void flow.setViewport({ x: x + dx, y: y + dy, zoom }, { duration: 250 })
+    }
+  }, [flow])
+  // 서랍을 연 직후 크기 변화에서 다시 맞출 노드와 그 마감 시각
+  const lateReveal = useRef<{ key: string } | null>(null)
   // 「+ 노드」로 더한 노드가 보이지 않으면 최소한만큼 시야를 옮긴다 — ReactFlow 의 fitView 는 처음 그릴 때 한 번뿐이라 그 뒤로는 화면을 따라가지 않는다.
   // 노드 크기는 nodeSize 로 미리 주므로(측정을 기다리지 않는다) useNodesInitialized 게이트를 쓰지 않는다 — 크기를 준 노드는
   // ReactFlow 가 「측정 완료」로 치지 않아 그 값이 끝내 false 에 머물러 시야가 영영 옮겨지지 않았다(WP-2089).
@@ -148,22 +186,25 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
     if (!stored) return // 스토어에 들어올 때까지 — 소진하지 말고 기다린다
     // 크기가 없으면 원점 기준으로 헛이동하므로 기다린다(크기는 노드에 미리 준 width·height 또는 측정값).
     if (!(stored.measured?.width || stored.width) || !(stored.measured?.height || stored.height)) return
-    const canvasRect = canvas.getBoundingClientRect()
-    const bounds = flow.getNodesBounds([pendingReveal])
-    // 화면 좌표는 두 점 다 flowToScreenPosition 으로 받아야 한다 — bounds 는 그래프 단위라 배율이 1 이 아니면
-    // 크기에 배율이 빠져 모자란 만큼만 옮기고 노드 오른쪽이 캔버스 밖에 남는다(WP-2039, 배율 2 에서 142px 부족).
-    const topLeft = flow.flowToScreenPosition({ x: bounds.x, y: bounds.y })
-    const bottomRight = flow.flowToScreenPosition({ x: bounds.x + bounds.width, y: bounds.y + bounds.height })
-    const nodeRect = { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y }
-    const { dx, dy } = revealOffset(canvasRect, nodeRect)
-    if (dx !== 0 || dy !== 0) {
-      const { x, y, zoom } = flow.getViewport()
-      void flow.setViewport({ x: x + dx, y: y + dy, zoom }, { duration: 250 })
-    }
+    applyReveal(pendingReveal)
     // 스토어·측정 상태를 확인한 뒤에야 소진할 수 있어 렌더·핸들러로 옮길 수 없다 — 계산이 끝난 이 시점에서만 비운다.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 영구 대기를 막는 소진(pendingReveal 비움)은 effect 안에서만 가능하다.
     setPendingReveal(null)
-  }, [pendingReveal, derivedNodes, nodes, flow])
+  }, [pendingReveal, derivedNodes, nodes, flow, applyReveal])
+  // 서랍이 열리며 캔버스 크기가 한 번 더 바뀌는 때(좁은 폭에서 서랍이 아래로 쌓이며 캔버스가 줄거나, 서랍 본문이 늦게 차 높이가 자라는 때, AI 옆 패널 폭 반영)를 따라간다.
+  // 위 effect 는 서랍을 그린 커밋 직후 한 번만 도는데 ResizeObserver·flex 재배치는 그 뒤에 와서, 그때 맞춘 시야가 줄어든 캔버스 밖(아래쪽에 반쯤 걸림)이 된다.
+  // 그래서 서랍을 연 직후 짧은 동안 캔버스 크기가 바뀔 때마다 그 노드를 다시 최소한만큼 맞춘다(openNode 가 건 마감 타이머가 지나면 멈춘다 — 사용자가 일부러 화면을 옮긴 것을 되돌리지 않게).
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      const late = lateReveal.current
+      if (!late) return
+      if (flow.getInternalNode(late.key)) applyReveal(late.key)
+    })
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [flow, applyReveal])
   // 간선은 배치 결과(평행 간선을 합치고 숨길 선을 뺀 것)를 그대로 쓴다. 배치 때 양 끝 자리를 실어 옮겼는지 판정하게 한다.
   // 선 이름용 「노드 키 → 표시 이름」 맵(WP-2052)
   const nodeNames = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n.name ?? n.key])), [graph.nodes])
@@ -201,22 +242,100 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
   const canUndoLayout = undoLayout !== null && undoLayout.before !== undoLayout.after && yaml === undoLayout.after
   // YAML 에 실제로 있는 노드의 키(가상 노드 제외)
   const realKeys = useMemo(() => new Set(graph.nodes.filter((n) => !n.virtual).map((n) => n.key)), [graph])
+  // 서랍을 바꾼 뒤 포커스를 둘 곳 — 서랍이 바뀌면(effect 로 옮긴다) 옛 서랍 안에 있던 포커스가 body 로 떨어지기 때문이다.
+  // 'drawer' = 새 서랍 영역(개요↔노드로 바뀔 때), { node } = 서랍을 닫은 뒤 그 노드(없거나 지워졌으면 캔버스).
+  const pendingFocus = useRef<'drawer' | { node: string | null } | null>(null)
+  // 서랍은 캔버스의 flex 형제라 부모(캔버스 둘레)에서 찾는다.
+  function drawerAside(): HTMLElement | null {
+    return canvasRef.current?.parentElement?.querySelector<HTMLElement>(':scope > aside') ?? null
+  }
+  /**
+   * 서랍을 바꾸는 단 하나의 길(WP-2091) — 포커스 되돌릴 곳을 정해 두고 부모에 알린다. 노드 클릭·「+ 노드」·검사 결과 행·빈 곳 클릭·닫기가 모두 거친다.
+   * 닫을 때: 열린 서랍이 없으면 할 일이 없다 — 복귀 자리를 남기면 다시 그려지지 않아 소모되지 않고,
+   *   다음 편집(끌기·자동 정렬)으로 다시 그려질 때 포커스를 캔버스로 빼앗는다.
+   * 개요↔노드로 바꿀 때: 포커스가 옛 서랍 안에 있었을 때만 새 서랍으로 옮긴다.
+   */
+  function changeDrawer(next: DrawerState) {
+    if (next === null) {
+      if (drawer === null) return
+      pendingFocus.current = { node: nodeDrawer?.key ?? null }
+    } else if (drawer !== null && drawer.kind !== next.kind && drawerAside()?.contains(document.activeElement)) {
+      pendingFocus.current = 'drawer'
+    }
+    onDrawerChange(next)
+  }
+  function closeDrawer() { changeDrawer(null) }
+  // 서랍이 열리거나 종류가 바뀔 때(빈 캔버스 클릭·헤더 검사 배지) 포커스가 서랍·캔버스 밖(body·배지)에 있으면 서랍으로 옮긴다.
+  // 안 옮기면 Esc 가 캔버스 onKeyDown·서랍 onKeyDown 어디에도 닿지 않아 열자마자는 Esc 로 닫히지 않는다(WP-2091 라이브 검증).
+  // 포커스가 이미 캔버스·서랍 안(노드 클릭 등)이면 건드리지 않는다. 마운트 때 이미 열려 있던 서랍(보기 전환 복귀)은 포커스를 뺏지 않는다.
+  const prevDrawerKind = useRef(drawer?.kind ?? null)
+  useEffect(() => {
+    const kind = drawer?.kind ?? null
+    const was = prevDrawerKind.current
+    prevDrawerKind.current = kind
+    // 닫힘·같은 종류 유지(탭 바꿈·노드 바꿈)면 건드리지 않는다. 노드 서랍 → 개요(빈 캔버스 클릭)는 포커스가 body 로 빠지므로 여기서 잡는다
+    if (kind === null || kind === was) return
+    const aside = drawerAside()
+    const active = document.activeElement
+    if (!aside || (active && (aside.contains(active) || canvasRef.current?.contains(active)))) return
+    aside.focus()
+  }, [drawer])
+  useEffect(() => {
+    const target = pendingFocus.current
+    if (!target) return
+    if (target === 'drawer') {
+      if (drawer === null) return
+      pendingFocus.current = null
+      drawerAside()?.focus()
+      return
+    }
+    if (drawer !== null) return
+    pendingFocus.current = null
+    const canvas = canvasRef.current
+    if (!canvas) return
+    // 서랍에서 노드를 지웠으면 그 요소는 곧 사라지므로(스토어 동기는 뒤에 온다) 문서에 남은 노드일 때만 그 노드로 돌아간다
+    const nodeEl = target.node === null || !realKeys.has(target.node) ? undefined
+      : Array.from(canvas.querySelectorAll<HTMLElement>('.react-flow__node')).find((el) => el.getAttribute('data-id') === target.node)
+    ;(nodeEl ?? canvas.querySelector<HTMLElement>('.react-flow'))?.focus()
+  }, [drawer, realKeys])
+  /**
+   * 노드 서랍을 연다(WP-2091) — 노드 클릭·Enter/Space·「+ 노드」·검사 결과 행이 함께 쓴다. 서랍이 같은 커밋에 그려져 캔버스가 줄어드므로
+   * 줄어든 캔버스 기준으로 그 노드가 보이게 시야를 옮긴다(「+ 노드」의 pendingReveal effect 를 그대로 쓴다).
+   */
+  function openNode(key: string, tab: NodeDrawerTab = 'settings') {
+    changeDrawer({ kind: 'node', key, tab })
+    setPendingReveal(key)
+    lateReveal.current = { key }
+    // 마감 — 지나면 사용자가 일부러 옮긴 화면을 되돌리지 않도록 멈춘다
+    window.setTimeout(() => { if (lateReveal.current?.key === key) lateReveal.current = null }, 800)
+  }
+  // 검사 결과 행 — 가리키는 노드(숨어 있는 질문 노드면 질문을 낸 노드)를 문제에 맞는 탭으로 연다. 질문 경로는 펼치지 않는다(호스트를 고른다).
+  // 노드를 못 찾으면(문서 수준 문제·지워진 키) YAML 보기에서 고치게 넘긴다.
+  function selectProblem(problem: WorkflowProblem) {
+    const key = problemTargetNode(graph, problem.nodeKey, showAsk)
+    if (key !== null && realKeys.has(key) && positions.has(key)) openNode(key, problemTab(problem, yaml))
+    else onOpenYaml()
+  }
   // 편집 패널은 마우스 클릭(onNodeClick)과 키보드 Enter·Space 로만 연다. onSelectionChange 로 열지 않는 까닭: React Flow 는
   // 드래그를 시작할 때도 노드를 선택하므로, 선택 변경을 패널 열기로 받으면 노드를 끌기만 해도 패널이 열린다(마우스 동작을 바꾸면 안 된다).
   // 노드 wrapper 의 keydown 은 ReactFlow 루트로 버블링되므로 여기서 받아 눌린 곳의 노드(data-id)를 찾는다.
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement
     const nodeId = target.closest('.react-flow__node')?.getAttribute('data-id') ?? null
-    const action = panelActionFromKeyDown(e.key, nodeId, realKeys)
-    if (!action) return
-    if ('open' in action || 'swallow' in action) {
-      // Space 의 기본 동작(페이지 스크롤)을 막는다 — 노드를 고르는 키로 쓰기 때문이다
+    // Esc 는 캔버스 어디에서 눌렀든(노드 위·빈 곳) 열린 서랍을 닫는다(WP-2091) — React Flow 가 노드 위 Esc 로 선택을 풀므로 서랍도 닫아 둘이 어긋나지 않게 한다.
+    // 포털로 뜬 메뉴(+ 노드)의 Esc 는 React 트리로는 여기까지 올라오지만 DOM 으로는 캔버스 밖이라 거른다 — 메뉴만 닫히고 서랍은 남게.
+    // 서랍을 실제로 닫을 때만 막는다 — 안 막으면 앱 전역 Esc 가 AI 패널까지 함께 닫는다(서랍이 없으면 그대로 두어 AI 패널이 닫히게)
+    if (e.key === 'Escape' && drawer !== null && !e.defaultPrevented && canvasRef.current?.contains(target)) {
       e.preventDefault()
-      if ('open' in action) setSelected(action.open)
-    } else {
-      // React Flow 가 Esc 로 선택을 풀므로 패널도 닫아 둘이 어긋나지 않게 한다
-      setSelected(null)
+      closeDrawer()
+      return
     }
+    const action = panelActionFromKeyDown(e.key, nodeId, realKeys)
+    // 닫는 키(close)는 위에서 처리했다 — 여기는 열기·기본 동작 막기만
+    if (!action || 'close' in action) return
+    // Space 의 기본 동작(페이지 스크롤)을 막는다 — 노드를 고르는 키로 쓰기 때문이다
+    e.preventDefault()
+    if ('open' in action) openNode(action.open)
   }
   // 노드 자리를 YAML 에 쓰는 곳은 여기 한 곳이다. React Flow 는 마우스 드래그가 끝날 때와 키보드(화살표)로 옮길 때 모두
   // onNodesChange 로 position 변경(dragging:false)을 보낸다 — 키보드 이동은 onNodeDragStop 을 부르지 않으므로 거기서 쓰면
@@ -233,9 +352,15 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
     const next = moveManyFromDrag(yaml, moved)
     if (next !== yaml) onChange(next)
   }
-  // 지워진 노드를 가리키는 선택은 패널이 스스로 비어 있으므로 여기서 걸러 둔다.
-  // 질문 경로를 접어 화면에서 사라진 노드도 패널을 닫는다 — 보이지 않는 노드를 고치는 패널이 남지 않게.
+  // 지워진 노드(YAML 쪽 편집·삭제)를 가리키는 서랍은 그리지 않는다.
+  // 질문 경로를 접어 화면에서 사라진 노드도 서랍을 닫는다 — 보이지 않는 노드를 고치는 서랍이 남지 않게.
   const panelKey = selected && realKeys.has(selected) && positions.has(selected) ? selected : null
+  // 그런 서랍 상태는 부모에게서도 비운다(WP-2091) — 남겨 두면 같은 키의 노드가 다시 생길 때 저절로 열린다.
+  // 부모 상태라 렌더 중에 바꿀 수 없어 effect 에서 비운다(그 사이 한 번은 위 panelKey 가 서랍을 숨긴다).
+  const staleNodeDrawer = nodeDrawer !== null && panelKey === null
+  useEffect(() => {
+    if (staleNodeDrawer) onDrawerChange(null)
+  }, [staleNodeDrawer, onDrawerChange])
   // 시작 노드가 없는 초안(만들기 템플릿 등)은 시작 노드를 그래프에서 더할 수 있어야 한다
   const menu = graph.nodes.some((n) => n.type === 'start') ? NEW_NODE_MENU : [START_MENU_ITEM, ...NEW_NODE_MENU]
 
@@ -269,8 +394,9 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
             connectionMode={ConnectionMode.Loose}
             deleteKeyCode={null}
             proOptions={{ hideAttribution: true }}
-            onNodeClick={(_, node) => { if (realKeys.has(node.id)) setSelected(node.id) }}
-            onPaneClick={() => setSelected(null)}
+            onNodeClick={(_, node) => { if (realKeys.has(node.id)) openNode(node.id) }}
+            // 빈 곳을 누르면 워크플로우 개요 서랍(검사 결과 탭)으로 바뀐다(WP-2091) — 노드 밖의 정보(검사·역할·시작 조건)를 보는 자리
+            onPaneClick={() => changeDrawer({ kind: 'overview', tab: 'problems' })}
             onConnect={onConnect}
           >
             <Background />
@@ -286,10 +412,10 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
                         // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 저장·자동 배치 자리를 모두 피한 빈 자리(가장 아래 노드 밑, 가장 왼쪽 x)에 놓는다.
                         const added = addNodeAtFreeSpot(yaml, item.type)
                         onChange(added.yaml)
-                        setSelected(added.key)
                         // addNode 가 실패하면(yaml·layout 없음 등) 새 키가 없다 — 앞서 기다리던 노드도 그 시점에 대체된 것이므로
                         // 측정되지 못한 채 계속 기다리는 pendingReveal 을 남기지 않기 위해 통째로 비운다.
-                        setPendingReveal(added.key || null)
+                        if (added.key) openNode(added.key)
+                        else setPendingReveal(null)
                       }}
                     >{item.label}</DropdownMenuItem>
                   ))}
@@ -336,8 +462,34 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
           </ReactFlow>
           <GraphLegend commonRecoveryName={commonRecoveryName} />
         </div>
-        {panelKey && (
-          <NodePanel key={panelKey} yaml={yaml} graph={graph} nodeKey={panelKey} readOnly={readOnly} onChange={onChange} onClose={() => setSelected(null)} />
+        {/* 서랍은 화면 고정이 아니라 캔버스의 flex 형제 — 캔버스를 밀어 줄이고, 좁으면 아래로 쌓인다(WP-2091) */}
+        {panelKey && nodeDrawer && (
+          <NodeDrawer
+            key={panelKey}
+            yaml={yaml}
+            graph={graph}
+            nodeKey={panelKey}
+            tab={nodeDrawer.tab}
+            onTabChange={(tab) => onDrawerChange({ kind: 'node', key: panelKey, tab })}
+            readOnly={readOnly}
+            onChange={onChange}
+            onClose={closeDrawer}
+            workflowId={workflowId}
+          />
+        )}
+        {drawer?.kind === 'overview' && (
+          <OverviewDrawer
+            yaml={yaml}
+            graph={graph}
+            tab={drawer.tab}
+            onTabChange={(tab) => onDrawerChange({ kind: 'overview', tab })}
+            problems={problems}
+            readOnly={readOnly}
+            onSelectProblem={selectProblem}
+            onAddAskPath={(nodeKey) => onChange(addAskPath(yaml, nodeKey))}
+            onOpenYaml={onOpenYaml}
+            onClose={closeDrawer}
+          />
         )}
       </div>
     </div>
@@ -348,14 +500,22 @@ function Canvas({ yaml, readOnly, onChange, graph }: {
  * 워크플로우 초안을 그래프로 보고 고치는 편집기. 그래프의 모든 편집은 graphYaml 함수로 YAML 문자열을 고쳐
  * onChange 로 올릴 뿐이다 — 원본은 언제나 YAML 이다.
  */
-export function WorkflowGraphEditor({ yaml, readOnly, onChange, onOpenYaml }: {
+export function WorkflowGraphEditor({ yaml, parsed, readOnly, onChange, onOpenYaml, drawer, onDrawerChange, problems, workflowId }: {
   yaml: string
+  /** yaml 을 부모가 이미 읽은 결과 — 부모(탭 머리 배지 판정)와 같은 파싱을 한 번만 하려고 받는다 */
+  parsed: ReturnType<typeof parseWorkflowGraph>
   readOnly: boolean
   onChange: (yaml: string) => void
-  /** YAML 문법 오류로 그래프를 못 그릴 때 「YAML 에서 고치기」가 YAML 보기로 넘어가는 데만 쓴다(검사 결과·빠른 조치는 탭 머리 배지가 맡는다) */
+  /** YAML 보기로 넘어간다 — 문법 오류 안내·개요 서랍의 「YAML 에서 고치기」·노드 없는 검사 결과 행이 쓴다 */
   onOpenYaml: () => void
+  /** 열린 서랍(노드 설정·워크플로우 개요, WP-2091) — 탭 머리 검사 배지도 열 수 있게 부모가 든다 */
+  drawer: DrawerState
+  onDrawerChange: (drawer: DrawerState) => void
+  /** 탭 머리 배지와 같은 검사 결과 — 개요 서랍 「검사 결과」 탭과 노드 「!」 배지 */
+  problems: GraphProblems
+  /** 이 워크플로우 정의 id — 노드 서랍 「최근 실행」이 실행을 조회하는 데 쓴다 */
+  workflowId: number
 }) {
-  const parsed = useMemo(() => parseWorkflowGraph(yaml), [yaml])
   if (!('graph' in parsed)) {
     return (
       <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
@@ -366,7 +526,17 @@ export function WorkflowGraphEditor({ yaml, readOnly, onChange, onOpenYaml }: {
   }
   return (
     <ReactFlowProvider>
-      <Canvas yaml={yaml} readOnly={readOnly} onChange={onChange} graph={parsed.graph} />
+      <Canvas
+        yaml={yaml}
+        readOnly={readOnly}
+        onChange={onChange}
+        graph={parsed.graph}
+        drawer={drawer}
+        onDrawerChange={onDrawerChange}
+        problems={problems}
+        onOpenYaml={onOpenYaml}
+        workflowId={workflowId}
+      />
     </ReactFlowProvider>
   )
 }
