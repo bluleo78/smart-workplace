@@ -1,6 +1,13 @@
 import { type ComponentType, lazy, useState } from 'react'
 
 /**
+ * preloadableLazy 가 돌려준 미리 받기 로더 (WP-2104).
+ * 표식(__preloadable)이 붙어, 첫 주소 미리 받기 표가 일반 import 함수(React.lazy 화면 — 받아 둬도 Suspense 로 멈춤)를
+ * 받으면 타입 검사에서 막힌다. 표식은 타입에만 있고 실제 값에는 없다.
+ */
+export type PreloadableLoader<M> = (() => Promise<M>) & { readonly __preloadable: true }
+
+/**
  * 미리 받아 둘 수 있는 lazy 컴포넌트를 만든다 (WP-2080).
  *
  * 왜: React.lazy 는 모듈이 이미 받아져 있어도 첫 렌더에 한 번 중단(suspend)하고,
@@ -19,7 +26,7 @@ import { type ComponentType, lazy, useState } from 'react'
 export function preloadableLazy<M, K extends keyof M & string = 'default' & keyof M & string>(
   load: () => Promise<M>,
   exportName: K = 'default' as K,
-): readonly [M[K], () => Promise<M>] {
+): readonly [M[K], PreloadableLoader<M>] {
   // 받은 모듈의 컴포넌트. 첫 렌더 시점에 읽어 상태로 고정한다.
   let loaded: ComponentType<object> | undefined
 
@@ -47,5 +54,5 @@ export function preloadableLazy<M, K extends keyof M & string = 'default' & keyo
   // DevTools·오류 스택에서 어느 화면인지 보이게 한다.
   Preloadable.displayName = `Preloadable(${exportName})`
 
-  return [Preloadable as M[K], loadAndKeep] as const
+  return [Preloadable as M[K], loadAndKeep as PreloadableLoader<M>] as const
 }
