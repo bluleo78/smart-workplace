@@ -77,15 +77,16 @@ interface IssueWorkflowCardProps {
 function StartConditionNote({
   projectKey, issueId, assigneeIds, isManager, show,
 }: { projectKey: string; issueId: number; assigneeIds: number[]; isManager: boolean; show: boolean }) {
-  // 담당이 없으면 미리보기를 묻지 않고 「담당을 지정하면 시작돼요」만 알린다.
+  // 담당이 없으면 「담당을 지정하면 시작돼요」에 시작 조건 역할을 붙인다 — 누구를 넣어야 시작되는지 알게(리뷰 후속). 역할은 미리보기 응답에서
+  // 받으므로 빈 담당으로도 묻는다(서버는 빈 담당이면 시작 없음과 역할만 준다). 응답 전·실패면 역할 없이 기본 문구만 보인다.
   const noAssignee = assigneeIds.length === 0
   // 지금 담당 기준(current)으로 묻는다 — 새로 더한 사람 기준이면 늘 「시작 안 함」이 나와 맞는 담당이 있어도 조건 문구를 냈다(코드 리뷰).
-  const preview = useAssignPreview(issueId, assigneeIds, show && !noAssignee, true)
+  const preview = useAssignPreview(issueId, assigneeIds, show, true)
   // 지금 담당으로 시작될 수 있는데 아직 안 시작된 경우(담당 지정 전 켠 워크플로우 등)에는 조건 문구를 내지 않는다.
   const note = !show
     ? null
     : noAssignee
-      ? '담당을 지정하면 워크플로우가 시작돼요'
+      ? `담당을 지정하면 워크플로우가 시작돼요${startConditionSuffix(preview.data?.startRoles ?? [])}`
       : preview.data && !preview.data.start
         ? `이 담당으로는 시작하지 않아요${startConditionSuffix(preview.data.startRoles)}`
         : null

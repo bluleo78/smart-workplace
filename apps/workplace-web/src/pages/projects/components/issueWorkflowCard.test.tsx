@@ -126,20 +126,31 @@ describe('AI 작업 단계 카드', () => {
     expect(screen.queryByRole('link', { name: '워크플로우 열기' })).not.toBeInTheDocument()
   })
 
-  test('workflowCard_noAssignees_showsAssignHintWithoutPreview', async () => {
-    let asked = 0
+  test('workflowCard_noAssignees_showsAssignHintWithStartRoles', async () => {
+    // 리뷰 후속(PR #1861) — 담당이 없어도 시작 조건 역할을 붙여 누구를 넣어야 시작되는지 알린다. 역할은 빈 담당 미리보기로 받는다.
+    const bodies: unknown[] = []
     renderScreen(card({ assigneeIds: [] }), {
       handlers: [
         ...handlers(noRun).slice(0, 3),
-        http.post(`${API}/issues/7/workflow/assign-preview`, () => {
-          asked += 1
-          return HttpResponse.json({ start: null, blocked: null, active: false, startRoles: ['developer'] })
+        http.post(`${API}/issues/7/workflow/assign-preview`, async ({ request }) => {
+          bodies.push(await request.json())
+          return HttpResponse.json({ start: null, blocked: null, active: false, startRoles: ['developer', 'reviewer'] })
         }),
       ],
     })
+    expect(await screen.findByText('담당을 지정하면 워크플로우가 시작돼요 · 시작 조건: developer, reviewer 역할')).toBeInTheDocument()
+    expect(bodies).toEqual([{ userIds: [], current: true }])
+  })
+
+  test('workflowCard_noAssignees_previewFails_showsBaseHint', async () => {
+    // 미리보기가 실패해도(5xx) 역할 없이 기본 안내는 보인다.
+    renderScreen(card({ assigneeIds: [] }), {
+      handlers: [
+        ...handlers(noRun).slice(0, 3),
+        http.post(`${API}/issues/7/workflow/assign-preview`, () => HttpResponse.json({ message: 'x' }, { status: 500 })),
+      ],
+    })
     expect(await screen.findByText('담당을 지정하면 워크플로우가 시작돼요')).toBeInTheDocument()
-    await new Promise((r) => setTimeout(r, 100))
-    expect(asked).toBe(0)
   })
 
   test('workflowCard_wouldStartNow_noConditionLine', async () => {

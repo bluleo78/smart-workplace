@@ -798,6 +798,19 @@ public class IssueService {
       publisher.publishEvent(
           new IssueAssigneesReplacedEvent(
               row.id(), project.id(), callerId, new HashSet<>(assigneeIds)));
+    }
+    // WP-2120 리뷰 후속 — 위 동기 시작은 같은 트랜잭션에서 담당을 더할 수 있다(decision 을 지나 다른 역할 노드에 머무는 등). 응답과 배정 이벤트의
+    // 지금 담당은 시작 뒤 값으로 다시 읽는다(시작한 경우만). 배정 이벤트의 added 는 요청 담당 그대로 둔다 — 시작이 더한 사람은 시작이 낸
+    // IssueAssignedEvent 가 이미 알려, 여기 또 넣으면 배정 알림이 두 번 간다. IssueCreatedEvent 는 시작 전에 내므로 요청 담당을 싣는다.
+    List<UserSummary> currentAssignees =
+        autoStarts ? assigneeRepository.findByIssue(row.id()) : assigneeSummaries;
+    IssueRow current =
+        autoStarts
+            ? issueRepository
+                .findById(row.id())
+                .orElseThrow(() -> new IssueNotFoundException(project.key(), number))
+            : row;
+    if (!assigneeSummaries.isEmpty()) {
       publisher.publishEvent(
           new IssueAssignedEvent(
               row.id(),
@@ -805,7 +818,7 @@ public class IssueService {
               issueKey,
               row.title(),
               actor,
-              assigneeSummaries,
+              currentAssignees,
               assigneeSummaries,
               List.of(),
               occurredAt,
@@ -814,12 +827,12 @@ public class IssueService {
 
     // 6) 응답에 유형·담당자·부모·라벨을 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
     //    새 이슈라 첨부·커스텀 필드는 없다.
-    // MCP 쓰기는 AI 작업을 시작하지 않아(WP-1365) 생성 뒤 상태가 바뀌지 않으므로 INSERT 결과 행을 그대로 쓴다.
+    // 워크플로우를 시작하지 않았으면 생성 뒤 행이 바뀌지 않아(MCP 쓰기는 AI 작업을 시작하지 않는다, WP-1365) INSERT 결과 행 그대로다.
     return newIssueSummary(
         callerId,
         project,
-        row,
-        assigneeSummaries,
+        current,
+        currentAssignees,
         0,
         List.of(),
         components.stream().map(ComponentRow::toSummary).toList());
