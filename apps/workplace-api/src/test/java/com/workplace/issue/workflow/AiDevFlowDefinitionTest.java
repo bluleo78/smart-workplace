@@ -47,25 +47,53 @@ class AiDevFlowDefinitionTest {
   private static final Map<String, List<String>> NODE_MARKERS =
       Map.ofEntries(
           Map.entry(
-              "understand",
+              "develop",
               List.of(
+                  // 공통 규칙(셸·시작점)
                   "Dangerous rm",
                   "origin/green",
+                  // 1단계 이해·설계: 질문 판단, 세 스킬, 계획 파일
                   "brainstorming",
                   "writing-plans",
                   "질문 판단",
-                  "[풀테스트 실패]")),
-          Map.entry(
-              "implement",
-              List.of("subagent-driven-development", "원장:", "run_in_background", "-before")),
-          Map.entry("self_review", List.of("/code-review medium", "/simplify")),
-          Map.entry("squash", List.of("git reset --soft", "뜻 충돌")),
-          Map.entry("live_verify", List.of("LIVE_STACK_NAME=work-loop", "반영 근거", "검증한 HEAD SHA")),
-          Map.entry("open_pr", List.of("procedure-check", "--no-verify", "개발: ", "절차:")),
-          Map.entry("followup_fix", List.of("[리뷰 후속]", "[풀테스트 실패]", "cherry-pick -m 1")),
+                  // 2단계 구현: SDD 와 하위 에이전트, 원장을 notes 로, 「전」 캡처
+                  "subagent-driven-development",
+                  "원장:",
+                  "run_in_background",
+                  "-before",
+                  // 3단계 자체 리뷰: 리뷰·정리 스킬
+                  "/code-review medium",
+                  "/simplify",
+                  // 4단계 커밋 합치기: 합치기 방법과 뜻 충돌 반려 때의 rebase
+                  "git reset --soft",
+                  "뜻 충돌",
+                  // 5단계 라이브 검증: 격리 스택과 반영 근거
+                  "LIVE_STACK_NAME=work-loop",
+                  "반영 근거",
+                  "검증한 HEAD SHA",
+                  // 6단계 PR 올리기: 절차 검사·push·PR 본문 첫 줄
+                  "procedure-check",
+                  "--no-verify",
+                  "개발: ",
+                  "절차:",
+                  // 리뷰 후속·풀테스트 실패 수정 절
+                  "[리뷰 후속]",
+                  "[풀테스트 실패] 받기",
+                  "cherry-pick -m 1",
+                  // 단계 진행 보고와 다시 들어옴 갈래
+                  "stepsDone",
+                  "결과 `changes`",
+                  "결과 `redo_procedure`",
+                  "결과 `rebase`",
+                  "결과 `followup`",
+                  "rework",
+                  // 답을 받아 돌아올 때 이어 할 단계를 정하는 notes 칸
+                  "현재 단계",
+                  // 되돌림을 이슈에 남기고 같은 종류 3번째면 BLOCKED 로 막는다
+                  "단계 되돌리기")),
           Map.entry(
               "report",
-              // 되돌린 글은 이 PR 의 mergeCommit 으로만 센다(PR #1742 반려 2)
+              // 되돌린 글은 이 PR 의 mergeCommit 으로만 센다(다른 PR 의 되돌림을 세지 않게)
               List.of("사용 가이드", "확인 위치", "`mergeCommit` 의 앞부분")),
           Map.entry(
               "review",
@@ -78,11 +106,11 @@ class AiDevFlowDefinitionTest {
                   "green",
                   "--admin",
                   "check-migration-versions",
-                  // 호스트에서 머지된 PR 이 review 에 남지 않게(리뷰 후속 #1740-2)
+                  // 호스트에서 머지된 PR 이 review 에 남지 않게
                   "결과 `merged` 로 이동",
-                  // 풀테스트 실패 되돌림이 followup_fix 로 들어가는 길(리뷰 후속 #1740-3)
+                  // 풀테스트 실패 되돌림이 develop 으로 들어가는 길(결과 followup)
                   "결과 `followup` 으로 이동",
-                  // 머지 멈춤 중 사람이 머지한 PR 의 판정·prUrl 출처(PR #1742 반려 3·5)
+                  // 머지 멈춤 중 사람이 머지한 PR 의 판정·prUrl 출처
                   "`머지 대기:` 줄이 있으면",
                   "앞 이동들이 낸 `prUrl`")),
           Map.entry("triage", List.of("[분류]", "사람에게 질문", "바로 개발")),
@@ -98,28 +126,19 @@ class AiDevFlowDefinitionTest {
   private static final Map<String, List<String>> COMMON_MARKERS =
       Map.of(
           "priorities", List.of("gw-repo", "실행에 조치해야 이 노드가 다시 열린다"),
-          // 차단·인증 필요는 WORKING 보고로 풀리지 않는다 — 리뷰 후속 #1740-1
+          // 차단·인증 필요는 WORKING 보고로 풀리지 않는다
           "report_style", List.of("note 쓰는 법", "사람이 실행에 조치해야만 풀린다", "'SCHEDULED'"),
           "shell_rules", List.of("Dangerous rm"),
-          "repo_facts", List.of(".work-loop/project.md"),
+          "repo_facts", List.of(".work-loop/project.md", "현재 단계"),
           "blocked", List.of("같은 단계가 3번 되풀이돼도", "실행에 조치해야 이 노드가 다시 열린다"),
-          // report_style 이 시키는 SCHEDULED 를 허용 목록에도 둔다 — 리뷰 후속 #1740-4
+          // report_style 이 시키는 SCHEDULED 를 허용 목록에도 둔다
           "workflow_rules", List.of("WORKFLOW_USE_MOVE", "다음 회차 대기(SCHEDULED"));
 
   /** 모든 agent_task 가 use 해야 하는 공통 shared 이름 — 위 문구 표의 이름이 곧 그 목록이다(두 곳에 적지 않게). */
   private static final List<String> COMMON_SHARED = List.copyOf(COMMON_MARKERS.keySet());
 
   /** 개발·리뷰 노드(long_jobs·subagent_wait 를 쓰는 노드). */
-  private static final List<String> DEV_NODES =
-      List.of(
-          "understand",
-          "implement",
-          "self_review",
-          "squash",
-          "live_verify",
-          "open_pr",
-          "review",
-          "followup_fix");
+  private static final List<String> DEV_NODES = List.of("develop", "review");
 
   /** 개발·리뷰 노드의 펼친 지시에 있어야 하는 문구. */
   private static final List<String> DEV_MARKERS =
@@ -216,9 +235,8 @@ class AiDevFlowDefinitionTest {
   @Test
   @DisplayName("관문 노드는 산출물(검증한 HEAD·PR 주소·기획 문서)을 꼭 내놓아야 한다")
   void gateOutputsRequired() {
-    assertOutput("live_verify", "verifiedHead", "string");
-    assertOutput("open_pr", "prUrl", "url");
-    assertOutput("followup_fix", "prUrl", "url");
+    assertOutput("develop", "verifiedHead", "string");
+    assertOutput("develop", "prUrl", "url");
     assertOutput("plan", "planDoc", "url");
   }
 
@@ -230,30 +248,81 @@ class AiDevFlowDefinitionTest {
   }
 
   @Test
-  @DisplayName("open_pr 는 검증한 HEAD 불일치·절차 검사 실패 때 되돌아갈 결과를 가진다")
-  void openPrHasBackEdges() {
-    WorkflowModel.Node n = node("open_pr");
+  @DisplayName("개발 노드로 오는 길과 나가는 길")
+  void developRoutes() {
+    WorkflowModel.Node n = node("develop");
 
-    assertThat(n.outcomes().get("reverify").to()).isEqualTo("live_verify");
-    assertThat(n.outcomes().get("redo_procedure").to()).isEqualTo("understand");
+    assertThat(n.outcomes().keySet()).containsExactlyInAnyOrder("submitted", "ask");
+    assertThat(n.outcomes().get("submitted").to()).isEqualTo("review");
+    assertThat(n.outcomes().get("submitted").assignTo()).isEqualTo("lead");
+    assertThat(n.maxVisits()).isEqualTo(8);
+    for (String outcome : List.of("changes", "redo_procedure", "rebase", "followup")) {
+      assertThat(node("review").outcomes().get(outcome).to())
+          .as("review.%s", outcome)
+          .isEqualTo("develop");
+    }
+    assertThat(node("triage").outcomes().get("ready").to()).isEqualTo("develop");
+    assertThat(node("handoff").outcomes().get("done").to()).isEqualTo("develop");
+    assertThat(node("confirm").outcomes().get("rework").to()).isEqualTo("develop");
+  }
+
+  /** 합쳐서 없어진 개발자 노드 키. 지시·공통 글이 이 키를 가리키면 펼친 지시가 끊긴 참조가 된다. */
+  private static final List<String> REMOVED_NODES =
+      List.of(
+          "understand",
+          "implement",
+          "self_review",
+          "squash",
+          "live_verify",
+          "open_pr",
+          "followup_fix");
+
+  @Test
+  @DisplayName("지시·공통 글이 없어진 노드 이름을 가리키지 않는다")
+  void noRemovedNodeReferences() {
+    Stream.concat(
+            model.shared().entrySet().stream()
+                .map(e -> Map.entry("shared " + e.getKey(), e.getValue())),
+            model.nodes().values().stream()
+                .filter(n -> n.instructions() != null)
+                .map(n -> Map.entry("node " + n.key(), n.instructions())))
+        .forEach(
+            e -> {
+              for (String k : REMOVED_NODES) {
+                // 단어 경계로 키 전체만 잡는다(followup·review 같은 결과 이름은 걸리지 않는다)
+                assertThat(e.getValue())
+                    .as("%s 의 옛 노드 이름 %s", e.getKey(), k)
+                    .doesNotContainPattern("\\b" + k + "\\b");
+              }
+            });
+  }
+
+  @Test
+  @DisplayName("사용자 노드는 열두 개다(개발자 7노드를 개발 하나로 합쳤다)")
+  void nodeSetIsTwelve() {
+    Set<String> keys = new HashSet<>(model.nodes().keySet());
+    keys.removeIf(k -> k.endsWith("_ask"));
+
+    assertThat(keys)
+        .containsExactlyInAnyOrder(
+            "start",
+            "triage",
+            "plan",
+            "plan_review",
+            "plan_gate",
+            "plan_ok",
+            "handoff",
+            "develop",
+            "review",
+            "report",
+            "confirm",
+            "done");
   }
 
   @Test
   @DisplayName("로컬 저장소를 만지는 노드는 local-repo 능력을 요구한다")
   void localRepoNodes() {
-    for (String key :
-        List.of(
-            "understand",
-            "implement",
-            "self_review",
-            "squash",
-            "live_verify",
-            "open_pr",
-            "followup_fix",
-            "report",
-            "review",
-            "plan",
-            "handoff")) {
+    for (String key : List.of("develop", "report", "review", "plan", "handoff")) {
       assertThat(node(key).requires()).as("%s 의 requires", key).contains("local-repo");
     }
   }
@@ -279,12 +348,32 @@ class AiDevFlowDefinitionTest {
   }
 
   @Test
+  @DisplayName("develop 지시에 6단계와 리뷰 후속 절 제목이 이 순서로 있다")
+  void developStepsInOrder() {
+    String text = node("develop").instructions();
+    int last = -1;
+    for (String heading :
+        List.of(
+            "### 1단계",
+            "### 2단계",
+            "### 3단계",
+            "### 4단계",
+            "### 5단계",
+            "### 6단계",
+            "### 리뷰 후속·풀테스트 실패 수정")) {
+      int at = text.indexOf(heading);
+      assertThat(at).as("develop 지시의 '%s' 위치", heading).isGreaterThan(last);
+      last = at;
+    }
+  }
+
+  @Test
   @DisplayName("공통 문구는 shared 글에 있고, 모든 agent_task 는 그 shared 를 use 한다")
   void commonSharedUsedByEveryAgentTask() {
     // 펼친 지시에 shared 글이 들어가는 것은 파서가 보장하므로 글은 한 번, 노드는 use 만 본다
     COMMON_MARKERS.forEach(
         (name, markers) -> assertContainsAll("shared " + name, model.shared().get(name), markers));
-    // 목록 항목이 앞 문장에 붙지 않았다(줄바꿈이 빠진 편집을 잡는다 — PR #1742 반려 1). shared 와 노드 지시 모두 본다
+    // 목록 항목이 앞 문장에 붙지 않았다(줄바꿈이 빠진 편집을 잡는다). shared 와 노드 지시 모두 본다
     Stream.concat(
             model.shared().entrySet().stream()
                 .map(e -> Map.entry("shared " + e.getKey(), e.getValue())),
@@ -325,8 +414,8 @@ class AiDevFlowDefinitionTest {
   }
 
   /**
-   * review 에서 처음 들어가는 노드(report·followup_fix)로 가는 결과는 keep 이 아니다. 왜: keep 의 기준은 「멈추는 노드의 가장 최근
-   * 담당」이라 처음 방문이면 비어 ASSIGNEE_REQUIRED 로 거절된다(최종 리뷰 C2).
+   * review 에서 처음 들어가는 노드로 가는 결과는 keep 이 아니다 — merged 는 report, followup 은 develop 이지만 둘 다 developer
+   * 로 넘긴다. 왜: keep 의 기준은 「멈추는 노드의 가장 최근 담당」이라 처음 방문이면 비어 ASSIGNEE_REQUIRED 로 거절된다(최종 리뷰 C2).
    */
   @Test
   @DisplayName("review 의 merged·followup 결과는 keep 이 아니라 developer 로 넘긴다")
@@ -342,7 +431,7 @@ class AiDevFlowDefinitionTest {
 
   /**
    * 머지 없이 닫힌 PR 을 owner 가 「그만」으로 답하면 review 에서 끝낼 길이 있다. 왜: 없으면 ask → answered 로 review 에 돌아와 같은 닫힌
-   * PR 을 다시 묻는 고리가 된다(리뷰 후속 #1740 의 code-review). 지시 문구가 아니라 그래프의 결과로 단언한다.
+   * PR 을 다시 묻는 고리가 된다(code-review 가 잡은 빈틈). 지시 문구가 아니라 그래프의 결과로 단언한다.
    */
   @Test
   @DisplayName("review 는 닫힌 PR 을 끝낼 결과 drop(의견 필수)을 가진다")
