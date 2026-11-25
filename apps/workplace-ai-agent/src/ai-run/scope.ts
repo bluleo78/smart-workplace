@@ -183,17 +183,13 @@ export class AiRunScope {
 
   /**
    * 러너 실패를 용서한다 — effort 거부 뒤 effort 없이 재시도하는 경로가 호출한다(WP-1828).
-   * call 을 넘기면 그 호출(runnerStarted 에 넘긴 객체)이 낸 실패만 지운다(WP-2122) — 동시에 도는 다른 러너의 실패(예: 한도 초과)를
-   * 대신 지우지 않는다. call 을 넘겼는데 모르는 객체거나 그 호출에 실패가 없으면 아무것도 지우지 않는다.
-   * call 을 안 넘기면 종전대로 가장 최근 실패 하나를 지운다(WP-1828). 앞선 다른 실패는 남아 처리가 FAILED 로 끝난다.
+   * call(runnerStarted 에 넘긴 객체)이 낸 실패만 지운다(WP-2122) — 동시에 도는 다른 러너의 실패(예: 한도 초과)를
+   * 대신 지우지 않는다. 모르는 객체거나 그 호출에 실패가 없으면 아무것도 지우지 않는다.
+   * call 은 필수다(WP-2126 리뷰 후속): 인자 없는 「가장 최근 실패 지우기」가 겹친 다른 러너의 실패를 지우는 결함을 두 번 냈다.
    * 토큰 합은 그대로 둔다(첫 시도 소비도 실제 사용).
    */
-  forgiveRunnerFailure(call?: object): void {
+  forgiveRunnerFailure(call: object): void {
     if (this._closed) return;
-    if (!call) {
-      this.runnerFailures.pop();
-      return;
-    }
     const startSeq = this.callSeq.get(call);
     if (startSeq === undefined) return;
     for (let i = this.runnerFailures.length - 1; i >= 0; i--) {
