@@ -314,7 +314,7 @@ function EpicItemButton({
       >
         <span className="flex items-center gap-2">
           <span className={cn('h-2 w-2 shrink-0 rounded-full', dotClass, closed && CLOSED_EPIC_DIM)} data-testid={`epic-color-dot-${ep.number}`} aria-hidden="true" />
-          <span className={cn('min-w-0 flex-1 truncate', closed && closedEpicTitleClass(ep.status, selected))} title={ep.title}>
+          <span className={cn('min-w-0 flex-1 truncate', closed && closedEpicTitleClass(ep.status, selected, !activeIssue))} title={ep.title}>
             {ep.title}
           </span>
           {/* 드래그 중인 이슈가 이미 속한 에픽 — 놓아도 변화가 없음을 알린다. */}

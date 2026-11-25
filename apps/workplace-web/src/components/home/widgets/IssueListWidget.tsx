@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues } from '@/hooks/queries/useHomeQueries';
 import { extractApiError } from '@/lib/api-error';
+import { issueClosedTitleClass } from '@/lib/issueClosedTitle';
 import { countOverdue } from '@/lib/issueOverdue';
 import { showsLoadError } from '@/lib/queryFailure';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
@@ -65,13 +66,15 @@ export default function IssueListWidget({
               <li key={`${it.projectKey}-${it.number}`} className="py-2">
                 <Link
                   to={`/projects/${it.projectKey}/issues/${it.number}`}
-                  className="flex items-center justify-between gap-2 hover:text-ai-accent"
+                  // group — 끝난 이슈의 흐린 제목이 행에 올리면 또렷해지게 한다(WP-2101).
+                  className="group flex items-center justify-between gap-2 hover:text-ai-accent"
                 >
                   <span className="truncate text-sm">
                     <span className="text-muted-foreground">
                       {it.projectKey}-{it.number}
                     </span>{' '}
-                    {it.title}
+                    {/* 끝난 제목의 group-hover:text-foreground 가 Link 의 hover:text-ai-accent 를 덮지 않게, 호버 색을 열린 행과 맞춘다. */}
+                    <span className={issueClosedTitleClass(it.status, 'group-hover:text-ai-accent')} data-testid="issuelist-title">{it.title}</span>
                   </span>
                   <IssueStatusBadge status={it.status} name={it.statusName} />
                 </Link>

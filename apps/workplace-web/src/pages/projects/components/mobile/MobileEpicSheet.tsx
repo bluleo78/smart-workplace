@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { EpicColorDot } from '@/components/issues/EpicColorDot';
 import { MobilePickerSheet, type PickerOption } from '@/components/mobile/MobilePickerSheet';
+import { closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBadge';
@@ -54,6 +55,9 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
       return {
         value: `epic-${ep.number}`,
         label: ep.title,
+        // 끝난 에픽(진행 중 사이클 소속)은 제목을 흐림, 취소는 삭선으로 — 상세·목록과 같은 규칙(WP-2101).
+        // 선택된 종료 에픽은 흐림을 빼 전경색으로 둔다 — 데스크톱 EpicSidePanel·종료 에픽 footer 와 같은 선택 규칙.
+        labelClassName: isClosedStatus(ep.status) ? closedEpicTitleClass(ep.status, selectedNumber === ep.number, false) : undefined,
         icon: <EpicColorDot epic={ep} />,
         detail: { label: `${ep.title} 상세 열기`, onOpen: () => navigate(`/projects/${projectKey}/issues/${ep.number}`) },
         // 진행 중 사이클 소속 종료 에픽(WP-389)은 진행률 대신 종료 배지로 구분한다.

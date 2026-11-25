@@ -250,6 +250,32 @@ describe('IssueChildrenSection — 열린 하위만, 「완료 n건」 접기', 
   })
 })
 
+// WP-2101 — 끝난 하위의 제목은 목록·카드와 같은 규칙(WP-2099)으로 흐리게, 취소는 삭선까지. 열린 하위는 그대로.
+describe('IssueChildrenSection — 끝난 하위 제목 흐림·삭선', () => {
+  it('열린 하위는 상태 이름이 「완료」여도 제목이 흐리지도 삭선되지도 않고, 행은 group 이다', async () => {
+    renderSection(() => [{ ...child(1, 'IN_PROGRESS', '열린 하위'), statusName: '완료' }])
+    const row = await screen.findByTestId('child-row-1')
+    const link = within(row).getByRole('link', { name: '열린 하위' })
+    expect(link).not.toHaveClass('text-muted-foreground')
+    expect(link).not.toHaveClass('line-through')
+    expect(row).toHaveClass('group')
+  })
+
+  it('펼친 완료 하위는 흐리고 호버 때 원래 색이며 삭선은 없고, 취소 하위는 삭선도 있다', async () => {
+    const { user } = renderSection(() => [child(1, 'DONE', '완료 하위'), child(2, 'CANCELED', '취소 하위'), child(3)])
+    await user.click(await screen.findByRole('button', { name: /완료 2건/ }))
+    const closed = await screen.findByTestId('children-closed-list')
+    const done = await within(closed).findByRole('link', { name: '완료 하위' })
+    expect(done).toHaveClass('text-muted-foreground', 'group-hover:text-foreground')
+    expect(done).not.toHaveClass('line-through')
+    const canceled = within(closed).getByRole('link', { name: '취소 하위' })
+    expect(canceled).toHaveClass('text-muted-foreground', 'group-hover:text-foreground', 'line-through')
+    // 호버 밑줄이 삭선을 덮지 않게 둘을 함께 그리는 규칙이 붙는다
+    expect(canceled).toHaveClass('hover:[&.line-through]:[text-decoration-line:underline_line-through]')
+    expect(within(closed).getByTestId('child-row-1')).toHaveClass('group')
+  })
+})
+
 describe('IssueChildrenSection — 100건씩 「더 보기」', () => {
   it('열린 하위가 101건이면 100건 뒤에 「더 보기」, 누르면 나머지 1건이 만든 순서대로 붙고 「더 보기」가 사라진다', async () => {
     const requests = recordRequests()
