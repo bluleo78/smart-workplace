@@ -251,16 +251,16 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     return new CreateIssueRequest(title, body, null, null, null, null, null, null);
   }
 
-  /** 본문만 바꾸는 PATCH (version null → 충돌 검사 생략). */
-  private UpdateIssueRequest bodyOnly(String body) {
+  /** 본문만 바꾸는 PATCH — WP-2113 에 따라 version 을 함께 싣는다(이 테스트는 이미지 동기화 동작만 본다). */
+  private UpdateIssueRequest bodyOnly(String body, Integer version) {
     return new UpdateIssueRequest(
-        null, body, null, null, null, null, null, null, null, null, null, null, null);
+        null, body, null, null, null, null, null, null, null, null, version, null, null);
   }
 
-  /** 제목만 바꾸는 PATCH — 본문 null 이면 이미지 동기화를 건드리지 않아야 한다. */
-  private UpdateIssueRequest titleOnly(String title) {
+  /** 제목만 바꾸는 PATCH — 본문 null 이면 이미지 동기화를 건드리지 않아야 한다(WP-2113: version 동시 전송). */
+  private UpdateIssueRequest titleOnly(String title, Integer version) {
     return new UpdateIssueRequest(
-        title, null, null, null, null, null, null, null, null, null, null, null, null);
+        title, null, null, null, null, null, null, null, null, null, version, null, null);
   }
 
   private String ref(String key, long fileId) {
@@ -374,10 +374,12 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
     var created = issueService.create(owner, p.key(), createReq("t", ref(p.key(), fileId)));
 
-    issueService.update(owner, p.key(), created.number(), bodyOnly("이미지 지움"));
+    issueService.update(owner, p.key(), created.number(), bodyOnly("이미지 지움", created.version()));
     assertThat(expiresAt(fileId)).isAfter(OffsetDateTime.now().plusDays(6));
 
-    issueService.update(owner, p.key(), created.number(), bodyOnly(ref(p.key(), fileId)));
+    // 첫 수정이 version 을 1 올렸다(WP-2113 — 제목·본문 변경 PATCH 는 이 값을 실어야 한다).
+    issueService.update(
+        owner, p.key(), created.number(), bodyOnly(ref(p.key(), fileId), created.version() + 1));
     assertThat(expiresAt(fileId)).isNull();
   }
 
@@ -388,7 +390,7 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
     var created = issueService.create(owner, p.key(), createReq("t", ref(p.key(), fileId)));
 
-    issueService.update(owner, p.key(), created.number(), titleOnly("새 제목"));
+    issueService.update(owner, p.key(), created.number(), titleOnly("새 제목", created.version()));
 
     assertThat(expiresAt(fileId)).isNull();
   }
@@ -451,7 +453,7 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     commentService.create(owner, issue.id(), new CreateCommentRequest(ref(p.key(), commentImg)));
 
     // 본문에서 본문 이미지를 지워도 코멘트 이미지는 그대로여야 한다.
-    issueService.update(owner, p.key(), issue.number(), bodyOnly("본문 이미지 지움"));
+    issueService.update(owner, p.key(), issue.number(), bodyOnly("본문 이미지 지움", issue.version()));
 
     assertThat(expiresAt(bodyImg)).isAfter(OffsetDateTime.now().plusDays(6));
     assertThat(expiresAt(commentImg)).isNull();

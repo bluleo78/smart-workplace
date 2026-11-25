@@ -447,6 +447,7 @@ export interface UpdateIssueRequest {
   // milestoneId 단독 비우기(연결 해제) 플래그.
   clearMilestone?: boolean;
   // #611 마지막으로 읽은 이슈 version — 생략하면 서버가 충돌 검사를 하지 않는다.
+  // 단, 제목·본문(WP-2113)은 실제로 값이 바뀌면 생략해도 409 — 에코(같은 값)·다른 필드 단독·첨부 전용은 그대로 통과한다.
   version?: number;
 }
 

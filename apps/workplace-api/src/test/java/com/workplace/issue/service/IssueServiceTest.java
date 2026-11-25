@@ -13,6 +13,7 @@ import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.IssueTextWriteRequiresVersionException;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -301,11 +302,7 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(created.title()).isEqualTo("만든 제목");
 
     issueService.update(
-        ownerId,
-        projectKey,
-        created.number(),
-        new UpdateIssueRequest(
-            "  고친 제목  ", null, null, null, null, null, null, false, null, false, null, null, null));
+        ownerId, projectKey, created.number(), titleOnly("  고친 제목  ", created.version()));
     assertThat(issueService.get(ownerId, projectKey, created.number()).summary().title())
         .isEqualTo("고친 제목");
   }
@@ -390,11 +387,7 @@ class IssueServiceTest extends IntegrationTestBase {
             new CreateIssueRequest("orig", "b", null, null, null, null, null, null));
 
     issueService.update(
-        ownerId,
-        projectKey,
-        created.number(),
-        new UpdateIssueRequest(
-            "renamed", null, null, null, null, null, null, false, null, false, null, null, null));
+        ownerId, projectKey, created.number(), titleOnly("renamed", created.version()));
 
     int historyCount =
         dsl.fetchCount(
@@ -447,13 +440,9 @@ class IssueServiceTest extends IntegrationTestBase {
             ownerId,
             projectKey,
             new CreateIssueRequest("t", "b", null, null, null, null, null, null));
-    // 히스토리 row 1개 추가될 변경 (title)
+    // 히스토리 row 1개 추가될 변경 (title) — 제목 변경 PATCH 는 version 을 함께 싣는다(WP-2113).
     issueService.update(
-        ownerId,
-        projectKey,
-        created.number(),
-        new UpdateIssueRequest(
-            "renamed", null, null, null, null, null, null, false, null, false, null, null, null));
+        ownerId, projectKey, created.number(), titleOnly("renamed", created.version()));
     // 코멘트 1개 추가
     dsl.insertInto(ISSUE_COMMENT)
         .set(ISSUE_COMMENT.ISSUE_ID, created.id())
@@ -520,10 +509,18 @@ class IssueServiceTest extends IntegrationTestBase {
 
   // ---------------------------------------------------------------- #611 낙관적 동시성
 
-  /** 제목만 바꾸는 요청 — version 을 지정할 수 있다. */
+  /**
+   * 제목만 바꾸는 요청 — version 을 싣으면 #611 낙관 충돌 검사를, null 이면 같은 값 에코만 통과한다(제목이 실제로 바뀌면 WP-2113 에 따라 409).
+   */
   private static UpdateIssueRequest titleOnly(String title, Integer version) {
     return new UpdateIssueRequest(
         title, null, null, null, null, null, null, null, null, null, version, null, null);
+  }
+
+  /** 본문만 바꾸는 요청 — version 없는 본문 변경이 거절되는지 확인할 때 쓴다(WP-2113). */
+  private static UpdateIssueRequest bodyOnly(String body, Integer version) {
+    return new UpdateIssueRequest(
+        null, body, null, null, null, null, null, null, null, null, version, null, null);
   }
 
   private IssueResponse newIssue(String title) {
@@ -560,14 +557,87 @@ class IssueServiceTest extends IntegrationTestBase {
         .isEqualTo("탭A");
   }
 
-  /** version 을 보내지 않는 호출자(보드 드래그·AI 도구)는 검사 없이 반영되고 version 은 오른다. */
+  /** WP-2113: version 없이 제목을 실제로 바꾸면 거절되고, 앞서 저장한 사람의 제목이 그대로 남는다. */
   @Test
-  void update_withoutVersion_skipsCheck() {
+  void update_versionlessTitleChange_throwsAndKeepsStoredValue() {
     IssueResponse created = newIssue("v");
-    issueService.update(ownerId, projectKey, created.number(), titleOnly("a", null));
+    issueService.update(ownerId, projectKey, created.number(), titleOnly("남의 제목", 1));
+
+    assertThatThrownBy(
+            () ->
+                issueService.update(
+                    ownerId, projectKey, created.number(), titleOnly("덮어쓸 제목", null)))
+        .isInstanceOf(IssueTextWriteRequiresVersionException.class)
+        .hasMessageContaining(projectKey + "-" + created.number());
+    assertThat(issueService.get(ownerId, projectKey, created.number()).summary().title())
+        .isEqualTo("남의 제목");
+  }
+
+  /** WP-2113: version 없이 본문을 실제로 바꾸면 거절되고, 앞서 저장한 사람의 본문이 조용히 덮이지 않는다. */
+  @Test
+  void update_versionlessBodyChange_throwsAndKeepsStoredValue() {
+    IssueResponse created = newIssue("v");
+    issueService.update(ownerId, projectKey, created.number(), bodyOnly("남의 본문", 1));
+
+    assertThatThrownBy(
+            () ->
+                issueService.update(
+                    ownerId, projectKey, created.number(), bodyOnly("덮어쓸 본문", null)))
+        .isInstanceOf(IssueTextWriteRequiresVersionException.class)
+        .hasMessageContaining(projectKey + "-" + created.number());
+    assertThat(issueService.get(ownerId, projectKey, created.number()).body()).isEqualTo("남의 본문");
+  }
+
+  /** WP-2113: version 없이 값이 그대로인 글 필드 요청(에코)은 통과한다 — 아무것도 지우지 못하기 때문이다. */
+  @Test
+  void update_versionlessSameValue_passes() {
+    IssueResponse created = newIssue("같은 제목");
+    IssueDetailResponse echoed =
+        issueService.update(ownerId, projectKey, created.number(), titleOnly("같은 제목", null));
+
+    assertThat(echoed.summary().title()).isEqualTo("같은 제목");
+    // 409 없이 정상 통과 — updateAll 은 늘 그렇듯 version 을 1 올린다.
+    assertThat(echoed.summary().version()).isEqualTo(2);
+  }
+
+  /** WP-2113: 단일 값 필드는 version 없이도 그대로 반영된다(보드 드래그·일괄 변경). */
+  @Test
+  void update_statusOnlyWithoutVersion_stillPasses() {
+    IssueResponse created = newIssue("s");
+
+    IssueDetailResponse updated =
+        issueService.update(
+            ownerId,
+            projectKey,
+            created.number(),
+            UpdateIssueRequest.statusOnly("IN_PROGRESS", null, null));
+
+    assertThat(updated.summary().status()).isEqualTo("IN_PROGRESS");
+  }
+
+  /** WP-2113: version 을 싣고 바꾸면 기존대로 반영되고 version 이 1 오른다. */
+  @Test
+  void versionedTitleWrite_stillPasses() {
+    IssueResponse created = newIssue("v");
+
+    IssueDetailResponse updated =
+        issueService.update(ownerId, projectKey, created.number(), titleOnly("새 제목", 1));
+
+    assertThat(updated.summary().title()).isEqualTo("새 제목");
+    assertThat(updated.summary().version()).isEqualTo(2);
+  }
+
+  /**
+   * version 을 보내지 않는 호출자(보드 드래그·AI 도구) — 글 필드 값을 바꾸지 않으면(에코) 여전히 #611·WP-2113 검사 없이 반영되고 version 은
+   * 오른다. 실제로 값을 바꾸는 version 없는 제목·본문 PATCH 는 위 WP-2113 테스트대로 409 로 거절된다.
+   */
+  @Test
+  void update_versionlessEcho_skipsCheck() {
+    IssueResponse created = newIssue("v");
+    issueService.update(ownerId, projectKey, created.number(), titleOnly("v", null));
     IssueDetailResponse again =
-        issueService.update(ownerId, projectKey, created.number(), titleOnly("b", null));
-    assertThat(again.summary().title()).isEqualTo("b");
+        issueService.update(ownerId, projectKey, created.number(), titleOnly("v", null));
+    assertThat(again.summary().title()).isEqualTo("v");
     assertThat(again.summary().version()).isEqualTo(3);
   }
 

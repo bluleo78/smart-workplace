@@ -234,9 +234,13 @@ class AgentWorkToolWriteTest extends AgentWorkTestSupport {
   @Test
   void 터치_억제_중_쓰기는_상태를_되돌리지_않음() {
     seedActive(issueId, humanId, "INPUT_REQUIRED");
+    // WP-2113: 제목을 바꾸는 요청은 version 을 싣는다 — 같은 쓰기를 두 번 하므로 첫 쓰기 전 1, 갱신 후 2.
     var req =
         new UpdateIssueRequest(
-            "진행", null, null, null, null, null, null, null, null, null, null, null, null);
+            "진행", null, null, null, null, null, null, null, null, null, 1, null, null);
+    var reqAgain =
+        new UpdateIssueRequest(
+            "진행", null, null, null, null, null, null, null, null, null, 2, null, null);
     AgentToolContext.set(TOOL);
     try {
       inTenant(
@@ -245,7 +249,7 @@ class AgentWorkToolWriteTest extends AgentWorkTestSupport {
                   () -> issueService.update(humanId, projectKey, issueNumber, req)));
       assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
 
-      inTenant(() -> issueService.update(humanId, projectKey, issueNumber, req));
+      inTenant(() -> issueService.update(humanId, projectKey, issueNumber, reqAgain));
       assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
     } finally {
       AgentToolContext.clear();

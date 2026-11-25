@@ -101,10 +101,10 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
     return new CreateIssueRequest(title, body, null, null, null, null, null, null);
   }
 
-  /** 본문만 바꾸는 PATCH (version null → 충돌 검사 생략). */
-  private UpdateIssueRequest bodyOnly(String body) {
+  /** 본문만 바꾸는 PATCH — WP-2113 에 따라 version 을 함께 싣는다(이 테스트는 이미지 보존 동작만 본다). */
+  private UpdateIssueRequest bodyOnly(String body, Integer version) {
     return new UpdateIssueRequest(
-        null, body, null, null, null, null, null, null, null, null, null, null, null);
+        null, body, null, null, null, null, null, null, null, null, version, null, null);
   }
 
   private String ref(String key, long fileId) {
@@ -125,7 +125,7 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
     long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
     var a = issueService.create(owner, p.key(), createReq("원본", ref(p.key(), fileId)));
     issueService.create(owner, p.key(), createReq("사본", "복사함 " + ref(p.key(), fileId)));
-    issueService.update(owner, p.key(), a.number(), bodyOnly("원본에서 지움"));
+    issueService.update(owner, p.key(), a.number(), bodyOnly("원본에서 지움", a.version()));
 
     Set<Long> kept = policy.retain(List.of(fileId));
 
@@ -206,7 +206,7 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
     var b = issueService.create(owner, p.key(), createReq("다른 이슈", "본문"));
     // WP-362: 다른 이슈의 코멘트에 복사된 참조도 보존 근거가 된다.
     commentService.create(owner, b.id(), new CreateCommentRequest("복사 " + ref(p.key(), fileId)));
-    issueService.update(owner, p.key(), a.number(), bodyOnly("원본에서 지움"));
+    issueService.update(owner, p.key(), a.number(), bodyOnly("원본에서 지움", a.version()));
 
     assertThat(policy.retain(List.of(fileId))).containsExactly(fileId);
   }

@@ -86,12 +86,14 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
         .isEqualTo(base + "/projects/" + key + "/issues/" + number);
 
     // 수정(PATCH) 응답에도 실린다 — update_issue 가 내용 수정 응답에서 옮긴다.
+    // WP-2113: 제목 변경은 version 을 함께 싣는다 — 위 상세에서 방금 읽은 값.
+    int version = detail.get("summary").get("version").asInt();
     JsonNode updated =
         json(
             call(
                 patch("/api/v1/projects/" + key + "/issues/" + number)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(om.writeValueAsString(Map.of("title", "t2")))));
+                    .content(om.writeValueAsString(Map.of("title", "t2", "version", version)))));
     assertThat(updated.get("summary").get("title").asString()).isEqualTo("t2");
     assertThat(updated.get("url").asString())
         .isEqualTo(base + "/projects/" + key + "/issues/" + number);
