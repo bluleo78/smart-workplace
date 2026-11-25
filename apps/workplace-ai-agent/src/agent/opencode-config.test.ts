@@ -25,6 +25,9 @@ import { loadSubagents } from './subagent-loader.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
+// WP-2109: mcp 가 있는 입력을 만들 때 쓰는 더미 클라이언트(설정 빌드만 보므로 호출되지 않는다).
+const client = {} as unknown as WorkplaceApiClient;
+
 function baseInput(over: Partial<RunnerInput> = {}): RunnerInput {
   return {
     userMessage: 'hello',
@@ -189,8 +192,9 @@ describe('buildOpencodeConfig', () => {
     expect(cfg.provider?.openai?.npm).toBe('@ai-sdk/openai');
   });
 
+  // WP-2109: 기대값 수정 — mcp 가 있어야 도구가 열리므로(없으면 단발 분석으로 maxSteps·도구를 두지 않는다) mcp 를 넣어 검증한다.
   it('primary agent: systemPrompt/maxTurns→maxSteps/MCP-only tools/permission deny', () => {
-    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], VISION_ON);
+    const cfg = buildOpencodeConfig(baseInput({ mcp: { client, profile: 'issue', onBehalfOfId: 1 } }), 'run-1', ['cmd'], VISION_ON);
     expect(cfg.agent?.primary).toEqual({
       mode: 'primary',
       prompt: 'sys-prompt',
@@ -198,6 +202,34 @@ describe('buildOpencodeConfig', () => {
       tools: { '*': false, 'workplace*': true },
       permission: { edit: 'deny', bash: 'deny', webfetch: 'deny' },
     });
+  });
+
+  it('도구가 없는 단발 실행(mcp·파일 읽기·위임 없음)은 maxSteps 2 로 두고 도구를 모두 끈다(WP-2109)', () => {
+    const cfg = buildOpencodeConfig(baseInput({ maxTurns: 1, mcp: undefined }), 'run-1', ['cmd'], VISION_ON);
+    // 첫 단계가 마지막 단계가 되지 않게 2 — 상한은 남겨 도구 없는 실행이 시간 제한까지 돌지 않게 한다.
+    expect(cfg.agent?.primary?.maxSteps).toBe(2);
+    expect(cfg.agent?.primary?.tools).toEqual({ '*': false });
+    expect(opencodeToolCount(cfg.agent?.primary?.tools)).toEqual({ count: 0, wildcard: false });
+  });
+
+  it('mcp 가 있으면 maxSteps = maxTurns 를 그대로 둔다(WP-2109)', () => {
+    const cfg = buildOpencodeConfig(
+      baseInput({ maxTurns: 1, mcp: { client, profile: 'issue', onBehalfOfId: 1 } }), 'run-1', ['cmd'], VISION_ON,
+    );
+    expect(cfg.agent?.primary?.maxSteps).toBe(1);
+    expect(cfg.agent?.primary?.tools).toEqual({ '*': false, 'workplace*': true });
+  });
+
+  it('mcp 없이 파일 읽기만 열려도 maxSteps 를 둔다(WP-2109)', () => {
+    const cfg = buildOpencodeConfig(baseInput({ maxTurns: 2, mcp: undefined, allowFileRead: true }), 'run-1', ['cmd'], VISION_ON);
+    expect(cfg.agent?.primary?.maxSteps).toBe(2);
+    expect(cfg.agent?.primary?.tools?.read).toBe(true);
+  });
+
+  it('mcp 없이 위임만 열려도 maxSteps = maxTurns 를 두고 도구를 연다(WP-2109)', () => {
+    const cfg = buildOpencodeConfig(baseInput({ maxTurns: 3, mcp: undefined, allowSubagents: true }), 'run-1', ['cmd'], VISION_ON);
+    expect(cfg.agent?.primary?.maxSteps).toBe(3);
+    expect(cfg.agent?.primary?.tools).not.toEqual({ '*': false });
   });
 
   // WP-236: 이슈 챗 첨부 — read 를 열고 바깥 경로는 external_directory 로 막는다(인스턴스 디렉터리는 러너가 첨부 루트로 지정).

@@ -163,6 +163,13 @@ function modelEntry(vision: OpencodeVision, limit: OpencodeModelLimit, variant?:
   };
 }
 
+/**
+ * 도구가 없는 실행(단발 분석)의 단계 상한(WP-2109).
+ * 1 이면 첫 단계가 곧 마지막 단계라 opencode 가 「MAXIMUM STEPS REACHED — text only」 지시를 붙여 JSON 대신 안내문이 나온다.
+ * 2 면 첫 단계는 평소대로 돌고, 모델이 없는 도구를 부르는 등 이상하게 이어져도 둘째 단계에서 끝난다(시간 제한까지 돌지 않게).
+ */
+const NO_TOOL_MAX_STEPS = 2;
+
 // RunnerInput → opencode Config. i.credential 은 반드시 opencode credential 이어야 한다
 // (호출부는 OpencodeRunner 뿐이지만, credential 오분기를 조기에 잡기 위해 방어적으로 재확인).
 // opts 는 opencode-vision.resolveOpencodeModelSettings 결과 — 비전(vision)과 모델 한도(limit, WP-250). 러너가 판단해 넘긴다.
@@ -182,6 +189,11 @@ export function buildOpencodeConfig(
   // WP-1493: 위임하는 실행에서만 라우터 도구로 좁힌다(지금은 assistant 만 — routerToolsFor). 위임이 없으면 쓰기를 맡길 곳이 없어 종전처럼 연다.
   const routerTools = subagents ? routerToolsFor(i.mcp?.profile) : undefined;
 
+  // WP-2109: 닿을 수 있는 도구가 하나도 없는 실행(mcp·파일 읽기·위임 모두 없음 = 단발 분석)인지 판정한다.
+  // opencode 는 step >= steps 인 마지막 단계에 「MAXIMUM STEPS REACHED — text only」 지시를 붙인다. maxSteps=1 이면 첫 단계부터
+  // 그 지시 아래서 돌아 모델이 JSON 대신 안내문으로 답한다 — 도구가 없으면 상한을 NO_TOOL_MAX_STEPS 로 둔다.
+  const hasTools = Boolean(i.mcp) || Boolean(i.allowFileRead) || Boolean(subagents);
+
   const config: OpencodeConfig = {
     provider: {
       [payload.providerId]: {
@@ -194,17 +206,21 @@ export function buildOpencodeConfig(
       primary: {
         mode: 'primary',
         prompt: i.systemPrompt + promptSuffix,
-        maxSteps: i.maxTurns,
+        // WP-2109: 도구가 있으면 maxTurns 를 그대로, 없으면 NO_TOOL_MAX_STEPS(첫 단계가 마지막 단계가 되지 않으면서 상한은 남긴다).
+        maxSteps: hasTools ? i.maxTurns : NO_TOOL_MAX_STEPS,
         // MCP-only: opencode 빌트인 도구(bash/edit/write/read 등)는 전부 차단하고 workplace MCP
         // 도구만 허용. 이름은 stdio-entry 서버명 'workplace' 접두 네임스페이스와 일치.
         // 예외(WP-236): allowFileRead(이슈 챗 첨부)면 read 를 연다. 러너가 인스턴스 디렉터리를 실행 첨부 폴더로
         // 지정하므로 read 는 그 안만 닿고, 바깥은 external_directory 로 막는다.
         // WP-1493: 위임하는 라우터(assistant + allowSubagents)는 와일드카드 대신 라우터 도구 + 위임 도구(task)만 연다(routerPrimaryTools).
-        tools: {
-          '*': false,
-          ...(routerTools ? routerPrimaryTools(routerTools) : { 'workplace*': true }),
-          ...(i.allowFileRead ? { read: true } : {}),
-        },
+        // WP-2109: 도구가 없는 실행은 전부 끈다({ '*': false }) — 열린 도구가 없으니 모델이 도구 호출을 시도할 일도 없다.
+        tools: hasTools
+          ? {
+              '*': false,
+              ...(routerTools ? routerPrimaryTools(routerTools) : { 'workplace*': true }),
+              ...(i.allowFileRead ? { read: true } : {}),
+            }
+          : { '*': false },
         permission: {
           edit: 'deny',
           bash: 'deny',
