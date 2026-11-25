@@ -21,6 +21,11 @@ ARG PLAYWRIGHT_CLI_VERSION=0.1.15
 ARG GLAB_VERSION=1.123.0
 ARG GLAB_SHA256_AMD64=0effb3e550b80fd826b5a50655acc7fe7142728d0afe9a1d5d857aa2fc651f5a
 ARG GLAB_SHA256_ARM64=f7c1930977fdd75bea6735eed0b628d4411536b3208c124101db42d6cfb9378e
+# kubectl(WP-2136) — 배포 담당 AI 가 허용 목록 ServiceAccount(WP-2135)로 운영에 반영할 때 쓴다. 다른 AI 는 토큰이 없어 써도 아무것도 못 한다.
+# 운영·PoC 서버(v1.36)와 같은 minor 로 고정한다(kubectl 은 서버와 ±1 minor 까지 맞는다 — 클러스터를 올리면 함께 올린다).
+ARG KUBECTL_VERSION=v1.36.2
+ARG KUBECTL_SHA256_AMD64=1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82
+ARG KUBECTL_SHA256_ARM64=c957eb8c4bea27a3bb35b269edd9082e27f027f7b76b20b5bf4afebc726c6d3e
 # 빌드 때 genia-works 마켓플레이스를 받을 곳 — Pod 는 뜰 때 자기 Works 주소로 갱신한다.
 ARG GENIA_WORKS_ORIGIN=https://genia-works.iacloud.kr
 
@@ -72,6 +77,16 @@ RUN set -eux; \
     dpkg -i /tmp/glab.deb; \
     rm /tmp/glab.deb; \
     glab --version
+
+# kubectl — 공식 릴리스(dl.k8s.io) 바이너리를 아키텍처별 해시로 확인해 받는다. apt 저장소는 minor 마다 주소가 달라 바이너리가 단순하다.
+RUN set -eux; \
+    arch=$(dpkg --print-architecture); \
+    case "$arch" in amd64) sum="$KUBECTL_SHA256_AMD64" ;; arm64) sum="$KUBECTL_SHA256_ARM64" ;; *) echo "kubectl: 지원하지 않는 아키텍처 $arch" >&2; exit 1 ;; esac; \
+    curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl"; \
+    echo "${sum}  /tmp/kubectl" | sha256sum -c -; \
+    install -m 0755 /tmp/kubectl /usr/local/bin/kubectl; \
+    rm /tmp/kubectl; \
+    kubectl version --client
 
 # Claude Code(고정 버전, 자동 업데이트 끔)·TS 언어 서버·pnpm(corepack — 저장소의 packageManager 버전을 쓴다).
 # npm 전역 설치가 가장 단순하고 버전 고정이 확실하다(네이티브 설치는 홈에 깔려 휘발 홈과 맞지 않는다).
