@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.service.IssueAssigneeService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -30,6 +31,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +45,7 @@ import tools.jackson.databind.ObjectMapper;
  * WorkflowAutoStartRollbackTest} 가 본다.
  */
 @Transactional
+@RecordApplicationEvents
 class WorkflowAutoStartTest extends IntegrationTestBase {
 
   private static final String API = "/api/v1";
@@ -52,6 +56,7 @@ class WorkflowAutoStartTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwt;
   @Autowired ProjectService projectService;
   @Autowired IssueAssigneeService assigneeService;
+  @Autowired ApplicationEvents events;
 
   private long pm;
   private long dev;
@@ -184,6 +189,61 @@ class WorkflowAutoStartTest extends IntegrationTestBase {
     assertThat(runCount(issue)).isEqualTo(1);
     JsonNode v = expect(get(API + "/issues/" + issue + "/workflow"), pm, 200);
     assertThat(v.get("currentNode").get("key").asString()).isEqualTo("dev");
+  }
+
+  @Test
+  @DisplayName("담당을 넣어 만든 이슈가 시작으로 담당이 바뀌면 생성 응답의 담당도 시작 뒤 값이다")
+  void createIssue_startChangesAssignees_responseHasAssigneesAfterStart() {
+    // 리뷰 후속(PR #1861): developer 담당으로 시작하면 decision 을 지나 reviewer 역할(other 한 명)의 review 노드에 머물러 시작이
+    // other 를 담당으로 더한다 —
+    // 응답이 시작 전 값(dev 만)이면 호출자(MCP create_issue 등)가 담당을 잘못 본다. 시드의 정의는 끄고 이 정의만 켠다.
+    expect(patch(API + "/workflows/" + workflowId).content(json("enabled", false)), pm, 200);
+    String yaml =
+        """
+        schema: genia/workflow@1
+        name: 검토로 시작
+        roles:
+          developer: { members: ["%s"] }
+          reviewer: { members: ["%s"] }
+        nodes:
+          start: { type: start }
+          route: { type: decision, default: review }
+          review: { type: human_task, role: reviewer, outcomes: { done: { to: end } } }
+          end: { type: end }
+        start:
+          - { when: { assigneeRole: developer }, to: route }
+        """
+            .formatted(username(dev), username(other));
+    long wf =
+        expect(
+                post(API + "/projects/" + projectId + "/workflows")
+                    .content(json("name", "검토 " + UUID.randomUUID(), "yaml", yaml)),
+                pm,
+                201)
+            .get("id")
+            .asLong();
+    expect(post(API + "/workflows/" + wf + "/publish"), pm, 200);
+    expect(patch(API + "/workflows/" + wf).content(json("enabled", true)), pm, 200);
+    JsonNode body =
+        expect(
+            post(API + "/projects/" + key + "/issues")
+                .content(json("title", "이슈", "assigneeIds", List.of(dev))),
+            pm,
+            0);
+    long issue = body.get("id").asLong();
+
+    List<Long> inResponse = new java.util.ArrayList<>();
+    body.get("assignees").forEach(a -> inResponse.add(a.get("id").asLong()));
+    assertThat(assignees(issue)).as("시작이 담당을 바꿔야 이 테스트가 뜻이 있다").hasSizeGreaterThan(1);
+    assertThat(inResponse).containsExactlyInAnyOrderElementsOf(assignees(issue));
+    // 시작이 더한 사람(other)은 배정 이벤트의 added 에 한 번만 — 두 번이면 배정 알림이 두 번 간다.
+    long addedOther =
+        events.stream(IssueAssignedEvent.class)
+            .filter(e -> e.issueId() == issue)
+            .flatMap(e -> e.added().stream())
+            .filter(u -> u.id() == other)
+            .count();
+    assertThat(addedOther).isEqualTo(1);
   }
 
   @Test

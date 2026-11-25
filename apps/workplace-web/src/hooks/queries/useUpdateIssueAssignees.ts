@@ -7,6 +7,7 @@ import { replaceIssueAssignees } from '../../api/issueAssignees';
 import { handleApiError } from '../../lib/api-error';
 import { issueWorkflowKey } from '../../lib/workflow';
 import { chatKeys } from './chatKeys';
+import { issueWorkflowKeys } from './issueWorkflowKeys';
 import { issueKeys } from './useIssues';
 
 /** 담당 저장 인자. */
@@ -23,7 +24,11 @@ export function useUpdateIssueAssignees(projectKey: string, number: number, issu
     mutationFn: ({ userIds }: UpdateIssueAssigneesArgs) => replaceIssueAssignees(projectKey, number, userIds),
     onSuccess: () => {
       // 자동 시작된 실행을 카드가 바로 보이게 한다(시작이 없었어도 무해).
-      if (issueId != null) qc.invalidateQueries({ queryKey: issueWorkflowKey(issueId) });
+      if (issueId != null) {
+        qc.invalidateQueries({ queryKey: issueWorkflowKey(issueId) });
+        // 담당 미리보기(카드 안내·팝오버)도 지운다 — 담당이 바뀌면 「이 담당으로 시작되나」 답이 달라진다(리뷰 후속, 키 주석과 맞춤).
+        qc.invalidateQueries({ queryKey: issueWorkflowKeys.preview(issueId) });
+      }
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
       qc.invalidateQueries({ queryKey: issueKeys.details(projectKey) });
       qc.invalidateQueries({ queryKey: ['watchers', projectKey, number] });
