@@ -258,6 +258,13 @@ describe('모바일 이슈 목록 — 툴바', () => {
     expect(screen.queryByTestId('mobile-quick-filter-clear-all')).not.toBeInTheDocument()
   })
 
+  // WP-2115 — 칩이 없는 필터(마일스톤)만 걸려도 「필터 지우기」가 보이고 누르면 지운다(빈 상태 단추와 같은 기준).
+  test('빠른 필터 칩 줄 — 마일스톤만 걸려도 필터 지우기가 보이고 누르면 지운다', async () => {
+    const { user, location } = await open('milestone=5')
+    await user.click(await screen.findByTestId('mobile-quick-filter-clear-all'))
+    await waitFor(() => expect(params(location).has('milestone')).toBe(false))
+  })
+
   // WP-1020 — 시트 행은 48px 이상(min-h-12), 「더 보기」 시트에서 칩을 고정하면 줄에 바로 생기고, 걸린 칩의 × 는 그 칩만 비운다.
   test('빠른 필터 칩 줄 — 더 보기 시트에서 칩 고정, 값 시트 행은 48px, 걸린 칩 × 로 해제', async () => {
     const { user, location } = await open('')

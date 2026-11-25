@@ -11,11 +11,14 @@ import { cn } from '@/lib/utils';
 
 import type { IssueFilterControls } from '../../hooks/useIssueFilterControls';
 
-/** 필터 시트가 실제로 쓰는 컨트롤만 — 이슈 목록(useIssueFilterControls)과 타임라인(useTimelineFilterControls)이 함께 넘길 수 있게(WP-197). */
-export type MobileFilterControls = Pick<
-  IssueFilterControls,
-  'facets' | 'filterValue' | 'onFilterChange' | 'activeFilterCount' | 'clearFacets'
->;
+/**
+ * 필터 시트가 실제로 쓰는 컨트롤만 — 타임라인(useTimelineFilterControls)이 넘긴다(WP-197).
+ * facet 세 필드는 이슈 목록 훅의 모양을 그대로 따르고(한 곳에서 맞춘다), 「전체 해제」용 두 필드만 여기서 정한다(WP-2115).
+ */
+export type MobileFilterControls = Pick<IssueFilterControls, 'facets' | 'filterValue' | 'onFilterChange'> & {
+  activeFilterCount: number; // 값이 있는 facet 수 — 「전체 해제」 활성 판정
+  clearFacets: () => void; // facet 값만 비움
+};
 
 export function MobileFilterSheet({
   open,

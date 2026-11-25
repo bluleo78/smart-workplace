@@ -1,7 +1,7 @@
 // 이슈 목록 빠른 필터 칩 줄(WP-1020) — 화면 테스트. 필터 바(IssueFilterBar)만 띄운다.
 // 칩 한 번 → 값 목록(바로 적용·팝오버 유지), 걸린 칩 요약·×·「필터 지우기」, 담당자 「나」·「미지정」, 검색칸,
 // 「더 보기」의 덜 쓰는 facet·칩 고정/숨김과 그 기억(localStorage, 저장소가 막혀도 기본 칩으로 동작)을 본다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
@@ -43,6 +43,7 @@ function chipKeys() {
 const query = (location: () => string) => new URLSearchParams(location().split('?')[1] ?? '')
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -101,6 +102,51 @@ describe('빠른 필터 칩 — 기본 칩과 값 고르기', () => {
     const { user, location } = renderBar('/projects/WP?assignee=2&priority=HIGH&q=abc&group=none')
     await user.click(await screen.findByTestId('quick-filter-clear-all'))
     await waitFor(() => expect(location()).toBe('/projects/WP?group=none'))
+  })
+
+  // WP-2115 — 검색 입력 직후(300ms debounce 대기 중) 「필터 지우기」를 눌러도 예약된 q 쓰기가 URL 을 되살리지 않는다.
+  test('검색어를 친 직후 「필터 지우기」를 누르면 q·필터가 지워진 채 남고 입력칸도 비워진다, 이어 친 검색어는 다시 반영된다', async () => {
+    const { location } = renderBar('/projects/WP?status=IN_PROGRESS')
+    const input = await screen.findByLabelText('이슈 필터: 제목·키')
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    fireEvent.change(input, { target: { value: '결제' } })
+    fireEvent.click(screen.getByTestId('quick-filter-clear-all'))
+    act(() => { vi.advanceTimersByTime(400) })
+    expect(query(location).has('q')).toBe(false)
+    expect(query(location).has('status')).toBe(false)
+    expect(input).toHaveValue('')
+
+    // 지운 뒤에도 검색은 정상 — 다시 치면 debounce 뒤 q 가 URL 에 실린다.
+    fireEvent.change(input, { target: { value: '환불' } })
+    act(() => { vi.advanceTimersByTime(300) })
+    expect(query(location).get('q')).toBe('환불')
+  })
+
+  test('URL 에 q 가 있는 채 더 쳐 놓고 바로 「필터 지우기」를 눌러도 q 가 되살아나지 않는다', async () => {
+    const { location } = renderBar('/projects/WP?q=abc&priority=HIGH')
+    const input = await screen.findByLabelText('이슈 필터: 제목·키')
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    fireEvent.change(input, { target: { value: 'abcd' } })
+    fireEvent.click(screen.getByTestId('quick-filter-clear-all'))
+    act(() => { vi.advanceTimersByTime(400) })
+    expect(query(location).has('q')).toBe(false)
+    expect(input).toHaveValue('')
+  })
+
+  // WP-2115 — 「필터 지우기」 노출은 0건 빈 상태 단추와 같은 기준(filterOnlyKey) — 칩이 없는 필터(마일스톤·에픽 범위 등)만 걸려도 보인다.
+  test.each(['milestone=5', 'parent=30', 'topLevel=true', 'blocked=true', 'closed=all'])(
+    '칩에 없는 필터 %s 만 걸려도 「필터 지우기」가 보이고 누르면 지운다(group 은 유지)',
+    async (qs) => {
+      const { user, location } = renderBar('/projects/WP?' + qs + '&group=none')
+      await user.click(await screen.findByTestId('quick-filter-clear-all'))
+      await waitFor(() => expect(location()).toBe('/projects/WP?group=none'))
+    },
+  )
+
+  test('정렬만 걸린 상태에서는 「필터 지우기」가 보이지 않는다', async () => {
+    renderBar('/projects/WP?sort=priority&direction=asc')
+    await screen.findByTestId('quick-filter-bar')
+    expect(screen.queryByTestId('quick-filter-clear-all')).not.toBeInTheDocument()
   })
 
   test('검색칸에 입력하면 이름이 맞는 값만 남고, 없으면 「일치하는 항목이 없습니다」', async () => {
