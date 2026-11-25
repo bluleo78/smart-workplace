@@ -196,7 +196,8 @@ export function IssueTypeSelectPopover({
       {
         typeId: convertPending.id,
         convertSubtasksToTypeId: c.convertSubtasksToTypeId,
-        relateToReleasedParent: parentLink ? c.relateToReleasedParent : undefined,
+        // 가린 상위(WP-2131)는 키를 모르므로 관련 관계 선택을 싣지 않는다 — 서버가 상위만 푼다.
+        relateToReleasedParent: parentLink && !parentLink.hidden ? c.relateToReleasedParent : undefined,
       },
       { onSuccess: () => setConvertPending(null) },
     );
@@ -313,8 +314,9 @@ export function IssueTypeSelectPopover({
           subtasks={convertPending.subtasks}
           targetTypes={convertTargetTypes(types.data ?? [])}
           currentParent={
-            parentLink
-              ? { key: parentLink.parentKey, title: parentLink.parentTitle, typeName: parentLink.parentTypeName }
+            // 가린 상위(WP-2131)는 키·제목을 모르므로 상위 안내·관련 관계 체크 없이 띄운다.
+            parentLink && !parentLink.hidden
+              ? { key: parentLink.parentKey, title: parentLink.parentTitle, typeName: parentLink.parentTypeName ?? '' }
               : null
           }
           onConfirm={onConvertConfirm}
