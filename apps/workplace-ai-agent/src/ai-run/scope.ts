@@ -5,6 +5,15 @@ import type { AiRunContext, AiRunRecord, AiRunSink } from './types.js';
 
 const REASON_MAX = 200;
 const DETAIL_MAX = 2000;
+/** 모델 출력 원문으로 기억하는 앞부분 길이(WP-2105). */
+export const OUTPUT_HEAD_MAX = 1000;
+
+/** 마지막 러너 출력의 앞부분·전체 길이·텍스트 조각 수 — 파싱 실패 상세에 쓴다(WP-2105). */
+export interface ModelOutputSnapshot {
+  head: string;
+  length: number;
+  chunks: number;
+}
 
 /** 아무것도 하지 않는 sink (기록 비활성·테스트 기본값). */
 export const noopAiRunSink: AiRunSink = { enqueue: () => undefined };
@@ -44,6 +53,8 @@ export class AiRunScope {
   /** 라우트가 직접 지정한 실패 사유(markFailed) — 러너는 성공했어도 처리가 실패한 경우. */
   private forcedFailure: { reason: string; detail: string | null } | null = null;
   private readonly usages: RunnerUsage[] = [];
+  /** 마지막 러너 출력의 앞부분·전체 길이·텍스트 조각 수 — 파싱 실패 상세에 쓴다(WP-2105). */
+  private output: ModelOutputSnapshot | null = null;
 
   constructor(
     private readonly ctx: AiRunContext & { kind: string },
@@ -57,6 +68,21 @@ export class AiRunScope {
 
   get closed(): boolean {
     return this._closed;
+  }
+
+  /** 러너 최종 텍스트를 기억한다(마지막 호출 값). 앞 OUTPUT_HEAD_MAX 자만 보관한다(WP-2105). */
+  noteOutput(text: string, chunks: number): void {
+    if (this._closed) return;
+    this.output = { head: text.slice(0, OUTPUT_HEAD_MAX), length: text.length, chunks };
+  }
+
+  get lastOutput(): ModelOutputSnapshot | null {
+    return this.output;
+  }
+
+  /** markFailed 로 강제 실패가 지정됐는지 — 미들웨어가 http_<코드> 로 덮지 않게 한다(WP-2105). */
+  get hasForcedFailure(): boolean {
+    return this.forcedFailure !== null;
   }
 
   /** 러너 시작. 첫 호출에서만 RUNNING 기록을 넣는다. 모델은 마지막 값을 쓴다. */

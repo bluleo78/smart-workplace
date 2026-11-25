@@ -5,6 +5,7 @@ import { Router, type Request, type Response } from 'express';
 import { mailCategoryInput } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
+import { logRunFailure } from '../ai-run/model-output-failure.js';
 import { classifyProviderError } from '../agent/provider-error.js';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
@@ -210,7 +211,8 @@ export function handler<T>(
         res.status(503).json({ error: `${tag}_unavailable`, reason });
         return;
       }
-      console.error(`[${tag}] 실패:`, message);
+      // 모델 출력 파싱 실패는 사유·원문 앞부분과 함께 기록한다(WP-2105).
+      logRunFailure(tag, e);
       res.status(502).json({ error: `${tag}_failed` });
     }
   };

@@ -12,6 +12,40 @@ function make(extra: Record<string, unknown> = {}) {
 
 // AiRunScope 동작 검증 (WP-1828)
 describe('AiRunScope', () => {
+  // WP-2105: 모델 출력 원문 기억·강제 실패 사유
+  it('noteOutput 뒤 markFailed 하고 close 하면 사유·상세가 기록된다', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: true, usage: null });
+    scope.noteOutput('abc', 1);
+    scope.markFailed('model_output_invalid', 'd');
+    scope.close({ ok: false });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'model_output_invalid', errorDetail: 'd' });
+  });
+
+  it('러너 실패 뒤 markFailed 해도 사유는 runner_error', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: new Error('x') });
+    scope.markFailed('model_output_invalid', 'd');
+    scope.close({ ok: false });
+    expect(sink[1]).toMatchObject({ errorReason: 'runner_error' });
+  });
+
+  it('noteOutput 은 앞 1000자와 전체 길이를 기억한다', () => {
+    const { scope } = make();
+    expect(scope.lastOutput).toBeNull();
+    scope.noteOutput('a'.repeat(1500), 3);
+    expect(scope.lastOutput).toEqual({ head: 'a'.repeat(1000), length: 1500, chunks: 3 });
+  });
+
+  it('hasForcedFailure 는 markFailed 뒤에만 true', () => {
+    const { scope } = make();
+    expect(scope.hasForcedFailure).toBe(false);
+    scope.markFailed('r');
+    expect(scope.hasForcedFailure).toBe(true);
+  });
+
   it('runner 없이 close 하면 아무것도 넣지 않는다', () => {
     const { sink, scope } = make();
     scope.close({ ok: true });

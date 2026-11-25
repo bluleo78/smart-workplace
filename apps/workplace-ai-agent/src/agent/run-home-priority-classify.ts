@@ -1,6 +1,8 @@
 // 홈 우선순위 분류 러너 — 후보 목록을 LLM 에 보내 항목별 중요도·긴급도 점수(0~100)를 받는다.
-// run-issue-classify-ai.ts 의 "runText 호출 → 그리디 JSON 추출 → zod 재검증 → 실패 시 폴백" 패턴을 미러한다.
+// run-issue-classify-ai.ts 의 "runText 호출 → 첫 완결 JSON 객체 추출 → zod 재검증 → 실패 시 폴백" 패턴을 미러한다.
 import { z } from 'zod'
+import { extractJsonObject } from './mail-parser.js'
+import { ModelOutputError } from './provider-error.js'
 import { runText } from './run-messaging-ai.js'
 import type { RunAgentDeps } from './run-agent.js'
 
@@ -59,25 +61,24 @@ function buildUserMessage(items: PriorityClassifyItem[]): string {
 // LLM 텍스트에서 JSON 추출 → Zod 검증 → 실패 시 빈 결과 폴백(issue-classify/summary 폴백 패턴 미러).
 // ⚠️ 빈 결과는 "점수 없음"으로 해석되며 호출부(홈 정렬)가 해당 항목을 후순위 처리하는 안전한 폴백이다.
 export function parsePriorityClassifyJson(text: string): { results: PriorityClassifyResult[] } {
-  const stripped = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '')
-  const start = stripped.indexOf('{')
-  const end = stripped.lastIndexOf('}')
-  if (start === -1 || end === -1 || end <= start) {
-    console.warn('[home-priority-classify] JSON 없음, 빈 결과 반환. text 앞:', text.slice(0, 80))
-    return { results: [] }
-  }
+  // 최상위 첫 완결 객체를 쓴다(mail 분석과 같은 추출) — 객체가 이어 붙거나 뒤에 잡설 '}' 가 붙어도, 문자열 안 날 줄바꿈이 있어도 읽히고
+  // 잘려서 짝 없는 바깥 객체 안의 중첩 객체는 결과로 읽지 않는다(WP-2105).
+  let first: Record<string, unknown>
   try {
-    const raw = JSON.parse(stripped.slice(start, end + 1)) as unknown
-    const parsed = llmOutputSchema.safeParse(raw)
-    if (!parsed.success) {
-      console.warn('[home-priority-classify] Zod 검증 실패:', parsed.error.message)
+    first = extractJsonObject(text)
+  } catch (e) {
+    if (e instanceof ModelOutputError || e instanceof SyntaxError) {
+      console.warn('[home-priority-classify] JSON 없음·파싱 실패:', e.message)
       return { results: [] }
     }
-    return parsed.data
-  } catch (e) {
-    console.warn('[home-priority-classify] JSON.parse 실패:', (e as Error).message)
+    throw e
+  }
+  const parsed = llmOutputSchema.safeParse(first)
+  if (!parsed.success) {
+    console.warn('[home-priority-classify] Zod 검증 실패:', parsed.error.message)
     return { results: [] }
   }
+  return parsed.data
 }
 
 /**

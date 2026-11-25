@@ -28,7 +28,8 @@ export function aiRunScopeMiddleware(sink: AiRunSink): RequestHandler {
     res.on('finish', () => {
       finished = true;
       const code = res.statusCode;
-      safeClose(scope, code >= 400 ? { ok: false, reason: `http_${code}` } : { ok: true });
+      // 라우트가 강제 실패 사유(model_output_invalid 등)를 정했으면 http_<코드> 로 덮지 않는다(WP-2105).
+      safeClose(scope, code >= 400 ? (scope.hasForcedFailure ? { ok: false } : { ok: false, reason: `http_${code}` }) : { ok: true });
     });
     res.on('close', () => {
       if (finished) return;

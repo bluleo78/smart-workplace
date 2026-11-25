@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { ModelOutputError } from './provider-error.js';
 import {
   extractJsonObject,
   parseClassifyBatchJson,
@@ -66,6 +67,43 @@ describe('extractJsonObject', () => {
   });
   it('배열이면 throw', () => {
     expect(() => extractJsonObject('[1,2]')).toThrow();
+  });
+});
+
+describe('extractJsonObject — 이어 붙은 출력 (WP-2105)', () => {
+  it('객체가 이어 붙으면 첫 완결 객체를 읽는다', () => {
+    expect(extractJsonObject('{"category":"알림","summary":null}{"category":"업무"}')).toEqual({ category: '알림', summary: null });
+  });
+  it('문자열 안 중괄호에 속지 않는다', () => {
+    expect(extractJsonObject('{"summary":"a } b {"}{"x":1}')).toEqual({ summary: 'a } b {' });
+  });
+  it('깨진 첫 후보는 건너뛰고 다음 객체를 읽는다', () => {
+    expect(extractJsonObject('{"a": 잘못} 그리고 {"b":2}')).toEqual({ b: 2 });
+  });
+  it('깨진 바깥 객체 안의 중첩 객체는 결과로 읽지 않는다', () => {
+    expect(() => extractJsonObject('{"category":"업무","meta":{"x":1} 잘못}')).toThrow(ModelOutputError);
+    expect(extractJsonObject('{"a": 잘못, "n":{"x":1}} {"category":"알림"}')).toEqual({ category: '알림' });
+  });
+  it('닫히지 않거나 모두 깨졌으면 ModelOutputError', () => {
+    expect(() => extractJsonObject('{"a": 1')).toThrow(ModelOutputError);
+    expect(() => extractJsonObject('{x}{y}')).toThrow(/분석 JSON 파싱 실패/);
+  });
+  it('문자열 안 날 줄바꿈도 읽고 코드펜스도 걷는다', () => {
+    expect(extractJsonObject('{"s":"줄1\n줄2"}')).toEqual({ s: '줄1\n줄2' });
+    expect(extractJsonObject('```json\n{"a":1}\n```')).toEqual({ a: 1 });
+  });
+});
+
+describe('extractJsonObject — 잘린 출력·문자열 안 코드펜스 (WP-2105 리뷰)', () => {
+  it('바깥 객체가 잘렸으면 안쪽 완결 객체를 분석 결과로 읽지 않는다', () => {
+    expect(() => extractJsonObject('{"category":"업무","meta":{"x":1},"summary":"잘림')).toThrow(ModelOutputError);
+  });
+  it('문자열 값 안의 코드펜스는 지우지 않는다', () => {
+    const body = '아래 코드:\n```json\n{}\n```';
+    expect(extractJsonObject(JSON.stringify({ body }))).toEqual({ body });
+  });
+  it('전체를 감싼 코드펜스는 걷고 읽는다', () => {
+    expect(extractJsonObject('```json\n{"a":1}\n```')).toEqual({ a: 1 });
   });
 });
 
@@ -147,6 +185,9 @@ describe('parsePersonalAnalysisJson', () => {
 });
 
 describe('parseClassifyBatchJson', () => {
+  it('results 배열이 없으면 ModelOutputError', () => {
+    expect(() => parseClassifyBatchJson('{"foo":1}', [1])).toThrow(ModelOutputError);
+  });
   it('요청한 id 가 하나도 없는 응답은 형식 오류로 던진다(전부 미분류 기록 방지)', () => {
     const text = '{"results":[{"id":1,"category":"업무"}]}';
     expect(() => parseClassifyBatchJson(text, [101, 102])).toThrow();
@@ -256,6 +297,11 @@ describe('parseComposeDraft', () => {
 
 // WP-1341: 분류 교정 학습 응답 — 화이트리스트·id·길이를 어기면 throw(→ 502, API 는 NONE 으로 응답).
 describe('parseLearnCategoryJson', () => {
+  it('형식 위반은 ModelOutputError', () => {
+    expect(() => parseLearnCategoryJson('{"action":"DELETE"}', [])).toThrow(ModelOutputError);
+    expect(() => parseLearnCategoryJson('{"action":"CREATE"}', [])).toThrow(ModelOutputError);
+    expect(() => parseLearnCategoryJson('{"action":"UPDATE","memoryId":9,"content":"x"}', [3])).toThrow(ModelOutputError);
+  });
   it('CREATE — memoryId 는 null', () => {
     expect(
       parseLearnCategoryJson('{"action":"CREATE","content":"원티드(wantedlab.com) 채용 소식 메일은 업무가 아니라 프로모션으로 분류"}', []),

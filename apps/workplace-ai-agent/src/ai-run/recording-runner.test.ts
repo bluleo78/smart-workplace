@@ -34,6 +34,19 @@ describe('recordingRunner', () => {
     expect(sink[1]).toMatchObject({ status: 'SUCCEEDED', inputTokens: 10, outputTokens: 5 });
   });
 
+  it('collect: 최종 텍스트 앞부분과 조각 수를 범위에 남긴다 (WP-2105)', async () => {
+    const { scope } = make();
+    const events: RunnerEvent[] = [
+      { type: 'assistant_text', text: 'first' },
+      { type: 'tool_use', id: 't', name: 'n', input: {} } as unknown as RunnerEvent,
+      { type: 'assistant_text', text: 'second' },
+      { type: 'result', ok: true, text: 'R'.repeat(1200), usage: null },
+    ];
+    const inner: AgentRunner = { collect: async () => events, stream: vi.fn() };
+    await withAiRunScope(scope, () => recordingRunner(inner, 'anthropic').collect(input));
+    expect(scope.lastOutput).toEqual({ head: 'R'.repeat(1000), length: 1200, chunks: 2 });
+  });
+
   it('collect: result 이벤트가 없으면 FAILED(no_result)', async () => {
     const { sink, scope } = make();
     const inner: AgentRunner = { collect: async () => [], stream: vi.fn() };
