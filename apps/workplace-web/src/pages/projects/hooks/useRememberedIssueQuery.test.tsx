@@ -248,6 +248,37 @@ describe('useRememberedIssueQuery', () => {
       expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
     })
 
+    it('지운 뒤 쿼리 파라미터로 여는 패널(?task=, useHistoryParam query 모드)을 열고 닫아도 조건 없는 목록 그대로이고 열림 마크도 남는다', async () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      // 개인 프로젝트 화면의 작업 패널(PersonalTaskPanel)처럼 ?task=<번호> 를 PUSH 로 단다 — 표식은 실제 history 를 읽어 BrowserRouter 로 띄운다.
+      window.history.replaceState(null, '', '/projects/WP?status=BOGUS')
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <AuthContext.Provider value={testAuthValue}>
+          <BrowserRouter>{children}</BrowserRouter>
+        </AuthContext.Provider>
+      )
+      const { result } = renderHook(() => {
+        useRememberedIssueQuery('WP', true)
+        const task = useHistoryParam('task')
+        return { task, location: useLocation(), setParams: useSearchParams()[1] }
+      }, { wrapper })
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('')
+      // 패널 열기 — 목록 조건은 그대로이고 ?task=5 와 열림 마크만 단 PUSH.
+      act(() => result.current.task.open('5'))
+      expect(result.current.location.search).toBe('?task=5')
+      expect(result.current.task.value).toBe('5')
+      // 되살리기 replace 가 열림 마크를 지우면 닫기가 뒤로 가기 대신 다른 길로 빠진다.
+      expect(result.current.location.state).toMatchObject({ 'historyParam:task': expect.any(Number) })
+      // 패널 닫기 — 마크 항목을 되돌리는 POP.
+      act(() => result.current.task.close())
+      await act(settleHistory)
+      expect(result.current.task.value).toBeNull()
+      expect(result.current.location.search).toBe('')
+      expect(window.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
     it('지운 뒤 같은 주소에 표식을 단 PUSH 와 그 항목을 닫는 뒤로(POP)에서도 조건 없는 목록 그대로다', () => {
       localStorage.setItem(keyOf('WP'), 'status=TODO')
       const { result } = renderAt('/projects/WP?status=BOGUS')
@@ -259,6 +290,14 @@ describe('useRememberedIssueQuery', () => {
       act(() => result.current.navigate(-1))
       expect(result.current.location.search).toBe('')
       expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('되살리기 replace 는 들어온 항목의 state(시트·패널 열림 마크 등)를 지우지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      // 열림 마크를 단 채 조건 없는 주소로 들어온 항목 — 되살리기가 state 를 버리면 그 시트의 닫기가 뒤로 가기로 돌아가지 못한다.
+      const { result } = renderAt({ pathname: '/projects/WP', search: '', state: { sheet: '1', 'historyParam:sheet': 1 } })
+      expect(result.current.location.search).toBe('?status=TODO')
+      expect(result.current.location.state).toMatchObject({ sheet: '1', 'historyParam:sheet': 1 })
     })
 
     it('표지가 남은 항목에서 state 를 이어받는 replace(AI 대화 링크 처리기)가 와도 표지를 다시 따르지 않고 기억을 되살린다', () => {
