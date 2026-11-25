@@ -62,6 +62,13 @@ export interface RunnerConfig {
   terminationGraceSeconds: number;
   /** AI Pod 이미지를 받을 때 쓸 pull secret 이름들(이 네임스페이스에 미리 만든 것) — 작업 공간 이미지가 비공개 레지스트리(Docker Hub iacloudops)에 있다. */
   imagePullSecrets: string[];
+  /**
+   * 쿠버네티스 API 를 쓸 수 있게 할 AI 와 그 ServiceAccount(WP-2135) — AI 사용자 id → 이 네임스페이스의 ServiceAccount 이름.
+   * 배포 담당 AI 처럼 클러스터 권한이 필요한 AI 만 여기 적는다. Helm `agent.serviceAccounts` 로만 정해지고 Works 에서는 바꿀 수 없다 —
+   * Works 관리자(또는 Works 가 뚫린 경우)가 임의의 AI 에 클러스터 권한을 붙이지 못하게. 권한(Role·RoleBinding)은 클러스터 운영자가 따로 만든다.
+   * 이름이 아니라 id 로 고른다 — 사용자 이름은 Works 에서 바꿀 수 있어 다른 AI 가 같은 이름을 가져가면 권한도 따라간다.
+   */
+  serviceAccounts: Record<number, string>;
 }
 
 type Env = Record<string, string | undefined>;
@@ -166,6 +173,32 @@ const dindResourcesSchema = z
     error: 'DIND_RESOURCES.requests 에 cpu·memory 가 모두 필요합니다(네임스페이스 쿼터)',
   });
 
+/** 쿠버네티스 이름(DNS-1123 subdomain) — ServiceAccount 이름 검사용. */
+const K8S_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+
+/**
+ * AGENT_SERVICE_ACCOUNTS — {"<AI 사용자 id>": "<ServiceAccount 이름>"}. 키는 양의 정수, 값은 쿠버네티스 이름이어야 한다.
+ * 잘못 적은 값으로 엉뚱한 AI 에 권한이 붙거나 Pod 가 모두 거절되지 않게 시작 때 막는다.
+ */
+const serviceAccountsSchema = z
+  .record(z.string(), z.string({ error: shapeError('AGENT_SERVICE_ACCOUNTS') }), { error: shapeError('AGENT_SERVICE_ACCOUNTS') })
+  .transform((m, ctx) => {
+    const out: Record<number, string> = {};
+    for (const [k, v] of Object.entries(m)) {
+      const name = v.trim();
+      if (!/^[1-9]\d*$/.test(k.trim())) {
+        ctx.addIssue({ code: 'custom', message: `AGENT_SERVICE_ACCOUNTS 의 키는 AI 사용자 id(양의 정수)여야 합니다: ${k}` });
+        return z.NEVER;
+      }
+      if (name.length > 253 || !K8S_NAME.test(name)) {
+        ctx.addIssue({ code: 'custom', message: `AGENT_SERVICE_ACCOUNTS 의 값이 올바른 ServiceAccount 이름이 아닙니다: ${v}` });
+        return z.NEVER;
+      }
+      out[Number(k.trim())] = name;
+    }
+    return out;
+  });
+
 /** WORKS_URL — 끝의 / 를 떼고 http(s) 주소인지 본다. */
 const worksUrlSchema = requiredStr('WORKS_URL')
   .transform((s) => s.replace(/\/+$/, ''))
@@ -233,6 +266,7 @@ const envSchema = z
       DIND_GC_THRESHOLD_PERCENT: intEnv('70', 1, 100, 'DIND_GC_THRESHOLD_PERCENT 는 1~100 의 정수여야 합니다'),
       DIND_RESOURCES: jsonEnv('DIND_RESOURCES', dindResourcesSchema, DEFAULT_DIND_RESOURCES),
       AGENT_IMAGE_PULL_SECRETS: csvEnv,
+      AGENT_SERVICE_ACCOUNTS: jsonEnv('AGENT_SERVICE_ACCOUNTS', serviceAccountsSchema, {}),
     })
     .transform(
       (e): Omit<RunnerConfig, 'runnerToken'> & { tokenFile: string } => ({
@@ -257,6 +291,7 @@ const envSchema = z
         clusterCheckSeconds: e.CLUSTER_CHECK_SECONDS,
         terminationGraceSeconds: e.TERMINATION_GRACE_SECONDS,
         imagePullSecrets: e.AGENT_IMAGE_PULL_SECRETS,
+        serviceAccounts: e.AGENT_SERVICE_ACCOUNTS,
       }),
     );
 

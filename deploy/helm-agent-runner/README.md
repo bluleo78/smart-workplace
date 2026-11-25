@@ -115,10 +115,24 @@ agent:
 
 사내 GitLab 의 CA 는 `openssl s_client -connect gitlab.iacloud.kr:443 -showcerts </dev/null` 로 받은 체인의 루트(자체서명이면 그 인증서)를 씁니다. 바꾼 CA 는 AI 가 다음에 다시 시작할 때부터 쓰입니다.
 
+**클러스터 권한이 필요한 AI(WP-2135)** — 배포 담당 AI 처럼 쿠버네티스 API 를 써야 하는 AI 만 `agent.serviceAccounts` 에
+`{AI 사용자 id: ServiceAccount 이름}` 으로 적습니다. 그 밖의 AI 는 지금처럼 토큰 없이 뜹니다. 이 값은 Works 화면으로 바꿀 수 없어,
+Works 관리자가 임의의 AI 에 클러스터 권한을 붙이지 못합니다. ServiceAccount 와 권한(Role·RoleBinding)은 차트가 만들지 않으니 먼저 만듭니다
+(없는 이름을 적으면 그 AI 의 Pod 가 거절되어 관리자 화면에 `FAILED` 로 보입니다). 토큰은 agent 컨테이너에만 꽂히고
+(`/var/run/secrets/kubernetes.io/serviceaccount`, kubectl 이 그대로 찾는 자리) 특권 dind 등 사이드카에는 들어가지 않습니다.
+다만 토큰 파일은 노드의 kubelet 폴더에 있어, 같은 노드에 뜬 특권 dind(다른 AI 의 것 포함)가 노드 디스크를 마운트하면 읽을 수 있습니다.
+노드 수준 격리가 필요하면 배포 담당 AI 를 별도 위치(네임스페이스·runner, 전용 노드의 nodeSelector·taint)에 둡니다.
+
+```yaml
+agent:
+  serviceAccounts:
+    "115": deploy-bot
+```
+
 ## 업그레이드
 
 `helm upgrade` 는 runner 만 새 버전으로 바꿉니다(Recreate — 잠깐 runner 가 없는 동안에도 AI Pod 는 그대로 돕니다).
-`agent.*` 위치 값을 바꾸면 **새로 뜨는 AI Pod 부터** 적용됩니다. 이미 떠 있는 Pod 에도 반영하려면 관리자 화면에서 AI 를 다시 시작하세요.
+`agent.*` 위치 값을 바꾸면 **새로 뜨는 AI Pod 부터** 적용됩니다(`agent.serviceAccounts` 는 예외 — 바뀐 AI 의 Pod 를 runner 가 바로 다시 만듭니다). 이미 떠 있는 Pod 에도 반영하려면 관리자 화면에서 AI 를 다시 시작하세요.
 
 **위치 GitHub Secret(`github.existingSecret`)을 쓰던 위치를 올릴 때(WP-1268)** — 새 runner 는 위치 Secret 을 Pod 에 넣지 않고
 AI 마다 등록한 저장소 토큰만 넣습니다. **업그레이드 전에** 관리자 화면 AI 상세 › **저장소 연결** 에서 이 위치에서 도는 AI 마다 토큰을

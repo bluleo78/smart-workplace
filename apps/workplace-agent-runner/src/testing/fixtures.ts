@@ -59,6 +59,7 @@ export function runnerConfig(overrides: Partial<RunnerConfig> = {}): RunnerConfi
     clusterCheckSeconds: 30,
     terminationGraceSeconds: 60,
     imagePullSecrets: [],
+    serviceAccounts: {},
     ...overrides,
   };
 }

@@ -65,6 +65,15 @@ export const ANN_REPO_HOSTS = 'genia.works/repo-hosts';
  * 끄면 지워지므로, 다시 시작(generation·모델 연결 교체)해도 같은 노드·같은 작업 폴더를 쓰고, 끄고 켜면 새로 고른다.
  */
 export const ANN_WORK_NODE = 'genia.works/work-node';
+/**
+ * Pod 에 적는 ServiceAccount(WP-2135) — 만들 때 붙인 이름. 설정(`AGENT_SERVICE_ACCOUNTS`)의 것과 다르면(없음 ↔ 값 포함) Pod 를 다시 만든다.
+ * Helm 값만 바뀌면 runner 가 재시작될 뿐 desired generation 은 그대로라, 이 기록이 없으면 떠 있는 Pod 가 옛 권한을 계속 쥔다.
+ */
+export const ANN_SERVICE_ACCOUNT = 'genia.works/service-account';
+/** ServiceAccount 토큰을 꽂는 자리 — kubectl·client 라이브러리의 클러스터 안 설정이 찾는 표준 경로. */
+export const SERVICE_ACCOUNT_MOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
+/** 투영 토큰 수명(초) — kubelet 이 만료 전에 갈아 끼운다. 쿠버네티스 기본 자동 마운트와 같은 1시간. */
+const SERVICE_ACCOUNT_TOKEN_SECONDS = 3600;
 
 /** Secret 데이터 키. */
 export const SECRET_AGENT_KEY = 'agent-key';
@@ -344,6 +353,24 @@ export function buildAgentResources(
       },
     });
   }
+  // 쿠버네티스 API 권한(WP-2135) — 허용 목록에 든 AI 만. 자동 마운트는 끈 채 agent 컨테이너에만 투영 볼륨으로 꽂는다 —
+  // automount 를 켜면 dind·dind-gc·사이드카에도 토큰이 들어가 특권 dind 를 통해서도 권한이 새어 나간다.
+  // (토큰 파일은 노드의 kubelet 폴더에도 있어 같은 노드의 다른 특권 dind 까지 막지는 못한다 — 노드 격리는 위치·노드 배치의 몫.)
+  // 토큰·CA·네임스페이스는 kubectl 의 클러스터 안 설정이 읽는 표준 경로·파일 이름 그대로 둔다.
+  const serviceAccount = cfg.serviceAccounts[id];
+  if (serviceAccount) {
+    volumeMounts.push({ name: 'service-account', mountPath: SERVICE_ACCOUNT_MOUNT, readOnly: true });
+    volumes.push({
+      name: 'service-account',
+      projected: {
+        sources: [
+          { serviceAccountToken: { path: 'token', expirationSeconds: SERVICE_ACCOUNT_TOKEN_SECONDS } },
+          { configMap: { name: 'kube-root-ca.crt', items: [{ key: 'ca.crt', path: 'ca.crt' }] } },
+          { downwardAPI: { items: [{ path: 'namespace', fieldRef: { fieldPath: 'metadata.namespace' } }] } },
+        ],
+      },
+    });
+  }
   // 추가 CA(WP-1276) — 위치에 둔 ConfigMap 의 ca.crt 를 폴더째 꽂는다. 이미지가 시스템 CA 와 합친다(계약 문서 「추가 CA」).
   if (cfg.caConfigMap) {
     volumeMounts.push({ name: 'ca-bundle', mountPath: '/run/genia/ca', readOnly: true });
@@ -367,6 +394,7 @@ export function buildAgentResources(
     ...(claudeVersion ? { [ANN_CLAUDE_VERSION]: claudeVersion } : {}),
     ...(loginVersion ? { [ANN_LOGIN_VERSION]: loginVersion } : {}),
     ...(repos.version ? { [ANN_REPOS_VERSION]: repos.version } : {}),
+    ...(serviceAccount ? { [ANN_SERVICE_ACCOUNT]: serviceAccount } : {}),
   };
 
   const pod: V1Pod = {
@@ -381,7 +409,9 @@ export function buildAgentResources(
     spec: {
       restartPolicy: 'Always',
       terminationGracePeriodSeconds: cfg.terminationGraceSeconds,
-      // AI 는 쿠버네티스 API 를 쓸 일이 없다 — 네임스페이스 기본 서비스 계정 토큰을 Pod 에 넣지 않는다(실측: 기본값이면 마운트된다).
+      // 대부분의 AI 는 쿠버네티스 API 를 쓸 일이 없다 — 토큰을 자동으로 넣지 않는다(실측: 기본값이면 마운트된다).
+      // 허용 목록(AGENT_SERVICE_ACCOUNTS)에 든 AI 만 그 ServiceAccount 로 돌고, 토큰은 위에서 agent 컨테이너에만 꽂는다(WP-2135).
+      ...(serviceAccount ? { serviceAccountName: serviceAccount } : {}),
       automountServiceAccountToken: false,
       ...(cfg.imagePullSecrets.length ? { imagePullSecrets: cfg.imagePullSecrets.map((name) => ({ name })) } : {}),
       // Pod 수준에는 fsGroup 만 — runAsNonRoot 를 여기 두면 root 로 도는 특권 dind 가 막힌다

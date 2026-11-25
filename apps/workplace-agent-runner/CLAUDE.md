@@ -59,6 +59,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 - 관찰 보고의 `failedGeneration`(WP-2019)은 runner 실패 기록(`failures`)이 있을 때 그 실패가 일어난 desired generation(없으면 null) — 옛 Pod 가 떠 있어 `observedGeneration` 이 옛 것이어도 Works 가 새 설정 자체의 실패를 알아보게 한다. 미뤄 둔 generation(떠 있는 Pod ≠ desired·applyNow=false, 끝난·지워지는 중인 Pod 제외 — `isGenerationPending`)의 실패면 종류와 무관하게 null. `observedGeneration` 계산은 그대로.
 - 클러스터가 apply·delete 를 거절하면(400·403·422 — 쿼터·PodSecurity·검증) 그 AI 를 FAILED(사유 한 줄)로 보고하고 30초 뒤 다시 본다.
   404·409·429·5xx·네트워크 오류는 일시 오류로 5초 재시도. 지우는 중인 Pod·PVC 가 사라지기만 기다리는 회차는 15초. desired 에서 빠진 AI 의 거절은 로그로만 남긴다(관찰 보고가 STOPPING/STOPPED 라).
+- 클러스터 권한(WP-2135): `AGENT_SERVICE_ACCOUNTS`(Helm `agent.serviceAccounts`, `{AI 사용자 id: ServiceAccount}`)에 든 AI 만 `serviceAccountName` 을 붙이고, `automountServiceAccountToken: false` 는 둔 채 투영 토큰을 agent 컨테이너에만 `/var/run/secrets/kubernetes.io/serviceaccount` 로 꽂는다(dind 등 사이드카에는 없음 — 같은 노드의 특권 dind 가 노드 디스크로 읽는 것까지는 막지 못한다, 노드 격리는 위치·노드로). Pod 어노테이션 `genia.works/service-account` 가 설정과 다르면 미뤄 둔 generation 과 무관하게 바로 Pod 를 다시 만든다(권한 회수가 늦지 않게). ServiceAccount·RBAC 는 만들지 않는다.
 - 모든 컨테이너에 requests 를 둔다(네임스페이스 쿼터 승인) — agent 는 템플릿 값(없으면 limit, 그것도 없으면 cpu 1·memory 2Gi), dind 는 `DIND_RESOURCES`,
   그 밖의 사이드카는 cpu 100m·memory 128Mi. 계약 문서 「자원」.
 - desired 에서 빠짐 → Pod·PVC·Secret 삭제. ConfigMap 은 Pod 가 사라지고 STOPPED 보고가 받아들여진 뒤 마지막에 지운다 — 남아 있으면
@@ -74,7 +75,7 @@ AI 마다 Pod·Secret·ConfigMap(pvc 방식이면 PVC 도)을 맞추고, 본 상
 
 `WORKS_URL`, `RUNNER_TOKEN_FILE`, `NAMESPACE`, `ALLOWED_IMAGE_PREFIXES`(쉼표), `AGENT_NODE_SELECTOR`·`AGENT_TOLERATIONS`·`AGENT_HOST_ALIASES`(JSON),
 `AGENT_WORK_DISK_TYPE`(hostPath·pvc, 기본 hostPath), `AGENT_WORK_HOST_PATH`(기본 /var/lib/genia-agents), `AGENT_STORAGE_CLASS`(pvc 만), `AGENT_CA_CONFIGMAP`(추가 CA ConfigMap — 키 `ca.crt` 를 AI Pod `/run/genia/ca` 에 꽂는다, WP-1276), `DIND_STORAGE_LIMIT`(기본 20Gi, 쿠버네티스 수량), `DIND_GC_THRESHOLD_PERCENT`(기본 70 — 사용량이 상한의 이 비율을 넘으면 AI Pod 의 dind-gc 가 정리, WP-1581), `DIND_RESOURCES`(JSON, 기본 requests 250m/512Mi·limits 2/4Gi),
-`AGENT_IMAGE_PULL_SECRETS`(쉼표), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다), `CLUSTER_CHECK_SECONDS`(5~300, 기본 30 — 클러스터 다시 보기 간격, 차트는 넣지 않는다), `QUOTA_NAME`(선택 — 차트가 `quota.enabled` 일 때 넣는다. 이 ResourceQuota 의 남은 여유(hard − used)와 떠 있는 AI 수·`pods` 상한으로 띄울 수 있는 AI 수를 계산해 관찰 보고 첫 묶음의 `quota` 로 싣는다. 없으면 `capacity: null` 을 보내 화면의 묵은 경고를 지운다; runner 의 Role 에 `resourcequotas` get 권한이 필요하다).
+`AGENT_IMAGE_PULL_SECRETS`(쉼표), `AGENT_SERVICE_ACCOUNTS`(JSON `{"<AI id>":"<ServiceAccount>"}`, 기본 `{}` — 클러스터 권한 허용 목록, WP-2135), `SCREEN_ALLOW_INPUT`(true·false, 기본 false — 작업 화면 입력 허용, WP-1277), `TERMINATION_GRACE_SECONDS`(기본 60), `HEALTH_PORT`(기본 8080 — 차트는 넣지 않는다), `CLUSTER_CHECK_SECONDS`(5~300, 기본 30 — 클러스터 다시 보기 간격, 차트는 넣지 않는다), `QUOTA_NAME`(선택 — 차트가 `quota.enabled` 일 때 넣는다. 이 ResourceQuota 의 남은 여유(hard − used)와 떠 있는 AI 수·`pods` 상한으로 띄울 수 있는 AI 수를 계산해 관찰 보고 첫 묶음의 `quota` 로 싣는다. 없으면 `capacity: null` 을 보내 화면의 묵은 경고를 지운다; runner 의 Role 에 `resourcequotas` get 권한이 필요하다).
 
 로컬 실행은 `pnpm --filter @smart-workplace/workplace-agent-runner start:local`(KUBECONFIG·env 필요). `dev` 스크립트는 일부러 없다 —
 루트 `pnpm dev` 가 클러스터를 만지는 runner 를 띄우지 않게.

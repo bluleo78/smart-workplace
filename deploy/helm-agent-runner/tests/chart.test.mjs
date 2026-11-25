@@ -243,3 +243,11 @@ test('runnerContainerIsHardened', () => {
   }
   assert.match(dep, /image: "docker\.io\/iacloudops\/genia-works-agent-runner:9\.9\.9"/);
 });
+
+// ServiceAccount 허용 목록(WP-2135) — 기본은 빈 표, 값을 주면 JSON 그대로 runner env 로 넘긴다
+test('passesAgentServiceAccountsAsJsonEnv', () => {
+  assert.deepEqual(JSON.parse(JSON.parse(envValue(BASE.out, 'AGENT_SERVICE_ACCOUNTS'))), {});
+  const r = render({ json: { 'agent.serviceAccounts': { 115: 'deploy-bot' } } });
+  assert.ok(r.ok, r.err);
+  assert.deepEqual(JSON.parse(JSON.parse(envValue(r.out, 'AGENT_SERVICE_ACCOUNTS'))), { 115: 'deploy-bot' });
+});
