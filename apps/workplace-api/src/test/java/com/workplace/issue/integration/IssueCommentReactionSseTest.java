@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -22,6 +23,7 @@ import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -91,18 +93,22 @@ class IssueCommentReactionSseTest extends ExternalClientMockedTestBase {
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    // WP-2117: 공유 mock registry 에 다른 테스트의 늦은 fan-out 이 섞일 수 있어, payload 를 이 테스트의 commentId 로 좁힌
+    // 호출만 잡는다. 매처가 payload 항목 단언을 겸하고, 수신자는 captor 로 받아 containsExactly 로 본다.
     verify(registry, timeout(2000))
-        .fanOut(ids.capture(), eq("issue.comment_reactions_changed"), payload.capture());
+        .fanOut(
+            ids.capture(),
+            eq("issue.comment_reactions_changed"),
+            argThat(
+                (Map<String, Object> p) ->
+                    p != null
+                        && Objects.equals(commentId, p.get("commentId"))
+                        && Objects.equals(s.projectKey(), p.get("projectKey"))
+                        && Objects.equals(s.issueNumber(), p.get("issueNumber"))
+                        && Objects.equals(s.issueId(), p.get("issueId"))
+                        && Objects.equals(s.projectKey() + "-" + s.issueNumber(), p.get("issueKey"))
+                        && Objects.equals(s.memberId(), p.get("actorId"))));
     assertThat(ids.getValue()).containsExactly(s.ownerId());
-    assertThat(payload.getValue())
-        .containsEntry("projectKey", s.projectKey())
-        .containsEntry("issueNumber", s.issueNumber())
-        .containsEntry("issueId", s.issueId())
-        .containsEntry("issueKey", s.projectKey() + "-" + s.issueNumber())
-        .containsEntry("commentId", commentId)
-        .containsEntry("actorId", s.memberId());
 
     // 커밋 뒤에도 반응자는 watcher 가 아니고, 코멘트 작성자에게 알림이 생기지 않는다.
     assertThat(watcherRepository.findUserIdsByIssue(s.issueId())).containsExactly(s.ownerId());
@@ -115,19 +121,26 @@ class IssueCommentReactionSseTest extends ExternalClientMockedTestBase {
   @Test
   void removal_fans_out_same_event() {
     reactionService.add(s.memberId(), s.issueId(), commentId, "🎉");
+    // WP-2117: 준비 단계도 이 코멘트의 add 이벤트만 기다린다 — 다른 테스트의 늦은 이벤트로 일찍 깨어나면
+    // 이 add 이벤트가 reset 뒤에 와서 아래 취소 검증에 섞인다.
     verify(registry, timeout(2000))
         .fanOut(
             org.mockito.ArgumentMatchers.any(),
             eq("issue.comment_reactions_changed"),
-            org.mockito.ArgumentMatchers.any());
+            argThat(
+                (Map<String, Object> p) ->
+                    p != null && Objects.equals(commentId, p.get("commentId"))));
     org.mockito.Mockito.reset(registry);
 
     reactionService.remove(s.memberId(), s.issueId(), commentId, "🎉");
 
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    // WP-2117: commentId 로 좁힌 호출만 본다(다른 테스트의 늦은 fan-out 제외). 매처가 commentId 단언을 겸한다.
     verify(registry, timeout(2000))
-        .fanOut(eq(List.of(s.ownerId())), eq("issue.comment_reactions_changed"), payload.capture());
-    assertThat(payload.getValue()).containsEntry("commentId", commentId);
+        .fanOut(
+            eq(List.of(s.ownerId())),
+            eq("issue.comment_reactions_changed"),
+            argThat(
+                (Map<String, Object> p) ->
+                    p != null && Objects.equals(commentId, p.get("commentId"))));
   }
 }

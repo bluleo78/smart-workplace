@@ -2,6 +2,7 @@ package com.workplace.chat.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -23,6 +24,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -85,13 +87,19 @@ class ChatProgressIntegrationTest extends ExternalClientMockedTestBase {
     // then: chat.message.progress 가 thread 전 멤버에게 fan-out 되고, payload 에 streamId/threadId 포함.
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    // WP-2117: 공유 mock registry 에 다른 테스트의 늦은 fan-out 이 섞일 수 있어,
+    // payload 를 이 테스트의 streamId·threadId 로 좁힌 호출만 잡는다(안 좁히면 getValue() 가 엉뚱한 호출을 집는다).
+    // 매처가 payload 의 streamId/threadId 단언을 겸한다.
     verify(registry, timeout(2000))
-        .fanOut(ids.capture(), eq("chat.message.progress"), payload.capture());
+        .fanOut(
+            ids.capture(),
+            eq("chat.message.progress"),
+            argThat(
+                (Map<String, Object> p) ->
+                    p != null
+                        && "s1".equals(p.get("streamId"))
+                        && Objects.equals(threadId, p.get("threadId"))));
     assertThat(ids.getValue()).contains(reporterId);
-    assertThat(payload.getValue()).containsEntry("streamId", "s1");
-    assertThat(payload.getValue()).containsEntry("threadId", threadId);
   }
 
   @Test
@@ -117,7 +125,12 @@ class ChatProgressIntegrationTest extends ExternalClientMockedTestBase {
         .andExpect(status().isForbidden())
         // 멤버십·필터가 아니라 내부 호출 확인에서 막혔다
         .andExpect(jsonPath("$.message").value(AiProgressRequest.INTERNAL_ONLY_MESSAGE));
-    verify(registry, never()).fanOut(any(), eq("chat.message.progress"), any());
+    // WP-2117: 다른 테스트의 progress fan-out 에 거짓으로 깨지지 않게, 이 테스트가 보낸 가짜 streamId 만 본다.
+    verify(registry, never())
+        .fanOut(
+            any(),
+            eq("chat.message.progress"),
+            argThat((Map<String, Object> p) -> p != null && "fake-c3".equals(p.get("streamId"))));
   }
 
   @Test
