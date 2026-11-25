@@ -390,7 +390,8 @@ class IssueImportHistoryTest extends IssueImportTestSupport {
             false,
             null,
             false,
-            null,
+            // WP-2113: 제목 변경은 version 을 싣는다 — 이전 변경들(담당자·라벨·유형)은 version 을 올리지 않으므로 아직 1.
+            created.version(),
             null,
             null));
 

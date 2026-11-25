@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.NBSP;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -137,7 +138,11 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     var created = issueService.create(ownerId, projectKey, createReq("처음"));
     long png = seedStaged(ownerId, "edit.png", PNG, "image/png", PNG.length);
 
-    issueService.update(ownerId, projectKey, created.number(), bodyOnly("![](file:" + png + ")"));
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        bodyOnly("![](file:" + png + ")", created.version()));
 
     assertThat(bodyOf(created.id())).isEqualTo("![](" + imageUrl(png) + ")");
     assertThat(boundIssueOf(png)).isEqualTo(created.id());
@@ -342,7 +347,11 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     var created = issueService.create(ownerId, projectKey, createReq("처음"));
     long doc = seedStaged(ownerId, "a_b*c.txt", "x".getBytes(), "text/plain", 1);
 
-    issueService.update(ownerId, projectKey, created.number(), bodyOnly("[f](file:" + doc + ")"));
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        bodyOnly("[f](file:" + doc + ")", created.version()));
 
     // 이름의 마크다운 특수 문자는 이스케이프해 굵게가 깨지지 않게 한다.
     assertThat(bodyOf(created.id())).isEqualTo("**a\\_b\\*c.txt** (첨부 파일)");
@@ -452,7 +461,10 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
                 nested.executeWithoutResult(
                     st ->
                         issueService.update(
-                            ownerId, projectKey, created.number(), bodyOnly("![](file:1)"))))
+                            ownerId,
+                            projectKey,
+                            created.number(),
+                            bodyOnly("![](file:1)", created.version()))))
         .isInstanceOf(IssueBodyImageRejectedException.class);
     assertThat(bodyOf(created.id())).isEqualTo("그대로");
   }
@@ -489,7 +501,7 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        bodyWithFiles("시안 ![시안](file:" + img + ")", List.of(img)));
+        bodyWithFiles("시안 ![시안](file:" + img + ")", List.of(img), created.version()));
 
     assertThat(bodyOf(created.id())).contains("/issue-images/").doesNotContain("file:");
     assertThat(dsl.fetchCount(ISSUE_BODY_IMAGE, ISSUE_BODY_IMAGE.FILE_ID.eq(img))).isEqualTo(1);
@@ -507,7 +519,7 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        bodyWithFiles("[x](file:" + doc + ")", List.of(other, doc)));
+        bodyWithFiles("[x](file:" + doc + ")", List.of(other, doc), created.version()));
 
     assertThat(attachmentService.listByIssueId(created.id()))
         .extracting("fileId")
@@ -520,15 +532,20 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     var created = issueService.create(ownerId, projectKey, createReq("처음"));
     long doc = seedStaged(ownerId, "nb.txt", "hello".getBytes(), "text/plain", 5);
 
+    // WP-1780 경계는 펜스 뒤가 아니라 공백 문자 그 자체 — NBSP(U+00A0)를 통상 공백(0x20)으로 두면 이 회귀 테스트가 사라진다.
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        bodyWithFiles("```\n코드\n``` \n[x](file:" + doc + ")", List.of(doc)));
+        bodyWithFiles(
+            "```\n코드\n```" + NBSP + "\n[x](file:" + doc + ")", List.of(doc), created.version()));
 
     assertThat(attachmentService.listByIssueId(created.id()))
         .extracting("fileId")
         .containsExactly(doc);
+    // NBSP 는 Java 공백이 아니어서 닫는 펜스가 못 된다 — 그 뒤 자리표시는 코드 예시로 두고 건드리지 않는다(파서 계약).
+    // 통상 공백(0x20)이면 펜스가 닫혀 자리표시가 실제로 바뀌므로, 이 단언이 NBSP 경계 자체를 고정한다.
+    assertThat(bodyOf(created.id())).contains("[x](file:" + doc + ")");
   }
 
   /** WP-1780 본문 없이 fileIds 만 주면 본문은 그대로, 첨부만 붙는다. */
@@ -537,7 +554,8 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     var created = issueService.create(ownerId, projectKey, createReq("처음"));
     long doc = seedStaged(ownerId, "only.txt", "hello".getBytes(), "text/plain", 5);
 
-    issueService.update(ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc)));
+    issueService.update(
+        ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc), null));
 
     assertThat(bodyOf(created.id())).isEqualTo("처음");
     assertThat(attachmentService.listByIssueId(created.id()))
@@ -560,7 +578,7 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
                             ownerId,
                             projectKey,
                             created.number(),
-                            bodyWithFiles("새 본문", List.of(theirs)))))
+                            bodyWithFiles("새 본문", List.of(theirs), created.version()))))
         .isInstanceOf(StagedFileUnusableException.class);
     assertThat(bodyOf(created.id())).isEqualTo("그대로");
   }
@@ -574,7 +592,7 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
 
     var res =
         issueService.update(
-            ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc)));
+            ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc), null));
 
     assertThat(issueRepository.findById(created.id()).orElseThrow().version())
         .isEqualTo(versionBefore);
@@ -628,7 +646,8 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
 
     AgentToolContext.set("test-tool");
     try {
-      issueService.update(ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc)));
+      issueService.update(
+          ownerId, projectKey, created.number(), bodyWithFiles(null, List.of(doc), null));
       assertThat(events.stream(AgentToolWriteEvent.class).count()).isEqualTo(1);
       events.clear();
 
@@ -669,7 +688,8 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     long mine = seedStaged(reporter, "rep.txt", "hello".getBytes(), "text/plain", 5);
     long theirs = seedStaged(stranger, "str.txt", "hello".getBytes(), "text/plain", 5);
 
-    issueService.update(reporter, open.key(), created.number(), bodyWithFiles(null, List.of(mine)));
+    issueService.update(
+        reporter, open.key(), created.number(), bodyWithFiles(null, List.of(mine), null));
     assertThat(attachmentService.listByIssueId(created.id()))
         .extracting("fileId")
         .containsExactly(mine);
@@ -677,7 +697,10 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 issueService.update(
-                    stranger, open.key(), created.number(), bodyWithFiles(null, List.of(theirs))))
+                    stranger,
+                    open.key(),
+                    created.number(),
+                    bodyWithFiles(null, List.of(theirs), null)))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
@@ -792,16 +815,19 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
         null, null);
   }
 
-  /** 본문만 바꾸는 PATCH (version null → 충돌 검사 생략). */
-  private UpdateIssueRequest bodyOnly(String body) {
+  /** 본문만 바꾸는 PATCH — WP-2113 에 따라 version 을 함께 싣는다(이 테스트는 자리표시·첨부 동작만 본다). */
+  private UpdateIssueRequest bodyOnly(String body, Integer version) {
     return new UpdateIssueRequest(
-        null, body, null, null, null, null, null, null, null, null, null, null, null);
+        null, body, null, null, null, null, null, null, null, null, version, null, null);
   }
 
-  /** WP-1780 본문·fileIds 를 함께(또는 fileIds 만) 보내는 PATCH. */
-  private UpdateIssueRequest bodyWithFiles(String body, List<Long> fileIds) {
+  /**
+   * WP-1780 본문·fileIds 를 함께(또는 fileIds 만) 보내는 PATCH. 본문이 있으면 WP-2113 에 따라 version 필수, fileIds 만이면
+   * 첨부 전용이라 null 이어도 된다.
+   */
+  private UpdateIssueRequest bodyWithFiles(String body, List<Long> fileIds, Integer version) {
     return new UpdateIssueRequest(
-        null, body, null, null, null, null, null, null, null, null, null, null, null, fileIds);
+        null, body, null, null, null, null, null, null, null, null, version, null, null, fileIds);
   }
 
   private String tokenFor(long userId) {

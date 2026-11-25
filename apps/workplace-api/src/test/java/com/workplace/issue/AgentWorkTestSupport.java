@@ -35,6 +35,7 @@ import com.workplace.support.IntegrationTestBase;
 import java.net.http.HttpClient;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -269,9 +270,25 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     return "/api/v1/projects/" + projectKey + "/issues/" + issueNumber;
   }
 
-  /** 이슈 부분 수정 PATCH. */
+  /**
+   * 이슈 부분 수정 PATCH. WP-2113: 제목·본문이 담긴 요청에는 매 시점의 실제 version 을 자동으로 실어 보낸다 — 이 테스트군은 낙관적 충돌 검사가 아니라
+   * AI 작업 터치 동작을 보러 쓰므로, 글 변경 PATCH 가 409 로 걸리지 않게 실제 클라이언트처럼 version 을 붙인다.
+   */
   protected ResponseEntity<String> patch(String token, Map<String, ?> body, String tool) {
-    return call(HttpMethod.PATCH, issuePath(), token, body, tool);
+    Map<String, Object> payload = new HashMap<>(body);
+    boolean textWrite = payload.containsKey("title") || payload.containsKey("body");
+    if (textWrite && !payload.containsKey("version")) {
+      payload.put("version", currentIssueVersion());
+    }
+    return call(HttpMethod.PATCH, issuePath(), token, payload, tool);
+  }
+
+  /** 현재 이슈의 version — WP-2113 글 변경 PATCH 에 실을 낙관 토큰(요청 직전 DB 값). */
+  private int currentIssueVersion() {
+    return dsl.select(ISSUE.VERSION)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(issueId))
+        .fetchOne(ISSUE.VERSION);
   }
 
   /** 이슈 상세 GET. */

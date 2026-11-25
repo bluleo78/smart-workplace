@@ -18,6 +18,7 @@ import { IssueChatButton } from '../components/chat/IssueChatButton';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssueMobilePropertyChips, type MobilePropField } from '../components/mobile/IssueMobilePropertyChips';
+import { useVersionedPatch } from '../hooks/useVersionedPatch';
 import { PersonalTaskDeleteAction } from './PersonalTaskDeleteAction';
 import { usePersonalTask } from './usePersonalTask';
 import { usePersonalTaskChatJump } from './usePersonalTaskChatJump';
@@ -53,6 +54,9 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
   const project = useProject(projectKey);
   // 제목 편집 중이면 하단 줄이 [취소·저장] 바로 바뀐다(모바일 제목은 blur 저장이 없다 — WP-196 R5).
   const [titleControls, setTitleControls] = useState<EditBarControls | null>(null);
+  // WP-2113: 제목 저장에 편집을 시작한 순간의 version 을 싣는다(데스크톱 상세·패널과 같은 공용 훅) — 저장 시점 캐시로 싣거나
+  // version 없이 싣면 남이 먼저 바꾼 제목을 모른 채 덮어쓰고, version 없는 글 변경을 막는 서버 규칙(409)에 걸린다.
+  const { patch, beginEdit, baseVersion } = useVersionedPatch<'title'>(update, data?.summary.version);
   // 채팅 입력줄 포털 대상(R11) — ref 콜백으로 받아 상태로 둔다(마운트 뒤 IssueChatSection 이 이 요소로 포털).
   const [chatFooterEl, setChatFooterEl] = useState<HTMLDivElement | null>(null);
   const title = data?.summary.title ?? '작업';
@@ -111,7 +115,10 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
             <InlineEditableTitle
               title={title}
               disabled={!data || update.isPending}
-              onSave={(t) => update.mutate({ title: t })}
+              onSave={(t) => patch({ title: t, version: baseVersion('title') })}
+              // 편집 진입(onEditStart)에 기준 version 고정 — onEditingChange 에 넣으면 인라인 콜백이 편집 바 훅의 effect dep 가 되어
+              // setState→재렌더가 무한히 돌고, 데스크톱 상세(IssueDetailPage)도 같은 onEditStart 경로를 쓴다.
+              onEditStart={() => beginEdit('title')}
               commitOnBlur={false}
               onEditingChange={setTitleControls}
             />
@@ -135,7 +142,9 @@ function PersonalTaskMobileContent({ projectKey, number, onClose }: { projectKey
                 // 개인 작업은 소유자만 보므로 편집 가능(데스크톱 패널도 update.isPending 만으로 막는다).
                 canEditWorkflow
                 updatePending={update.isPending}
-                onPatch={(c) => update.mutate(c)}
+                // WP-2113: 칩(상태·마감 등)도 patch 경로로 — update.mutate 는 편집 기준 version 을 올리지 않아
+                // 이어서 제목을 저장하면 자기 충돌 409("다른 사용자가 먼저…")가 났다.
+                onPatch={(c) => void patch(c)}
                 fields={PERSONAL_FIELDS}
               />
               {/* AI 진행(WP-1372) — 팀 이슈와 같은 카드(모바일 세로 배치). 「답변 필요」 배지는 채팅 칸으로 이동한다. */}

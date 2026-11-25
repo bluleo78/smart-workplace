@@ -203,9 +203,10 @@ function PersonalTaskDetail({
   // 작업을 못 찾으면(404) 서랍을 열 수 없어 chat 을 지운다 — 같은 화면에서 다음에 여는 작업에 chat=1 이 묻어가지 않게.
   const chat = useIssueChatDrawerParam({ unmarkedClose: 'replace', clearWhen: !!q.error });
 
-  // #611 메모는 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 쓰는 사이 AI 가 메모를 바꿨다면 덮어쓰지 않고 409 로 알린다(팀 이슈 본문과 같은 공용 훅).
-  const { patch, beginEdit, baseVersion } = useVersionedPatch<'body'>(update, data?.summary.version);
-  /** 결과를 기다리지 않는 필드 저장(상태·우선순위·마감·제목). */
+  // #611·WP-2113: 메모·제목 모두 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 쓰는 사이 다른 곳에서 갱신되면
+  // 그새 올라간 version 을 싣고 남이 고친 내용을 덮어쓰지 않게(409 로 알린다). 팀 이슈 상세와 같은 공용 훅.
+  const { patch, beginEdit, baseVersion } = useVersionedPatch<'title' | 'body'>(update, data?.summary.version);
+  /** 결과를 기다리지 않는 필드 저장(상태·우선순위·마감) — 제목은 409 시 입력을 보존해야 해 patch 만 쓴다(WP-2113). */
   const save = (changes: UpdateIssueRequest) => { void patch(changes); };
 
   return (
@@ -218,7 +219,11 @@ function PersonalTaskDetail({
           <InlineEditableTitle
             title={data?.summary.title ?? '작업'}
             disabled={!data || update.isPending}
-            onSave={(t) => save({ title: t })}
+            // 편집 진입 시 1회 — 인라인 onEditingChange 는 무한 루프를 일으키므로 쓰지 않는다(#611).
+            onEditStart={() => beginEdit('title')}
+            // WP-2113: save 는 void 를 돌려 409 시 입력한 제목이 사라졌다 — patch 는 성공 여부를 돌리므로
+            // false 면 InlineEditableTitle 이 편집을 다시 열어 입력을 보존한다(모바일·팀 상세와 같은 경로).
+            onSave={(t) => patch({ title: t, version: baseVersion('title') })}
           />
         </div>
         {/* 채팅 버튼 — 팀 이슈 헤더와 같은 버튼·읽지 않은 수. 오른쪽 채팅 서랍을 연다(열려 있으면 읽는 중으로 보고 0). */}

@@ -39,6 +39,7 @@ import com.workplace.issue.exception.InvalidStatusForProjectException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.IssueTextWriteRequiresVersionException;
 import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.RequestedStatusNotFoundException;
@@ -1106,6 +1107,14 @@ public class IssueService {
             ? bodyImageService.resolveStagedPlaceholders(project, callerId, req.body())
             : null;
     String newBody = resolvedBody != null ? resolvedBody.body() : before.body();
+    // WP-2113: version 없는 글 필드(제목·본문) 변경은 값이 실제로 바뀔 때만 막는다 — 에코(같은 값 재전송)는
+    // 아무것도 지우지 못하므로 통과시키고, 남이 저장한 글을 알림 없이 덮는 경우만 409 로 막는다.
+    // 단일 값 필드(상태·우선순위 등)의 version 없는 변경은 위 #611 주석대로 그대로 둔다.
+    boolean titleChanged = req.title() != null && !newTitle.equals(before.title());
+    boolean bodyChanged = req.body() != null && !newBody.equals(before.body());
+    if (req.version() == null && (titleChanged || bodyChanged)) {
+      throw new IssueTextWriteRequiresVersionException(project.key() + "-" + number);
+    }
     // WP-807 상태 — statusId 우선, 범주만 오면 이미 그 범주면 유지·아니면 범주 기본 상태. 이하 종료 시각·에픽 차단·AI 작업 종료는 범주로 판정한다.
     ResolvedStatus resolved =
         resolveStatus(project, req.statusId(), requestedStatus, req.status(), before);

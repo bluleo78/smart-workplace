@@ -386,6 +386,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (fileIds?.length) content.fileIds = fileIds;
         if (Object.keys(content).length > 0) {
           await run('content', async () => {
+            // WP-2113: 서버는 version 없는 제목·본문 변경을 409 로 막는다 — 내용(글 필드)을 고칠 때만
+            // 쓰기 전에 상세를 읽어 지금 version 을 실어 보낸다. 조회에 실패하면 밖으로 던져 run() 이
+            // results.content 실패로 남긴다(도구 호출 전체는 죽지 않는다) — 읽지 않고 보낼 때보다 못하지 않다.
+            // 읽은 뒤 남이 고치면 서버 409 가 같은 실패로 흘러 AI 가 재시도한다.
+            if (content.title !== undefined || content.body !== undefined) {
+              const detail = (await client.getIssueDetail(issueKey)) as { summary?: { version?: number } } | null;
+              const v = detail?.summary?.version;
+              if (typeof v === 'number') content.version = v;
+            }
             // WP-1523: 내용 PATCH 응답(상세)에 서버가 실은 화면 주소를 결과에 옮긴다. 내용을 고치지 않은 호출에는 없다.
             const updated = (await client.updateIssueContent(issueKey, content)) as { url?: unknown } | null | undefined;
             if (typeof updated?.url === 'string' && updated.url) url = updated.url;

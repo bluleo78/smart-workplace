@@ -458,6 +458,46 @@ describe('buildSharedIssueTools', () => {
     expect(JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: 'x' })))).not.toHaveProperty('url');
   });
 
+  // WP-2113: 제목·본문을 바꾸면 쓰기 전에 상세를 읽어 version 을 실어 보낸다 — 서버가 version 없는 글 필드 변경을 막는다.
+  it('update_issue content with title reads detail and sends version', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { version: 7 } });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', title: '새 제목' });
+    expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ title: '새 제목', version: 7 }));
+  });
+
+  // WP-2113: 본문만 바꾸는 단독 요청도 쓰기 전에 상세를 읽어 version 을 실어 보낸다 — 제목이 없어도 서버 409 에 걸리지 않게.
+  it('update_issue content with body reads detail and sends version', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { version: 7 } });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', body: '새 본문' });
+    expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ body: '새 본문', version: 7 }));
+  });
+
+  // WP-2113: 제목·본문 없는 내용 PATCH(상태·우선순위만)는 조회를 하지 않는다 — 불필요한 GET 을 늘리지 않는다.
+  it('update_issue statusOnly makes no detail read', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', status: 'IN_PROGRESS' });
+    expect(c.getIssueDetail).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.not.objectContaining({ version: expect.any(Number) }));
+  });
+
+  // WP-2113: 상세 조회에 실패하면 내용 쓰기는 실패로 흘러 도구 결과에 남는다 — 예외로 호출 전체가 죽지 않는다.
+  it('update_issue detail fetch failure fails content only', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockRejectedValue(new Error('네트워크 오류'));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '새 제목' })));
+    expect(out.ok).toBe(false);
+    expect(String(out.results.content)).toMatch(/^failed/);
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+  });
+
   it('WP-356: create_issue 는 모르는 마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;

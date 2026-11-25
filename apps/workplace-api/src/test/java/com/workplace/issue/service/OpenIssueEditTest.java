@@ -46,7 +46,8 @@ class OpenIssueEditTest extends IntegrationTestBase {
     var s = openScenario();
     var titleReq =
         new UpdateIssueRequest(
-            "제목수정", null, null, null, null, false, null, false, null, false, null, null, null);
+            // WP-2113: 제목 변경은 version 을 싣는다 — 새 이슈라 version 1.
+            "제목수정", null, null, null, null, false, null, false, null, false, 1, null, null);
     var updated = issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), titleReq);
     assertThat(updated.summary().title()).isEqualTo("제목수정");
   }
