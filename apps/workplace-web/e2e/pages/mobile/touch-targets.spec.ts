@@ -39,6 +39,8 @@ test('홈 — 메일 분류 안내의 「닫기」·「켜기」와 위젯 머�
   await expectTouchTarget(cta.getByRole('link', { name: '켜기' }))
   // 보이는 아이콘 크기는 그대로(14px) — 눌림 영역만 넓힌다.
   expect(Math.round((await cta.getByRole('button', { name: '닫기' }).boundingBox())!.height)).toBeLessThan(20)
+  // 고정 탭바 아래로 내려온 링크는 스크롤해야 눌린다 — 터치 대상 검증은 대상 자체를 위한 것이지 스크롤 위치가 아니다(WP-2076).
+  await page.getByRole('link', { name: /내 작업/ }).first().scrollIntoViewIfNeeded()
   await expectTouchTarget(page.getByRole('link', { name: /내 작업/ }).first())
 })
 

@@ -24,6 +24,17 @@ const BUCKET_LABEL: Record<MyTaskBucket, string> = {
   watched: '구독 최근 변동',
 }
 
+// WP-2076 · 리뷰 후속: 항목 수별 본문 최소 높이 — 격리 스택(work-loop) 실측 자연 높이(1440·390 동일).
+// 로딩 스켈레톤·데이터·오류가 이 표를 공유해야 데이터 도착 전후 높이가 같다(→ CLS).
+// 3 은 3행 실측 200 이지만 빈 상태 실측 220 보다 작아 로딩(200)→빈 상태(220) 전환에서 20px 가 밀린다 —
+// 표는 max(해당 count 실측, 빈 상태 220) 을 쓴다(5·10 은 실측 그대로 260·470).
+// 5 가 기본값이다(위젯 설정은 3·5·10 — backend 화이트리스트와 같은 값).
+const BODY_MIN_HEIGHT_PX: Record<number, number> = { 3: 220, 5: 260, 10: 470 }
+/** 본문 최소 높이(px) — 표에 없는 항목 수는 기본값 5 로 본다(설정 화이트리스트 밖 값). */
+function bodyMinHeightPx(count: number): number {
+  return BODY_MIN_HEIGHT_PX[count] ?? BODY_MIN_HEIGHT_PX[5]
+}
+
 /** 내 작업 위젯 본문 — 나를 기다리는 열린 루프를 위급도 그룹 리스트로, 비면 긍정적 빈 상태로 렌더. */
 export default function MyTasksBody({
   count: limit = 5,
@@ -41,24 +52,29 @@ export default function MyTasksBody({
   const loading = !previewData && (assigned.isLoading || watched.isLoading)
   // 둘 중 하나라도 실패하면 분류가 거짓이 되므로 전체를 에러 처리(#205).
   const isError = !previewData && (showsLoadError(assigned) || showsLoadError(watched))
+  // 본문 최소 높이 — 로딩·오류·데이터 세 분기가 같은 값을 쓴다(early return 전에 계산).
+  const minHeight = bodyMinHeightPx(limit)
 
   // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
   if (isError)
     return (
-      <WidgetError
-        onRetry={() => {
-          assigned.refetch()
-          watched.refetch()
-        }}
-        retrying={assigned.isFetching || watched.isFetching}
-        testId="dash-mytasks-error"
-      />
+      <div data-testid="dash-mytasks-body" style={{ minHeight }}>
+        <WidgetError
+          onRetry={() => {
+            assigned.refetch()
+            watched.refetch()
+          }}
+          retrying={assigned.isFetching || watched.isFetching}
+          testId="dash-mytasks-error"
+        />
+      </div>
     )
-  // I3(a11y): 로딩 영역에 aria-busy + 라벨.
+  // I3(a11y): 로딩 영역에 aria-busy + 라벨. role="status" — role 없는 div 의 aria-label 은 AT 가 무시할 수 있어 라이브 리전임을 role 로 밝힌다(WP-2076 리뷰).
+  // flex + minHeight 로 스켈레톤이 데이터 본문과 같은 높이를 채운다(로딩/데이터 높이 동일 → CLS).
   if (loading)
     return (
-      <div aria-busy="true" aria-label="불러오는 중">
-        <Skeleton className="h-12 w-full" />
+      <div role="status" aria-busy="true" aria-label="불러오는 중" className="flex" style={{ minHeight }}>
+        <Skeleton className="w-full" />
       </div>
     )
 
@@ -120,7 +136,8 @@ export default function MyTasksBody({
   }
 
   return (
-    <div data-testid="dash-mytasks">
+    // WP-2076: 로딩 스켈레톤과 같은 minHeight(항목 수별 실측 표) — 도착 전후 본문 높이가 같아야 아래 카드가 밀리지 않는다(CLS).
+    <div data-testid="dash-mytasks" style={{ minHeight }}>
       {today.data && (
         // 누르면 내 작업 개요 탭 — 어제 한 일·오늘 할 일을 자세히 본다.
         <Link

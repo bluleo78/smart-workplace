@@ -8,10 +8,22 @@ import {
   MessageSquare,
   Zap,
 } from 'lucide-react'
-import { type ComponentType, lazy, type LazyExoticComponent } from 'react'
+import { type ComponentType } from 'react'
 
 import { AiIcon } from '@/components/ai/AiIcon'
 
+// WP-2076 — 대시보드 본문 여덟 개를 lazy + Suspense 대신 정적으로 받는다. 홈이 첫 화면이라 본문은 곧바로 필요하고,
+// 늦게 끝나면 카드 틀(스켈레톤 190px)이 먼저 그려진 뒤 본문이 올라가 아래 카드가 한 번에 밀리며 CLS 를 만든다
+// (실측: 본문 청크 그래프 550ms > 레이아웃 조회 30ms — 미리 받기를 늦춰도 이기지 못한다). 정적 import 면 카드는
+// 본문과 같은 렌더에서 처음부터 그려지고, 이후 로딩·데이터 전환은 각 본문의 스켈레톤·min-h 가 잡는다.
+import CalendarTodayBody from './dashboard/CalendarTodayBody'
+import ConversationsBody from './dashboard/ConversationsBody'
+import MyTasksBody from './dashboard/MyTasksBody'
+import NotificationsBody from './dashboard/NotificationsBody'
+import PriorityQuadrantBody from './dashboard/PriorityQuadrantBody'
+import QuickActionsBody from './dashboard/QuickActionsBody'
+import SynthesisBody from './dashboard/SynthesisBody'
+import UnreadMailBody from './dashboard/UnreadMailBody'
 import {
   CalendarTodaySummary,
   MyTasksSummary,
@@ -42,7 +54,7 @@ export interface DashboardWidget {
   // previewData 는 위젯 추가 모달 프리뷰 패널 전용(#브레인스토밍 2026-07-03) — 각 위젯이 실제로
   // 받는 타입은 제각각이라 any 로만 통과시킨다(unknown 은 구체 타입과 반공변성 충돌로 대입 불가).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  Component: LazyExoticComponent<ComponentType<{ count?: number; previewData?: any }>>
+  Component: ComponentType<{ count?: number; previewData?: any }>
   // 모듈 딥링크. 알림처럼 전용 라우트가 없는 위젯은 미지정 → 헤더 클릭 시 인박스 패널을 연다.
   deepLink?: string
   // 피드성 위젯은 그리드에서 2행을 차지(row-span). 게이트 §1.2: 활동/알림만 tall.
@@ -57,13 +69,14 @@ export interface DashboardWidget {
 // 키 → 위젯 정의. 새 위젯 추가 = 항목 한 줄.
 // 딥링크는 App.tsx 라우트에서 검증: /me/tasks/assigned · /calendar · /chat · /mail.
 // 알림은 전용 라우트가 없어 deepLink 미지정 → 헤더 클릭 시 인박스 패널(Popover)을 연다(#274).
+
 const dashboardRegistry: Record<string, DashboardWidget> = {
   my_tasks: {
     type: 'my_tasks',
     title: '내 작업',
     description: '마감·차단·진행 중인 내 작업을 우선순위별로 보여줍니다.',
     icon: ClipboardList,
-    Component: lazy(() => import('./dashboard/MyTasksBody')),
+    Component: MyTasksBody,
     deepLink: '/me/tasks/assigned',
     mobile: { body: true, Summary: MyTasksSummary },
   },
@@ -72,7 +85,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: '오늘 일정',
     description: '오늘 예정된 일정을 시간순으로 보여줍니다.',
     icon: CalendarDays,
-    Component: lazy(() => import('./dashboard/CalendarTodayBody')),
+    Component: CalendarTodayBody,
     deepLink: '/calendar',
     mobile: { body: true, Summary: CalendarTodaySummary },
   },
@@ -81,7 +94,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: '알림',
     description: '내 차례인 항목과 최근 업데이트 알림을 보여줍니다.',
     icon: Bell,
-    Component: lazy(() => import('./dashboard/NotificationsBody')),
+    Component: NotificationsBody,
     // 활동/알림은 피드성 → 2행 span(게이트 §1.2). 그 외 위젯은 standard.
     tall: true,
     mobile: { body: true, Summary: NotificationsSummary },
@@ -91,7 +104,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: '대화',
     description: '최근 대화 목록과 회신 필요 여부를 보여줍니다.',
     icon: MessageSquare,
-    Component: lazy(() => import('./dashboard/ConversationsBody')),
+    Component: ConversationsBody,
     deepLink: '/chat',
     mobile: { body: true, Summary: RecentChatsSummary },
   },
@@ -100,7 +113,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: '메일',
     description: '읽지 않은 메일과 회신 필요 메일을 보여줍니다.',
     icon: Mail,
-    Component: lazy(() => import('./dashboard/UnreadMailBody')),
+    Component: UnreadMailBody,
     deepLink: '/mail',
     mobile: { body: true, Summary: UnreadMailSummary },
   },
@@ -109,7 +122,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: '요약',
     description: '지금 신경 써야 할 일들을 한눈에 요약해 보여줍니다.',
     icon: AlertTriangle,
-    Component: lazy(() => import('./dashboard/SynthesisBody')),
+    Component: SynthesisBody,
     wide: true,
     mobile: { body: true, Summary: SynthesisSummary },
   },
@@ -119,7 +132,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     description: '새 이슈·메일·대화를 바로 시작하는 버튼 모음입니다.',
     // Plus 아이콘은 "액션 추가" 버튼처럼 보여 혼동을 준다는 피드백 → Zap(번개, 빠른 액션 의미)으로 교체.
     icon: Zap,
-    Component: lazy(() => import('./dashboard/QuickActionsBody')),
+    Component: QuickActionsBody,
     wide: true,
     mobile: { body: true, Summary: QuickActionsSummary },
   },
@@ -128,7 +141,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: 'AI 우선순위',
     description: '중요도·긴급도 기준 4분면으로 할 일을 정리해 보여줍니다.',
     icon: AiIcon,
-    Component: lazy(() => import('./dashboard/PriorityQuadrantBody')),
+    Component: PriorityQuadrantBody,
     wide: true,
     // 2x2 분면은 375px 에 담기지 않는다 → 타일(최상위 1건).
     mobile: { body: false, Summary: PriorityQuadrantSummary },

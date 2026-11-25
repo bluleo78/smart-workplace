@@ -108,6 +108,10 @@ const SOURCE_ICON = {
   메시지: MessageCircle,
 } as const
 
+// WP-2076 · 리뷰 후속 — 「지금 신경 쓸 일」 목록 상한(포커스 1 + 나머지 4). 목록과 스켈레톤 자리 수가
+// 한 곳에서 나와야 자리 수가 어긋나지 않는다.
+const ATTENTION_MAX_ROWS = 5
+
 /** ① 합성 레이어 — 카운트 스트립 + 지금 신경 쓸 일 리스트. 소스별 에러/로딩 격리. */
 export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreviewData } = {}) {
   // '멘션' 셀 클릭 시 AppRail 의 알림 인박스 패널을 연다(전용 멘션 페이지 없음).
@@ -173,7 +177,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     priorityItems,
     todayKey,
   })
-  const top = rows.slice(0, 5)
+  const top = rows.slice(0, ATTENTION_MAX_ROWS)
   // 행 Link 의 aria-label 이 보이는 meta(멘션 N · 시간 등)를 덮으므로 meta 를 aria-describedby 로 잇는다(WP-1891).
   // id 는 useId 접두 + 포커스 meta `-focus` · 포커스 출처 칩 `-focus-chip` / 리스트 meta `-${i}` · 리스트 출처 칩 `-chip-${i}`
   // (i 는 map 순번 — r.key 는 경로 문자열이라 IDREF 로 쓰지 않는다).
@@ -186,7 +190,14 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   // 행이 있어도 빠진 소스가 있음을 알린다. AI 우선순위(priority)는 정렬 점수만 주고 행을 만들지 않아(없으면 고정 순위로 폴백) 넣지 않는다.
   // 다시 시도는 실패한 소스만 다시 부른다.
   // 다시 부르는 동안(pending)에도 실패로 둔다 — 안내가 「다 확인했습니다」로 바뀌면 다시 시도의 초점이 사라진다(WP-881).
-  const failedSources = previewData ? [] : [dues, notifs, mail, messaging].filter(showsLoadError)
+  // 행을 만드는 소스 넷 — 실패 판정(WP-865)과 스켈레톤 게이트(WP-2076)가 같은 집합을 쓰도록 한 곳에서 모은다.
+  const attentionSources = [dues, notifs, mail, messaging]
+  const failedSources = previewData ? [] : attentionSources.filter(showsLoadError)
+
+  // WP-2076 — 행을 만드는 소스 중 아직 응답이 없는 게 하나라도 있고, 실패 소스가 없으며(실패 안내를 스켈레톤이 가리지 않게),
+  // 아직 행을 못 만들었으면 = 아무것도 확인 못 한 상태 → 실제와 같은 자리 수의 스켈레톤으로 자리를 채운다.
+  const showAttentionSkeleton =
+    !previewData && top.length === 0 && failedSources.length === 0 && attentionSources.some((q) => q.isLoading)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리). previewData 있으면 항상 로딩/에러 없음으로 고정.
   // ai=true 이면 CountCell 이 AiIcon 배지를 표시(AI 분류 활성 신호).
@@ -249,102 +260,122 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             />
             지금 신경 쓸 일{top.length > 0 ? ` (${top.length})` : ''}
           </h3>
-          {top.length === 0 && failedSources.length > 0 ? (
-            <LoadErrorState
-              variant="inline"
-              title="지금 신경 쓸 일을 불러오지 못했습니다"
-              queries={failedSources}
-              className="rounded-md border border-border"
-              testId="dashboard-attention-error"
-            />
-          ) : top.length === 0 ? (
-            <div
-              className="flex items-center gap-2 rounded-md border border-border px-3 py-3 text-sm text-muted-foreground"
-              data-testid="dashboard-attention-empty"
-            >
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-              다 확인했습니다
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {/* 일부 소스가 실패했는데 다른 소스 행은 있을 때 — 목록이 전부인 것처럼 보이지 않게 한 줄 알린다(WP-865). */}
-              {failedSources.length > 0 && (
-                <LoadErrorState
-                  variant="banner"
-                  title="일부 항목을 불러오지 못했습니다"
-                  queries={failedSources}
-                  className="rounded-md border"
-                  testId="dashboard-attention-partial-error"
-                />
-              )}
-              {/* 포커스 카드 — 최상위 1건 강조. AI 발굴(isAi)이면 AiContent 아우라로 마킹, 아니면 표준 ai-accent 보더. */}
-              {(() => {
-                const f = top[0]
-                const FIcon = SOURCE_ICON[f.source]
-                const focusDescribedBy = attentionDescribedBy(f, focusChipId, focusMetaId)
-                const linkEl = (
-                  <Link
-                    to={f.to}
-                    aria-label={f.ariaLabel}
-                    // WP-1938: 포커스 카드는 「AI 발굴」 라벨이 카드 위에 보이므로 리스트 행(칩 → AI → meta)과 달리 맨 앞에 잇는다.
-                    aria-describedby={f.isAi ? `${focusAiId} ${focusDescribedBy}` : focusDescribedBy}
-                    data-testid="dashboard-attention-focus"
-                    className="flex items-center gap-3 rounded-lg border border-ai-accent bg-ai-accent-subtle px-3 py-2.5 hover:bg-ai-accent-subtle/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    <span id={focusChipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                      <FIcon className="h-3 w-3" />
-                      {f.source}
-                    </span>
-                    <span className="truncate text-sm font-medium">{f.title}</span>
-                    <span id={focusMetaId} className="ml-auto shrink-0 text-xs font-medium text-ai-accent">{f.meta}</span>
-                  </Link>
-                )
-                // AI 발굴 신호가 있을 때만 AiContent 아우라 추가(aiReason 이 있는 대화 행).
-                return f.isAi ? (
-                  <AiContent label="AI 발굴" labelId={focusAiId} data-testid="dashboard-synthesis-ai-focus">
-                    {linkEl}
-                  </AiContent>
-                ) : linkEl
-              })()}
-              {/* 나머지 항목 — 차분한 리스트. */}
-              {top.length > 1 && (
-                <ul className="space-y-0.5 border-l-2 border-l-destructive pl-2">
-                  {top.slice(1).map((r, i) => {
-                    const Icon = SOURCE_ICON[r.source]
-                    const metaId = `${metaIdBase}-${i}`
-                    // WP-1902 — 출처 낱말이 이름·meta 에 없을 때만 칩을 설명에 잇는다(attentionDescribedBy, 시각 순: 칩 → meta).
-                    const chipId = `${metaIdBase}-chip-${i}`
-                    const aiId = `${metaIdBase}-ai-${i}`
-                    return (
-                      <li key={r.key}>
-                        <Link
-                          to={r.to}
-                          aria-label={r.ariaLabel}
-                          aria-describedby={attentionDescribedBy(r, chipId, metaId, aiId)}
-                          className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                        >
-                          <span id={chipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                            <Icon className="h-3 w-3" />
-                            {r.source}
-                          </span>
-                          <span className="truncate">{r.title}</span>
-                          {/* WP-1938 — 색만으로 AI 를 가리지 않도록 AI 아이콘 + 읽히는 「AI 발굴」(링크 설명에 이어짐). */}
-                          {r.isAi && (
-                            <span id={aiId} data-testid="dashboard-attention-ai-mark" className="inline-flex shrink-0 items-center">
-                              <AiIcon aria-hidden="true" className="size-3 text-ai-accent" />
-                              <span className="sr-only">AI 발굴</span>
+          {/* WP-2076: 로딩·빈 상태·데이터·에러 어느 분기든 같은 최소 높이를 유지 — 데이터 도착 전후 높이가 달라져
+              아래 카드가 밀리는 CLS 를 없앤다. 240px = 네 분기 실측(스켈레톤 188·데이터 168·부분 오류 배너 226/234·빈 46·오류 94)을 모두 덮는 하한. */}
+          <div data-testid="dashboard-attention-body" className="min-h-[240px]">
+            {showAttentionSkeleton ? (
+              // 아직 행을 만들 수 없을 때 — 실제 포커스 자리 1 + 행 자리 4 구조·높이 그대로 미리 그린다(도착 전후 시프트 없음).
+              // aria-busy/aria-label: 스크린리더에 "불러오는 중"임을 알린다. role="status" — role 없는 div 의 aria-label 은
+              // AT 가 무시할 수 있어 라이브 리전임을 role 로 밝힌다(WP-2076 리뷰).
+              <div
+                data-testid="dashboard-attention-skeleton"
+                className="space-y-2"
+                role="status"
+                aria-busy="true"
+                aria-label="지금 신경 쓸 일 불러오는 중"
+              >
+                <Skeleton className="h-11 rounded-lg border border-dashed" />
+                {Array.from({ length: ATTENTION_MAX_ROWS - 1 }, (_, i) => (
+                  <Skeleton key={i} data-testid="dashboard-attention-skeleton-row" className="h-7 rounded border-l-2 border-dashed" />
+                ))}
+              </div>
+            ) : top.length === 0 && failedSources.length > 0 ? (
+              <LoadErrorState
+                variant="inline"
+                title="지금 신경 쓸 일을 불러오지 못했습니다"
+                queries={failedSources}
+                className="rounded-md border border-border"
+                testId="dashboard-attention-error"
+              />
+            ) : top.length === 0 ? (
+              <div
+                className="flex items-center gap-2 rounded-md border border-border px-3 py-3 text-sm text-muted-foreground"
+                data-testid="dashboard-attention-empty"
+              >
+                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                다 확인했습니다
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {/* 일부 소스가 실패했는데 다른 소스 행은 있을 때 — 목록이 전부인 것처럼 보이지 않게 한 줄 알린다(WP-865). */}
+                {failedSources.length > 0 && (
+                  <LoadErrorState
+                    variant="banner"
+                    title="일부 항목을 불러오지 못했습니다"
+                    queries={failedSources}
+                    className="rounded-md border"
+                    testId="dashboard-attention-partial-error"
+                  />
+                )}
+                {/* 포커스 카드 — 최상위 1건 강조. AI 발굴(isAi)이면 AiContent 아우라로 마킹, 아니면 표준 ai-accent 보더. */}
+                {(() => {
+                  const f = top[0]
+                  const FIcon = SOURCE_ICON[f.source]
+                  const focusDescribedBy = attentionDescribedBy(f, focusChipId, focusMetaId)
+                  const linkEl = (
+                    <Link
+                      to={f.to}
+                      aria-label={f.ariaLabel}
+                      // WP-1938: 포커스 카드는 「AI 발굴」 라벨이 카드 위에 보이므로 리스트 행(칩 → AI → meta)과 달리 맨 앞에 잇는다.
+                      aria-describedby={f.isAi ? `${focusAiId} ${focusDescribedBy}` : focusDescribedBy}
+                      data-testid="dashboard-attention-focus"
+                      className="flex items-center gap-3 rounded-lg border border-ai-accent bg-ai-accent-subtle px-3 py-2.5 hover:bg-ai-accent-subtle/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      <span id={focusChipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        <FIcon className="h-3 w-3" />
+                        {f.source}
+                      </span>
+                      <span className="truncate text-sm font-medium">{f.title}</span>
+                      <span id={focusMetaId} className="ml-auto shrink-0 text-xs font-medium text-ai-accent">{f.meta}</span>
+                    </Link>
+                  )
+                  // AI 발굴 신호가 있을 때만 AiContent 아우라 추가(aiReason 이 있는 대화 행).
+                  return f.isAi ? (
+                    <AiContent label="AI 발굴" labelId={focusAiId} data-testid="dashboard-synthesis-ai-focus">
+                      {linkEl}
+                    </AiContent>
+                  ) : linkEl
+                })()}
+                {/* 나머지 항목 — 차분한 리스트. */}
+                {top.length > 1 && (
+                  <ul className="space-y-0.5 border-l-2 border-l-destructive pl-2">
+                    {top.slice(1).map((r, i) => {
+                      const Icon = SOURCE_ICON[r.source]
+                      const metaId = `${metaIdBase}-${i}`
+                      // WP-1902 — 출처 낱말이 이름·meta 에 없을 때만 칩을 설명에 잇는다(attentionDescribedBy, 시각 순: 칩 → meta).
+                      const chipId = `${metaIdBase}-chip-${i}`
+                      const aiId = `${metaIdBase}-ai-${i}`
+                      return (
+                        <li key={r.key}>
+                          <Link
+                            to={r.to}
+                            aria-label={r.ariaLabel}
+                            aria-describedby={attentionDescribedBy(r, chipId, metaId, aiId)}
+                            className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                          >
+                            <span id={chipId} className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                              <Icon className="h-3 w-3" />
+                              {r.source}
                             </span>
-                          )}
-                          {/* AI 발굴 신호 행은 meta 를 ai-accent 로 강조. */}
-                          <span id={metaId} className={`ml-auto shrink-0 text-xs ${r.isAi ? 'text-ai-accent' : 'text-muted-foreground'}`}>{r.meta}</span>
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-          )}
+                            <span className="truncate">{r.title}</span>
+                            {/* WP-1938 — 색만으로 AI 를 가리지 않도록 AI 아이콘 + 읽히는 「AI 발굴」(링크 설명에 이어짐). */}
+                            {r.isAi && (
+                              <span id={aiId} data-testid="dashboard-attention-ai-mark" className="inline-flex shrink-0 items-center">
+                                <AiIcon aria-hidden="true" className="size-3 text-ai-accent" />
+                                <span className="sr-only">AI 발굴</span>
+                              </span>
+                            )}
+                            {/* AI 발굴 신호 행은 meta 를 ai-accent 로 강조. */}
+                            <span id={metaId} className={`ml-auto shrink-0 text-xs ${r.isAi ? 'text-ai-accent' : 'text-muted-foreground'}`}>{r.meta}</span>
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         {/* AI 메일 분류 CTA — 분류 OFF + dismiss 안 했을 때만 표시. localStorage 로 dismiss 영속. */}
         {/* CTA 테두리 가시성 상향 — border-ai-accent/40 → /70 으로 대비 강화. */}
