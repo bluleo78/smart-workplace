@@ -8,9 +8,9 @@ import { matchIssueDetailPath } from '@/lib/issueDetailPath';
 
 import { issueDetailQuery } from './queries/useIssue';
 
-// 문서당 한 번만 — 이슈 상세 주소에서 요청을 실제로 보낸 때에만 true 로 한다(상세가 아닌 주소의 호출은 소비하지 않는다).
-// 첫 셸이 상세가 아닌 주소(예: /login)에서 떴다가 상세로 이동해 다시 마운트되면 그때 한 번 요청할 수 있다.
-// 한 번 요청한 뒤에는 셸이 다시 마운트돼도, 이후 앱 안 이동에서도 다시 요청하지 않는다.
+// 문서당 한 번만 — 이슈 상세 주소에서 요청을 보냈거나, 앱 셸(AppLayout)이 첫 커밋 뒤에 한 번 불렀으면 true 다.
+// 토큰 직후 경로(AuthContext)가 상세가 아닌 주소(예: /login)에서 불린 것은 소비하지 않아, 로그인 뒤 셸의 첫 호출이 상세 주소면 요청할 수 있다.
+// 그러나 셸의 첫 호출은 주소와 무관하게 소비한다 — 「첫 진입」 한정이라 처음 다른 화면에서 열린 뒤 나중에 상세로 옮겨 가면 요청하지 않는다.
 let done = false;
 
 /** 테스트 전용 — 문서당 한 번 플래그를 되돌린다. */
@@ -48,5 +48,7 @@ export function useInitialIssuePrefetch(): void {
   const queryClient = useQueryClient();
   useEffect(() => {
     startInitialIssuePrefetch(queryClient);
+    // 셸의 첫 호출은 상세 주소였든 아니든 소비한다 — 이후 앱 안 이동·셸 재마운트에서 「첫 진입 미리 요청」이 다시 돌지 않게 한다.
+    done = true;
   }, [queryClient]);
 }

@@ -16,7 +16,7 @@ import { useIsMobile } from './hooks/useIsMobile'
 import { AUTH_FLAG_KEY } from './lib/auth/sessionFlag'
 import { afterInitialRefresh } from './lib/authBoot'
 import { preloadableLazy } from './lib/preloadableLazy'
-import { type Preload, type RoutePreloadKey, startInitialRoutePreloads } from './lib/routePreloads'
+import { type Preload, type RoutePreloadKey, startInitialRoutePreloadsIfSignedIn } from './lib/routePreloads'
 import { safeLocalStorage } from './lib/safeLocalStorage'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
@@ -240,8 +240,8 @@ function preloadInitialRoute(): (() => void) | undefined {
     adminAgents: loadAgentManagementPage,
   }
   // WP-2087: 첫 refresh 가 끝난 뒤에 시작한다(안전망 3초) — 취소 함수를 돌려준다.
-  const pathname = window.location.pathname
-  return afterInitialRefresh(() => startInitialRoutePreloads(pathname, loaders))
+  // 콜백이 돌 때 로그인 흔적·현재 주소를 다시 확인한다 — refresh 가 거절돼 로그인 화면으로 간 사람에게는 받지 않는다.
+  return afterInitialRefresh(() => startInitialRoutePreloadsIfSignedIn(loaders, hasSessionHint))
 }
 
 export default function App() {

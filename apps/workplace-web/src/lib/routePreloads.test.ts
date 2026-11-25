@@ -116,3 +116,28 @@ describe('startInitialRoutePreloads', () => {
     expect(mailInbox).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('startInitialRoutePreloadsIfSignedIn (WP-2087)', () => {
+  // 모듈의 「이미 시작함」 표시를 케이스마다 새로 쓰려고 모듈을 다시 불러온다
+  async function load() {
+    vi.resetModules()
+    return (await import('./routePreloads')).startInitialRoutePreloadsIfSignedIn
+  }
+
+  it('콜백 시점에 세션 힌트가 사라졌으면 미리 받지 않는다(refresh 거절)', async () => {
+    const start = await load()
+    const mailLayout = vi.fn().mockResolvedValue(1)
+    start(partial({ mailLayout }), () => false, '/mail')
+    expect(mailLayout).not.toHaveBeenCalled()
+  })
+
+  it('공개 화면(로그인 등)이면 미리 받지 않고, 이후 앱 주소에서는 받을 수 있다', async () => {
+    const start = await load()
+    const mailLayout = vi.fn().mockResolvedValue(1)
+    const loaders = partial({ mailLayout, mailInbox: vi.fn().mockResolvedValue(1) })
+    start(loaders, () => true, '/login')
+    expect(mailLayout).not.toHaveBeenCalled()
+    start(loaders, () => true, '/mail')
+    expect(mailLayout).toHaveBeenCalledTimes(1)
+  })
+})

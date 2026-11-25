@@ -45,10 +45,13 @@ async function nextTask() {
   })
 }
 
+/** 테스트가 건 구독(안전망 타이머 포함)의 취소 함수 — afterEach 에서 모두 불러 타이머가 다른 테스트로 새지 않게 한다. */
+const cancels: Array<() => void> = []
+
 /** 신호를 기다리는 구독을 걸고, 불렸는지 보는 함수를 돌려준다(안전망 타이머는 길게 둬 신호만 본다). */
 function watchSignal() {
   const cb = vi.fn()
-  afterInitialRefresh(cb, 60_000)
+  cancels.push(afterInitialRefresh(cb, 60_000))
   return cb
 }
 
@@ -71,6 +74,8 @@ beforeEach(() => {
   window.history.pushState({}, '', '/')
 })
 afterEach(() => {
+  // 대비(fallback) 타이머 정리 — 60초 타이머가 남으면 다른 테스트로 새거나 프로세스를 붙잡는다.
+  for (const cancel of cancels.splice(0)) cancel()
   setAccessToken(null)
   vi.clearAllMocks()
 })
@@ -131,7 +136,7 @@ describe('initAuth 첫 refresh 끝남 신호 (WP-2087)', () => {
       order.push('memberships')
       return new Promise(() => {})
     }) as never)
-    afterInitialRefresh(() => order.push('preload'), 60_000)
+    cancels.push(afterInitialRefresh(() => order.push('preload'), 60_000))
     mount()
     await flush()
     await nextTask()

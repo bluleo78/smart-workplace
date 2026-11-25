@@ -39,6 +39,23 @@ export function startInitialRoutePreloads(pathname: string, loaders: Record<Rout
   startRoutePreloads(pathname, loaders)
 }
 
+/** 로그인 없이 보는 공개 화면 — refresh 가 실패해 이 주소들로 옮겨 간 사람에게는 앱 청크를 받아 줄 이유가 없다. */
+const PUBLIC_PATH = /^\/(login|signup|s\/)/
+
+/**
+ * 미리 받기를 미룬 콜백이 실제로 돌 때 쓰는 판정(WP-2087) — 시작 전 조건(로그인 흔적)을 그 시점에 다시 확인한다.
+ * 왜: 첫 refresh 가 끝나길 기다리는 사이 refresh 가 거절되면 흔적이 지워지고 로그인 화면으로 이동한다. 그 사람에게 청크를 받으면 낭비다.
+ * 흔적이 없거나 현재 주소가 공개 화면이면 아무것도 하지 않고(문서당 한 번 표시도 소비하지 않는다), 아니면 현재 주소 기준으로 시작한다.
+ */
+export function startInitialRoutePreloadsIfSignedIn(
+  loaders: Record<RoutePreloadKey, Preload>,
+  hasSessionHint: () => boolean,
+  pathname: string = window.location.pathname,
+): void {
+  if (!hasSessionHint() || PUBLIC_PATH.test(pathname)) return
+  startInitialRoutePreloads(pathname, loaders)
+}
+
 /**
  * 첫 주소의 페이지 청크를 인증(users/me)과 병렬로 미리 받는 표(WP-2021) — 첫 일치 항목의 키만 쓴다. 키에 대응하는 로더는 App.tsx 가 쥔다.
  * 앱 셸 밖 화면(/mail/compose 새 창, /wiki/share/:token, /wiki/open/:pageId)과 탭이 아닌 프로젝트 하위 화면
