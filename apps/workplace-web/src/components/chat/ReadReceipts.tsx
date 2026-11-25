@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react'
 
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
-import { IconHint } from '@/components/ui/icon-hint'
+import { IconHint } from '@/components/overlay/IconHint'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { readAtLabel } from '@/lib/readReceipts'
 import type { ChannelReadState } from '@/types/messaging'

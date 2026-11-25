@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu';
+import { IconHint } from '@/components/overlay/IconHint';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +27,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
-import { IconHint } from '@/components/ui/icon-hint';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TableEmptyRow } from '@/components/ui/table-empty';

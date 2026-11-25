@@ -26,12 +26,12 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | Card | `card.tsx` | — | `p-6` 영역 | Header / Title / Description / Action / Content / Footer 서브 컴포넌트 포함 |
 | Checkbox | `checkbox.tsx` | — | — | 폼 입력 |
 | Collapsible | `collapsible.tsx` | — | — | 사이드바/섹션 접기·펼치기 |
-| Command | `command.tsx` | — | — | 커맨드 팔레트 (cmdk 기반). `SearchableSelect`(§B-5)의 기반 |
+| Command | `command.tsx` | — | — | 커맨드 팔레트 (cmdk 기반). 검색 가능한 선택(콤보박스)의 기반 — 앱 코드는 `@/components/overlay/popover` 의 `PopoverContent`(`aria-label` 또는 `aria-labelledby` 필수, WP-2075) 안에 둔다 |
 | Dialog | `dialog.tsx` | — | `sm:max-w-lg` | 모달 다이얼로그 (이슈 생성, 그룹 편집 등) |
 | DropdownMenu | `dropdown-menu.tsx` | — | — | 컨텍스트 메뉴, 사용자 메뉴 |
 | Input | `input.tsx` | — | `h-9` | 텍스트 입력, `aria-invalid` 지원 |
 | Label | `label.tsx` | — | — | 폼 레이블 (`FormField` 가 내부 사용) |
-| Popover | `popover.tsx` | — | — | 인라인 편집기, `SearchableSelect` 의 컨테이너 |
+| Popover | `popover.tsx` | — | — | 인라인 편집기, 검색 가능한 선택(`Command` 와 조합)의 컨테이너. 앱 코드는 `@/components/overlay/popover` 를 쓴다 |
 | RadioGroup | `radio-group.tsx` | — | — | 폼 라디오 버튼 |
 | ScrollArea | `scroll-area.tsx` | — | — | 스크롤 가능한 컨테이너 (채팅 메시지 리스트 등) |
 | Select | `select.tsx` | — | — | 드롭다운 선택 |
@@ -56,7 +56,6 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | SearchInput | `search-input.tsx` | 돋보기 아이콘 + clear 버튼 내장 검색 입력 — 상단 검색 쪽에만 |
 | FilterInput | `filter-input.tsx` | 깔때기 아이콘 + clear 버튼 내장 목록 필터 입력 — 목록 바로 위 |
 | FilterLine | `components/filter/FilterLine.tsx` | 목록 위 필터 줄 슬롯 컨테이너(키워드·칩·끝 묶음) — 반응형 한 줄/두 층 |
-| SearchableSelect | `searchable-select.tsx` | 검색 가능 단일 선택 콤보박스 (Popover + Command) |
 | PasswordInput | `password-input.tsx` | 표시/숨김 토글 비밀번호 입력 |
 | FormField | `form-field.tsx` | Label + 입력 + 에러 메시지 래퍼 |
 | DeleteConfirmDialog | `delete-confirm-dialog.tsx` | 삭제 확인 AlertDialog 래퍼 |
@@ -176,7 +175,7 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | `aria-label` | `string` | 선택 | 스크린리더용 이름 (미지정 시 placeholder 사용) |
 | `className` | `string` | 선택 | 래퍼에 병합 |
 
-**구현 특징**: 아이콘 위치를 위해 `pl-9`, clear 버튼이 보일 때 `pr-9` 적용. clear 버튼은 `onChange('')` 로 초기화 — 검색 0건 빈 상태(§B-9, [06](./06-feedback-states.md))의 "검색 초기화" 와 동일한 동작.
+**구현 특징**: 아이콘 위치를 위해 `pl-9`, clear 버튼이 보일 때 `pr-9` 적용. clear 버튼은 `onChange('')` 로 초기화 — 검색 0건 빈 상태(§B-8, [06](./06-feedback-states.md))의 "검색 초기화" 와 동일한 동작.
 
 **사용 예시**:
 
@@ -246,40 +245,7 @@ const [filter, setFilter] = useState("");
 
 ---
 
-### 5. SearchableSelect (`searchable-select.tsx`)
-
-**목적**: 검색 가능한 단일 선택 콤보박스. 옵션이 많아 native `<select>` 의 키보드 jump 만으로 탐색이 어려운 경우 사용 (옵션 5개 미만이면 기본 `Select` 권장).
-
-**Props API**:
-
-| Prop | Type | Required | Description |
-|------|------|----------|-------------|
-| `value` | `string \| undefined` | 선택 | 선택된 값 |
-| `onChange` | `(value: string \| undefined) => void` | 필수 | 선택 콜백 |
-| `options` | `{ value: string; label: string }[]` | 필수 | 옵션 목록 |
-| `placeholder` | `string` | 선택 | 기본값 `"선택"` |
-| `searchPlaceholder` | `string` | 선택 | 검색창 placeholder |
-| `emptyText` | `string` | 선택 | 결과 없음 문구 |
-| `allowClear` | `boolean` | 선택 | "선택 안 함" 옵션 표시 |
-| `disabled` | `boolean` | 선택 | 비활성화 |
-| `id` / `className` | `string` | 선택 | — |
-
-**사용 예시**:
-
-```tsx
-<SearchableSelect
-  value={assigneeId}
-  onChange={setAssigneeId}
-  options={members.map(m => ({ value: String(m.id), label: m.name }))}
-  placeholder="담당자 선택"
-  searchPlaceholder="멤버 검색..."
-  allowClear
-/>
-```
-
----
-
-### 6. PasswordInput (`password-input.tsx`)
+### 5. PasswordInput (`password-input.tsx`)
 
 **목적**: 표시/숨김 토글(Eye/EyeOff) 버튼이 우측에 겹쳐진 비밀번호 입력. 로그인/회원가입/비밀번호 변경에 사용.
 
@@ -297,7 +263,7 @@ const [filter, setFilter] = useState("");
 
 ---
 
-### 7. DeleteConfirmDialog (`delete-confirm-dialog.tsx`)
+### 6. DeleteConfirmDialog (`delete-confirm-dialog.tsx`)
 
 **목적**: 삭제 작업 전 사용자 확인을 받는 AlertDialog 래퍼. 파괴적 작업의 안전장치. 한국어 조사(을/를)는 `eulReul()`(`lib/utils.ts`) 로 자동 처리된다.
 
@@ -329,7 +295,7 @@ const [filter, setFilter] = useState("");
 
 ---
 
-### 8. SimplePagination (`simple-pagination.tsx`)
+### 7. SimplePagination (`simple-pagination.tsx`)
 
 **목적**: 처음/이전/페이지번호/다음/마지막 버튼 + 선택적 총건수·페이지 사이즈 selector. 목록 페이지 하단에 공통 사용.
 
@@ -362,7 +328,7 @@ const [filter, setFilter] = useState("");
 
 ---
 
-### 9. TableEmptyRow (`table-empty.tsx`)
+### 8. TableEmptyRow (`table-empty.tsx`)
 
 **목적**: 테이블에 데이터가 없을 때 표시하는 빈 상태 행. **검색어 유무에 따라 두 가지 UI** 로 분기한다. 자세한 빈 상태 원칙은 [06. Feedback States](./06-feedback-states.md) 참조.
 
@@ -398,7 +364,7 @@ const [filter, setFilter] = useState("");
 
 ---
 
-### 10. TableSkeletonRows (`table-skeleton.tsx`)
+### 9. TableSkeletonRows (`table-skeleton.tsx`)
 
 **목적**: 데이터 로딩 중 테이블 형태의 Skeleton 행을 표시.
 

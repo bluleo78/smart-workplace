@@ -5,7 +5,7 @@
 // 받은 메일 목록 행에는 쓰지 않는다(상세 헤더 전용).
 import { Boxes } from 'lucide-react'
 
-import { IconHint } from '@/components/ui/icon-hint'
+import { IconHint } from '@/components/overlay/IconHint'
 
 const LABEL = 'Gen:iA Works에서 보낸 메일'
 
