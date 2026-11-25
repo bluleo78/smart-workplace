@@ -11,6 +11,7 @@ import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { ProjectIssuesTab } from '@/test/kits/projects/projectTabs'
 import { mockViewport } from '@/test/viewport'
 
+import { createCycle } from '../../../e2e/factories/cycle.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
@@ -49,11 +50,12 @@ function issueApi() {
   return { handlers, calls }
 }
 
-/** 목록(group=none)을 열고 첫 행이 뜰 때까지 기다린다. */
-async function open() {
+/** 목록(기본 group=none)을 열고 첫 행이 뜰 때까지 기다린다. extra 핸들러는 앞에 둬 같은 경로를 덮는다(사이클 그룹 등). */
+async function open(group = 'none', extra: ReturnType<typeof issueApi>['handlers'] = []) {
   const api = issueApi()
-  const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
-  await screen.findByTestId('issue-row-21')
+  const page = renderMobileRoute('/projects/:key', <ProjectIssuesTab />, { path: `/projects/${KEY}?group=${group}`, handlers: [...extra, ...api.handlers] })
+  // 사이클 그룹은 구간마다 같은 행이 그려질 수 있어 findAll 로 기다린다.
+  await screen.findAllByTestId('issue-row-21')
   return { ...page, api }
 }
 
@@ -126,3 +128,21 @@ describe('모바일 선택 모드', () => {
   })
 })
 
+// WP-2070 — 사이클 그룹 목록의 sticky 일괄 작업 바 표지(data-sticky-bulk-bar)는 데스크톱 전용이다.
+// 표지는 슬롯의 scroll-padding(:has) 이 바 높이만큼 위 여백을 주는 근거인데, 모바일 바는 fixed 하단 바라 위를 가리지 않는다.
+// 데스크톱 쪽은 src/pages/projects/issueListCycleGroup.test.tsx, 기하는 E2E(@layout·@input)가 본다.
+describe('모바일 사이클 그룹 일괄 바', () => {
+  test('sticky 바 표지는 모바일에서 선택해도 달리지 않는다', async () => {
+    const cycle = [
+      http.get(`/api/v1/projects/${KEY}/cycles`, () => HttpResponse.json([createCycle({ id: 1, name: '스프린트' })])),
+      http.get(`/api/v1/projects/${KEY}/cycles/progress`, () => HttpResponse.json([])),
+      http.get(`/api/v1/projects/${KEY}/saved-views`, () => HttpResponse.json([])),
+    ]
+    const { user } = await open('cycle', cycle)
+    // 모바일은 체크박스가 없다 — 행 「⋯」→ 액션 시트의 「선택」으로 다중 선택에 들어간다(구간마다 같은 행이 있을 수 있어 첫 번째).
+    await user.click(screen.getAllByTestId('issue-row-21-menu')[0])
+    await user.click(await screen.findByTestId('mobile-action-select'))
+    await screen.findByTestId('issue-bulk-toolbar')
+    expect(document.querySelector('[data-sticky-bulk-bar]')).toBeNull()
+  })
+})

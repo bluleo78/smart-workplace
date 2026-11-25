@@ -296,7 +296,7 @@ function ProjectIssuesSection({
         {/* overflow-auto: 목록/보드는 h-full 로 슬롯을 정확히 채워 자체 스크롤하고,
             로딩·빈 상태·사이클 구간 목록처럼 자체 스크롤이 없는 화면이 넘칠 때만 이 슬롯이 스크롤한다. */}
         {/* has-[[data-sticky-bulk-bar]]:scroll-pt-11 — 사이클 그룹 목록의 sticky 일괄 작업 바(표지 data-sticky-bulk-bar)가 떠 있으면
-            스크롤 위 여백을 준다(WP-2070). 44px = 바 38px + 초점 링 2px + 여유 — 바 높이를 바꾸면 함께 고친다. */}
+            스크롤 위 여백을 준다(WP-2070). 44px = 바 38px + 초점 링 3px(체크박스 focus-visible:ring-[3px]) + 여유 3px — 바 높이를 바꾸면 함께 고친다. */}
         <div className="min-h-0 flex-1 overflow-auto has-[[data-sticky-bulk-bar]]:scroll-pt-11">
           {/* 목록·보드는 상태 목록을 받은 뒤에만 그린다(WP-870) — 받기 전엔 로딩, 실패면 다시 시도. */}
           <ProjectStatusesGate projectKey={projectKey}>{viewBody}</ProjectStatusesGate>

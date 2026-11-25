@@ -339,9 +339,9 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
           const list = document.querySelector('[data-testid="issue-cycle-grouped-list"]');
           const bar = document.querySelector('[data-sticky-bulk-bar]');
           if (!el || !list || !bar || !list.contains(el) || bar.contains(el)) return null;
-          // 초점 링은 요소 위로 2px 그려진다 — 링까지 바 아래에 있어야 한다.
+          // 초점 링은 요소 위로 3px 그려진다(체크박스 focus-visible:ring-[3px]) — 링까지 바 아래에 있어야 한다.
           return {
-            covered: el.getBoundingClientRect().top - 2 < bar.getBoundingClientRect().bottom - 0.5,
+            covered: el.getBoundingClientRect().top - 3 < bar.getBoundingClientRect().bottom - 0.5,
             first: el.getAttribute('data-testid') === 'select-issue-100',
             name: el.getAttribute('aria-label') ?? el.getAttribute('data-testid') ?? el.textContent?.trim() ?? '',
           };
@@ -354,6 +354,205 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       expect(steps, '목록 안에서 여러 칸을 올라갔다').toBeGreaterThan(10);
       expect(reachedFirst, '첫 행 체크박스까지 올라갔다').toBe(true);
       expect(covered, '위쪽이 일괄 작업 바에 덮인 초점 요소').toEqual([]);
+    },
+  );
+
+
+  // WP-2070 — 좁은 데스크톱(1024px + 에픽 패널 최대 폭 + AI 패널)에서 바보다 단추 글자가 넓을 때.
+  // 사이클 목록의 바 감싸개는 sticky left-0 w-[100cqw] 라 슬롯을 가로로 밀어도 넘친 단추에 닿지 못하고, 넘친 글자가 바 밖으로 나가 행과 겹쳤다.
+  // 바 안 가로 스크롤(스크롤바 숨김)로 담아 높이 38px 을 지키고 Tab 으로 닿은 단추가 바 안에 보여야 한다 — 기하·포커스 스크롤이라 jsdom 으로 못 잰다.
+  // 그 스크롤은 바만 가로로, 바 안 키보드 초점에만 일어난다 — 슬롯을 내린 채 바를 오가도 슬롯이 그대로, 메뉴 항목(포털) 초점·마우스 누름에는 바가 그대로.
+  test(
+    '좁은 데스크톱에서 일괄 작업 바가 넘친 단추를 바 안에 담고 Tab 으로 닿은 단추가 바 안에 보인다(WP-2070)',
+    { tag: ['@layout', '@input'] },
+    async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1024, height: 800 });
+      await setup(page);
+      // 스프린트 12(cycle=1)를 35건으로 덮어써 목록 슬롯이 세로로 스크롤되게 한다 — 슬롯을 내린 채 바 단추를 지나가도 슬롯이 튀지 않는지 잰다.
+      const cycleIssues = Array.from({ length: 35 }, (_, i) =>
+        createIssue({ id: 100 + i, number: 100 + i, title: `좁은 폭 이슈 ${i}` }),
+      );
+      await page.route(
+        (url) => url.pathname === ISSUES_PATH && url.searchParams.get('cycle') === '1',
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse(cycleIssues, null)),
+          });
+        },
+      );
+      // 담당자 후보 이름을 길게 — 담당자 메뉴가 바 안쪽 가장자리를 넘어 뻗게 한다(포털 항목 초점 단언의 전제).
+      await page.route(`**/api/v1/projects/${KEY}/members`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([createMember({ userId: 10, name: '아주 긴 이름을 가진 담당자 후보 김개발', username: 'kim' })]),
+        }),
+      );
+      await page.goto(`/projects/${KEY}`);
+      // 맨 위 구간(핫픽스 주간)의 #11 — 여기서 Shift+Tab 몇 번이면 바에 닿는다.
+      const checkbox = section(page, 'cycle-2').getByTestId('select-issue-11');
+      await expect(checkbox).toBeVisible();
+
+      // 실제 UI 로 목록을 좁힌다 — 에픽 패널을 열어 경계선을 끝까지 끌고(상한까지), AI 패널을 연다.
+      await page.getByTestId('epic-panel-toggle').click();
+      await expect(page.getByTestId('epic-side-panel')).toBeVisible();
+      const handle = (await page.getByTestId('epic-panel-resize-handle').boundingBox())!;
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(handle.x + 400, handle.y + handle.height / 2, { steps: 5 });
+      await page.mouse.up();
+      await page.getByTestId('chat-launcher').click();
+      await expect(page.getByTestId('ai-side-panel')).toBeVisible();
+
+      await checkbox.check();
+      const bar = page.getByTestId('issue-bulk-toolbar');
+      await expect(bar).toContainText('선택 1개');
+
+      // 전제 — 이 폭에서 단추 글자가 바보다 넓다(넘침이 없으면 이 테스트가 아무것도 지키지 않는다).
+      const size = await bar.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, h: el.getBoundingClientRect().height }));
+      expect(size.sw, '바 내용이 바보다 넓다').toBeGreaterThan(size.cw);
+      // 높이 38px — 슬롯 scroll-pt-11(44px)이 이 높이에 기댄다. 스크롤바가 생겨 높이를 늘리면 안 된다.
+      expect(Math.abs(size.h - 38), `바 높이 ${size.h}px`).toBeLessThanOrEqual(1);
+
+      // 바 사각형을 넘는 자식(넘친 단추)은 바가 잘라 담아야 한다 — 바가 overflow visible 이면 넘친 글자가 바 배경 밖으로 그려져 행과 겹친다.
+      // 테스트 브라우저(headless Chromium)는 스크롤바를 그리지 않아 높이로는 못 잡으므로, 전역 `* { scrollbar-width: thin }` 을 이겨
+      // 스크롤바가 숨겨졌는지(클래식 스크롤바가 바 높이를 늘리지 않는지)를 계산된 스타일로 본다.
+      const clip = await bar.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const overflowing = [...el.children]
+          .filter((c) => { const b = c.getBoundingClientRect(); return b.left < r.left - 0.5 || b.right > r.right + 0.5; })
+          .map((c) => c.getAttribute('data-testid') ?? c.textContent);
+        return { overflowing, overflowX: cs.overflowX, scrollbarWidth: cs.scrollbarWidth };
+      });
+      expect(clip.overflowing.length, '바 사각형을 넘는 자식이 있다(넘침 전제)').toBeGreaterThan(0);
+      expect(clip.overflowX, `넘친 자식 ${clip.overflowing.join(', ')} 을 바가 잘라 담는다`).not.toBe('visible');
+      expect(clip.scrollbarWidth, '바 가로 스크롤바는 숨긴다(높이 38px 유지)').toBe('none');
+
+      // 초점이 간 바 단추가 바의 사각형 안에 보이는지(가로로 잘려 바깥에 있지 않은지) 잰다.
+      const focusedInBar = () =>
+        page.evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          const b = document.querySelector('[data-testid="issue-bulk-toolbar"]');
+          if (!el || !b || !b.contains(el)) return null;
+          const r = el.getBoundingClientRect();
+          const br = b.getBoundingClientRect();
+          return {
+            id: el.getAttribute('data-testid'),
+            inside: r.left >= br.left - 0.5 && r.right <= br.right + 0.5 && r.top >= br.top - 0.5 && r.bottom <= br.bottom + 0.5,
+          };
+        });
+      const buttons = ['bulk-status-trigger', 'bulk-assignee-trigger', 'bulk-delete', 'bulk-clear'];
+
+      // 위로: 행 체크박스에서 Shift+Tab 으로 바에 들어가 오른쪽 끝(선택 해제)부터 왼쪽으로 지나간다.
+      await checkbox.focus();
+      const up: { id: string | null; inside: boolean }[] = [];
+      for (let i = 0; i < 40 && up.length < buttons.length; i++) {
+        await page.keyboard.press('Shift+Tab');
+        const r = await focusedInBar();
+        if (r) up.push(r);
+      }
+      expect(up.map((r) => r.id)).toEqual([...buttons].reverse());
+      // 아래로: 첫 단추(상태 변경)에서 Tab 으로 오른쪽 끝까지 — 왼쪽으로 스크롤된 뒤에도 오른쪽 단추가 다시 보여야 한다.
+      const down = [up[up.length - 1]];
+      for (let i = 1; i < buttons.length; i++) {
+        await page.keyboard.press('Tab');
+        down.push((await focusedInBar()) ?? { id: null, inside: false });
+      }
+      expect(down.map((r) => r.id)).toEqual(buttons);
+      expect([...up, ...down].filter((r) => !r.inside).map((r) => r.id), '초점을 받았을 때 바 밖에 있던 단추').toEqual([]);
+      expect((await bar.boundingBox())!.height).toBeCloseTo(38, 0);
+
+      // 슬롯(목록 스크롤 영역)을 아래로 내린 채 바 단추를 키보드로 오가도 슬롯 scrollTop 은 그대로다 — 바만 가로로 스크롤해야 한다.
+      // scrollIntoView 로 드러내면 조상인 슬롯까지 움직여, 슬롯의 scroll-pt-11 때문에 단추마다 목록이 약 35px 위로 튀었다.
+      const slotScroll = (set?: number) =>
+        bar.evaluate((el, v) => {
+          let p = el.parentElement;
+          while (p && !/(auto|scroll)/.test(getComputedStyle(p).overflowY)) p = p.parentElement;
+          if (!p) return -1;
+          if (v != null) p.scrollTop = v;
+          return p.scrollTop;
+        }, set);
+      const slotTop = await slotScroll(300);
+      expect(slotTop, '슬롯이 아래로 내려가 있다(전제)').toBeGreaterThan(100);
+      const slotSteps: { id: string | null; top: number }[] = [];
+      for (const [i, key] of ['Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Tab', 'Tab', 'Tab'].entries()) {
+        // 돌아올 때는 바를 맨 왼쪽으로 되돌려 둔다 — 마지막 Tab 에서 잘린 「선택 해제」를 드러내는 스크롤이 슬롯을 세게 둔 채 일어나게.
+        if (i === 3) await bar.evaluate((el) => { el.scrollLeft = 0; });
+        await page.keyboard.press(key);
+        slotSteps.push({ id: (await focusedInBar())?.id ?? null, top: await slotScroll() });
+      }
+      expect(slotSteps.map((s) => s.id)).toEqual([
+        'bulk-delete', 'bulk-assignee-trigger', 'bulk-status-trigger', 'bulk-assignee-trigger', 'bulk-delete', 'bulk-clear',
+      ]);
+      expect(slotSteps.filter((s) => Math.abs(s.top - slotTop) > 1), '바 단추로 초점이 갈 때 슬롯이 움직였다').toEqual([]);
+      expect((await focusedInBar())?.inside, '슬롯을 내린 채에도 Tab 으로 간 「선택 해제」가 바 안에 보인다').toBe(true);
+
+      // 드롭다운 메뉴는 포털이라 바의 overflow 에 잘리지 않는다 — 상태 변경 메뉴가 단추 아래로, 바 높이를 넘어 온전히 펼쳐진다.
+      const trigger = page.getByTestId('bulk-status-trigger');
+      await trigger.focus();
+      await page.keyboard.press('Enter');
+      const menu = page.getByRole('menu');
+      await expect(menu).toBeVisible();
+      const triggerBox = (await trigger.boundingBox())!;
+      const barBox = (await bar.boundingBox())!;
+      const menuBox = (await menu.boundingBox())!;
+      expect(menuBox.y, '메뉴가 단추 아래에서 펼쳐진다').toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 1);
+      expect(menuBox.y + menuBox.height, '메뉴가 바 높이에 잘리지 않고 바 아래로 이어진다').toBeGreaterThan(barBox.y + barBox.height + 20);
+      expect(await menu.evaluate((m) => !m.closest('[data-testid="issue-bulk-toolbar"]')), '메뉴는 바 밖(포털)에 있다').toBe(true);
+
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+
+      // 메뉴 항목(포털)에 초점이 가도 바는 스크롤하지 않는다 — React onFocus 는 포털 자손의 초점에도 바로 버블된다.
+      // 담당자 메뉴는 긴 이름 때문에 바 안쪽 오른쪽 선을 넘어 뻗는다 — 항목을 바의 자손으로 잘못 다루면 바가 오른쪽으로 스크롤된다.
+      const barLeft = (set?: number) =>
+        bar.evaluate((el, v) => {
+          if (v != null) el.scrollLeft = v;
+          return el.scrollLeft;
+        }, set);
+      const assigneeTrigger = page.getByTestId('bulk-assignee-trigger');
+      await assigneeTrigger.focus();
+      await page.keyboard.press('Enter');
+      await expect(menu).toBeVisible();
+      const leftBefore = await barLeft(0);
+      const itemOut = await bar.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return [...document.querySelectorAll('[role="menuitem"]')].some((i) => {
+          const b = i.getBoundingClientRect();
+          return b.right > r.left + el.clientLeft + el.clientWidth - 12 || b.left < r.left + el.clientLeft + 12;
+        });
+      });
+      expect(itemOut, '메뉴 항목이 바 안쪽 가장자리를 넘는다(전제)').toBe(true);
+      for (const [key, id] of [['ArrowDown', 'bulk-assignee-option-10'], ['ArrowUp', 'bulk-assignee-option-unassign']]) {
+        await page.keyboard.press(key);
+        expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), '초점이 메뉴 항목에 있다').toBe(id);
+        expect(await barLeft(), '메뉴 항목 초점에 바가 스크롤됐다').toBe(leftBefore);
+      }
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeHidden();
+
+      // 반쯤 잘린 「선택 해제」를 마우스로 누르면 그대로 눌린다 — mousedown 초점에 바가 스크롤되면 mouseup 이 다른 곳에 떨어져 클릭이 빗나갔다.
+      // 단추 오른쪽이 바 오른쪽 밖으로 잘리게 바를 밀고(넘침이 작으면 맨 왼쪽까지), 보이는 부분의 오른쪽 끝 근처를 누른다 —
+      // 마우스 초점에 바가 스크롤되면 단추가 「잘린 만큼 + 여백 12px」 왼쪽으로 가서 누른 자리에서 벗어난다.
+      const target = await bar.evaluate((el) => {
+        const clear = el.querySelector('[data-testid="bulk-clear"]')!;
+        const innerRight = () => el.getBoundingClientRect().left + el.clientLeft + el.clientWidth;
+        const c0 = clear.getBoundingClientRect();
+        el.scrollLeft += c0.right - innerRight() - c0.width / 2;
+        const c = clear.getBoundingClientRect();
+        return { x: innerRight() - 2, y: c.top + c.height / 2, cut: c.right - innerRight(), width: c.width, left: el.scrollLeft };
+      });
+      expect(target.cut, '「선택 해제」 오른쪽이 바 밖으로 잘려 있다(전제)').toBeGreaterThan(4);
+      expect(target.width - target.cut, '「선택 해제」 왼쪽은 바 안에 보인다(전제)').toBeGreaterThan(8);
+      await page.mouse.move(target.x, target.y);
+      await page.mouse.down();
+      expect(await barLeft(), '마우스 초점에 바가 스크롤됐다').toBe(target.left);
+      await page.mouse.up();
+      await expect(bar, '「선택 해제」 클릭이 닿아 바가 사라진다').toHaveCount(0);
     },
   );
 });
