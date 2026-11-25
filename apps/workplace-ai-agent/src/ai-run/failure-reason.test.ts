@@ -7,6 +7,10 @@ describe('failureReasonOf', () => {
   it('한도 문구 → provider_limit', () => {
     expect(failureReasonOf(new Error("API Error: You've hit your org's monthly spend limit"))).toBe('provider_limit');
   });
+  it('WP-2137: 운영 주간 한도 문구 → provider_limit', () => {
+    // 실제 운영 주간 한도 문구가 처리 기록 사유 provider_limit 으로 남는지 고정한다
+    expect(failureReasonOf(new Error("Claude Code returned an error result: You've hit your weekly limit · resets 3pm (UTC)"))).toBe('provider_limit');
+  });
   it('시간 한도 RunnerLimitError → timeout', () => {
     expect(failureReasonOf(new RunnerLimitError('timeout', 'x timeout after 60000ms'))).toBe('timeout');
   });

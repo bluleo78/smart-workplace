@@ -27,7 +27,14 @@ const SESSION_CREATE_FAILED_LC = OPENCODE_SESSION_CREATE_FAILED.toLowerCase();
  */
 const LIMIT_PHRASES = ['spend limit', 'usage limit', 'credit balance', 'monthly limit', 'exceeded your quota', 'exceeded your current quota', 'quota exceeded',
   // WP-2108: Claude 구독 한도 문구. 'rate limit reached'(속도)와 갈리게 단독 'limit reached' 는 넣지 않는다.
-  "you've hit your limit", 'hour limit reached', 'weekly limit reached', 'usage limit reached'];
+  'hour limit reached', 'weekly limit reached'];
+/**
+ * Claude Code 구독 한도 문구 꼴(WP-2137): `You've hit your <이름> limit` (소문자, 따옴표 ' ’ 둘 다).
+ * 이름은 Claude Code CLI 의 한도 이름 표(정규식 안의 목록)만 받는다 — 새 이름이 생기면 거기에 더한다.
+ * 왜: 열린 낱말 패턴은 max_tokens·prompt length·file size 같은 요청 크기 한도까지 구독 한도로 오판해 API 가 비서를 멈추게 한다.
+ * 과매칭이 가장 큰 위험이라 표만 받는다. 속도 제한(`rate limit`)은 표에 없어 PROVIDER_RATE 로 간다. 러너 표지 게이트는 앞에서 거른다.
+ */
+const CLAUDE_LIMIT_PATTERN = /you['’]?ve hit your (?:(?:org|channel)['’]s )?(?:(?:5-hour|weekly|session|opus|sonnet|fable|usage credit|monthly spend|fast) )?limit\b/;
 const AUTH_PHRASES = ['invalid api key', 'authentication_error', 'oauth token'];
 const RATE_PHRASES = ['rate limit', 'rate_limit_error'];
 const OVERLOADED_PHRASES = ['overloaded'];
@@ -115,7 +122,7 @@ export function classifyProviderError(e: unknown): ProviderErrorReason | null {
   if (text.includes(SESSION_CREATE_FAILED_LC)) return 'RUNNER_UNAVAILABLE';
 
   // (1) 한도 문구 우선 — 한도 소진은 429 로 오기도 한다.
-  if (has(LIMIT_PHRASES)) return 'PROVIDER_LIMIT';
+  if (has(LIMIT_PHRASES) || CLAUDE_LIMIT_PATTERN.test(text)) return 'PROVIDER_LIMIT';
 
   // (2) opencode 오류 객체(cause 우선, 없으면 자기 자신).
   if (fromObj) return fromObj;
