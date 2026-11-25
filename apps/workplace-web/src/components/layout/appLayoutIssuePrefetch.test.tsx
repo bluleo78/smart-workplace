@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { useIssue } from '@/hooks/queries/useIssue'
 import { issueKeys } from '@/hooks/queries/useIssues'
 import { resetInitialIssuePrefetchForTest, startInitialIssuePrefetch } from '@/hooks/useInitialIssuePrefetch'
+import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
@@ -182,5 +183,45 @@ describe('AppLayout 이슈 상세 미리 요청 (WP-2074)', () => {
     renderScreen(shell(LatePage), { path: '/projects/WP/issues/7', handlers })
     await showPageAfterPrefetch()
     expect(await screen.findByText('load-error')).toBeTruthy()
+  })
+})
+
+describe('AppLayout 대기 푸시 목적지 미리 요청 (WP-2116)', () => {
+  beforeEach(() => {
+    resetInitialIssuePrefetchForTest()
+    sessionStorage.clear()
+  })
+
+  it('/ 에서 셸이 뜨고 같은 테넌트 대기 목적지가 상세면 그 상세를 미리 요청한다', async () => {
+    const { counter, handlers } = detailApi()
+    savePendingPushTarget({ tenantId: 1, url: '/projects/WP/issues/7?tab=x' })
+    renderScreen(shell(Never), { path: '/', handlers })
+    await waitFor(() => expect(counter.calls).toBe(1))
+  })
+
+  it('다른 테넌트 대기 목적지면 미리 요청하지 않는다', async () => {
+    const { counter, handlers } = detailApi()
+    // 다른 테넌트 목적지는 AppLayout 이 소속 확인(memberships)을 부른다 — 소속 없음으로 답해 홈으로 돌려보낸다.
+    let membershipsAsked = false
+    handlers.push(
+      http.get('/api/v1/auth/memberships', () => {
+        membershipsAsked = true
+        return HttpResponse.json([])
+      }),
+    )
+    savePendingPushTarget({ tenantId: 2, url: '/projects/WP/issues/7' })
+    renderScreen(shell(Never), { path: '/', handlers })
+    // 고정 시간 대신 대기 목적지 처리(소속 확인)가 끝난 것을 기다린 뒤 상세 요청이 없음을 본다.
+    await waitFor(() => expect(membershipsAsked).toBe(true))
+    expect(counter.calls).toBe(0)
+  })
+
+  it('상세가 아닌 대기 목적지면 미리 요청하지 않는다', async () => {
+    const { counter, handlers } = detailApi()
+    savePendingPushTarget({ tenantId: 1, url: '/chat/channels/5' })
+    const { location } = renderScreen(shell(Never), { path: '/', handlers })
+    // 고정 시간 대신 대기 목적지로 이동한 것(셸 첫 미리 요청 기회가 지나간 뒤)을 기다린 뒤 상세 요청이 없음을 본다.
+    await waitFor(() => expect(location()).toBe('/chat/channels/5'))
+    expect(counter.calls).toBe(0)
   })
 })

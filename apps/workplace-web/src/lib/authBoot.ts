@@ -4,17 +4,26 @@
  * 왜: 첫 주소 청크 미리 받기(App) 가 auth/refresh 보다 먼저 나가면, HTTP/1.1(호스트당 소켓 6개)에서는 이슈 상세의
  * 정적 그래프 183개 청크가 refresh 를 마지막 청크가 끝날 때까지 줄 세웠다(실측: 상세 요청이 FCP 뒤 803ms).
  * 그래서 미리 받기를 refresh 가 끝난 뒤(성공·실패 무관)로 미루는데, 그 신호를 AuthContext 와 App 이 모듈 상태로 주고받는다.
+ * WP-2116: 신호에 「미리 받을지」도 싣는다 — 일시 오류·워크스페이스 선택 화면에서는 그 청크를 쓰지 않으므로 받지 않는다.
  */
 
-/** 신호가 이미 왔는지 — 문서당 첫 호출만 효과(이후 refresh·재시도는 무시). */
-let settled = false
-/** 신호를 기다리는 구독자 — 신호가 오면 각자 자기 예약을 잡고 스스로 빠진다(순회 중 삭제는 Set 에서 안전하다). */
+/**
+ * 첫 refresh 신호 상태 — pending(아직 안 옴)·go(미리 받기)·skip(미리 받지 않음, WP-2116).
+ * 문서당 첫 신호만 효과다. 예외: skip 뒤의 go 는 되살린다(일시 오류 뒤 다시 시도 성공). skip 인 동안 대기자는 타이머 없이 go 만 기다린다.
+ */
+let state: 'pending' | 'go' | 'skip' = 'pending'
+/** 신호를 기다리는 구독자 — true 신호가 오면 각자 자기 예약을 잡고 스스로 빠진다(순회 중 삭제는 Set 에서 안전하다). */
 const waiters = new Set<() => void>()
 
-/** 첫 refresh 가 끝났음(성공·실패·로그인 흔적 없음 모두)을 알린다. 문서당 첫 호출만 효과가 있다. */
-export function markInitialRefreshSettled(): void {
-  if (settled) return
-  settled = true
+/**
+ * 첫 refresh 가 끝났음(성공·실패·로그인 흔적 없음 모두)을 알린다. 문서당 첫 호출만 효과가 있다.
+ * preload=false 면 대기자·이후 예약은 안전망 시각에도 돌지 않는다(미리 받기 생략).
+ * 다만 생략 뒤에 true 가 오면 되살린다 — 일시 오류로 「다시 시도」 화면이 떴다가 다시 시도로 앱에 들어간 경우다(WP-2116 리뷰).
+ * 그 경우 미리 받기는 앱에 들어가는 그 refresh 뒤에 돈다. 그 밖의 뒤 신호(true 뒤 무엇이든, false 뒤 false)는 무시한다.
+ */
+export function markInitialRefreshSettled(preload = true): void {
+  if (state === 'go' || (state === 'skip' && !preload)) return
+  state = preload ? 'go' : 'skip'
   for (const onSignal of waiters) onSignal()
 }
 
@@ -29,17 +38,22 @@ export function markInitialRefreshSettled(): void {
 export function afterInitialRefresh(cb: () => void, timeoutMs = 3000): () => void {
   // 타이머는 하나만 쥔다 — 처음엔 안전망, 신호가 오면 그것을 지우고 다음 작업(0ms)으로 바꾼다. 취소·실행 모두 타이머를 지우거나
   // 소진하고 구독에서 빠지므로 cb 가 두 번 불리지 않는다.
-  let timer: ReturnType<typeof setTimeout>
+  let timer: ReturnType<typeof setTimeout> | undefined
   const run = () => {
     waiters.delete(onSignal)
     cb()
   }
   function onSignal() {
-    waiters.delete(onSignal)
     clearTimeout(timer)
+    // 미리 받기 생략 신호면 안전망 타이머만 지우고 구독은 남긴다 — 뒤에 true(다시 시도 성공)가 오면 그때 예약한다.
+    if (state === 'skip') return
+    waiters.delete(onSignal)
     timer = setTimeout(run, 0)
   }
-  if (settled) {
+  if (state === 'skip') {
+    // 이미 생략 신호가 왔다 — 안전망 없이 다음 true 신호만 기다린다.
+    waiters.add(onSignal)
+  } else if (state === 'go') {
     timer = setTimeout(run, 0)
   } else {
     waiters.add(onSignal)
@@ -53,6 +67,6 @@ export function afterInitialRefresh(cb: () => void, timeoutMs = 3000): () => voi
 
 /** 테스트 전용 — 모듈 상태를 문서 첫 로드 직후로 되돌린다. */
 export function resetAuthBootForTest(): void {
-  settled = false
+  state = 'pending'
   waiters.clear()
 }

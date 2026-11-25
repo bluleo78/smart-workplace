@@ -25,17 +25,27 @@ export function savePendingPushTarget(t: PushTarget) {
   }
 }
 
-/** 보관된 대기 목적지를 꺼내고 지운다(1회성). 없거나 형식이 어긋나면 null. */
-export function takePendingPushTarget(): PushTarget | null {
+/** 보관된 대기 목적지를 지우지 않고 읽는다. 없거나 형식이 어긋나면 null — 셸이 미리 요청할 때 엿보는 데 쓴다(WP-2116). */
+export function peekPendingPushTarget(): PushTarget | null {
   try {
     const raw = sessionStorage.getItem(PENDING_PUSH_TARGET_KEY)
     if (!raw) return null
-    sessionStorage.removeItem(PENDING_PUSH_TARGET_KEY)
     const o = JSON.parse(raw) as { tenantId?: unknown; url?: unknown }
     return { tenantId: typeof o.tenantId === 'number' ? o.tenantId : null, url: safeTarget(o.url) }
   } catch {
     return null
   }
+}
+
+/** 보관된 대기 목적지를 꺼내고 지운다(1회성). 없거나 형식이 어긋나면 null. */
+export function takePendingPushTarget(): PushTarget | null {
+  const target = peekPendingPushTarget()
+  try {
+    sessionStorage.removeItem(PENDING_PUSH_TARGET_KEY)
+  } catch {
+    // 지우지 못해도 목적지는 돌려준다
+  }
+  return target
 }
 
 /**
@@ -45,6 +55,14 @@ export function takePendingPushTarget(): PushTarget | null {
  */
 function isUserScopedTarget(url: string): boolean {
   return url === CONNECTED_APPS_PATH
+}
+
+/**
+ * 전환(전체 리로드) 없이 지금 문서에서 바로 이동하는 목적지인가 — 알림 테넌트가 없거나 현재 테넌트와 같거나 사용자 단위 목적지.
+ * openPushTarget 과 셸 첫 미리 요청(useInitialIssuePrefetch, WP-2116)이 같은 규칙을 쓰게 한 곳에 둔다.
+ */
+export function navigatesInPlace(target: PushTarget, activeTenantId: number | null): boolean {
+  return target.tenantId == null || target.tenantId === activeTenantId || isUserScopedTarget(target.url)
 }
 
 /**
@@ -61,7 +79,7 @@ export async function openPushTarget(
   },
 ): Promise<void> {
   const url = safeTarget(target.url)
-  if (target.tenantId == null || target.tenantId === deps.activeTenantId || isUserScopedTarget(url)) {
+  if (navigatesInPlace({ tenantId: target.tenantId, url }, deps.activeTenantId)) {
     deps.navigate(url)
     return
   }
