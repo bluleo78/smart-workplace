@@ -15,11 +15,11 @@ function reportResult(scope: AiRunScope, result: ResultSummary | undefined, star
   else safe(() => scope.runnerFinished({ ok: false, usage: null, error: new Error('no_result'), startSeq }));
 }
 
-/** 범위에 러너 시작을 알리고 그 순번을 돌려준다 — 기록이 실패하면 undefined(WP-2106: 성공이 어느 실패를 우회했는지 가르는 데 쓴다). */
-function start(scope: AiRunScope, model: string, credentialLabel: string): number | undefined {
+/** 범위에 러너 시작을 알리고 그 순번을 돌려준다(call=input 을 넘겨 용서가 이 호출의 실패만 지우게 한다, WP-2122) — 기록이 실패하면 undefined(WP-2106: 성공이 어느 실패를 우회했는지 가르는 데 쓴다). */
+function start(scope: AiRunScope, model: string, credentialLabel: string, call: object): number | undefined {
   let startSeq: number | undefined;
   safe(() => {
-    startSeq = scope.runnerStarted(model, credentialLabel);
+    startSeq = scope.runnerStarted(model, credentialLabel, call);
   });
   return startSeq;
 }
@@ -34,7 +34,7 @@ export function recordingRunner(inner: AgentRunner, credentialLabel: string): Ag
     stream(i: RunnerInput, onEvent: (e: RunnerEvent) => void): RunnerStreamHandle {
       const scope = currentAiRunScope();
       if (!scope) return inner.stream(i, onEvent);
-      const startSeq = start(scope, i.model, credentialLabel);
+      const startSeq = start(scope, i.model, credentialLabel, i);
       let result: ResultSummary | undefined;
       let handle: RunnerStreamHandle;
       try {
@@ -60,7 +60,7 @@ export function recordingRunner(inner: AgentRunner, credentialLabel: string): Ag
     async collect(i: RunnerInput): Promise<RunnerEvent[]> {
       const scope = currentAiRunScope();
       if (!scope) return inner.collect(i);
-      const startSeq = start(scope, i.model, credentialLabel);
+      const startSeq = start(scope, i.model, credentialLabel, i);
       let events: RunnerEvent[];
       try {
         events = await inner.collect(i);

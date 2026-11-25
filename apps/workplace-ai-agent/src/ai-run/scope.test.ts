@@ -186,6 +186,45 @@ describe('AiRunScope', () => {
   // 원인별 실패 사유 (WP-2106)
   const LIMIT = new Error("API Error: You've hit your org's monthly spend limit");
 
+  // 용서는 그 호출의 실패만 지운다 (WP-2122)
+  it('forgive_withCall_removesOnlyThatCallsFailure', () => {
+    const { sink, scope } = make();
+    const a = {};
+    const b = {};
+    const sa = scope.runnerStarted('m', 'c', a);
+    const sb = scope.runnerStarted('m', 'c', b);
+    scope.runnerFinished({ ok: false, usage: null, error: new Error('effort rejected'), startSeq: sa });
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT, startSeq: sb });
+    scope.forgiveRunnerFailure(a);
+    const retry = scope.runnerStarted('m', 'c', a);
+    scope.runnerFinished({ ok: true, usage: null, startSeq: retry });
+    scope.close({ ok: true });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'provider_limit' });
+  });
+
+  it('forgive_unknownCall_removesNothing', () => {
+    const { sink, scope } = make();
+    const x = {};
+    const sx = scope.runnerStarted('m', 'c', x);
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT, startSeq: sx });
+    scope.forgiveRunnerFailure({});
+    scope.close({ ok: true });
+    expect(sink[1]).toMatchObject({ status: 'FAILED' });
+  });
+
+  it('forgive_callWithoutFailure_removesNothing', () => {
+    const { sink, scope } = make();
+    const a = {};
+    const b = {};
+    const sa = scope.runnerStarted('m', 'c', a);
+    const sb = scope.runnerStarted('m', 'c', b);
+    scope.runnerFinished({ ok: true, usage: null, startSeq: sa });
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT, startSeq: sb });
+    scope.forgiveRunnerFailure(a);
+    scope.close({ ok: true });
+    expect(sink[1]).toMatchObject({ status: 'FAILED' });
+  });
+
   it('close_limitRunnerError_beatsHttpReason', () => {
     const { sink, scope } = make();
     scope.runnerStarted('m', 'c');

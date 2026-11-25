@@ -85,6 +85,16 @@ describe('recordingRunner', () => {
     expect(sink[1]).toMatchObject({ status: 'SUCCEEDED', inputTokens: 10, outputTokens: 5 });
   });
 
+  // WP-2122: 용서가 그 호출의 실패만 지우도록 input 객체를 호출 식별자로 넘긴다
+  it('collect: input 객체를 호출 식별자로 범위에 넘긴다', async () => {
+    const { scope } = make();
+    const spy = vi.spyOn(scope, 'runnerStarted');
+    const inner: AgentRunner = { collect: async () => [resultEv()], stream: vi.fn() };
+    await withAiRunScope(scope, () => recordingRunner(inner, 'anthropic').collect(input));
+    expect(spy).toHaveBeenCalledWith('m-1', 'anthropic', input);
+    expect(spy.mock.calls[0][2]).toBe(input);
+  });
+
   it('stream: result 없이 done 이 이행되면 FAILED(no_result)', async () => {
     const { sink, scope } = make();
     const inner: AgentRunner = { collect: vi.fn(), stream: () => ({ done: Promise.resolve(), kill: vi.fn() }) };

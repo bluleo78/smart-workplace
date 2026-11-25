@@ -72,7 +72,8 @@ export async function runSingleShot(input: RunnerInput, opts: SingleShotOptions)
       error: e instanceof Error ? e.message : String(e),
     });
     // 재시도가 회복하면 처리 전체는 성공 — 첫 시도의 러너 실패 표시를 지운다(WP-1828).
-    forgiveScopeRunnerFailure();
+    // WP-2122: 마지막 실패가 아니라 실패한 첫 시도(원래 input — 재시도는 withoutEffort 복사본이라 다른 객체)의 실패만 지워, 겹쳐 돈 다른 호출의 한도 실패는 남긴다.
+    forgiveScopeRunnerFailure(input);
     return collectOk(withoutEffort(input, remainingMs), opts.failMessage);
   }
 }

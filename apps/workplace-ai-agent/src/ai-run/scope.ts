@@ -31,6 +31,8 @@ type RunnerFailure = {
   seq: number;
   /** 뒤이어 시작한 다른 러너 호출이 성공해 이 실패가 우회됐는가. */
   bypassed: boolean;
+  /** 이 실패를 낸 호출의 시작 순번(WP-2122) — 용서가 그 호출의 실패만 지우는 데 쓴다. 모르면 undefined. */
+  startSeq: number | undefined;
 };
 
 /**
@@ -96,9 +98,11 @@ export class AiRunScope {
   private model: string | null = null;
   private credentialLabel: string | null = null;
   /**
-   * 러너 실패 목록(시도 순, 항목은 RunnerFailure, WP-2106). 용서는 마지막 하나만 지운다(WP-1828).
+   * 러너 실패 목록(시도 순, 항목은 RunnerFailure, WP-2106). 용서는 호출을 넘기면 그 호출의 실패만, 안 넘기면 마지막 하나를 지운다(WP-1828, WP-2122).
    */
   private readonly runnerFailures: RunnerFailure[] = [];
+  /** 호출 객체 → 그 호출의 시작 순번(WP-2122). 약한 참조라 호출이 끝나 버려지면 함께 사라진다. */
+  private readonly callSeq = new WeakMap<object, number>();
   /** 러너 시작·실패 순번 — 성공한 호출이 어느 실패 뒤에 시작했는지 가린다(WP-2106). */
   private seq = 0;
   /** 라우트가 직접 지정한 실패 사유(markFailed) — 러너는 성공했어도 처리가 실패한 경우. */
@@ -139,9 +143,11 @@ export class AiRunScope {
   /**
    * 러너 시작. 첫 호출에서만 RUNNING 기록을 넣는다. 모델은 마지막 값을 쓴다.
    * 돌려주는 순번을 같은 호출의 runnerFinished 에 넘기면, 그 호출이 성공할 때 시작 전에 끝난 실패만 우회로 표시한다(WP-2106).
+   * call 을 넘기면 그 객체와 순번을 묶어 둔다 — 나중에 forgiveRunnerFailure(call) 이 그 호출의 실패만 지우게 한다(WP-2122).
    */
-  runnerStarted(model: string, credentialLabel: string): number {
+  runnerStarted(model: string, credentialLabel: string, call?: object): number {
     const startSeq = ++this.seq;
+    if (call) this.callSeq.set(call, startSeq);
     if (this._closed) return startSeq;
     this.model = model;
     this.credentialLabel = credentialLabel;
@@ -169,19 +175,29 @@ export class AiRunScope {
     const seq = ++this.seq;
     this.runnerFailures.push(
       r.error !== undefined
-        ? { message: errorMessage(r.error), reason: failureReasonOf(r.error), error: r.error, seq, bypassed: false }
-        : { message: null, reason: null, error: undefined, seq, bypassed: false },
+        ? { message: errorMessage(r.error), reason: failureReasonOf(r.error), error: r.error, seq, bypassed: false, startSeq: r.startSeq }
+        : { message: null, reason: null, error: undefined, seq, bypassed: false, startSeq: r.startSeq },
     );
   }
 
   /**
    * 러너 실패를 용서한다 — effort 거부 뒤 effort 없이 재시도하는 경로가 호출한다(WP-1828).
-   * 재시도가 성공하면 그 직전 시도의 실패만 지운다(가장 최근 하나) — 앞선 다른 실패는 남아 처리가 FAILED 로 끝난다.
+   * call 을 넘기면 그 호출(runnerStarted 에 넘긴 객체)이 낸 실패만 지운다(WP-2122) — 동시에 도는 다른 러너의 실패(예: 한도 초과)를
+   * 대신 지우지 않는다. call 을 넘겼는데 모르는 객체거나 그 호출에 실패가 없으면 아무것도 지우지 않는다.
+   * call 을 안 넘기면 종전대로 가장 최근 실패 하나를 지운다(WP-1828). 앞선 다른 실패는 남아 처리가 FAILED 로 끝난다.
    * 토큰 합은 그대로 둔다(첫 시도 소비도 실제 사용).
    */
-  forgiveRunnerFailure(): void {
+  forgiveRunnerFailure(call?: object): void {
     if (this._closed) return;
-    this.runnerFailures.pop();
+    if (!call) {
+      this.runnerFailures.pop();
+      return;
+    }
+    const startSeq = this.callSeq.get(call);
+    if (startSeq === undefined) return;
+    for (let i = this.runnerFailures.length - 1; i >= 0; i--) {
+      if (this.runnerFailures[i].startSeq === startSeq) this.runnerFailures.splice(i, 1);
+    }
   }
 
   /** 러너는 성공했어도 처리가 실패했음을 알린다(예: SSE 전송 중 오류). close 결과가 FAILED·이 사유가 된다. */
@@ -294,9 +310,9 @@ export function swallowRecording(label: string, fn: () => void): void {
   }
 }
 
-/** 현재 범위의 마지막 러너 실패를 용서한다 — 재시도 회복 경로용(WP-1828). */
-export function forgiveScopeRunnerFailure(): void {
-  swallowRecording('러너 실패 용서', () => currentAiRunScope()?.forgiveRunnerFailure());
+/** 현재 범위에서 call 이 낸 러너 실패를 용서한다(call 없으면 마지막 실패) — 재시도 회복 경로용(WP-1828, WP-2122). */
+export function forgiveScopeRunnerFailure(call?: object): void {
+  swallowRecording('러너 실패 용서', () => currentAiRunScope()?.forgiveRunnerFailure(call));
 }
 
 /** 현재 범위에 처리 실패를 알린다(러너는 성공했어도 후속 처리가 실패한 경우)(WP-1828). */
