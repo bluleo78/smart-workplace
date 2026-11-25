@@ -29,7 +29,11 @@ const LIST_PARENTS: Record<string, string> = { '/settings': '/apps', '/notificat
 // 페이지의 "프로젝트로 돌아가기" 아이콘을 ‹ 하나로 대체하므로 딥링크에서도 같은 곳으로 돌아가게 한다.
 const PROJECT_SUB = /^(\/projects\/[^/]+)\/.+$/
 
-// 프로젝트 탭 길(WP-1477) — 개요·타임라인·사이클·버전은 하위 화면이 아니라 프로젝트 화면(이슈 탭 /projects/:key)의 다른 탭이다.
+// 이슈 상세(/projects/:key/issues/:n, WP-2085) — 뒤로가기 대상은 이슈 목록의 정식 주소(/projects/:key/issues).
+// 프로젝트 홈으로 보내면 기억한 탭(개요 등)으로 튕겨 목록이 아닌 곳에 도착한다.
+const PROJECT_ISSUE_DETAIL = /^(\/projects\/[^/]+\/issues)\/[^/]+$/
+
+// 프로젝트 탭 길(WP-1477) — 개요·타임라인·사이클·버전은 하위 화면이 아니라 프로젝트 화면(이슈 탭 /projects/:key/issues)의 다른 탭이다.
 // 뒤로가기 대상을 이슈 탭과 같게(작업 모듈 루트) 둬, 탭에서 ‹ 를 누르면 프로젝트 화면을 떠난다(다른 탭으로 한 단계 내려가지 않는다).
 // 탭 길 목록은 탭 정의(주소 해석)와 같은 한 곳(lib/projectTabPaths)에서 만든다 — 탭을 더할 때 한쪽만 고쳐 어긋나지 않게.
 const PROJECT_TAB = new RegExp(`^(/projects/[^/]+)/(?:${PROJECT_TAB_PATHS.join('|')})$`)
@@ -62,6 +66,8 @@ export function moduleRootFor(pathname: string): string {
   if (notesPage) return notesPage[1]
   const projectTab = PROJECT_TAB.exec(p)
   if (projectTab) return moduleRootFor(projectTab[1])
+  const issueDetail = PROJECT_ISSUE_DETAIL.exec(p)
+  if (issueDetail) return issueDetail[1]
   const project = PROJECT_SUB.exec(p)
   if (project) return project[1]
   const extra = EXTRA_ROOTS.find(([match]) => match(p))

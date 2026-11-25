@@ -62,7 +62,7 @@ describe('팀 리스트 뷰 — 일괄 작업 (#606)', () => {
     await user.click(screen.getByTestId('select-issue-8'))
     expect(toolbar()).toHaveTextContent('선택 2개')
     // 체크박스 클릭이 상세 이동을 일으키지 않는다.
-    expect(location()).toBe(`/projects/${KEY}`)
+    expect(location()).toBe(`/projects/${KEY}/issues`)
 
     await user.click(screen.getByTestId('bulk-clear'))
     expect(screen.queryByTestId('issue-bulk-toolbar')).not.toBeInTheDocument()

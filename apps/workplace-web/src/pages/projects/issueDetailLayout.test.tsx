@@ -246,12 +246,12 @@ describe('첨부 스트립 (#343·#798)', () => {
 
 describe('헤더·본문', () => {
   // 이슈 상세 → 목록 복귀 경로 부재 회귀 방지.
-  test('브레드크럼 프로젝트 링크 클릭 → 프로젝트 홈으로 이동', async () => {
+  test('브레드크럼 프로젝트 링크 클릭 → 이슈 목록 고정 주소로 이동(WP-2085)', async () => {
     const { user, location } = await openIssueDetail({ key: KEY, detail: detailWith() })
     const nav = screen.getByRole('navigation', { name: '이슈 경로' })
     await user.click(within(nav).getByRole('link', { name: 'Workplace' }))
     // 이동은 전환(transition)으로 일어나 프로젝트 화면 모듈을 처음 불러오는 동안 주소가 그대로다 — 첫 화면 대기만큼 기다린다.
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`), { timeout: PAGE_LOAD_TIMEOUT })
   })
 
   // Tailwind `container` 는 브레이크포인트별 max-width 를 강제한다 — 본문 조상 어디에도 없어야 전체폭을 쓴다.

@@ -231,7 +231,7 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     expect(within(screen.getByTestId('list-cycle-header-backlog')).queryByRole('checkbox')).not.toBeInTheDocument()
     await user.click(within(section('backlog')).getByTestId('select-issue-41'))
     expect(screen.getByTestId('issue-bulk-toolbar')).toHaveTextContent('선택 3개')
-    expect(location()).toBe(`/projects/${KEY}`)
+    expect(location()).toBe(`/projects/${KEY}/issues`)
 
     const progressBefore = api.progressGets()
     await user.click(screen.getByTestId('bulk-status-trigger'))

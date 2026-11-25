@@ -6,6 +6,7 @@ import type { ReactElement } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
 import { withAppProviders } from '@/test/kits/appProviders'
+import { atRoute } from '@/test/kits/projects/atRoute'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -23,13 +24,8 @@ export function renderMobileScreen(ui: ReactElement, { handlers = [], ...options
  * 다른 주소로 이동하면 빈 화면이 된다(이동 자체는 location() 으로 단언한다).
  */
 export function renderMobileRoute(pattern: string, element: ReactElement, options: Parameters<typeof renderScreen>[1] = {}) {
-  return renderMobileScreen(
-    <Routes>
-      <Route path={pattern} element={element} />
-      <Route path="*" element={null} />
-    </Routes>,
-    options,
-  )
+  // 라우트 감싸기는 화면 테스트 키트(atRoute)와 같은 한 곳을 쓴다 — 프로젝트 홈 패턴의 /issues 처리도 거기서 같이 받는다.
+  return renderMobileScreen(atRoute(pattern, element), options)
 }
 
 /**

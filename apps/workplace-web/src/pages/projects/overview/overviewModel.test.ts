@@ -44,30 +44,30 @@ const OPEN = 'status=TODO%2CIN_PROGRESS'
 
 describe('이슈 탭 링크 — 늘 쿼리를 단다(조건 없는 주소는 개요로 되돌려진다)', () => {
   it('살펴볼 이슈 「n건 더」 — 기한 지남은 마감이 어제까지인 열린 이슈, 나머지는 조건 필터', () => {
-    expect(attentionHref('WP', 'overdue', TODAY)).toBe(`/projects/WP?${OPEN}&dueTo=2026-11-10`)
-    expect(attentionHref('WP', 'stale', TODAY)).toBe('/projects/WP?stale=true')
-    expect(attentionHref('WP', 'waiting', TODAY)).toBe('/projects/WP?waiting=true')
+    expect(attentionHref('WP', 'overdue', TODAY)).toBe(`/projects/WP/issues?${OPEN}&dueTo=2026-11-10`)
+    expect(attentionHref('WP', 'stale', TODAY)).toBe('/projects/WP/issues?stale=true')
+    expect(attentionHref('WP', 'waiting', TODAY)).toBe('/projects/WP/issues?waiting=true')
     // 달 경계.
-    expect(attentionHref('WP', 'overdue', '2026-12-01')).toBe(`/projects/WP?${OPEN}&dueTo=2026-11-30`)
+    expect(attentionHref('WP', 'overdue', '2026-12-01')).toBe(`/projects/WP/issues?${OPEN}&dueTo=2026-11-30`)
   })
 
   it('마감 임박 — 오늘부터 6일 뒤까지(7일)', () => {
-    expect(dueSoonHref('WP', '2026-12-28')).toBe(`/projects/WP?${OPEN}&dueFrom=2026-12-28&dueTo=2027-01-03`)
+    expect(dueSoonHref('WP', '2026-12-28')).toBe(`/projects/WP/issues?${OPEN}&dueFrom=2026-12-28&dueTo=2027-01-03`)
   })
 
   it('열린 이슈·작업량·최근 활동·에픽', () => {
-    expect(statusHref('WP', 'IN_PROGRESS')).toBe('/projects/WP?status=IN_PROGRESS')
-    expect(unassignedHref('WP')).toBe(`/projects/WP?${OPEN}&assignee=null`)
-    expect(assigneeHref('WP', 5)).toBe(`/projects/WP?${OPEN}&assignee=5`)
-    expect(activityAllHref('WP')).toBe('/projects/WP?sort=updatedAt&direction=desc')
-    expect(epicsHref('WP', 7)).toBe(`/projects/WP?${OPEN}&type=7`)
-    expect(epicsHref('WP', null)).toBe(`/projects/WP?${OPEN}`)
+    expect(statusHref('WP', 'IN_PROGRESS')).toBe('/projects/WP/issues?status=IN_PROGRESS')
+    expect(unassignedHref('WP')).toBe(`/projects/WP/issues?${OPEN}&assignee=null`)
+    expect(assigneeHref('WP', 5)).toBe(`/projects/WP/issues?${OPEN}&assignee=5`)
+    expect(activityAllHref('WP')).toBe('/projects/WP/issues?sort=updatedAt&direction=desc')
+    expect(epicsHref('WP', 7)).toBe(`/projects/WP/issues?${OPEN}&type=7`)
+    expect(epicsHref('WP', null)).toBe(`/projects/WP/issues?${OPEN}`)
   })
 
   it('진행 중 링크 — 사이클 이슈 / 버전 상세 / 열린 이슈', () => {
-    expect(progressLink('WP', createCycleProgress())).toEqual({ label: '사이클 보기', href: '/projects/WP?cycle=3' })
+    expect(progressLink('WP', createCycleProgress())).toEqual({ label: '사이클 보기', href: '/projects/WP/issues?cycle=3' })
     expect(progressLink('WP', version())).toEqual({ label: '버전 보기', href: '/projects/WP/versions/12' })
-    expect(progressLink('WP', createTrendProgress())).toEqual({ label: '이슈 탭에서 보기', href: `/projects/WP?${OPEN}` })
+    expect(progressLink('WP', createTrendProgress())).toEqual({ label: '이슈 탭에서 보기', href: `/projects/WP/issues?${OPEN}` })
   })
 })
 

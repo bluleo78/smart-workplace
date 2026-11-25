@@ -108,7 +108,7 @@ describe('프로젝트 노트 탭', () => {
   test('공간이 없으면(404) 탭 줄에 「노트」가 없고, 주소로 직접 들어오면 프로젝트 이슈 탭으로 간다', async () => {
     const { location } = open(`/projects/${KEY}/notes`, notFound)
     await screen.findByRole('navigation', { name: '프로젝트 탭' }, { timeout: PAGE_LOAD_TIMEOUT })
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`))
     expect(within(tabNav()).queryByRole('link', { name: '노트' })).not.toBeInTheDocument()
   })
 

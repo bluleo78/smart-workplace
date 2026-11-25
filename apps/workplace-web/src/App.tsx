@@ -298,6 +298,8 @@ export default function App() {
                   {/* 프로젝트 화면 탭(WP-1477) — 머리줄·탭 줄을 함께 쓰는 개요·이슈(index)·타임라인·사이클·워크플로우·버전. */}
                   <Route path="projects/:key" element={<ProjectTabsLayout />}>
                     <Route index element={<ProjectDetailPage />} />
+                    {/* 이슈 탭의 고정 주소(WP-2085) — index 와 같은 화면이되 마지막 탭 복원을 타지 않아 이슈 목록에 늘 머문다. */}
+                    <Route path="issues" element={<ProjectDetailPage />} />
                     <Route path="overview" element={<ProjectOverviewTab />} />
                     <Route path="notes" element={<ProjectNotesTab />} />
                     <Route path="notes/:pageId" element={<ProjectNotesTab />} />

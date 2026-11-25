@@ -11,6 +11,7 @@ import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { projectIssuesPath } from '@/lib/projectTabPaths';
 
 import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
@@ -116,7 +117,7 @@ export function IssueBreadcrumbHeader({
   // 에픽 단계는 부모가 보이는 비에픽 이슈이고 서버가 parent.epic 을 실었을 때만(WP-1736) — 부모가 에픽이면 중복하지 않는다.
   const epic = parent && !isEpicOrHiddenRef(parent) ? parent.epic : null;
   const items: BreadcrumbItem[] = [
-    { key: 'project', label: projectName, title: projectName, to: `/projects/${projectKey}` },
+    { key: 'project', label: projectName, title: projectName, to: projectIssuesPath(projectKey) }, // 이슈 목록 고정 주소(WP-2085)
     ...(epic ? [refCrumb('epic', epic, projectKey)] : []),
     ...(parent ? [refCrumb('parent', parent, projectKey)] : []),
     {

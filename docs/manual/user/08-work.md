@@ -3,7 +3,7 @@ slug: work
 title: 작업 관리
 part: 2
 audience: [member, admin]
-routes: [/projects, /projects/:key, /projects/:key/overview, /projects/:key/settings, /projects/:key/cycles, /projects/:key/workflow, /projects/:key/versions, /projects/:key/versions/:versionId, /projects/:key/timeline, /projects/:key/issues/:number, /me/tasks/:tab]
+routes: [/projects, /projects/:key, /projects/:key/issues, /projects/:key/overview, /projects/:key/settings, /projects/:key/cycles, /projects/:key/workflow, /projects/:key/versions, /projects/:key/versions/:versionId, /projects/:key/timeline, /projects/:key/issues/:number, /me/tasks/:tab]
 ---
 
 # 작업 관리

@@ -6,6 +6,7 @@ import type { IssueTypeSummary } from '../types/issueType';
 import type { UpdateVersionRequest, VersionResponse } from '../types/version';
 import { formatDateKey, parseDateKey, parseValidDateKey } from './formatters';
 import { daysUntilLocalDate } from './myTasks';
+import { projectIssuesPath } from './projectTabPaths';
 
 export type VersionDueState = 'none' | 'upcoming' | 'overdue';
 
@@ -139,5 +140,6 @@ export function versionRowActions(v: Pick<VersionResponse, 'status'>, canManage:
  * 목록은 종료 이슈까지 보이지만 기본 범위(에픽·하위 작업 제외)는 그대로라, 버전 상세보다 적게 보일 수 있다.
  */
 export function versionIssuesUrl(projectKey: string, kind: 'fixVersion' | 'affectsVersion', id: number): string {
-  return `/projects/${projectKey}?view=list&${kind}=${id}`;
+  // 이슈 목록 고정 주소(WP-2085)
+  return projectIssuesPath(projectKey, `view=list&${kind}=${id}`);
 }

@@ -3,7 +3,7 @@
 // + 그룹핑 연동 체크리스트. URL = single source of truth: /projects/:key?view=&group=&task=
 import { ListChecks, Plus, Workflow } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { Page, pageGutterClass } from '@/components/layout/Page';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
@@ -76,11 +76,13 @@ export function PersonalProjectDetail({ project, workflowVisible = false }: { pr
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N 상세 모달 오픈(view=board 보존). 풀페이지 이동 없음.
   // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
+  // 지금 주소(홈 /projects/:key 또는 고정 주소 /projects/:key/issues, WP-2085)를 그대로 두고 쿼리만 바꾼다 — 복사한 주소가 들어온 모양 그대로 남게.
+  const { pathname } = useLocation();
   const cardTo = (issue: IssueResponse) => {
     const next = new URLSearchParams(params);
     next.set('view', 'board');
     next.set('task', String(issue.number));
-    return `/projects/${key}?${next.toString()}`;
+    return `${pathname}?${next.toString()}`;
   };
 
   return (

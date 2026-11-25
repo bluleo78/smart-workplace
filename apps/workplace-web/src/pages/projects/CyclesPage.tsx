@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { projectIssuesPath } from '@/lib/projectTabPaths';
 
 import { CycleCompleteDialog } from '../../components/cycle/CycleCompleteDialog';
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
@@ -195,7 +196,8 @@ function CycleRowMobile({
 }) {
   return (
     <li className="flex items-start rounded border" data-testid={`cycle-row-${c.id}`}>
-      <Link to={`/projects/${projectKey}?view=list&cycle=${c.id}`} className="min-w-0 flex-1 py-3 pl-4">
+      {/* 이슈 목록 고정 주소(WP-2085) */}
+      <Link to={projectIssuesPath(projectKey, `view=list&cycle=${c.id}`)} className="min-w-0 flex-1 py-3 pl-4">
         <span className="flex items-center gap-2">
           <span className="min-w-0 truncate font-medium">{c.name}</span>
           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs">

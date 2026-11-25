@@ -100,6 +100,7 @@ async function open(query: string, opts: Parameters<typeof boardApi>[0] = {}) {
   const view = renderMobileScreen(
     <Routes>
       <Route path="/projects/:key" element={<ProjectIssuesTab />} />
+      <Route path="/projects/:key/issues" element={<ProjectIssuesTab />} />
       <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
     </Routes>,
     { path: `/projects/${KEY}?view=board&group=none${query}`, handlers: api.handlers },

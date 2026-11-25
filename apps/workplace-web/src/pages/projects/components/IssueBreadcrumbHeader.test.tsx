@@ -86,3 +86,12 @@ describe('이슈 상세 경로의 에픽 단계 (WP-1736)', () => {
     expect(renderHeader(null)).toEqual(['breadcrumb-current'])
   })
 })
+
+describe('프로젝트 단계 링크 (WP-2085)', () => {
+  test('프로젝트 크럼은 이슈 목록 고정 주소로 간다', () => {
+    renderHeader({ number: 1669, title: '스토리', type: STORY })
+    // 프로젝트 크럼은 첫 링크
+    const links = within(screen.getByTestId('issue-breadcrumb')).getAllByRole('link')
+    expect(links[0]).toHaveAttribute('href', '/projects/WP/issues')
+  })
+})

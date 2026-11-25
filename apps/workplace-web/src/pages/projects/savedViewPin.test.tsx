@@ -68,3 +68,34 @@ test('고정된 뷰를 삭제하면 상단 칩과 사이드바 「고정된 뷰�
   await waitFor(() => expect(screen.queryByTestId('view-chip-10')).not.toBeInTheDocument())
   await waitFor(() => expect(screen.queryByTestId('sidebar-pinned-views')).not.toBeInTheDocument())
 })
+
+// 고정 뷰 선택 표시(WP-2085) — 이슈 목록의 정식 주소(/projects/KEY/issues)와 홈(/projects/KEY) 둘 다 이슈 목록이라 같은 조건이면 선택 표시한다.
+test.each([`/projects/${KEY}/issues?priority=HIGH`, `/projects/${KEY}?priority=HIGH`])('%s 에서 고정된 뷰가 선택 표시된다', async (path) => {
+  const pinnedView: PinnedSavedViewResponse = {
+    id: 10, projectId: 1, projectKey: KEY, projectName: '워크플레이스', name: '높은 우선순위', query: 'priority=HIGH', createdAt: '',
+  }
+  renderScreen(<IssueSidebar />, {
+    path,
+    handlers: [
+      http.get('/api/v1/projects', () => HttpResponse.json(createPageResponse([createProject({ id: 1, key: KEY, name: '워크플레이스' })]))),
+      ...projectFavoriteHandlers().handlers,
+      http.get('/api/v1/me/pinned-views', () => HttpResponse.json([pinnedView])),
+    ],
+  })
+  expect(await screen.findByTestId('pinned-view-10')).toHaveAttribute('aria-current', 'page')
+})
+
+test('이슈 탭이 아닌 주소(/projects/KEY/overview)에서는 고정된 뷰가 선택 표시되지 않는다', async () => {
+  const pinnedView: PinnedSavedViewResponse = {
+    id: 10, projectId: 1, projectKey: KEY, projectName: '워크플레이스', name: '높은 우선순위', query: 'priority=HIGH', createdAt: '',
+  }
+  renderScreen(<IssueSidebar />, {
+    path: `/projects/${KEY}/overview?priority=HIGH`,
+    handlers: [
+      http.get('/api/v1/projects', () => HttpResponse.json(createPageResponse([createProject({ id: 1, key: KEY, name: '워크플레이스' })]))),
+      ...projectFavoriteHandlers().handlers,
+      http.get('/api/v1/me/pinned-views', () => HttpResponse.json([pinnedView])),
+    ],
+  })
+  expect(await screen.findByTestId('pinned-view-10')).not.toHaveAttribute('aria-current')
+})

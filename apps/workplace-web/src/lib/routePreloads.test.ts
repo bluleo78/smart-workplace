@@ -28,7 +28,7 @@ describe('selectRoutePreloads', () => {
     expect(selectRoutePreloads('/projects/WP/issues/abc')).toEqual([])
     expect(selectRoutePreloads('/projects/WP/issues/0')).toEqual([])
     expect(selectRoutePreloads('/projects/WP/issues/12/edit')).toEqual([])
-    expect(selectRoutePreloads('/projects/WP/issues')).toEqual([])
+    expect(selectRoutePreloads('/projects/WP/issues')).toEqual(['projectTabs', 'projectIssues'])
   })
   it('관리 화면 목록 주소는 설정 레이아웃과 그 페이지 청크를 받는다(WP-2080)', () => {
     expect(selectRoutePreloads('/settings/users')).toEqual(['settingsLayout', 'adminUsers'])

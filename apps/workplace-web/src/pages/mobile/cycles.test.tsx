@@ -63,7 +63,7 @@ test('행을 누르면 그 사이클로 필터된 이슈 목록으로 간다', a
   const row = await screen.findByTestId('cycle-row-1')
   await user.click(within(row).getByRole('link'))
   await waitFor(() => expect(new URLSearchParams(location().split('?')[1]).get('cycle')).toBe('1'))
-  expect(location().startsWith(`/projects/${KEY}?`)).toBe(true)
+  expect(location().startsWith(`/projects/${KEY}/issues?`)).toBe(true)
 })
 
 test('⋯ 시트의 「사이클 완료」는 진행 중 사이클에만 있고, 누르면 완료 창이 열린다 (WP-1578)', async () => {

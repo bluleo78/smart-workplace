@@ -176,7 +176,7 @@ describe('타임라인 마일스톤 — 편집 팝오버', () => {
     const name = screen.getByTestId('milestone-popover-name-input')
     expect(name).toHaveValue('v1 출시')
     expect(popover).toHaveTextContent('연결된 이슈 1개 보기')
-    expect(screen.getByTestId('milestone-linked-issues-link')).toHaveAttribute('href', `/projects/${KEY}?milestone=1`)
+    expect(screen.getByTestId('milestone-linked-issues-link')).toHaveAttribute('href', `/projects/${KEY}/issues?milestone=1`)
     await user.clear(name)
     await user.paste('v1 최종 출시')
     act(() => name.blur())

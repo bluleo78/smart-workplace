@@ -60,7 +60,7 @@ describe('⋯ 메뉴', () => {
     expect(screen.getByTestId('mobile-header-more')).toHaveAttribute('aria-expanded', 'false')
     await user.click(within(dialog).getByRole('button', { name: '삭제' }))
     await waitFor(() => expect(deletes).toEqual([base]))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`))
   })
 
   // WP-843: 보관된 채널은 이름을 바꿀 수 없다 — ⋯ 메뉴에도 「이름 변경」 없이 「보관 해제」만 남는다.
