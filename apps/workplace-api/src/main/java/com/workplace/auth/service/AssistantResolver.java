@@ -101,7 +101,6 @@ public class AssistantResolver {
         c.model() != null ? c.model() : AssistantDefaults.MODEL,
         c.thinkingDepth() != null ? c.thinkingDepth() : AssistantDefaults.THINKING_DEPTH,
         c.maxTurns() != null ? c.maxTurns() : AssistantDefaults.MAX_TURNS,
-        c.timeoutMs() != null ? c.timeoutMs() : AssistantDefaults.TIMEOUT_MS,
         suggestionModelPolicy.requestModel(c.suggestionModel(), provider));
   }
 }

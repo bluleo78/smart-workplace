@@ -125,6 +125,15 @@ api:
   # aiAgent.recurringTimeoutMs + 결과 보고 재시도(약 4분)보다 길어야 한다. 두 값은 따로의 설정이라 반드시 함께 옮긴다
   # (aiAgent.recurringTimeoutMs 를 바꾸면 이 값도 바꾼다).
   recurrencePendingTimeout: PT40M
+  # AI 호출 종류별 실행 상한 덮어쓰기(WP-2111). 비우면 코드 기본 상한(com.workplace.airun.AiCall)을 쓴다.
+  # 키는 AiCall 이름, 값은 90s·3m 같은 시간. 예) aiTimeouts: { WORK_PROFILE: 3m, HOME_PRIORITY_CLASSIFY: 90s }
+  # 반영은 helm upgrade(api 가 다시 뜬다). 허용 최대는 항목별(그 호출을 돌리는 리스·잠금·대기보다 짧게) — 대부분 10m,
+  # 사람이 기다리는 동기 호출 항목(HOME_SUGGESTIONS_STARTER·_FOLLOWUP·_QUESTION_OPTIONS, HOME_SHARED_MEMORY_CHECK_REQUEST)과
+  # 60초 상한 항목(HOME_MEMORY_CLEANUP, HOME_SHARED_MEMORY_CHECK_BATCH, HOME_SHARED_MEMORY_EXTRACT)은 60초, AI_CHAT 은 4m,
+  # WORK_PROFILE·DRIVE_SUMMARIZE·DRIVE_SECURITY_CHECK 는 8m(10분 리스), PROJECT_REPORT·PERSONAL_REPORT 는 20m(30분 예약) 까지.
+  # 잠금 아래 회차(분류·요약·리포트 등)는 상한을 올리면 회차당 처리 건수가 줄고 남은 대상은 다음 회차로 넘어간다.
+  # (AI_CHAT: ai-agent 요청 예산 290초 안에 마무리 답까지 끝나야 해서 상한+여유 30초가 290초를 넘지 않게 4m 로 막는다.) 값은 단위 필수 — 180 처럼 숫자만 쓰면 렌더가 실패한다.
+  aiTimeouts: {}
   # 파드 하나의 DB 커넥션 풀 최대 크기(WP-1972, Hikari maximum-pool-size). 파드마다 풀이라 DB 접속 합계 = 파드 수 × 이 값이며,
   # 롤아웃 중엔 maxSurge 만큼 새 파드가 더 뜨고 종료 중인 옛 파드도 풀을 쥔다 — 합계식은 docs/ops/multi-instance.md. 값은 문자열로 ConfigMap 에 들어간다.
   dbPoolMaxSize: 10

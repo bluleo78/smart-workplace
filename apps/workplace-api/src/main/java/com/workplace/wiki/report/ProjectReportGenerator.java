@@ -1,5 +1,7 @@
 package com.workplace.wiki.report;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.airun.service.AiRunRecorder;
@@ -122,6 +124,10 @@ public class ProjectReportGenerator {
   private final AiAgentIssueClient client;
   private final AiAgentProperties aiAgentProperties;
   private final AiRunRecorder aiRunRecorder;
+
+  /** AI 호출 종류별 실행 상한 표(WP-2111) — 프로젝트 리포트는 PROJECT_REPORT. */
+  private final AiCallTimeouts timeouts;
+
   private final TransactionTemplate tx;
   private final String issueUrlPrefix;
 
@@ -138,6 +144,7 @@ public class ProjectReportGenerator {
       AiAgentIssueClient client,
       AiAgentProperties aiAgentProperties,
       AiRunRecorder aiRunRecorder,
+      AiCallTimeouts timeouts,
       PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.projectRepository = projectRepository;
@@ -154,6 +161,7 @@ public class ProjectReportGenerator {
     this.client = client;
     this.aiAgentProperties = aiAgentProperties;
     this.aiRunRecorder = aiRunRecorder;
+    this.timeouts = timeouts;
     this.tx = new TransactionTemplate(txManager);
     this.issueUrlPrefix = issueUrlPrefix(publicBaseUrl);
     if (this.issueUrlPrefix.isEmpty()) {
@@ -450,8 +458,8 @@ public class ProjectReportGenerator {
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),
-        // 비서 예산(기본 60초)이 아니라 리포트 전용 예산 — 긴 입력·출력이라 모자라고, API 읽기 시간 제한(210초)도 이에 맞췄다.
-        AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);
+        // 비서 예산이 아니라 상한 표의 리포트 값 — 긴 입력·출력이라 모자라고, API 읽기 시간 제한도 이 표에서 계산한다.
+        timeouts.timeoutMs(AiCall.PROJECT_REPORT));
   }
 
   /**

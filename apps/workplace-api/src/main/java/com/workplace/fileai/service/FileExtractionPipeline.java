@@ -4,6 +4,8 @@ import static com.workplace.fileai.repository.WorkerJobRepository.MAX_SUMMARY_AT
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
@@ -109,6 +111,9 @@ public class FileExtractionPipeline {
   /** DONE 이벤트 발행 — 임베딩 nudge 트리거. markSummarized txTemplate 안에서 publishEvent 해야 AFTER_COMMIT 발화. */
   private final ApplicationEventPublisher events;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111) — 요약 호출은 DRIVE_SUMMARIZE. */
+  private final AiCallTimeouts timeouts;
+
   public FileExtractionPipeline(
       WorkerJobRepository jobs,
       WorkerClient worker,
@@ -118,7 +123,8 @@ public class FileExtractionPipeline {
       DSLContext dsl,
       PlatformTransactionManager txManager,
       @Qualifier("issueAiSummaryExecutor") Executor summaryExecutor,
-      ApplicationEventPublisher events) {
+      ApplicationEventPublisher events,
+      AiCallTimeouts timeouts) {
     this.jobs = jobs;
     this.worker = worker;
     this.props = props;
@@ -130,6 +136,7 @@ public class FileExtractionPipeline {
     this.afterCommitTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     this.summaryExecutor = summaryExecutor;
     this.events = events;
+    this.timeouts = timeouts;
   }
 
   /**
@@ -399,7 +406,7 @@ public class FileExtractionPipeline {
                           spec.agentUserId(),
                           spec.model(),
                           MAX_TURNS,
-                          spec.timeoutMs())));
+                          timeouts.timeoutMs(AiCall.DRIVE_SUMMARIZE))));
     } catch (RuntimeException ex) {
       FileAiException aiError = ex instanceof FileAiException f ? f : null;
       boolean agentDown = aiError != null && aiError.isAgentDown();

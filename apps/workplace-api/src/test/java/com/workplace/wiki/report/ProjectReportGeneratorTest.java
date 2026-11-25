@@ -22,6 +22,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.airun.service.AiRunRecorder;
@@ -103,7 +104,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     project =
         projectService.create(owner, new CreateProjectRequest(key, "리포트-" + key, null, "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
     settingsService.update(
         owner,
         project.key(),
@@ -744,7 +745,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     assertThat(r.epics().projectOwner()).isNotBlank();
     assertThat(r.assistantAgentId()).isEqualTo(owner);
     // 리포트는 비서 기본 예산(60초)이 아니라 리포트 전용 예산(180초)으로 쓴다.
-    assertThat(r.timeoutMs()).isEqualTo(AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);
+    assertThat(r.timeoutMs()).isEqualTo(180_000L);
     // AI 가 쓴 표는 템플릿에 표가 없어도 계산값으로 바로잡는다.
     assertThat(page(rowPageId(PERIOD_START)).body()).contains("| 완료 | 1 | +1 |");
   }
@@ -855,6 +856,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
         client,
         aiAgentProperties,
         aiRunRecorder,
+        AiCallTimeouts.defaults(),
         txManager,
         baseUrl);
   }

@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.global.util.Texts;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.exception.HomeSessionNotFoundException;
@@ -25,9 +27,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class HomeFollowupService {
 
-  /** ai-agent 실행 상한(스펙 §6). 클라이언트 read 25s 이내. */
-  static final int FOLLOWUP_TIMEOUT_MS = 20_000;
-
   /** 후속 질문 수(스펙 §2.2). */
   static final int FOLLOWUP_COUNT = 3;
 
@@ -51,11 +50,16 @@ public class HomeFollowupService {
   private final HomeSessionService sessionService;
   private final AsyncTaskExecutor executor;
 
+  /** AI 호출 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public HomeFollowupService(
       AiPreferenceService preferences,
       AiAgentSuggestionClient client,
       HomeSessionService sessionService,
-      @Qualifier("homeSuggestionExecutor") AsyncTaskExecutor executor) {
+      @Qualifier("homeSuggestionExecutor") AsyncTaskExecutor executor,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.preferences = preferences;
     this.client = client;
     this.sessionService = sessionService;
@@ -134,7 +138,7 @@ public class HomeFollowupService {
                   in.question(), // 앞 1000자(첨부만 보낸 턴은 null)
                   in.answer(), // 앞 4000자
                   FOLLOWUP_COUNT,
-                  FOLLOWUP_TIMEOUT_MS));
+                  timeouts.timeoutMs(AiCall.HOME_SUGGESTIONS_FOLLOWUP)));
       if (items.isEmpty()) return;
       // 생성 중(최대 20초)에 사용자가 추천을 껐으면 저장·발행하지 않는다.
       if (!preferences.suggestionsEnabled(envelope.callerId())) return;

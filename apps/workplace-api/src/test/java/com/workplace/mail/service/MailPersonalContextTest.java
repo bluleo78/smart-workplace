@@ -33,8 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class MailPersonalContextTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
 
   @Autowired MailAnalysisService analysis;
   @Autowired DSLContext dsl;

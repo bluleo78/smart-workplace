@@ -77,7 +77,7 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
   void mocks() {
     // DB 를 쓰지 않는다 — 트랜잭션 없이 도는 거절 테스트가 커밋된 시드를 남기지 않게.
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4)));
   }
 
   private long human() {

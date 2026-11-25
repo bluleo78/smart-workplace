@@ -15,6 +15,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.outbound.AgentOutageGuard;
@@ -72,10 +73,14 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
   @Autowired private IssueAssigneeRepository issueAssigneeRepository;
   @Autowired private WorkspaceAssistantRepository workspaceAssistantRepo;
   @Autowired private AiAgentCredentialService credentialService;
+  @Autowired private AssistantConfigRepository configRepo;
 
   @MockitoBean private AiAgentPriorityClient aiClient;
 
   private final long tenantId = 1L;
+
+  /** setUp 이 시드한 공용 비서 — 비서 설정(timeout_ms) 시드에 쓴다. */
+  private long wsAgentId;
 
   private final List<Long> usersToDelete = new ArrayList<>();
   private final List<Long> projectsToDelete = new ArrayList<>();
@@ -84,7 +89,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
   void setUp() {
     // 공통 비서 + active 토큰 시드 — resolveOrEmpty(userId) 가 개인 비서 없을 때 공용으로 폴백하도록.
     long admin = TestFixtures.createHuman(dsl);
-    long wsAgentId = TestFixtures.createAgentWithToken(dsl, credentialService, admin);
+    wsAgentId = TestFixtures.createAgentWithToken(dsl, credentialService, admin);
     workspaceAssistantRepo.upsert(wsAgentId, admin);
     usersToDelete.add(admin);
     usersToDelete.add(wsAgentId);
@@ -99,6 +104,8 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
       TenantContext.clear();
       // 시계를 고정한 테스트가 다음 테스트로 새지 않게 되돌린다.
       scheduler.useClock(Clock.systemUTC());
+      // 마감 테스트가 남긴 다음 회차 시작 위치가 다른 테스트의 이름순 처리 순서를 바꾸지 않게 되돌린다(WP-2111).
+      scheduler.resetResume();
       queryService.useClock(Clock.systemUTC());
     }
   }
@@ -262,6 +269,27 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     assertThat(issueDueIds)
         .contains(String.valueOf(openIssueId))
         .doesNotContain(String.valueOf(doneIssueId), String.valueOf(canceledIssueId));
+    // WP-2111: 분류 요청의 실행 상한은 비서 설정(60s)이 아니라 상한 표의 HOME_PRIORITY_CLASSIFY(120s)를 싣는다.
+    assertThat(captor.getAllValues())
+        .allSatisfy(r -> assertThat(r.timeoutMs()).isEqualTo(120_000L));
+  }
+
+  @Test
+  @DisplayName("비서에 timeout_ms=5000 이 저장돼 있어도 분류 요청의 실행 상한은 표의 120_000 이다(WP-2111)")
+  void 비서_timeout_ms_가_작아도_분류_요청_상한은_표의_값이다() {
+    seedUserWithOverdueIssue("aaa-timeout-ms");
+    // 옛 설정 값(5초)이 남아 있는 비서 — 값은 보존만 하고 실행 상한에는 쓰지 않는다.
+    configRepo.upsert(wsAgentId, null, null, null, 5000);
+    when(aiClient.classify(any())).thenReturn(new PriorityClassifyResult(List.of()));
+
+    scheduler.runOnce();
+
+    ArgumentCaptor<PriorityClassifyRequest> captor =
+        ArgumentCaptor.forClass(PriorityClassifyRequest.class);
+    verify(aiClient, atLeastOnce()).classify(captor.capture());
+    assertThat(captor.getAllValues())
+        .isNotEmpty()
+        .allSatisfy(r -> assertThat(r.timeoutMs()).isEqualTo(120_000L));
   }
 
   @Test
@@ -319,6 +347,81 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
         null,
         Instant.now());
     return issue.id();
+  }
+
+  /**
+   * WP-2111: 회차 마감에 걸리면 남은 사용자는 분류 없이 끝난 항목만 정리되고, 다음 회차는 분류를 멈춘 사용자부터 이어 한다(앞쪽 사용자만 매번 분류되지 않게).
+   * 분류 호출마다 시계를 27분 밀어, 28분 예산에서 한 회차에 한 사용자만 분류되게 한다.
+   */
+  @Test
+  @DisplayName("회차 마감 뒤 사용자는 정리만 되고, 다음 회차는 멈춘 사용자부터 분류한다(WP-2111)")
+  void 회차_마감_뒤에는_정리만_하고_다음_회차는_멈춘_자리부터_분류한다() {
+    for (int n = 0; n < 3; n++) {
+      seedUserWithOverdueIssue("aaa-budget" + n);
+    }
+    // 이름순 마지막 사용자 — 첫 회차에는 마감 뒤라 분류되지 않지만 끝난 이슈 행은 지워져야 한다.
+    long lastIssueId = seedUserWithOverdueIssue("aaa-budget9");
+    long lastUser = userIdOfIssue(lastIssueId);
+    storeRows(lastUser, List.of(staleIssueRow()));
+
+    MovingClock clock = new MovingClock(Instant.now());
+    scheduler.useClock(clock);
+    List<List<String>> classified = new ArrayList<>();
+    when(aiClient.classify(any()))
+        .thenAnswer(
+            inv -> {
+              PriorityClassifyRequest req = inv.getArgument(0);
+              classified.add(
+                  req.items().stream()
+                      .filter(c -> c.sourceType().equals("ISSUE_DUE"))
+                      .map(PriorityClassifyRequest.CandidateLine::sourceId)
+                      .toList());
+              // 남은 예산 1분 < 호출 최악(120 + 30초) — 이 회차의 다음 사용자부터는 분류하지 않는다.
+              clock.advance(java.time.Duration.ofMinutes(27));
+              return new PriorityClassifyResult(List.of());
+            });
+
+    scheduler.runOnce();
+
+    assertThat(classified).hasSize(1);
+    // 마감 뒤 사용자도 끝난 항목 정리는 돈다(AI 무관, WP-1177).
+    assertThat(repo.findForUser(lastUser))
+        .extracting(PriorityItemRow::sourceId)
+        .doesNotContain(staleIssueRow().sourceId());
+
+    scheduler.runOnce();
+
+    // 두 번째 회차는 첫 회차에 분류하지 않은 사용자부터 — 같은 사용자를 다시 분류하지 않는다.
+    assertThat(classified).hasSize(2);
+    assertThat(classified.get(1)).doesNotContainAnyElementsOf(classified.get(0)).isNotEmpty();
+  }
+
+  /** 테스트가 앞으로 돌리는 시계(UTC) — 회차 마감을 결정적으로 넘긴다. */
+  private static final class MovingClock extends Clock {
+    private final java.util.concurrent.atomic.AtomicReference<Instant> now;
+
+    MovingClock(Instant start) {
+      this.now = new java.util.concurrent.atomic.AtomicReference<>(start);
+    }
+
+    void advance(java.time.Duration d) {
+      now.updateAndGet(i -> i.plus(d));
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return java.time.ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return now.get();
+    }
   }
 
   @Test

@@ -73,7 +73,7 @@ class AiAgentIssueClientPersonalReportTest {
         7L,
         "m",
         4,
-        AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);
+        180_000L);
   }
 
   @Test
@@ -148,7 +148,7 @@ class AiAgentIssueClientPersonalReportTest {
             7L,
             "m",
             4,
-            AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);
+            180_000L);
     server
         .expect(requestTo("http://ai-agent.test/issue/personal-report"))
         .andExpect(jsonPath("$.doneByProject[0].projectKey").value("WP"))

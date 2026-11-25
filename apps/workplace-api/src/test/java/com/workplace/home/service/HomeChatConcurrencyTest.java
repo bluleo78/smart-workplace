@@ -64,7 +64,7 @@ class HomeChatConcurrencyTest extends ExternalClientMockedTestBase {
   @BeforeEach
   void stubs() throws Exception {
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8));
     // 테스트가 풀어 줄 때까지 펌프를 붙잡는다(생성 중 상태). 취소 인터럽트면 즉시 빠진다.
     doAnswer(
             inv -> {

@@ -62,7 +62,7 @@ class PersonalReportSettingsServiceTest extends ExternalClientMockedTestBase {
     me = withMembership(TestFixtures.createHuman(dsl));
     grantUserRole(me);
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(me, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(me, "m", "low", 4)));
   }
 
   private static UpdatePersonalReportSettingsRequest req(

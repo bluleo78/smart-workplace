@@ -70,7 +70,7 @@ class ProjectOverviewStatusSummaryTest extends ExternalClientMockedTestBase {
   /** 워크스페이스 공통 비서가 있다(AI 를 쓸 수 있다). */
   private void aiAvailable() {
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
   }
 
   /** 요약 한 번을 만든 상태 — 실행권(다음 16:00)을 잡고 요약 글을 저장한다. */

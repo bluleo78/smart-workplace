@@ -61,8 +61,7 @@ import tools.jackson.databind.ObjectMapper;
 @Transactional
 class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1);
 
   /** 스크립트가 든 HTML 블록 소스 하나. */
   static final String SCRIPT_SOURCE = "<script>fetch('https://evil.example/c')</script>";

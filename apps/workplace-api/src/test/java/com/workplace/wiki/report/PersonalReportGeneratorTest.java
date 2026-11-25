@@ -101,7 +101,7 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
         projectService.create(
             me, new CreateProjectRequest("PG" + suffix, "보고-" + suffix, null, "TEAM"));
     when(assistantResolver.resolveOrEmpty(me))
-        .thenReturn(Optional.of(new AssistantSpec(ai, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(ai, "m", "low", 4)));
     enableDaily(LocalTime.of(9, 0), true, NOW);
     aiReturnsDaily();
   }

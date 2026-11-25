@@ -75,7 +75,7 @@ class ProjectStatusSummarySchedulerTest extends ExternalClientMockedTestBase {
         .thenAnswer(
             inv ->
                 Long.valueOf(fixtureTenant).equals(TenantContext.get())
-                    ? Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000))
+                    ? Optional.of(new AssistantSpec(owner, "m", "low", 4))
                     : Optional.empty());
   }
 

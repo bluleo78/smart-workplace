@@ -83,8 +83,7 @@ class HomeFollowupTest extends ExternalClientMockedTestBase {
     inlinePump = HomeChatPumpTestSupport.inline(chatService);
     completedBaseline = suggestionExecutor.getThreadPoolExecutor().getCompletedTaskCount();
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(
-            new AssistantSpec(5L, "claude-sonnet-5-5", "NORMAL", 8, 60000, "claude-haiku-5-5"));
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-5-5", "NORMAL", 8, "claude-haiku-5-5"));
     doAnswer(
             inv -> {
               @SuppressWarnings("unchecked")

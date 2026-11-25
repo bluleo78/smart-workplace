@@ -1,5 +1,7 @@
 package com.workplace.fileai.security;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.file.storage.FileStore;
@@ -66,7 +68,8 @@ public class FileSecurityCheckPipeline {
    * FileSecurityCheckRepository#LEASE})보다 길면 lease 가 먼저 끝나 스케줄러가 같은 파일을 한 번 더 부르거나, 늦게 온 성공이 이미
    * FAILED 로 판정된 행에 닿지 못한다. lease 안에 끝나도록 여유를 두고 자른다.
    */
-  public static final long MAX_AGENT_TIMEOUT_MS = 8L * 60 * 1000;
+  public static final long MAX_AGENT_TIMEOUT_MS =
+      AiCall.DRIVE_SECURITY_CHECK.maxOverride().toMillis();
 
   /** 저장해도 되는 위험도 — ai-agent 가 검증하지만 저장 전에 한 번 더 본다(어긋나면 재시도 대상 실패). */
   private static final Set<String> RISKS = Set.of("LOW", "CAUTION", "HIGH");
@@ -118,14 +121,19 @@ public class FileSecurityCheckPipeline {
   /** 짧은 트랜잭션 — 진입 시 TenantAwareTransactionManager 가 RLS GUC 를 주입한다. */
   private final TransactionTemplate tx;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111) — 보안 검사는 DRIVE_SECURITY_CHECK. */
+  private final AiCallTimeouts timeouts;
+
   public FileSecurityCheckPipeline(
       FileSecurityCheckRepository repo,
       AssistantResolver assistantResolver,
       AiAgentDriveClient driveClient,
       FileStore fileStore,
       ObjectMapper objectMapper,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
     this.repo = repo;
+    this.timeouts = timeouts;
     this.assistantResolver = assistantResolver;
     this.driveClient = driveClient;
     this.fileStore = fileStore;
@@ -233,7 +241,7 @@ public class FileSecurityCheckPipeline {
                   spec.agentUserId(),
                   spec.model(),
                   MAX_TURNS,
-                  Math.min(spec.timeoutMs(), MAX_AGENT_TIMEOUT_MS)));
+                  Math.min(timeouts.timeoutMs(AiCall.DRIVE_SECURITY_CHECK), MAX_AGENT_TIMEOUT_MS)));
       validate(res);
       evidenceJson =
           objectMapper.writeValueAsString(res.evidence() == null ? List.of() : res.evidence());

@@ -1,6 +1,8 @@
 package com.workplace.drive.service;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
@@ -15,7 +17,6 @@ import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import java.io.InterruptedIOException;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,9 +33,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class DriveOverviewService {
-
-  /** 생성 타임아웃 — 펌프 렌더링 + CLI cold-start(최대 ~120s) 여유. */
-  private static final Duration TIMEOUT = Duration.ofSeconds(120);
 
   /** Overview 근거 파일 수 — 검색 상위 N건만 발췌에 사용. */
   private static final int TOP_N = 5;
@@ -56,6 +54,9 @@ public class DriveOverviewService {
   /** WP-386: 드라이브 개요에 싣는 조직 공용 메모리 리더(드라이브는 공간 범위가 없다). */
   private final SharedAiMemoryReader sharedReader;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   /**
    * 발췌 조회를 트랜잭션으로 감싸 RLS GUC 를 주입하기 위한 읽기전용 TransactionTemplate.
    *
@@ -74,7 +75,8 @@ public class DriveOverviewService {
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
       AiMemoryReader memoryReader,
-      SharedAiMemoryReader sharedReader) {
+      SharedAiMemoryReader sharedReader,
+      AiCallTimeouts timeouts) {
     this.search = search;
     this.excerpts = excerpts;
     this.assistantResolver = assistantResolver;
@@ -86,6 +88,7 @@ public class DriveOverviewService {
     this.sseRegistry = sseRegistry;
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
+    this.timeouts = timeouts;
   }
 
   /**
@@ -124,7 +127,7 @@ public class DriveOverviewService {
             spec.agentUserId(),
             spec.model(),
             spec.maxTurns(),
-            spec.timeoutMs(),
+            timeouts.timeoutMs(AiCall.DRIVE_OVERVIEW),
             memories,
             shared.items(),
             shared.moreCount());
@@ -135,7 +138,8 @@ public class DriveOverviewService {
     return registry.start(
         callerId,
         executor,
-        TIMEOUT,
+        // 생성 타임아웃 — 스트림 클라이언트 요청 타임아웃과 같은 값(상한 표 + 여유, 최소 120초).
+        DriveOverviewStreamClient.requestTimeout(timeouts),
         correlationId ->
             () ->
                 AiRunScope.run(

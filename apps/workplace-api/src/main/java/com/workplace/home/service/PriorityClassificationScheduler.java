@@ -1,7 +1,11 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.RoundDeadline;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.config.SchedulerLockConfig;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
@@ -9,6 +13,7 @@ import com.workplace.global.util.AppWebLinks;
 import com.workplace.home.dto.PriorityItemRow;
 import com.workplace.home.exception.PriorityAiException;
 import com.workplace.home.outbound.AiAgentPriorityClient;
+import com.workplace.home.outbound.PriorityAiConfig;
 import com.workplace.home.outbound.dto.PriorityClassifyRequest;
 import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
@@ -22,8 +27,10 @@ import com.workplace.notify.service.NotificationService;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -44,6 +51,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 사용자만 수집, ② 트랜잭션 밖에서 사용자별로 후보 수집(짧은 tx) → ai-agent HTTP(tx 밖) → 저장(짧은 tx). 사용자 단위 실패는 격리(로그만, 다음
  * 사용자 계속) — 이전 배치 결과는 실패 시 그대로 유지된다(저장을 아예 시도하지 않으므로). 단 ai-agent 불가(연결 실패·503)가 연속되면 {@link
  * AgentOutageGuard} 기준으로 그 회차를 멈춘다(WP-166) — 재기동 중인 agent 에 사용자 수만큼 실패를 쌓지 않는다.
+ *
+ * <p>시간 예산(WP-2111): 사용자마다 분류 호출(기본 120초, 덮어쓰기 가능)을 차례로 부르므로 사용자가 많으면 회차가 기본 잠금(30분)을 넘는다. 회차
+ * 마감({@link RoundDeadline}, 잠금 − 2분)을 두고 사용자마다 호출 전에 「지금 + 분류 클라이언트 읽기 상한」이 마감을 넘으면 그 회차의 분류를 멈춘다 —
+ * 남은 사용자는 끝난 항목 정리만 하고(AI 무관), 분류는 다음 회차(15분 뒤)가 멈춘 사용자부터 이어 한다(이전 점수 유지).
  */
 @Slf4j
 @Component
@@ -52,6 +63,9 @@ public class PriorityClassificationScheduler {
   /** 소스당 후보 상한 — ai-agent 요청 폭주 방지(배치 입력 상한, SynthesisLayer 표시 상한과는 별개). */
   private static final int SOURCE_LIMIT = 20;
 
+  /** 잠금 최대 — @SchedulerLock 에 값을 따로 적지 않아 SchedulerLockConfig 기본값을 그대로 참조한다. */
+  static final Duration LOCK_AT_MOST = Duration.parse(SchedulerLockConfig.DEFAULT_LOCK_AT_MOST_FOR);
+
   private record TenantUser(long tenantId, long userId) {}
 
   /**
@@ -59,6 +73,12 @@ public class PriorityClassificationScheduler {
    * 정리에서 뺀다(WP-1104 리뷰).
    */
   private record Candidates(List<PriorityCandidate> items, Set<String> truncatedSources) {}
+
+  /**
+   * 다음 회차의 시작 위치(수집 순서 기준 인덱스) — 시간 예산에 걸려 분류를 멈춘 사용자 자리(WP-2111). 회차는 ShedLock 아래 한 스레드라 일반 필드로
+   * 충분하고, 파드마다 따로 기억해도 무방하다(다른 파드는 자기 위치부터 돈다). 대상 수가 바뀌면 나머지 연산으로 근처에서 이어 간다.
+   */
+  private int resumeAt = 0;
 
   /** 「오늘」을 정하는 시계 — 테스트가 KST 이른 아침을 고정할 수 있게 바꿀 수 있다. */
   private Clock clock = Clock.systemUTC();
@@ -74,6 +94,9 @@ public class PriorityClassificationScheduler {
   private final PriorityItemRepository repo;
   private final TransactionTemplate txTemplate;
 
+  /** AI 호출 실행 상한 표(WP-2111) — 분류 요청의 timeoutMs 를 비서 설정이 아닌 표에서 가져온다. */
+  private final AiCallTimeouts timeouts;
+
   public PriorityClassificationScheduler(
       TenantScopedRunner tenantRunner,
       UserRepository userRepo,
@@ -84,7 +107,9 @@ public class PriorityClassificationScheduler {
       AiAgentPriorityClient aiClient,
       AssistantResolver assistantResolver,
       PriorityItemRepository repo,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.tenantRunner = tenantRunner;
     this.userRepo = userRepo;
     this.issueSearchService = issueSearchService;
@@ -95,6 +120,11 @@ public class PriorityClassificationScheduler {
     this.assistantResolver = assistantResolver;
     this.repo = repo;
     this.txTemplate = new TransactionTemplate(txManager);
+  }
+
+  /** 테스트 전용 — 다음 회차 시작 위치를 처음으로 되돌린다(마감 테스트가 다른 테스트의 처리 순서에 새지 않게). */
+  void resetResume() {
+    this.resumeAt = 0;
   }
 
   /** 테스트 전용 — 「오늘」을 고정한다. */
@@ -110,6 +140,10 @@ public class PriorityClassificationScheduler {
   @Scheduled(initialDelay = 120_000, fixedRate = 900_000)
   @SchedulerLock(name = "PriorityClassificationScheduler.runOnce")
   public void runOnce() {
+    // 회차 마감은 회차 시작(잠금 직후, 수집 전)에 잡는다 — 수집도 잠금 안에서 흐른다(WP-2111). 호출 하나의 최악은 분류 클라이언트의 실제 읽기
+    // 상한(PriorityAiConfig#readTimeout)이다 — ai-agent 가 실행 상한을 지키지 않아도 HTTP 가 그만큼만 기다린다.
+    RoundDeadline deadline = RoundDeadline.underLock(clock, LOCK_AT_MOST);
+    Duration perCall = PriorityAiConfig.readTimeout(timeouts);
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 사용자만 모은다.
     List<TenantUser> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
@@ -120,14 +154,28 @@ public class PriorityClassificationScheduler {
             }
           }
         });
+    // 지난 회차가 시간 예산에 걸려 멈춘 자리부터 시작한다 — 마감이 매번 앞쪽 사용자만 분류하고 뒤쪽은 굶기지 않게(MailCategoryBackfillScheduler
+    // 의 회전과 같은 목적). 마감에 걸리지 않은 회차는 처음부터(0) 돈다.
+    int start = targets.isEmpty() ? 0 : Math.floorMod(resumeAt, targets.size());
+    Collections.rotate(targets, -start);
+    resumeAt = 0;
     // ② 실행: Runner 트랜잭션 밖. 사용자마다 TenantContext 주입 → 각 단계 내부 트랜잭션이 GUC 주입.
     AgentOutageGuard guard = new AgentOutageGuard();
     boolean outageLogged = false;
-    for (TenantUser t : targets) {
+    boolean overBudget = false;
+    for (int i = 0; i < targets.size(); i++) {
+      TenantUser t = targets.get(i);
+      // 이 사용자의 분류 호출이 최악으로 걸려도 마감 안에 끝나야 분류한다 — 아니면 남은 사용자는 분류 없이 끝난 항목만 정리하고(AI 와 무관, DB 만이라
+      // 짧다), 분류는 다음 회차가 이 사용자부터 한다(잠금이 먼저 풀려 다른 파드와 겹치지 않게).
+      if (!overBudget && !deadline.allows(perCall)) {
+        overBudget = true;
+        resumeAt = start + i;
+        log.warn("우선순위 분류 회차 시간 예산 소진 — 남은 사용자 {}명은 정리만 하고 분류는 다음 회차에", targets.size() - i);
+      }
       // ai-agent 재기동 중 등 — 남은 사용자에게 같은 실패를 쌓지 않는다. 분류는 다음 주기에 다시 하되, 끝난 항목 정리는 AI 와 무관하니
       // 남은 사용자도 계속한다(WP-1177 — 예전엔 회차를 통째로 멈춰 끝난 행이 남았다).
-      boolean classify = !guard.tripped();
-      if (!classify && !outageLogged) {
+      boolean classify = !guard.tripped() && !overBudget;
+      if (guard.tripped() && !outageLogged) {
         outageLogged = true;
         log.warn(
             "ai-agent 불가 {}회 연속 — 이번 회차 남은 사용자는 분류 없이 끝난 항목만 정리",
@@ -218,7 +266,7 @@ public class PriorityClassificationScheduler {
             spec.agentUserId(),
             spec.model(),
             spec.maxTurns(),
-            spec.timeoutMs());
+            timeouts.timeoutMs(AiCall.HOME_PRIORITY_CLASSIFY));
     PriorityClassifyResult result =
         aiClient.classify(req); // 실패 시 RuntimeException — 상위(runOnce)에서 격리
 

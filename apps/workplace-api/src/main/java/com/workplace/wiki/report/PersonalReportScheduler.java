@@ -1,10 +1,14 @@
 package com.workplace.wiki.report;
 
+import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.RoundDeadline;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.issue.outbound.IssueAiConfig;
 import com.workplace.wiki.report.PersonalReportGenerator.Outcome;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -46,6 +50,15 @@ public class PersonalReportScheduler {
   private final PersonalReportGenerator generator;
   private final AiAgentProperties aiAgentProperties;
 
+  /** AI 호출 실행 상한 표(WP-2111) — 회차 시간 예산에서 한 건의 최악 시간을 계산한다. */
+  private final AiCallTimeouts timeouts;
+
+  /** 잠금 최대 — @SchedulerLock 의 lockAtMostFor 와 회차 마감 계산이 함께 쓰는 한 값. */
+  static final String LOCK_AT_MOST_FOR = "PT40M";
+
+  /** 잠금 최대 Duration — {@link #LOCK_AT_MOST_FOR} 를 파싱한 값. */
+  static final Duration LOCK_AT_MOST = Duration.parse(LOCK_AT_MOST_FOR);
+
   /** 「지금」의 기준 시계. */
   private final Clock clock = Clock.systemUTC();
 
@@ -63,7 +76,7 @@ public class PersonalReportScheduler {
 
   /** 5분마다(기동 2분 뒤 시작) — 때가 된 사람의 일일 보고를 만든다. */
   @Scheduled(fixedDelay = 300_000, initialDelay = 120_000)
-  @SchedulerLock(name = "PersonalReportScheduler.runOnce", lockAtMostFor = "PT40M")
+  @SchedulerLock(name = "PersonalReportScheduler.runOnce", lockAtMostFor = LOCK_AT_MOST_FOR)
   public void runOnce() {
     Summary s = runOnce(clock);
     if (s.processed() > 0) {
@@ -81,6 +94,12 @@ public class PersonalReportScheduler {
    * 다음 회차 앞쪽에 온다.
    */
   Summary runOnce(Clock runClock, int limit) {
+    // 회차 시간 예산(WP-2111) — 회차 시작(잠금 직후, 대상 수집 전)에 마감을 잡는다(수집도 잠금 안에서 흐른다).
+    // 건당 최악은 리포트 클라이언트 읽기 상한(IssueAiConfig#reportReadTimeout) — 같은 클라이언트가 나르는 항목 최대 + 여유라, ai-agent
+    // 가 상한을 지키지 않아도 HTTP 가 그만큼만 기다린다. 다음 건은 그 최악이 마감 안에 끝날
+    // 때만 시작한다(개수 상한만으로는 상한을 덮어쓰면 잠금을 넘는다). 남은 대상은 다음 실행 시각이 그대로라 다음 회차 앞쪽에 온다.
+    RoundDeadline deadline = RoundDeadline.underLock(runClock, LOCK_AT_MOST);
+    Duration perCall = IssueAiConfig.reportReadTimeout(timeouts);
     // AI 연동이 꺼져 있으면 회차를 열지 않는다(WP-1639) — 설정 상태를 실패로 세지 않게. 대상의 다음 실행 시각은 그대로 남아 다시 켜면 이어 만든다.
     if (!aiAgentProperties.enabled()) return new Summary(0, 0, 0);
     OffsetDateTime now = OffsetDateTime.now(runClock);
@@ -93,8 +112,14 @@ public class PersonalReportScheduler {
           }
         });
     Map<Outcome, Integer> counts = new EnumMap<>(Outcome.class);
+    int processed = 0;
     // 러너 트랜잭션이 끝난 뒤 — 생성기는 트랜잭션 밖에서 돈다.
     for (Target t : targets) {
+      if (!deadline.allowsOrWarn(
+          perCall, log, "개인 일일 보고 회차 시간 예산 소진 — 남은 사람 {}건은 다음 회차에", targets.size() - processed)) {
+        break;
+      }
+      processed++;
       TenantContext.set(t.tenantId());
       Outcome outcome;
       try {
@@ -108,7 +133,7 @@ public class PersonalReportScheduler {
       counts.merge(outcome, 1, Integer::sum);
     }
     return new Summary(
-        targets.size(),
+        processed,
         counts.getOrDefault(Outcome.GENERATED, 0),
         counts.getOrDefault(Outcome.FAILED, 0));
   }

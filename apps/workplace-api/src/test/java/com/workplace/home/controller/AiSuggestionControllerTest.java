@@ -54,8 +54,7 @@ class AiSuggestionControllerTest extends ExternalClientMockedTestBase {
     when(assistantResolver.resolveOrEmpty(anyLong()))
         .thenReturn(
             Optional.of(
-                new AssistantSpec(
-                    5L, "claude-sonnet-5-5", "NORMAL", 8, 60000, "claude-haiku-5-5")));
+                new AssistantSpec(5L, "claude-sonnet-5-5", "NORMAL", 8, "claude-haiku-5-5")));
   }
 
   /** 제목이 있는 세션 — 최근 활동 시각을 직접 정해 순서를 결정적으로 만든다(같은 트랜잭션의 now() 는 모두 같다). */

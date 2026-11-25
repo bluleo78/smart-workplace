@@ -57,7 +57,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
                 new LabelRow(2L, 10L, "bug", "#ff5500", null, null, null)))
         .when(labelRepository)
         .findByProject(10L);
-    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
+    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
     IssueClassifyResult aiResult =
         new IssueClassifyResult("BUG", "HIGH", List.of("backend"), "500 오류");
@@ -108,7 +108,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
             "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("PERSONAL", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(11L);
-    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
+    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6);
     when(assistantResolver.resolveOrEmpty(1L)).thenReturn(Optional.of(spec));
     // 개인 프로젝트는 type null 반환 가능
     IssueClassifyResult aiResult = new IssueClassifyResult(null, "MID", List.of(), "개인 태스크");
@@ -146,7 +146,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
             12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("PRI", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(12L);
-    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
+    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
 
     when(aiClient.classify(any()))
@@ -169,7 +169,7 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
             13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
     doReturn(project).when(accessGuard).assertIssueCreatable("LONG", 1L);
     doReturn(List.of()).when(labelRepository).findByProject(13L);
-    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
+    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
     when(aiClient.classify(any()))
         .thenReturn(new IssueClassifyResult("TASK", "MID", List.of(), "긴 본문"));

@@ -53,7 +53,7 @@ class MessagingAttentionServiceTest extends ExternalClientMockedTestBase {
     dsl.execute("set app.tenant_id='1'");
     // 공용 비서가 설정된 상태를 기본으로 — 하드코딩 id(2) 대신 이 id 가 요청에 실려야 한다(WP-110).
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8)));
   }
 
   /** 채널을 PUBLIC 으로 생성하고, 주어진 이름의 멤버를 추가한 뒤 채널 ID 반환. 멤버 이름은 USER.NAME 필드에 저장된다(이름 프리필터 매핑 기준). */
@@ -168,6 +168,8 @@ class MessagingAttentionServiceTest extends ExternalClientMockedTestBase {
         ArgumentCaptor.forClass(MessagingClassifyRequest.class);
     verify(aiClient).classify(req.capture());
     assertThat(req.getValue().assistantAgentId()).isEqualTo(777L);
+    // 실행 상한은 비서 설정(5_000)이 아니라 표(MESSAGING_CLASSIFY)에서 온다(WP-2111).
+    assertThat(req.getValue().timeoutMs()).isEqualTo(60_000);
     // 비용 깔때기 설계상 분류는 비서 설정 모델이 아닌 haiku 고정.
     assertThat(req.getValue().model()).startsWith("claude-haiku");
   }

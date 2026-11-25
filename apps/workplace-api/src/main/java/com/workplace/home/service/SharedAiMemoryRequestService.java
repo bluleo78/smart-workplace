@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.dto.SharedAiMemoryRequestBody;
@@ -33,9 +35,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class SharedAiMemoryRequestService {
 
-  /** 동기 검사 ai-agent 상한 — 클라이언트 읽기 15초 안에서 끝나게. */
-  public static final int CHECK_TIMEOUT_MS = 12_000;
-
   /** 「지금 공간」을 뜻하는 말(빈 값 포함). */
   private static final Set<String> CURRENT = Set.of("", "current", "지금", "현재");
 
@@ -52,6 +51,9 @@ public class SharedAiMemoryRequestService {
   private final TransactionTemplate tx;
   private final TransactionTemplate readTx;
 
+  /** AI 호출 실행 상한 표(WP-2111) — 동기 검사는 사용자가 기다리므로 짧은 값이 표에 있다. */
+  private final AiCallTimeouts timeouts;
+
   public SharedAiMemoryRequestService(
       SharedMemorySpaces spaces,
       SharedAiMemoryRepository repo,
@@ -60,7 +62,9 @@ public class SharedAiMemoryRequestService {
       HomeMessageRepository messageRepo,
       AssistantResolver assistantResolver,
       AiAgentSharedMemoryClient client,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.spaces = spaces;
     this.repo = repo;
     this.memoryService = memoryService;
@@ -88,7 +92,7 @@ public class SharedAiMemoryRequestService {
               new CheckRequest(
                   plan.spec().agentUserId(),
                   plan.spec().suggestionModel(),
-                  CHECK_TIMEOUT_MS,
+                  timeouts.timeoutMs(AiCall.HOME_SHARED_MEMORY_CHECK_REQUEST),
                   space.type().name(),
                   space.label(),
                   List.of(content)));

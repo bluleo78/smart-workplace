@@ -58,7 +58,7 @@ class MailIssueDraftTest extends ExternalClientMockedTestBase {
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =
-      new AssistantSpec(999L, "claude-sonnet-4-6", "NONE", 1, 60_000);
+      new AssistantSpec(999L, "claude-sonnet-4-6", "NONE", 1);
 
   private long callerId;
   private String projectKey;

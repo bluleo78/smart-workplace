@@ -27,7 +27,10 @@ public class HelpIndexScheduler {
   private static final String LOCK_NAME = "HelpIndexScheduler.refresh";
 
   /** 색인 실행이 끝나기 전에 파드가 종료됐을 때 잠금이 풀릴 최대 시간. */
-  private static final Duration LOCK_AT_MOST = Duration.ofMinutes(30);
+  private static final String LOCK_AT_MOST_FOR = "PT30M";
+
+  /** 잠금 최대 Duration — {@link #LOCK_AT_MOST_FOR} 를 파싱한 값. */
+  private static final Duration LOCK_AT_MOST = Duration.parse(LOCK_AT_MOST_FOR);
 
   private final HelpManualIndexer indexer;
   private final Clock clock;
@@ -46,7 +49,7 @@ public class HelpIndexScheduler {
 
   /** 스케줄 진입점 — 간격이 안 지났으면 건너뛴다. */
   @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
-  @SchedulerLock(name = LOCK_NAME, lockAtMostFor = "PT30M", lockAtLeastFor = "PT10S")
+  @SchedulerLock(name = LOCK_NAME, lockAtMostFor = LOCK_AT_MOST_FOR, lockAtLeastFor = "PT10S")
   public void refresh() {
     Instant now = clock.instant();
     Instant last = lastSuccess;

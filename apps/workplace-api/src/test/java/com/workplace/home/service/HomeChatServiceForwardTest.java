@@ -156,12 +156,13 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
         memoryService,
         mock(SharedMemorySpaces.class),
         sharedReader,
-        mock(com.workplace.help.service.HelpGapRecorder.class));
+        mock(com.workplace.help.service.HelpGapRecorder.class),
+        com.workplace.airun.AiCallTimeouts.defaults());
   }
 
   private void stubAssistant() {
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8));
   }
 
   /** WP-54: 화면 컨텍스트를 ChatRequest.screenContext 로 1:1 전달하고, USER 메시지에는 query 만 저장한다. */
@@ -463,15 +464,16 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
   }
 
   /**
-   * #456: compose 가 ai-agent 로 보내는 ChatRequest 의 timeoutMs 가 compose 하한(180s)으로 상향되는지 검증.
+   * #456: compose 가 ai-agent 로 보내는 ChatRequest 의 timeoutMs 가 상한 표 AI_CHAT 값(180s)인지 검증(비서 사양의
+   * timeout 은 쓰지 않는다 — WP-2111).
    *
-   * <p>비서 기본 timeoutMs 는 60s(AssistantDefaults.TIMEOUT_MS)인데, Global Chat 은 다중 도메인 위임으로 60s 를 종종
-   * 초과한다. compose 경로는 하한을 적용해 ≥180s 를 전달해야 한다. 상수 비교가 아닌 실제 전송된 요청 본문을 캡처해 검증한다.
+   * <p>옛 비서 기본 timeoutMs 는 60s 였는데, Global Chat 은 다중 도메인 위임으로 60s 를 종종 초과한다. compose 경로는 하한을 적용해
+   * ≥180s 를 전달해야 한다. 상수 비교가 아닌 실제 전송된 요청 본문을 캡처해 검증한다.
    */
   @Test
-  void compose_요청_timeoutMs_를_180s_하한으로_상향한다() throws Exception {
+  void compose_요청_timeoutMs_는_상한_표_AI_CHAT_180s_를_싣는다() throws Exception {
     long uid = seedAgent("fwd-timeout-floor");
-    // 기본 비서: timeoutMs=60000 (공유 기본값).
+    // 기본 비서 사양(상한은 사양이 아니라 상한 표 AI_CHAT 이 정한다 — WP-2111).
     stubAssistant();
 
     var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
@@ -487,7 +489,7 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).startChat(uid, null, "오늘 일정 확인 + 메일도");
 
-    // 전송된 ChatRequest 를 캡처해 timeoutMs 가 하한(180_000)으로 상향됐는지 검증.
+    // 전송된 ChatRequest 를 캡처해 timeoutMs 가 표 값(180_000)인지 검증.
     org.mockito.Mockito.verify(chatClient)
         .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
     assertThat(reqCaptor.getValue().timeoutMs()).isEqualTo(180_000);

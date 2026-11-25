@@ -44,8 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RecordApplicationEvents
 class MailContentAnalysisTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
 
   @Autowired MailAnalysisService analysis;
   @Autowired DSLContext dsl;
@@ -132,6 +131,8 @@ class MailContentAnalysisTest extends ExternalClientMockedTestBase {
     verify(mailClient, times(1)).analyzeContent(req.capture());
     assertThat(req.getValue().includeCategory()).isTrue();
     assertThat(req.getValue().includeSummary()).isTrue();
+    // 실행 상한은 비서 설정(60_000)이 아니라 표(MAIL_ANALYZE_CONTENT)에서 온다(WP-2111).
+    assertThat(req.getValue().timeoutMs()).isEqualTo(120_000);
     assertThat(req.getValue().body()).contains("배포 일정").doesNotContain("이전 메일 내용");
     var row = contentRow(content);
     assertThat(row.value1()).isEqualTo("업무");

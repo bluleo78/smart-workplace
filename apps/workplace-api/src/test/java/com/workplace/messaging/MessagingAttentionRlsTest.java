@@ -111,7 +111,7 @@ class MessagingAttentionRlsTest extends ExternalClientMockedTestBase {
 
     // ── 2) 공용 비서 해석 + aiClient 스텁: memberId 를 relevant 로 반환
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8)));
     when(aiClient.classify(any()))
         .thenReturn(
             new MessagingClassifyResult(

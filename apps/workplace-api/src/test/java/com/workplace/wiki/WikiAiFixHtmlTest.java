@@ -73,7 +73,7 @@ class WikiAiFixHtmlTest extends ExternalClientMockedTestBase {
     long spaceId = spaceService.createTeamSpace(editorId, "AI고치기-" + UUID.randomUUID()).id();
     pageId = pageService.create(editorId, spaceId, new CreatePageRequest(null, "회고")).id();
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(900L, "claude-sonnet-4-6", "NONE", 5, 60_000));
+        .thenReturn(new AssistantSpec(900L, "claude-sonnet-4-6", "NONE", 5));
   }
 
   /** fix_html — 소스·지시·고른 요소가 ai-agent 요청 본문에 실린다(action 은 소문자 와이어). */

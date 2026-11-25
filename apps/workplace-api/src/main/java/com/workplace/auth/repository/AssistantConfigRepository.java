@@ -18,7 +18,10 @@ public class AssistantConfigRepository {
 
   private final DSLContext dsl;
 
-  /** assistant_config 한 행(원시값, nullable 보존). suggestionModel — 추천 질문 전용 모델(WP-139, null=자동). */
+  /**
+   * assistant_config 한 행(원시값, nullable 보존). suggestionModel — 추천 질문 전용 모델(WP-139, null=자동).
+   * timeoutMs 는 실행 상한에 안 씀 — WP-2111, 값 보존만(상한은 AiCallTimeouts 표).
+   */
   public record ConfigRow(
       String model,
       String thinkingDepth,

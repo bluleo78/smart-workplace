@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -21,9 +23,6 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AiSuggestionService {
 
-  /** ai-agent 실행 상한 — 웹은 고정/저장 문구를 먼저 보이므로 길게 기다리지 않는다(스펙 §6). */
-  static final int STARTER_TIMEOUT_MS = 15_000;
-
   /** 일반 추천이 참고하는 최근 대화 제목 수. */
   static final int RECENT_TITLES = 5;
 
@@ -32,6 +31,9 @@ public class AiSuggestionService {
   private final AssistantResolver assistantResolver;
   private final HomeSessionService sessionService;
   private final AiAgentSuggestionClient client;
+
+  /** AI 호출 실행 상한 표(WP-2111) — 시작 추천은 웹이 고정/저장 문구를 먼저 보이므로 짧게 둔 값이 표에 있다. */
+  private final AiCallTimeouts timeouts;
 
   /**
    * 화면 맞춤 추천인가 — 보고 있는 대상(focus)과 식별자(refs)가 있을 때만. 웹 starterSuggestions.isTailoredContext 와 같은 규칙.
@@ -62,7 +64,7 @@ public class AiSuggestionService {
             null,
             null,
             isTailored(ctx) ? 3 : 4,
-            STARTER_TIMEOUT_MS);
+            timeouts.timeoutMs(AiCall.HOME_SUGGESTIONS_STARTER));
     return new AiSuggestionResponse(client.suggest(req), true);
   }
 }

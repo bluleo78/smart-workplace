@@ -14,14 +14,21 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAccountRepository.ActiveAccount;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.LongStream;
 import net.javacrumbs.shedlock.core.DefaultLockingTaskExecutor;
@@ -143,10 +150,8 @@ class MailCategoryBackfillSchedulerTest {
     assertThat(cfg.getValue().getLockAtMostFor()).hasMinutes(30);
     // 회차(분류 호출)가 끝난 뒤에 잠금을 푼다 — 실행 구간 전체를 잠근다
     InOrder order = inOrder(service, lock);
-    order
-        .verify(service)
-        .classifyAccountNow(
-            eq(101L), eq(11L), any(), eq(MailCategoryBackfillScheduler.MAX_BATCHES_PER_ROUND));
+    // 시간 예산: 잠금 30분 − 여유 2분 = 28분 ÷ 호출 최악(120+30초) = 11 — 개수 상한 20 보다 작아 11 을 넘긴다(WP-2111)
+    order.verify(service).classifyAccountNow(eq(101L), eq(11L), any(), eq(11));
     order.verify(lock).unlock();
   }
 
@@ -163,5 +168,66 @@ class MailCategoryBackfillSchedulerTest {
     verify(service, never()).classifyAccountNow(anyLong(), anyLong(), any(), anyInt());
     s.tick(); // 건너뛴 뒤에도 겹침 표시가 풀린다
     assertThat(submitted).hasSize(2);
+  }
+
+  /**
+   * WP-2111: 회차 시간 예산 — 계정마다 「남은 시간 ÷ 호출 최악(120+30초)」만큼만 넘기고, 남은 시간이 호출 하나도 못 담으면 다음 계정에 보내지 않는다.
+   */
+  @Test
+  void timeBudget_passesOnlyCallsThatFit_andStopsWhenNoneFits() {
+    when(accountRepo.findActiveForSync())
+        .thenReturn(
+            LongStream.rangeClosed(1, 3).mapToObj(i -> new ActiveAccount(i, 100 + i)).toList());
+    MutableClock clock = new MutableClock(Instant.parse("2026-11-25T00:00:00Z"));
+    List<Integer> passed = new ArrayList<>();
+    when(service.classifyAccountNow(anyLong(), anyLong(), any(), anyInt()))
+        .thenAnswer(
+            inv -> {
+              passed.add(inv.getArgument(3));
+              // 첫 계정이 25분, 둘째가 1분 걸린 것처럼 — 셋째 앞에서 남은 시간은 2분(120초) < 150초
+              clock.advance(passed.size() == 1 ? Duration.ofMinutes(25) : Duration.ofMinutes(1));
+              return 1;
+            });
+
+    new MailCategoryBackfillScheduler(
+            tenantRunner,
+            accountRepo,
+            service,
+            submitted::add,
+            null,
+            AiCallTimeouts.defaults(),
+            clock)
+        .runOnceNow();
+
+    // 첫 계정: 28분 ÷ 150초 = 11, 둘째: 남은 3분 ÷ 150초 = 1, 셋째: 남은 2분 → 보내지 않음
+    assertThat(passed).containsExactly(11, 1);
+  }
+
+  /** 테스트가 앞으로 돌리는 시계(UTC). */
+  private static final class MutableClock extends Clock {
+    private final AtomicReference<Instant> now;
+
+    MutableClock(Instant start) {
+      this.now = new AtomicReference<>(start);
+    }
+
+    void advance(Duration d) {
+      now.updateAndGet(i -> i.plus(d));
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return now.get();
+    }
   }
 }

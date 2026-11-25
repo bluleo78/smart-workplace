@@ -90,8 +90,7 @@ class SharedAiMemoryRequestApiTest extends ExternalClientMockedTestBase {
     when(assistantResolver.resolveOrEmpty(anyLong()))
         .thenReturn(
             Optional.of(
-                new AssistantSpec(
-                    9L, "claude-sonnet-4-6", "NORMAL", 8, 60000, "claude-haiku-5-5")));
+                new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, "claude-haiku-5-5")));
   }
 
   @AfterEach

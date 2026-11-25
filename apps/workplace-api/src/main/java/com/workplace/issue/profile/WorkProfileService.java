@@ -1,5 +1,7 @@
 package com.workplace.issue.profile;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -92,6 +94,10 @@ public class WorkProfileService {
   private final AiAgentIssueClient client;
   private final Executor executor;
   private final AiAgentProperties aiAgentProperties;
+
+  /** AI 호출 종류별 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   private final TransactionTemplate txTemplate;
 
   /** 커밋 뒤(afterCommit) 콜백에서 쓰는 새 트랜잭션 — 그 시점엔 끝난 트랜잭션 자원이 아직 묶여 있어 REQUIRED 로는 참여가 꼬인다. */
@@ -109,7 +115,8 @@ public class WorkProfileService {
       AiAgentIssueClient client,
       @Qualifier("workProfileExecutor") Executor executor,
       PlatformTransactionManager txManager,
-      AiAgentProperties aiAgentProperties) {
+      AiAgentProperties aiAgentProperties,
+      AiCallTimeouts timeouts) {
     this.metricsService = metricsService;
     this.repository = repository;
     this.inputRepository = inputRepository;
@@ -118,6 +125,7 @@ public class WorkProfileService {
     this.client = client;
     this.executor = executor;
     this.aiAgentProperties = aiAgentProperties;
+    this.timeouts = timeouts;
     this.txTemplate = new TransactionTemplate(txManager);
     this.newTxTemplate = new TransactionTemplate(txManager);
     this.newTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -453,7 +461,7 @@ public class WorkProfileService {
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),
-        spec.timeoutMs());
+        timeouts.timeoutMs(AiCall.WORK_PROFILE));
   }
 
   /** 프롬프트에 쓰는 기간 이름 — 화면 기간 고르기와 같은 말. */

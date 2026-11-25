@@ -25,6 +25,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -90,7 +91,7 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
   @BeforeEach
   void assistant() {
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(999L, "m", "NONE", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(999L, "m", "NONE", 8)));
   }
 
   // ── 시드 헬퍼(MeOverviewServiceTest 와 같은 방식) ───────────────────────────────
@@ -277,7 +278,7 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
     WorkProfileAiRequest req = captor.getValue();
     assertThat(req.periodLabel()).isEqualTo("이번 달");
     assertThat(req.assistantAgentId()).isEqualTo(999L);
-    assertThat(req.timeoutMs()).isEqualTo(60_000L);
+    assertThat(req.timeoutMs()).isEqualTo(180_000L);
     assertThat(req.issues()).extracting(WorkProfileAiRequest.Item::key).containsExactly(k3, k2, k1);
     assertThat(req.issues())
         .allSatisfy(it -> assertThat(it.body().length()).isLessThanOrEqualTo(300));
@@ -516,7 +517,8 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
               throw new TaskRejectedException("가득 참");
             },
             txManager,
-            aiAgentProperties);
+            aiAgentProperties,
+            AiCallTimeouts.defaults());
 
     rejecting.submit(1L, MeOverviewPeriod.MONTH, TODAY, NOW);
 

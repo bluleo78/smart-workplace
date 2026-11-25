@@ -19,6 +19,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.RoundDeadline;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.AiMemoryTestFixtures;
@@ -43,6 +44,8 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.net.http.HttpTimeoutException;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -137,7 +140,7 @@ class SharedMemoryExtractionTest extends ExternalClientMockedTestBase {
         List.of(us),
         List.of(),
         List.of(),
-        new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, 60000, "claude-haiku-5-5"),
+        new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, "claude-haiku-5-5"),
         LocalDate.of(2026, 10, 15),
         Instant.now(),
         Set.of());
@@ -303,6 +306,133 @@ class SharedMemoryExtractionTest extends ExternalClientMockedTestBase {
     assertThat(repo.count(pk)).isZero();
   }
 
+  // WP-2111: 공간 마감 — 다음 공간을 마감 안에 끝낼 수 없으면 미루는 예산은 던진다. 미루지 않는 예산(회차 첫 세션)도 아직 처리한 공간이 없으면
+  // 진행이 없으므로 던져 미룬다. 둘 다 추출을 부르지 않는다.
+  @Test
+  void 공간_마감에_걸리면_추출을_부르지_않고_미룬다() {
+    extractReturns(add("배포는 API 먼저 한다"));
+    SessionCleanupInput in = input(say("우리 프로젝트는 배포를 API 먼저 하기로 했어", pk));
+    // 지금부터 1분 뒤가 마감 — 공간 최악(370초)이 들어가지 않는다
+    com.workplace.airun.RoundDeadline nearlyOver =
+        com.workplace.airun.RoundDeadline.underLock(
+            java.time.Clock.systemUTC(),
+            com.workplace.airun.RoundDeadline.LOCK_MARGIN.plus(java.time.Duration.ofMinutes(1)));
+    assertThat(participant.spaceWorst()).isEqualTo(java.time.Duration.ofSeconds(370));
+
+    assertThatThrownBy(
+            () ->
+                participant.prepare(
+                    in, new SessionCleanupParticipant.SpaceBudget(nearlyOver, true)))
+        .isInstanceOf(SessionCleanupParticipant.DeadlineReached.class);
+    assertThatThrownBy(
+            () ->
+                participant.prepare(
+                    in, new SessionCleanupParticipant.SpaceBudget(nearlyOver, false)))
+        .isInstanceOf(SessionCleanupParticipant.DeadlineReached.class);
+    verify(client, never()).extract(any());
+  }
+
+  /**
+   * WP-2111 재검토: 회차 첫 세션이 공간 마감에 걸려 남은 공간을 건너뛰면 경계는 건너뛴 첫 공간의 첫 발화 바로 앞까지만 오르고, 다음 회차가 그 발화부터 다시 모아
+   * 건너뛴 공간을 추출한다 — 건너뛴 공간의 발화를 잃지 않는다. 시계는 추출마다 2분씩 밀려 7분 예산에서 공간 하나(최악 370초)만 들어간다.
+   */
+  @Test
+  void 첫_세션이_마감에_걸려_건너뛴_공간은_다음_회차에_다시_추출된다() {
+    long wiki = teamWiki(wikiService, owner, "개발팀 노트");
+    addWikiMember(wikiService, owner, wiki, speaker, "EDITOR");
+    SpaceKey wk = SpaceKey.of("WIKI_SPACE", wiki);
+    MovingClock clock = new MovingClock(Instant.now());
+    when(client.extract(any()))
+        .thenAnswer(
+            inv -> {
+              clock.advance(Duration.ofMinutes(2));
+              boolean project = "PROJECT".equals(((ExtractRequest) inv.getArgument(0)).spaceType());
+              return new ExtractResult(
+                  List.of(add(project ? "배포는 API 먼저 한다" : "용어집은 가나다순으로 정리한다")));
+            });
+    Utterance p1 = say("우리 프로젝트는 배포를 API 먼저 하기로 했어", pk);
+    Utterance w1 = say("이 스페이스 용어집은 가나다순으로 정리하자", wk);
+    Utterance p2 = say("PR 은 두 명 승인 뒤 머지하는 걸로 하자", pk);
+    SessionCleanupInput first = input(p1, w1, p2);
+    RoundDeadline sevenMinutes =
+        RoundDeadline.underLock(clock, RoundDeadline.LOCK_MARGIN.plus(Duration.ofMinutes(7)));
+
+    var prepared =
+        participant.prepare(first, new SessionCleanupParticipant.SpaceBudget(sevenMinutes, false));
+
+    // 첫 공간(PROJECT)만 추출하고, 경계 상한은 건너뛴 공간(WIKI)의 첫 발화 바로 앞이다.
+    verify(client, times(1)).extract(any());
+    assertThat(prepared.uptoLimit()).isEqualTo(w1.messageId() - 1);
+    assertThat(cleanupApplier.apply(first, List.of(), java.util.Map.of(), List.of(prepared)))
+        .isTrue();
+    long boundary = processedBoundary();
+    assertThat(boundary).isEqualTo(w1.messageId() - 1);
+    assertThat(repo.count(pk)).isEqualTo(1);
+    assertThat(repo.count(wk)).isZero();
+
+    // 다음 회차 — 수집기처럼 경계 뒤 발화(w1, p2)를 모은다. 마감이 넉넉하면 건너뛰었던 WIKI 공간이 추출되고 경계는 끝까지 오른다.
+    SessionCleanupInput next =
+        new SessionCleanupInput(
+            1L,
+            speaker,
+            sessionId,
+            boundary,
+            p2.messageId(),
+            List.of(w1, p2),
+            List.of(),
+            List.of(),
+            new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, "claude-haiku-5-5"),
+            LocalDate.of(2026, 10, 15),
+            Instant.now(),
+            Set.of());
+    var again = participant.prepare(next);
+    assertThat(again.uptoLimit()).isNull();
+    assertThat(cleanupApplier.apply(next, List.of(), java.util.Map.of(), List.of(again))).isTrue();
+
+    ArgumentCaptor<ExtractRequest> cap = ArgumentCaptor.forClass(ExtractRequest.class);
+    verify(client, times(3)).extract(cap.capture());
+    assertThat(cap.getAllValues().get(1).spaceType()).isEqualTo("WIKI_SPACE");
+    assertThat(cap.getAllValues().get(1).utterances()).containsExactly("이 스페이스 용어집은 가나다순으로 정리하자");
+    assertThat(repo.all(wk)).extracting(Row::content).containsExactly("용어집은 가나다순으로 정리한다");
+    assertThat(processedBoundary()).isEqualTo(p2.messageId());
+  }
+
+  /** 이 세션의 메모리 정리 경계. */
+  private long processedBoundary() {
+    return dsl.select(HOME_SESSION.MEMORY_PROCESSED_MESSAGE_ID)
+        .from(HOME_SESSION)
+        .where(HOME_SESSION.ID.eq(sessionId))
+        .fetchOne(HOME_SESSION.MEMORY_PROCESSED_MESSAGE_ID);
+  }
+
+  /** 테스트가 앞으로 돌리는 시계(UTC) — 공간 마감을 결정적으로 넘긴다. */
+  private static final class MovingClock extends Clock {
+    private final java.util.concurrent.atomic.AtomicReference<Instant> now;
+
+    MovingClock(Instant start) {
+      this.now = new java.util.concurrent.atomic.AtomicReference<>(start);
+    }
+
+    void advance(Duration d) {
+      now.updateAndGet(i -> i.plus(d));
+    }
+
+    @Override
+    public java.time.ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(java.time.ZoneId zone) {
+      return this;
+    }
+
+    @Override
+    public Instant instant() {
+      return now.get();
+    }
+  }
+
   @Test
   void ai_agent_가_응답하지_않으면_세션을_미루도록_던진다() {
     when(client.extract(any())).thenThrow(agentDown());
@@ -411,8 +541,7 @@ class SharedMemoryExtractionTest extends ExternalClientMockedTestBase {
     when(assistantResolver.resolveOrEmpty(anyLong()))
         .thenReturn(
             Optional.of(
-                new AssistantSpec(
-                    9L, "claude-sonnet-4-6", "NORMAL", 8, 60000, "claude-haiku-5-5")));
+                new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, "claude-haiku-5-5")));
     when(client.checkNow(any()))
         .thenReturn(new CheckResult(List.of(new Verdict(true, false, "팀 규칙"))));
     var saved =

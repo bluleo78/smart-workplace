@@ -48,9 +48,9 @@ import org.springframework.transaction.annotation.Transactional;
 class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec WORKSPACE =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
   private static final AssistantSpec PERSONAL =
-      new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+      new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8);
 
   @Autowired MailCategoryBackfillService service;
   @Autowired DSLContext dsl;

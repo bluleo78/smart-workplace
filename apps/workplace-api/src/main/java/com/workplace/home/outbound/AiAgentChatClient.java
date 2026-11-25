@@ -1,5 +1,7 @@
 package com.workplace.home.outbound;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunHeader;
 import com.workplace.airun.outbound.AiRunFailures;
 import com.workplace.airun.service.AiRunRecorder;
@@ -54,13 +56,17 @@ public class AiAgentChatClient {
     }
   }
 
-  /** 요청 전체 타임아웃 — SseEmitter 타임아웃(300s)과 정렬. */
-  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(300);
+  /** 요청 전체 타임아웃의 하한 — SseEmitter 타임아웃(300s)과 정렬. 표의 AI_CHAT 읽기 상한이 더 크면 그 값을 쓴다. */
+  private static final Duration MIN_REQUEST_TIMEOUT = Duration.ofSeconds(300);
 
   /** 연결 타임아웃 — 에이전트가 떠 있지 않을 때 빠르게 실패. */
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
   private final HttpClient http;
+
+  /** 요청 전체 타임아웃 — max(300s, AI_CHAT 실행 상한 + 여유). 덮어쓴 상한이 잘리지 않게 한다(WP-2111). */
+  private final Duration requestTimeout;
+
   private final AiAgentProperties props;
 
   /** 호출 전 실패(연결 거부·시간 초과·5xx)를 AI 처리 기록으로 남기는 기록기 (WP-1829). */
@@ -69,8 +75,10 @@ public class AiAgentChatClient {
   private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
   /** 프로덕션 생성자 — props 에서 baseUrl/internalToken 을 읽는다. */
-  public AiAgentChatClient(AiAgentProperties props, AiRunRecorder aiRunRecorder) {
+  public AiAgentChatClient(
+      AiAgentProperties props, AiRunRecorder aiRunRecorder, AiCallTimeouts timeouts) {
     this.props = props;
+    this.requestTimeout = requestTimeout(timeouts);
     this.aiRunRecorder = aiRunRecorder;
     // HTTP/1.1 고정 — InternalHttp 참조
     this.http = InternalHttp.httpClientBuilder().connectTimeout(CONNECT_TIMEOUT).build();
@@ -79,8 +87,14 @@ public class AiAgentChatClient {
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */
   AiAgentChatClient(AiAgentProperties props, HttpClient http, AiRunRecorder aiRunRecorder) {
     this.props = props;
+    this.requestTimeout = requestTimeout(AiCallTimeouts.defaults());
     this.aiRunRecorder = aiRunRecorder;
     this.http = http;
+  }
+
+  /** 요청 전체 타임아웃 계산 — 하한 300s 와 AI_CHAT 읽기 상한 중 큰 값. */
+  public static Duration requestTimeout(AiCallTimeouts timeouts) {
+    return timeouts.readTimeoutAtLeast(MIN_REQUEST_TIMEOUT, AiCall.AI_CHAT);
   }
 
   /**
@@ -123,7 +137,7 @@ public class AiAgentChatClient {
               aiRun ->
                   HttpRequest.newBuilder()
                       .uri(URI.create(props.baseUrl() + "/ai/chat"))
-                      .timeout(REQUEST_TIMEOUT)
+                      .timeout(requestTimeout)
                       .header("Authorization", "Internal " + props.internalToken())
                       .header("Content-Type", "application/json")
                       .header("Accept", "text/event-stream")

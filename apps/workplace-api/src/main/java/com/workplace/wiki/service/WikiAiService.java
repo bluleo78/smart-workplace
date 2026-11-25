@@ -1,6 +1,8 @@
 package com.workplace.wiki.service;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
@@ -19,7 +21,6 @@ import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.outbound.WikiAiAgentStreamClient;
 import com.workplace.wiki.repository.WikiPageRepository;
 import java.io.InterruptedIOException;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,9 +45,6 @@ public class WikiAiService {
 
   private static final Logger log = LoggerFactory.getLogger(WikiAiService.class);
 
-  /** 생성 타임아웃 — 펌프 렌더링 + CLI cold-start(최대 ~60s) 여유. */
-  private static final Duration TIMEOUT = Duration.ofSeconds(120);
-
   private final WikiPageRepository pages;
   private final WikiPermissions perms;
   private final AssistantResolver assistantResolver;
@@ -69,6 +67,9 @@ public class WikiAiService {
   /** WP-386: 노트 AI 작성에 싣는 공용 메모리(조직 + 이 페이지 스페이스) 리더. 스페이스 권한은 리더가 다시 본다. */
   private final SharedAiMemoryReader sharedReader;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public WikiAiService(
       WikiPageRepository pages,
       WikiPermissions perms,
@@ -80,7 +81,8 @@ public class WikiAiService {
       SseRegistry sseRegistry,
       WikiPageService pageService,
       AiMemoryReader memoryReader,
-      SharedAiMemoryReader sharedReader) {
+      SharedAiMemoryReader sharedReader,
+      AiCallTimeouts timeouts) {
     this.pages = pages;
     this.perms = perms;
     this.assistantResolver = assistantResolver;
@@ -93,6 +95,7 @@ public class WikiAiService {
     this.pageService = pageService;
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
+    this.timeouts = timeouts;
   }
 
   /**
@@ -123,7 +126,8 @@ public class WikiAiService {
     return registry.start(
         callerId,
         executor,
-        TIMEOUT,
+        // 생성 타임아웃 — 스트림 클라이언트 요청 타임아웃과 같은 값(상한 표 + 여유, 최소 120초).
+        WikiAiAgentStreamClient.requestTimeout(timeouts),
         correlationId ->
             () ->
                 AiRunScope.run(
@@ -160,7 +164,7 @@ public class WikiAiService {
                               spec.model(),
                               spec.thinkingDepth(),
                               spec.maxTurns(),
-                              spec.timeoutMs(),
+                              timeouts.timeoutMs(AiCall.WIKI_COMPOSE),
                               memories,
                               shared.items(),
                               shared.moreCount());

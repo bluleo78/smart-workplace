@@ -1,5 +1,7 @@
 package com.workplace.issue.overview.status;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -52,6 +54,9 @@ public class ProjectStatusSummaryService {
   private final TransactionTemplate txTemplate;
   private final AiAgentProperties aiAgentProperties;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public ProjectStatusSummaryService(
       ProjectStatusSummaryRepository repository,
       ProjectRepository projectRepository,
@@ -59,13 +64,15 @@ public class ProjectStatusSummaryService {
       AssistantResolver assistantResolver,
       AiAgentIssueClient client,
       PlatformTransactionManager txManager,
-      AiAgentProperties aiAgentProperties) {
+      AiAgentProperties aiAgentProperties,
+      AiCallTimeouts timeouts) {
     this.repository = repository;
     this.projectRepository = projectRepository;
     this.overviewService = overviewService;
     this.assistantResolver = assistantResolver;
     this.client = client;
     this.aiAgentProperties = aiAgentProperties;
+    this.timeouts = timeouts;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -176,7 +183,7 @@ public class ProjectStatusSummaryService {
             s.agentUserId(),
             s.model(),
             s.maxTurns(),
-            s.timeoutMs()),
+            timeouts.timeoutMs(AiCall.PROJECT_STATUS)),
         hash);
   }
 }

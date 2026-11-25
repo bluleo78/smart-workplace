@@ -7,6 +7,7 @@ import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAnalysisBreaker.Admission;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -78,11 +79,20 @@ public class MailSummaryBackfillService {
     summarizeObjectiveRecentNow(userId, accountId, new AgentOutageGuard());
   }
 
-  /** ③ 원본 분석 패스 — 배치 회차의 agent 불가 카운터를 이어 쓴다(스케줄러용, WP-166). */
+  /** ③ 원본 분석 패스 — 배치 회차의 agent 불가 카운터를 이어 쓴다(WP-166). 시간 예산 없음. */
   void summarizeObjectiveRecentNow(long userId, long accountId, AgentOutageGuard guard) {
+    summarizeObjectiveRecentNow(userId, accountId, guard, () -> true);
+  }
+
+  /**
+   * ③ 원본 분석 패스 — 스케줄러용. mayCall 은 다음 메일의 분석 호출을 시작해도 회차 마감(잠금) 안에 끝나는지 답한다(WP-2111) — false 면 남은
+   * 메일은 다음 회차가 다시 집는다.
+   */
+  void summarizeObjectiveRecentNow(
+      long userId, long accountId, AgentOutageGuard guard, BooleanSupplier mayCall) {
     List<Long> ids =
         txTemplate.execute(status -> messageRepo.listRecentUnreadUnsummarizedIds(accountId, LIMIT));
-    runPass(userId, ids, id -> analysis.analyzeContent(userId, id), guard);
+    runPass(userId, ids, id -> analysis.analyzeContent(userId, id), guard, mayCall);
   }
 
   /** ④ 개인 분석 패스 — 사본 미시도 + 배포 전 미분류 대상. */
@@ -90,12 +100,18 @@ public class MailSummaryBackfillService {
     summarizePersonalRecentNow(userId, accountId, new AgentOutageGuard());
   }
 
-  /** ④ 개인 분석 패스 — 배치 회차의 agent 불가 카운터를 이어 쓴다(스케줄러용, WP-166). */
+  /** ④ 개인 분석 패스 — 배치 회차의 agent 불가 카운터를 이어 쓴다(WP-166). 시간 예산 없음. */
   void summarizePersonalRecentNow(long userId, long accountId, AgentOutageGuard guard) {
+    summarizePersonalRecentNow(userId, accountId, guard, () -> true);
+  }
+
+  /** ④ 개인 분석 패스 — 스케줄러용. mayCall 은 ③ 과 같다(WP-2111). */
+  void summarizePersonalRecentNow(
+      long userId, long accountId, AgentOutageGuard guard, BooleanSupplier mayCall) {
     List<Long> ids =
         txTemplate.execute(status -> messageRepo.listRecentUnreadUnanalyzedIds(accountId, LIMIT));
     UserMailProfileCache profiles = analysis.newProfileCache(); // 이 패스 동안 "나" 프로필 1회 조회(WP-150)
-    runPass(userId, ids, id -> analysis.analyzePersonal(userId, id, profiles), guard);
+    runPass(userId, ids, id -> analysis.analyzePersonal(userId, id, profiles), guard, mayCall);
   }
 
   /**
@@ -103,14 +119,19 @@ public class MailSummaryBackfillService {
    *
    * <p>단 ai-agent 불가({@link MailAiException#isAgentUnavailable})가 연속돼 {@code guard} 가 멈춤 상태가 되면 남은
    * 메일에 같은 실패를 쌓지 않고 패스를 끝낸다(WP-166) — 호출부(스케줄러)도 같은 guard 를 보고 이번 회차의 남은 계정을 건너뛴다. 분석에 실패한 메일은 시도
-   * 기록이 남지 않아 다음 주기에 다시 대상이 된다.
+   * 기록이 남지 않아 다음 주기에 다시 대상이 된다. mayCall 이 false 면(회차 시간 예산 소진, WP-2111) 남은 메일을 다음 회차로 넘긴다.
    */
-  private void runPass(long userId, List<Long> ids, Predicate<Long> step, AgentOutageGuard guard) {
+  private void runPass(
+      long userId,
+      List<Long> ids,
+      Predicate<Long> step,
+      AgentOutageGuard guard,
+      BooleanSupplier mayCall) {
     if (ids == null) {
       return;
     }
     for (Long id : ids) {
-      if (guard.tripped()) {
+      if (guard.tripped() || !mayCall.getAsBoolean()) {
         return;
       }
       Admission admission = breaker.admit(id);

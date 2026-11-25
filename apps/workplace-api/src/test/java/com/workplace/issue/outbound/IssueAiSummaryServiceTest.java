@@ -56,7 +56,7 @@ class IssueAiSummaryServiceTest extends ExternalClientMockedTestBase {
 
   /** 테스트용 고정 AssistantSpec — agentUserId=999. */
   private static final AssistantSpec MOCK_SPEC =
-      new AssistantSpec(999L, "claude-sonnet-4-6", "NONE", 8, 60_000);
+      new AssistantSpec(999L, "claude-sonnet-4-6", "NONE", 8);
 
   @BeforeEach
   void stubAssistant() {

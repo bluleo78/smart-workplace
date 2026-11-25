@@ -1,9 +1,12 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.global.ai.TextEmbedder;
 import com.workplace.home.exception.MemoryCleanupAiException;
 import com.workplace.home.exception.SharedAiMemoryException;
 import com.workplace.home.outbound.AiAgentSharedMemoryClient;
+import com.workplace.home.outbound.HomeChatConfig;
 import com.workplace.home.outbound.SharedMemoryMessages.CheckRequest;
 import com.workplace.home.outbound.SharedMemoryMessages.CheckResult;
 import com.workplace.home.outbound.SharedMemoryMessages.ExtractRequest;
@@ -14,6 +17,7 @@ import com.workplace.home.repository.SharedAiMemoryRepository;
 import com.workplace.home.repository.SharedAiMemoryRepository.Row;
 import com.workplace.home.service.SessionCleanupInput.Utterance;
 import com.workplace.home.service.SharedSpace.SpaceKey;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -44,15 +48,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class SharedMemoryExtractionParticipant implements SessionCleanupParticipant {
 
-  static final int EXTRACT_TIMEOUT_MS = 30_000;
-  static final int CHECK_TIMEOUT_MS = 30_000;
-
   /** 검사 한 번의 후보 상한(스펙 6.4). */
   static final int CHECK_BATCH = 10;
 
   /**
-   * 공간 하나에서 받아들이는 내용 op(ADD·UPDATE·MERGE) 상한 — 공용성 검사가 10개씩이라 최대 2번. 공간 수 × 30초 검사가 WP-385 회차
-   * 예산(25분)과 잠금(40분)을 넘기지 않게 한다. 넘는 op 는 검사·임베딩 전에 버린다(FORGET 은 세지 않는다).
+   * 공간 하나에서 받아들이는 내용 op(ADD·UPDATE·MERGE) 상한 — 공용성 검사가 10개씩이라 최대 2번. 공간 하나의 최악은 {@link
+   * #spaceWorst()} 이고, 공간 수에는 상한이 없으므로 공간마다 시작 전에 회차 마감을 확인한다(WP-2111). 넘는 op 는 검사·임베딩 전에
+   * 버린다(FORGET 은 세지 않는다).
    */
   static final int MAX_CONTENT_OPS = 20;
 
@@ -73,6 +75,12 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
   private final TransactionTemplate readTx;
   private final TransactionTemplate spaceTx;
 
+  /** AI 호출 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
+  /** 공간 하나의 최악 시간 — 생성 때 한 번 계산한다(실행 상한 표는 기동 뒤 바뀌지 않는다). */
+  private final Duration spaceWorst;
+
   public SharedMemoryExtractionParticipant(
       HomeMessageRepository messages,
       SharedMemorySpaces spaces,
@@ -80,7 +88,10 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
       AiAgentSharedMemoryClient client,
       TextEmbedder embedder,
       SharedMemoryOpApplier applier,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
+    this.spaceWorst = computeSpaceWorst(timeouts);
     this.messages = messages;
     this.spaces = spaces;
     this.repo = repo;
@@ -94,10 +105,49 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
     this.spaceTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
   }
 
-  /** 공간별 준비(트랜잭션 밖) — 할 일이 있는 공간의 계획만 모아, 적용은 같은 트랜잭션 안에서 한다. */
+  /**
+   * 공간 하나의 최악 시간 — 추출 1번 + 검사 최대 2번(각각 배경 클라이언트 읽기 상한) + 결과 임베딩(op 상한 × 5초). 읽기 상한은 실행 상한 + 여유라 덮어쓴
+   * 값을 따른다.
+   */
+  Duration spaceWorst() {
+    return spaceWorst;
+  }
+
+  /** 처리 단위 = 공간 하나 — 스케줄러가 정리 호출 전에 마감을 볼 때 쓴다(WP-2111 리뷰 후속). */
   @Override
-  public Prepared prepare(SessionCleanupInput in) {
-    Map<SpaceKey, List<String>> bySpace;
+  public Duration unitWorst() {
+    return spaceWorst;
+  }
+
+  private static Duration computeSpaceWorst(AiCallTimeouts timeouts) {
+    // 추출·검사가 같은 배경 클라이언트라 호출 하나의 최악은 그 클라이언트의 실제 읽기 상한(둘 중 큰 상한 + 여유)이다.
+    Duration perCall = HomeChatConfig.sharedMemorySlowReadTimeout(timeouts);
+    return perCall
+        .multipliedBy(3)
+        .plus(AiMemoryCleanupScheduler.RESULT_EMBED_WAIT.multipliedBy(MAX_CONTENT_OPS));
+  }
+
+  /**
+   * 공간별 준비(트랜잭션 밖) — 할 일이 있는 공간의 계획만 모아, 적용은 같은 트랜잭션 안에서 한다. 공간마다 시작 전에 {@link #spaceWorst()} 가 회차
+   * 마감 안에 들어가는지 본다(WP-2111).
+   *
+   * <p>마감에 걸리면(WP-2111 재검토 — 건너뛴 공간의 발화를 잃지 않게):
+   *
+   * <ul>
+   *   <li>미루는 예산(회차 첫 세션이 아님) — {@link DeadlineReached} 를 던져 세션을 통째로 다음 회차로 미룬다(경계 그대로).
+   *   <li>미루지 않는 예산(회차 첫 세션) — 처리한 공간까지만 진행한 것으로 기록한다: 건너뛴 첫 공간의 첫 발화 바로 앞까지만 경계를 올리게 {@link
+   *       Prepared#uptoLimit()} 를 싣는다. 공간은 첫 발화 순으로 돌므로 건너뛴 공간의 발화는 모두 그 뒤에 있고, 다음 회차는 그 발화부터 다시 모아
+   *       건너뛴 공간을 맨 앞에서 추출한다 — 회차마다 적어도 한 공간씩 나아가 무한히 미뤄지지 않는다. 처리한 공간의 발화 중 그 뒤에 있던 것은 다음 회차에 한 번
+   *       더 보이지만, 추출은 공간의 기존 행을 함께 받아 같은 내용을 다시 넣지 않는다(개인 정리도 같은 구간을 다시 보지만 기존 메모리와 비교한다).
+   *   <li>첫 세션인데 공간 하나도 못 끝낸다면(덮어쓴 상한이 매우 커 남은 시간이 공간 최악보다 짧음) 진행한 것이 없으므로 던져서 미룬다.
+   * </ul>
+   *
+   * <p>고른 이유: 공간 처리 위치를 따로 저장하는 길(스키마 추가)보다 기존 경계 하나로 「여기까지 했다」를 나타내는 편이 단순하고, 경계가 다른 회차·파드와의 조건부
+   * 갱신을 이미 맡고 있어 새 동시성 규칙이 필요 없다.
+   */
+  @Override
+  public Prepared prepare(SessionCleanupInput in, SpaceBudget budget) {
+    Map<SpaceKey, List<Utterance>> bySpace;
     try {
       bySpace = readTx.execute(s -> group(in));
     } catch (RuntimeException e) {
@@ -107,10 +157,25 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
     }
     if (bySpace == null || bySpace.isEmpty()) return Prepared.NONE;
     List<SpacePlan> plans = new ArrayList<>();
-    for (Map.Entry<SpaceKey, List<String>> e : bySpace.entrySet()) {
+    Duration worst = spaceWorst;
+    int done = 0;
+    // 건너뛴 공간이 있으면 경계를 올릴 수 있는 최대(건너뛴 첫 공간의 첫 발화 바로 앞) — 없으면 null(수집 때의 마지막 메시지까지).
+    Long uptoLimit = null;
+    for (Map.Entry<SpaceKey, List<Utterance>> e : bySpace.entrySet()) {
+      if (!budget.deadline().allows(worst)) {
+        if (budget.deferOnOverrun() || done == 0) {
+          // 세션을 통째로 다음 회차로 — 경계를 올리지 않으므로 남은 공간의 발화도 다음 회차가 다시 본다.
+          throw new DeadlineReached("공용 메모리 추출 — 회차 마감 전에 다음 공간을 끝낼 수 없음");
+        }
+        // 회차 첫 세션 — 처리한 공간까지만 진행으로 기록한다. 공간은 첫 발화 순이라 이 공간의 첫 발화가 건너뛴 발화 중 가장 앞이다.
+        uptoLimit = e.getValue().get(0).messageId() - 1;
+        log.warn("공용 메모리 추출 회차 마감 — 남은 공간 {}개는 다음 회차에(공간 {}개 처리)", bySpace.size() - done, done);
+        break;
+      }
+      done++;
       SpacePlan p;
       try {
-        p = prepareSpace(in, e.getKey(), e.getValue());
+        p = prepareSpace(in, e.getKey(), e.getValue().stream().map(Utterance::text).toList());
       } catch (MemoryCleanupAiException ex) {
         throw ex; // prepareSpace 가 다시 던지는 건 ai-agent 장애뿐 — 세션을 다음 회차로 미루는 기존 규칙.
       } catch (RuntimeException ex) {
@@ -123,11 +188,13 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
       }
       if (p != null && !p.ops().isEmpty()) plans.add(p);
     }
-    if (plans.isEmpty()) return Prepared.NONE;
     // 공간 잠금을 항상 같은 순서로 잡아 다른 회차와 교착하지 않게 한다.
     plans.sort(Comparator.comparing(p -> p.space().param()));
     long speakerId = in.userId(); // 적용 때 권한 재확인에만 쓴다 — 어디에도 저장하지 않는다.
-    return () -> plans.forEach(p -> applyIsolated(speakerId, p));
+    Prepared apply =
+        plans.isEmpty() ? Prepared.NONE : () -> plans.forEach(p -> applyIsolated(speakerId, p));
+    // 건너뛴 공간이 있으면 처리한 계획이 없어도 경계 상한은 실어야 한다 — 안 그러면 경계가 끝까지 올라 건너뛴 발화를 잃는다.
+    return uptoLimit == null ? apply : Prepared.limitedTo(uptoLimit, apply);
   }
 
   /**
@@ -146,15 +213,18 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
     }
   }
 
-  /** 발화 → 공간별 묶음(발화 순서 유지). 공간 없는 발화와 조직 지침 화면(조직은 관리자가 직접 쓴다)은 빠진다. */
-  private Map<SpaceKey, List<String>> group(SessionCleanupInput in) {
+  /**
+   * 발화 → 공간별 묶음(발화 순서 유지, 공간은 첫 발화 순 — 마감에 걸렸을 때 경계 상한 계산이 이 순서에 기댄다). 공간 없는 발화와 조직 지침 화면(조직은 관리자가
+   * 직접 쓴다)은 빠진다.
+   */
+  private Map<SpaceKey, List<Utterance>> group(SessionCleanupInput in) {
     Map<Long, SpaceKey> spaceOf =
         messages.spacesOf(in.utterances().stream().map(Utterance::messageId).toList());
-    Map<SpaceKey, List<String>> out = new LinkedHashMap<>();
+    Map<SpaceKey, List<Utterance>> out = new LinkedHashMap<>();
     for (Utterance u : in.utterances()) {
       SpaceKey k = spaceOf.get(u.messageId());
       if (k == null || "ORG".equals(k.type())) continue;
-      out.computeIfAbsent(k, x -> new ArrayList<>()).add(u.text());
+      out.computeIfAbsent(k, x -> new ArrayList<>()).add(u);
     }
     return out;
   }
@@ -182,7 +252,7 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
                   new ExtractRequest(
                       in.spec().agentUserId(),
                       in.spec().suggestionModel(),
-                      EXTRACT_TIMEOUT_MS,
+                      timeouts.timeoutMs(AiCall.HOME_SHARED_MEMORY_EXTRACT),
                       in.today().toString(),
                       k.type(),
                       seen.space().label(),
@@ -277,7 +347,7 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
                 new CheckRequest(
                     in.spec().agentUserId(),
                     in.spec().suggestionModel(),
-                    CHECK_TIMEOUT_MS,
+                    timeouts.timeoutMs(AiCall.HOME_SHARED_MEMORY_CHECK_BATCH),
                     space.type().name(),
                     space.label(),
                     batch));

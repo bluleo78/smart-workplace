@@ -13,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
@@ -101,7 +102,8 @@ class WikiAiServiceTest {
             sseRegistry,
             pageService,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
   }
 
   private WikiPageDetail page() {
@@ -125,7 +127,7 @@ class WikiAiServiceTest {
   }
 
   private AssistantSpec spec() {
-    return new AssistantSpec(900L, "claude-opus", "NORMAL", 5, 60_000);
+    return new AssistantSpec(900L, "claude-opus", "NORMAL", 5);
   }
 
   /** EDITOR 권한이 강제된다 — 역할 미달(VIEWER)이면 startCompose 가 throw, 에이전트/fanOut 호출 없음. */
@@ -228,7 +230,8 @@ class WikiAiServiceTest {
             sseRegistry,
             pageService,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
 
     svc.startCompose(CALLER, PAGE_ID, continueAction());
 
@@ -433,7 +436,8 @@ class WikiAiServiceTest {
             sseRegistry,
             pageService,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -484,7 +488,8 @@ class WikiAiServiceTest {
             sseRegistry,
             pageService,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
 
     svc.cancelCompose("corr-1", CALLER);
 
