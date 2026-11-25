@@ -174,33 +174,65 @@ function useIssueWorkflowRefresh(issueId: number, projectKey: string) {
   return { refresh, refreshIfStale }
 }
 
+/** 담당 미리보기 응답(WP-2120) — 이 담당 집합으로 지정하면 시작될 워크플로우(없으면 null)와 시작 조건의 역할 키들. */
+export interface AssignPreview {
+  start: { workflowId: number; workflowName: string; stageName: string } | null
+  /** 시작은 되지만 배정 규칙 위반으로 실패해 저장도 거절될 때의 이유 */
+  blocked: { message: string } | null
+  /** 이슈에 진행 중인 실행이 있는가 — 있으면 시작 조건 경고를 내지 않는다 */
+  active: boolean
+  startRoles: string[]
+}
+
 /**
- * 시작 미리보기(dryRun) — 저장하지 않고 시작 단계와 알림 받을 사람을 계산한다. 시작 창이 열려 있고 워크플로우를 골랐을 때만 묻는다.
- * 키에 워크플로우 id 가 있어 선택을 바꾸면 그 선택의 결과만 보이고, 늦게 온 옛 응답이 새 선택을 덮지 않는다.
- * 실행 조회와 다른 루트 키라 실행 무효화(시작·이벤트)가 미리보기 POST 를 다시 부르지 않는다. 시작 조건 없음(422)은 다시 시도해도 같아 재시도하지 않는다.
+ * 담당 미리보기(WP-2120) — 저장하지 않고 이 담당 집합이 워크플로우를 시작할지 서버에 묻는다.
+ * 키는 실행 조회와 다른 미리보기 루트(issueWorkflowKeys.preview) 아래라 실시간 실행 무효화마다 POST 가 다시 나가지 않는다 — 담당 id 는 정렬해 같은 집합이 같은 캐시를 쓴다.
+ * current 가 참이면 userIds 를 지금 담당으로 보고 「지금 담당으로 시작될 수 있나」를 묻는다(카드), 거짓이면 새로 더한 사람만 본다(팝오버 — 실제 자동 시작과 같은 판정).
+ * 실패해도(5xx 등) 화면은 안내 줄만 빼고 그대로 — 재시도하지 않는다.
  */
-export function useIssueWorkflowPreview(issueId: number, workflowId: number | null, enabled: boolean) {
+export function useAssignPreview(issueId: number | undefined, userIds: number[], enabled: boolean, current = false) {
+  const ids = [...userIds].sort((x, y) => x - y)
   return useQuery({
-    queryKey: [...issueWorkflowKeys.preview(issueId), workflowId],
+    queryKey: [...issueWorkflowKeys.previewAll, issueId, 'assign', current, ids],
     queryFn:
-      enabled && workflowId != null
+      enabled && issueId != null
         ? ({ signal }) =>
             client
-              .post<IssueWorkflowView>(`/issues/${issueId}/workflow/start`, { workflowId, dryRun: true }, { signal })
+              .post<AssignPreview>(`/issues/${issueId}/workflow/assign-preview`, current ? { userIds: ids, current } : { userIds: ids }, { signal })
               .then((r) => r.data)
         : skipToken,
     retry: false,
   })
 }
 
-/** 시작 — 성공하면 카드·이슈 상세를 새로 읽는다. 미리보기는 useIssueWorkflowPreview. */
-export function useStartIssueWorkflow(issueId: number, projectKey: string) {
-  const { refresh } = useIssueWorkflowRefresh(issueId, projectKey)
-  return useMutation({
-    mutationFn: (v: { workflowId: number }) =>
-      client.post<IssueWorkflowView>(`/issues/${issueId}/workflow/start`, v).then((r) => r.data),
-    onSuccess: refresh,
-  })
+/**
+ * 담당 미리보기 → 안내 줄(WP-2120). 시작이 막히면(blocked) 「⚠ 저장되지 않아요」, 시작되면 「▶」 안내, 안 되는데 새로 더한 AI 가 있으면
+ * (활성 실행이 없을 때만) 「⚠」 경고, 아니면 줄 없음.
+ * 경고의 이름은 AI username 의 @ 앞부분, 역할은 키를 쉼표로 잇는다.
+ */
+export function assignHint(
+  preview: AssignPreview | undefined,
+  addedAgents: { username: string; name: string }[],
+): { kind: 'start' | 'warn'; text: string } | null {
+  if (!preview) return null
+  if (preview.start && preview.blocked) {
+    return {
+      kind: 'warn',
+      text: `⚠ 이 담당으로는 「${preview.start.workflowName}」을 시작할 수 없어 저장되지 않아요 · ${preview.blocked.message}`,
+    }
+  }
+  if (preview.start) {
+    return { kind: 'start', text: `▶ 지정하면 「${preview.start.workflowName}」이 ${preview.start.stageName} 단계부터 시작돼요` }
+  }
+  // 실행 중이면 AI 가 일하지 않는 이유는 시작 조건이 아니라 이미 실행 중이라서다 — 엉뚱한 조건을 대지 않는다.
+  if (preview.active || addedAgents.length === 0) return null
+  const names = addedAgents.map((u) => u.username.split('@')[0]).join(', ')
+  return { kind: 'warn', text: `⚠ 워크플로우가 켜진 프로젝트라 ${names} 는 이 할당으로 일하지 않아요${startConditionSuffix(preview.startRoles)}` }
+}
+
+/** 「 · 시작 조건: a, b 역할」 꼬리 — 역할이 없으면 빈 문자열. 팝오버 경고와 카드 안내가 같은 문구를 쓴다(WP-2120). */
+export function startConditionSuffix(roles: string[]): string {
+  return roles.length > 0 ? ` · 시작 조건: ${roles.join(', ')} 역할` : ''
 }
 
 /** 이동 — 멱등 키는 훅이 만든다(같은 노드·revision·결과의 재시도는 서버가 한 번만 넘긴다). 낡은 화면(STALE)이어도 새로 읽는다. */

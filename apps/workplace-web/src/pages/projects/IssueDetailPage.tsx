@@ -79,7 +79,6 @@ import { IssueReporterField } from './components/IssueReporterField';
 import { IssueWorkflowBanner } from './components/IssueWorkflowBanner';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 import { PersonCardAssignHost } from './components/PersonCardAssignHost';
-import { StartWorkflowDialog } from './components/StartWorkflowDialog';
 import { WorkflowLockedHint } from './components/WorkflowLockedHint';
 import { fetchLatestIssueValues } from './hooks/fetchLatestIssueValues';
 import { useExternalEditNotice } from './hooks/useExternalEditNotice';
@@ -169,8 +168,6 @@ export default function IssueDetailPage() {
     lastEditor === 'title' ? (titleControls ?? bodyControls) : (bodyControls ?? titleControls);
   // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
-  // 워크플로우 시작 창(WP-1989) — 카드의 「워크플로우 시작」이 연다.
-  const [startFlowOpen, setStartFlowOpen] = useState(false);
   // 시트 안 링크(의존성·상위 배지)로 다른 이슈로 이동하면 같은 라우트라 페이지 인스턴스가 재사용된다 — 이슈가 바뀌면 시트를 닫는다(렌더 중 상태 조정).
   const [prevIssueKey, setPrevIssueKey] = useState(`${key}/${issueNumber}`);
   if (prevIssueKey !== `${key}/${issueNumber}`) {
@@ -451,10 +448,10 @@ export default function IssueDetailPage() {
               isAiClassifying={classify.isPending}
               aiClassifyReason={classifyReason}
               variant={variant}
-              // AI 작업 단계 카드(WP-1989) — 「워크플로우 시작」은 시작 창을 연다.
+              // AI 작업 단계 카드(WP-1989) — 시작은 담당 지정이 한다(WP-2120).
               workflow={
                 project.data
-                  ? { issueId: summary.id, projectId: project.data.id, isManager: canManageWorkflow, onStart: () => setStartFlowOpen(true) }
+                  ? { issueId: summary.id, projectId: project.data.id, isManager: canManageWorkflow }
                   : undefined
               }
             />
@@ -731,17 +728,6 @@ export default function IssueDetailPage() {
             {renderRail('sheet')}
           </div>
         </MobileSheetShell>
-      )}
-      {project.data && (
-        <StartWorkflowDialog
-          open={startFlowOpen}
-          onOpenChange={setStartFlowOpen}
-          issueId={summary.id}
-          projectKey={key}
-          projectId={project.data.id}
-          issueTitle={summary.title}
-          assignees={summary.assignees.map((a) => ({ id: a.id, name: a.name, kind: a.kind ?? 'HUMAN' }))}
-        />
       )}
       {/* 삭제 확인 AlertDialog — window.confirm() 대체. childCount > 0 시 자식 수 경고 포함. */}
       <AlertDialog open={deletePending} onOpenChange={setDeletePending}>

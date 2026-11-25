@@ -88,7 +88,6 @@ interface IssuePropertyRailProps {
     issueId: number;
     projectId: number;
     isManager: boolean;
-    onStart: () => void;
   };
 }
 
@@ -277,7 +276,7 @@ export function IssuePropertyRail({
           canEdit={canEditWorkflow}
           isManager={workflow.isManager}
           closed={isClosedStatus(status)}
-          onStart={workflow.onStart}
+          assigneeIds={assignees.map((u) => u.id)}
         />
       )}
 

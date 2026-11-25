@@ -45,6 +45,7 @@ import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.RequestedStatusNotFoundException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
+import com.workplace.issue.outbound.IssueAssigneesReplacedEvent;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
@@ -132,6 +133,9 @@ public class IssueService {
   private final AgentWorkService agentWorkService;
   // 닫힘·삭제 때 활성 워크플로우 실행을 취소한다(WP-1986).
   private final WorkflowAgentWorkBridge workflowBridge;
+
+  /** WP-2120 생성 때 자동 시작될 담당인지 판정(시작과 같은 pick). */
+  private final com.workplace.issue.workflow.service.WorkflowAutoStartService autoStartService;
 
   /** WP-356: 생성 시 라벨·사이클 소속 검증과 연결. */
   private final LabelRepository labelRepository;
@@ -743,7 +747,19 @@ public class IssueService {
     }
     // 담당자 사용자 정보(planCreate 가 한 번 읽음)를 시작 전 작업 판별과 이벤트용 요약에 함께 쓴다.
     // 외부 실행 AI 구성원이 담당자로 들어오면 "시작 전" 작업을 만든다(WP-377). 종료 상태로 만든 이슈에는 만들지 않는다.
-    agentWorkService.submitForAssignees(row.id(), row.status(), assignees);
+    // WP-2120 replace 경로(IssueAssigneeService.writeDiff)와 같은 규칙 — 담당이 시작 조건에 맞아 아래 동기 이벤트가 워크플로우를
+    // 시작할
+    // 이슈면 「시작 전」 작업을 열지 않고 IssueAssignedEvent 의 깨우기도 끈다. AI 를 깨우는 것은 노드 진입이고, 여기서 둘 다 하면 같은 AI 가
+    // 시작 전 행·깨우기를 중복으로 받는다. 억제 판정은 실제 시작과 같은 pick 이라 「깨우기는 껐는데 시작은 안 되는」 틈이 없다. 시작될 수 없는
+    // 이슈는 지금처럼 연다.
+    boolean autoStarts =
+        !assigneeIds.isEmpty()
+            && autoStartService
+                .pick(project.id(), row.id(), assigneeIds, Set.copyOf(assigneeIds))
+                .isPresent();
+    if (!autoStarts) {
+      agentWorkService.submitForAssignees(row.id(), row.status(), assignees);
+    }
 
     // 4) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
     watcherAutoEnroller.enroll(project, row.id(), callerId, callerId);
@@ -777,6 +793,11 @@ public class IssueService {
             occurredAt));
     changeNotifier.created(project, number, row.id(), callerId);
     if (!assigneeSummaries.isEmpty()) {
+      // WP-2120 담당이 있는 생성도 담당 지정이다 — 시작 조건이 맞으면 같은 트랜잭션에서 워크플로우를 시작하도록 동기 이벤트를 낸다(시작이 실패하면 이슈
+      // 생성도 롤백). AFTER_COMMIT 리스너용 이벤트들과 달리 이 리스너는 즉시 돈다.
+      publisher.publishEvent(
+          new IssueAssigneesReplacedEvent(
+              row.id(), project.id(), callerId, new HashSet<>(assigneeIds)));
       publisher.publishEvent(
           new IssueAssignedEvent(
               row.id(),
@@ -787,7 +808,8 @@ public class IssueService {
               assigneeSummaries,
               assigneeSummaries,
               List.of(),
-              occurredAt));
+              occurredAt,
+              !autoStarts));
     }
 
     // 6) 응답에 유형·담당자·부모·라벨을 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.

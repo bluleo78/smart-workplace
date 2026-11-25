@@ -555,7 +555,7 @@ public class WorkflowRunService {
   // ───────────────────────── 권한 ─────────────────────────
 
   /** 읽을 수 있는 이슈의 프로젝트 — 못 보면 없는 이슈와 같은 404. */
-  private ProjectRow readableProject(IssueRow issue, long actorId) {
+  ProjectRow readableProject(IssueRow issue, long actorId) {
     return projectRepository
         .findById(issue.projectId())
         .filter(p -> accessGuard.canRead(p, actorId))

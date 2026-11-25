@@ -15,6 +15,8 @@ import {
   isWorkflowEnabledProject,
   RUN_STATUS_LABEL,
   RUN_STATUS_TONE,
+  startConditionSuffix,
+  useAssignPreview,
   useIssueWorkflow,
   useIssueWorkflowCardVisible,
 } from '@/lib/workflow'
@@ -58,14 +60,46 @@ interface IssueWorkflowCardProps {
   issueId: number
   projectKey: string
   projectId: number
-  /** 이슈를 고칠 수 있는 사람(시작 버튼 노출). */
+  /** 이슈를 고칠 수 있는 사람(멈춘 실행의 조치 노출). */
   canEdit: boolean
   /** 프로젝트 관리자·소유자 — 멈춘 실행 조치(후속 작업)에서 쓴다. */
   isManager: boolean
-  /** 닫힌(완료·취소) 이슈 — 서버가 시작·조치를 409 로 거절하므로 두 단추를 그리지 않는다. */
+  /** 닫힌(완료·취소) 이슈 — 서버가 조치를 409 로 거절하므로 단추를 그리지 않고, 시작 조건 안내도 보이지 않는다. */
   closed?: boolean
-  /** 「워크플로우 시작」 — 시작 창은 페이지가 연다. */
-  onStart: () => void
+  /** 지금 담당자 id — 실행이 없거나 끝났을 때 「이 담당으로 시작되는가」를 서버에 묻는 데 쓴다(WP-2120). */
+  assigneeIds: number[]
+}
+
+/**
+ * 실행이 없거나 끝났을 때의 안내(WP-2120) — 시작 단추 대신, 담당이 시작 조건에 안 맞는 이유와 관리자용 「워크플로우 열기」 링크.
+ * 왜: 시작은 담당 지정이 한다(서버가 같은 요청에서 시작). 카드에는 시작 단추가 없고 조건만 알린다.
+ */
+function StartConditionNote({
+  projectKey, issueId, assigneeIds, isManager, show,
+}: { projectKey: string; issueId: number; assigneeIds: number[]; isManager: boolean; show: boolean }) {
+  // 담당이 없으면 미리보기를 묻지 않고 「담당을 지정하면 시작돼요」만 알린다.
+  const noAssignee = assigneeIds.length === 0
+  // 지금 담당 기준(current)으로 묻는다 — 새로 더한 사람 기준이면 늘 「시작 안 함」이 나와 맞는 담당이 있어도 조건 문구를 냈다(코드 리뷰).
+  const preview = useAssignPreview(issueId, assigneeIds, show && !noAssignee, true)
+  // 지금 담당으로 시작될 수 있는데 아직 안 시작된 경우(담당 지정 전 켠 워크플로우 등)에는 조건 문구를 내지 않는다.
+  const note = !show
+    ? null
+    : noAssignee
+      ? '담당을 지정하면 워크플로우가 시작돼요'
+      : preview.data && !preview.data.start
+        ? `이 담당으로는 시작하지 않아요${startConditionSuffix(preview.data.startRoles)}`
+        : null
+  if (!note && !isManager) return null
+  return (
+    <div className="space-y-1">
+      {note && <p className="text-xs text-muted-foreground" data-testid="workflow-start-condition">{note}</p>}
+      {isManager && (
+        <Link className="text-xs text-primary hover:underline" to={`/projects/${projectKey}/workflow`}>
+          워크플로우 열기
+        </Link>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -101,7 +135,7 @@ function RecoverActions({
   )
 }
 
-export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isManager, closed = false, onStart }: IssueWorkflowCardProps) {
+export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isManager, closed = false, assigneeIds }: IssueWorkflowCardProps) {
   const view = useIssueWorkflow(issueId)
   const list = useProjectWorkflows(projectId)
   const run = view.data
@@ -117,6 +151,8 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
     [version.data],
   )
   const names = useMemo(() => new Map(nodes.map((n) => [n.key, n.name])), [nodes])
+  // 시작 조건 안내를 물을 때 — 실행이 없거나 끝났고 워크플로우를 켠 프로젝트이며 닫힌 이슈가 아닐 때(훅이라 일찍 반환하기 전에 계산).
+  const askStartNote = run != null && isRunEnded(run) && isWorkflowEnabledProject(list.data) && !closed
   // 카드는 IssueWorkflowGroup 안에서만 그려진다 — 그룹이 이미 「실행 있음 || 켜진 프로젝트」일 때만 보이므로 여기서 다시 거르지 않는다.
   if (!run) return null
   const enabled = isWorkflowEnabledProject(list.data)
@@ -125,11 +161,7 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
     return (
       <div className="space-y-2" data-testid="issue-workflow-card">
         <p className="text-sm text-muted-foreground">아직 워크플로우가 없어요.</p>
-        {editable && (
-          <Button type="button" size="sm" variant="outline" onClick={onStart}>
-            워크플로우 시작
-          </Button>
-        )}
+        <StartConditionNote projectKey={projectKey} issueId={issueId} assigneeIds={assigneeIds} isManager={isManager} show={askStartNote} />
       </div>
     )
   }
@@ -195,12 +227,10 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, canEdit, isM
         <Link className="text-xs text-primary hover:underline" to={`/projects/${projectKey}/workflow${run.runId != null ? `?view=runs&workflow=${run.workflowId}&run=${run.runId}` : ''}`}>
           실행 보기 ↗
         </Link>
-        {ended && enabled && editable && (
-          <Button type="button" size="sm" variant="outline" onClick={onStart}>
-            워크플로우 시작
-          </Button>
-        )}
       </div>
+      {ended && enabled && (
+        <StartConditionNote projectKey={projectKey} issueId={issueId} assigneeIds={assigneeIds} isManager={isManager} show={askStartNote} />
+      )}
     </div>
   )
 }

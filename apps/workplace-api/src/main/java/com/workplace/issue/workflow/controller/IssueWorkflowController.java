@@ -1,10 +1,13 @@
 package com.workplace.issue.workflow.controller;
 
 import com.workplace.global.security.RequirePermission;
+import com.workplace.issue.workflow.dto.AssignPreviewRequest;
+import com.workplace.issue.workflow.dto.AssignPreviewView;
 import com.workplace.issue.workflow.dto.IssueWorkflowView;
 import com.workplace.issue.workflow.dto.MoveRequest;
 import com.workplace.issue.workflow.dto.RecoverRequest;
 import com.workplace.issue.workflow.dto.StartWorkflowRequest;
+import com.workplace.issue.workflow.service.WorkflowAutoStartService;
 import com.workplace.issue.workflow.service.WorkflowRecoveryService;
 import com.workplace.issue.workflow.service.WorkflowRunService;
 import jakarta.validation.Valid;
@@ -32,12 +35,25 @@ public class IssueWorkflowController {
 
   private final WorkflowRunService runService;
   private final WorkflowRecoveryService recoveryService;
+  private final WorkflowAutoStartService autoStartService;
 
   /** 실행 view — 실행이 없으면 200 과 빈 view. */
   @GetMapping
   @RequirePermission("project:read")
   public ResponseEntity<IssueWorkflowView> view(Authentication auth, @PathVariable long issueId) {
     return ResponseEntity.ok(runService.view(issueId, callerId(auth)));
+  }
+
+  /** 담당 지정 미리보기(WP-2120) — 저장 없이 시작될 워크플로우·시작 조건 역할을 알려 준다. 읽기 전용이라 view 와 같은 권한. */
+  @PostMapping("/assign-preview")
+  @RequirePermission("project:read")
+  public ResponseEntity<AssignPreviewView> assignPreview(
+      Authentication auth,
+      @PathVariable long issueId,
+      @Valid @RequestBody AssignPreviewRequest req) {
+    return ResponseEntity.ok(
+        autoStartService.preview(
+            issueId, req.userIds(), Boolean.TRUE.equals(req.current()), callerId(auth)));
   }
 
   /** 시작 — dryRun 이면 저장하지 않는다. */
