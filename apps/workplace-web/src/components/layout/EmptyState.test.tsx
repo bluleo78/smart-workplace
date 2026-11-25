@@ -105,4 +105,19 @@ describe('EmptyState', () => {
     expect(root.className).toBe('flex flex-col items-center text-center gap-2 px-4 py-8 extra')
     expect(getByText('설명').className).toContain('max-w-xs')
   })
+
+  // WP-2051 — 설명은 데스크톱·모바일·위젯 모두 한국어를 단어 단위로 줄바꿈한다(06 §B).
+  // 상수 문자열이 아니라 렌더 결과를 본다 — cn()/tailwind-merge 를 거치며 break-keep 이 떨어지는 회귀(WP-1073 과 같은 길)를 잡는다.
+  // break-keep: 기본 word-break 는 한국어를 글자마다 끊어 「있 / 어요.」처럼 꺾인다.
+  // break-words: keep-all 로 끊을 곳이 없어진 띄어쓰기 없는 긴 낱말을 칸을 넘칠 때만 끊는다.
+  it.each([
+    ['데스크톱', { size: 'desktop' as const }],
+    ['모바일', { size: 'mobile' as const }],
+    ['데스크톱 + 덧붙인 설명 클래스(px-2)', { size: 'desktop' as const, descriptionClassName: 'px-2' }],
+    ['모바일 + 덧붙인 설명 클래스(px-6)', { size: 'mobile' as const, descriptionClassName: 'px-6' }],
+    ['위젯 변형', { variant: 'widget' as const }],
+  ])('descriptionWrap: %s 설명 요소에 break-keep·break-words 가 남는다', (_, props) => {
+    const { getByText } = render(<EmptyState icon={Inbox} title="제목" description="설명" {...props} />)
+    expect(getByText('설명')).toHaveClass('break-keep', 'break-words')
+  })
 })
