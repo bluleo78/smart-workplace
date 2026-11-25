@@ -130,7 +130,7 @@ describe('isVersionDateRangeInvalid·versionIssuesUrl', () => {
     expect(isVersionDateRangeInvalid('', '2026-11-01')).toBe(false);
   });
   it('이슈 목록 URL', () => {
-    expect(versionIssuesUrl('WP', 'fixVersion', 7)).toBe('/projects/WP?view=list&fixVersion=7');
+    expect(versionIssuesUrl('WP', 'fixVersion', 7)).toBe('/projects/WP/issues?view=list&fixVersion=7');
   });
 });
 

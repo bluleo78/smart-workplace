@@ -99,12 +99,12 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(FILTERED_LIST_URL);
   });
 
-  test('직접 진입(출발 화면 없음) → ← 는 상세를 교체해 프로젝트 화면으로 간다(뒤로가기로 상세에 돌아오지 않음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
+  test('직접 진입(출발 화면 없음) → ← 는 상세를 교체해 이슈 목록(/projects/KEY/issues)으로 간다(뒤로가기로 상세에 돌아오지 않음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await page.goto(`/projects/${KEY}/issues/8`);
     const lengthBefore = await page.evaluate(() => history.length);
 
     await page.getByTestId('issue-back').click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues$`));
     // replace 이동이라 히스토리가 늘지 않는다 — push 였다면 뒤로가기가 방금 떠난 상세로 되돌아간다.
     expect(await page.evaluate(() => history.length)).toBe(lengthBefore);
   });

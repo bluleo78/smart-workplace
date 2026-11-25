@@ -34,6 +34,7 @@ function renderProjects(path: string, { handlers = [] }: { handlers?: RequestHan
         <Route element={<IssueModuleLayout />}>
           <Route path="/projects" element={<ProjectListPage />} />
           <Route path="/projects/:key" element={<ProjectIssuesTab />} />
+          <Route path="/projects/:key/issues" element={<ProjectIssuesTab />} />
           <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
           <Route
             path="/projects/:key/issues/:number"
@@ -350,7 +351,7 @@ describe('리소스 로드 실패 화면 (#787)', () => {
     expect(await screen.findByText('이슈를 찾을 수 없습니다')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '다시 시도' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '프로젝트로 돌아가기' }))
-    await waitFor(() => expect(location()).toBe('/projects/WP'))
+    await waitFor(() => expect(location()).toBe('/projects/WP/issues'))
   })
 })
 

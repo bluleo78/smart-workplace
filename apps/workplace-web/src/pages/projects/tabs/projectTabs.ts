@@ -25,16 +25,24 @@ export function visibleProjectTabs(notesVisible: boolean, workflowVisible = fals
 
 /**
  * 기억한 탭이 없을 때(첫 방문·저장값이 깨졌을 때) 조건 없는 `/projects/:key` 가 여는 기본 탭 — 개요(WP-1478, 처음 들어오는 사람은 개요).
- * 쿼리가 있는 기존 주소·공유 링크(`/projects/:key?view=board` 등)는 되돌리지 않아(shouldRestoreTab) 그대로 이슈 탭으로 열린다.
+ * 쿼리가 있는 기존 주소·공유 링크(`/projects/:key?view=board` 등)는 되돌리지 않아(shouldRestoreTab) 홈에서 그대로 이슈 목록으로 열린다. 이슈 목록의 정식 주소는 `/projects/:key/issues`.
  */
 export const DEFAULT_PROJECT_TAB: ProjectTabId = 'overview'
 
 /**
- * 탭의 길. 이슈 탭은 `/projects/:key` 그대로(기존 링크·필터 쿼리 호환), 나머지는 `/projects/:key/<탭>`.
+ * 탭의 길 — 모든 탭이 `/projects/:key/<탭>` (WP-2085: 이슈 목록도 `/issues` 고정 주소, 맨 `/projects/:key` 는 홈이라 기억한 탭으로 되돌릴 수 있다).
  * key 는 기존 링크와 같게 인코딩하지 않는다.
  */
 export function projectTabPath(key: string, tab: ProjectTabId): string {
-  return tab === 'issues' ? `/projects/${key}` : `/projects/${key}/${tab}`
+  return `/projects/${key}/${tab}`
+}
+
+/**
+ * 지금 주소가 프로젝트 홈(정확히 `/projects/:key`)인가 — 기억한 탭으로 되돌리는 대상. 끝 `/` 는 무시하고 조각을 디코딩해 비교한다.
+ * `/projects/:key/issues` 같은 탭 주소는 홈이 아니다(고정 주소라 되돌리지 않는다).
+ */
+export function isProjectHomePath(pathname: string, key: string): boolean {
+  return normalizePath(pathname) === `/projects/${key}`
 }
 
 /** 프로젝트 노트 탭의 페이지 주소 `/projects/:key/notes/<페이지 id>` — 개요 리포트 줄·설정 리포트 줄이 같이 쓴다. */
@@ -45,7 +53,7 @@ export function projectNotePath(key: string, pageId: number): string {
 /**
  * 프로젝트 화면으로 가는 이동이 router state 로 싣는 표시 — 모든 표시를 이 한 모양으로 싣고 readProjectNavState 로 읽는다
  * (표시마다 따로 캐스팅하면 이름이 어긋나도 컴파일러가 잡지 못한다). 표시는 그 이동 한 번에만 붙는다 — 화면 안 replace 에는 실리지 않는다.
- * - projectTab: 「이슈 탭을 고른 이동」 — 조건 없는 `/projects/:key` 로 가도 기억한 탭·기본 탭(개요)으로 되돌리지 않는다(shouldRestoreTab).
+ * - projectTab: 「이슈 탭을 고른 이동」 — 홈 `/projects/:key` 로 가도 기억한 탭·기본 탭(개요)으로 되돌리지 않는다(shouldRestoreTab).
  * - fromOverview: 개요 탭(WP-1478)의 링크로 온 이동 — 주소의 조건은 따르되 이슈 탭의 조건 기억(WP-1035)은 바꾸지 않는다(useRememberedIssueQuery).
  */
 export interface ProjectNavState {
@@ -54,8 +62,9 @@ export interface ProjectNavState {
 }
 
 /**
- * 「이슈 탭을 고른 이동」 표시. 탭 줄의 이슈 탭 클릭(WP-1477)과, 이슈 목록으로 돌아가려는 앱 안 이동(이슈 삭제 뒤·없는 이슈에서
- * 「프로젝트로 돌아가기」, WP-1478)이 싣는다. 사이드바·프로젝트 목록 같은 진입 링크는 싣지 않는다(기억한 탭·개요를 따른다).
+ * 「이슈 탭을 고른 이동」 표시. 이슈 목록의 정식 주소(`/projects/:key/issues`)로 가는 앱 안 이동(탭 줄의 이슈 탭 클릭 WP-1477, 이슈 삭제 뒤·없는 이슈에서
+ * 「프로젝트로 돌아가기」 WP-1478, 직접 연 이슈의 ←)이 싣는다. 사이드바·프로젝트 목록 같은 진입 링크는 싣지 않는다(기억한 탭·개요를 따른다).
+ * WP-2085 뒤로 `/issues` 는 기억 복원 대상이 아니라(isProjectHomePath 가 거짓) 이 표시가 없어도 목록이 열린다 — 복원을 막는 효과는 홈 `/projects/:key` 로 갈 때만 있고, `/issues` 이동에서는 「탭을 골랐다」는 표시로만 남는다.
  */
 export const ISSUES_TAB_STATE: ProjectNavState = { projectTab: true }
 
@@ -85,12 +94,17 @@ function decodePath(pathname: string): string {
     .join('/')
 }
 
+/** 주소를 조각마다 디코딩하고 끝의 `/` 를 뗀다 — 탭 판정(tabFromPath)과 홈 판정(isProjectHomePath)이 같은 모양으로 비교하게. */
+function normalizePath(pathname: string): string {
+  return decodePath(pathname).replace(/\/+$/, '')
+}
+
 /**
  * 지금 주소가 어느 탭인가. 탭이 아닌 길(이슈 상세·설정·버전 상세 등)이면 null. 끝의 `/` 는 무시한다.
  * pathname 은 인코딩된 주소, key 는 디코딩된 useParams 값을 받는다(조각마다 디코딩해 맞춰 본다).
  */
 export function tabFromPath(pathname: string, key: string): ProjectTabId | null {
-  const trimmed = decodePath(pathname).replace(/\/+$/, '')
+  const trimmed = normalizePath(pathname)
   const base = `/projects/${key}`
   if (trimmed === base) return 'issues'
   if (!trimmed.startsWith(`${base}/`)) return null

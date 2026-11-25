@@ -9,6 +9,7 @@ import { userScopedKey } from '@/lib/userScopedKey'
 
 import {
   DEFAULT_PROJECT_TAB,
+  isProjectHomePath,
   parseTab,
   type ProjectTabId,
   projectTabPath,
@@ -45,10 +46,11 @@ export function useRememberedProjectTab(
   const navigationType = useNavigationType()
   const tab = tabFromPath(pathname, key)
 
-  // 이슈 탭(index) 진입이고 되돌릴 조건이면 기억한 탭(없으면 기본 탭 DEFAULT_PROJECT_TAB = 개요)으로.
-  // 되돌릴 조건일 때만 읽으므로(개인·없는 프로젝트, 이슈 탭이 아닌 주소에서는 읽지 않는다) 조건까지 따진다.
+  // 프로젝트 홈(/projects/:key, 조건 없는 index) 진입이고 되돌릴 조건이면 기억한 탭(없으면 기본 탭 DEFAULT_PROJECT_TAB = 개요)으로.
+  // 이슈 탭의 정식 주소 /projects/:key/issues(WP-2085)는 홈이 아니라서 되돌리지 않는다 — 그 주소가 곧 이슈 목록이다.
+  // 되돌릴 조건일 때만 읽으므로(개인·없는 프로젝트, 홈이 아닌 주소에서는 읽지 않는다) 조건까지 따진다.
   const fromTab = readProjectNavState(state).projectTab
-  const restore = canPersist && tab === 'issues' && shouldRestoreTab({ search, navigationType, locationKey, fromTab })
+  const restore = canPersist && isProjectHomePath(pathname, key) && shouldRestoreTab({ search, navigationType, locationKey, fromTab })
   // 한 진입(locationKey)의 판정 재료를 한 번만 정해 고정한다 — 렌더 중 state 조정 패턴(effect 로 setState 하지 않는다).
   // raw: 기억한 값 — 이동마다 한 번만 읽는다(같은 주소에서 다시 그릴 때마다 저장소를 읽지 않게).
   // 기억한 조건부 탭의 첫 확정 값을 고정한다 — 뒤늦은 재조회로 다른 탭에 있던 사용자를 끌고 가지 않게 한다.
@@ -66,7 +68,8 @@ export function useRememberedProjectTab(
   const target = restore && !waitingVisibility
     ? (parseTab(raw, restoreVisible === true, restoreVisible === true) ?? DEFAULT_PROJECT_TAB)
     : null
-  const redirectTo = target && target !== 'issues' ? projectTabPath(key, target) : null
+  // 복원 대상이 이슈 탭이어도 정식 주소(/projects/:key/issues)로 보낸다(WP-2085) — 홈에 머물면 주소가 탭마다 갈린다.
+  const redirectTo = target ? projectTabPath(key, target) : null
 
   // 탭 길에 있으면 지금 탭을 저장한다. 되돌리는 렌더와 뒤로·앞으로 가기(POP) 도착에서는 저장하지 않는다(기억을 덮어쓰지 않게).
   // POP 으로 지나간 탭이 아니라 사용자가 고른 탭만 남긴다 — POP 뒤 같은 탭을 다시 누르면(REPLACE) remember 가 바뀌어 그때 저장한다.

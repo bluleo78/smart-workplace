@@ -246,6 +246,6 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
 
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues$`));
   });
 });

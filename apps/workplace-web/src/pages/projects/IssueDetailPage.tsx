@@ -32,6 +32,7 @@ import { focusRow } from '@/hooks/useListFocusRescue';
 import { appUrl, issuePath } from '@/lib/appUrl';
 import { hasIssueChatParam, ISSUE_CHAT_OPEN, ISSUE_CHAT_PARAM } from '@/lib/issueChatParam';
 import { commentIdFromHash } from '@/lib/issueCommentLink';
+import { projectIssuesPath } from '@/lib/projectTabPaths';
 import type { ShareTarget } from '@/lib/shareTarget';
 import { cn } from '@/lib/utils';
 
@@ -233,7 +234,7 @@ export default function IssueDetailPage() {
   if (project.data?.type === 'PERSONAL') {
     const params = new URLSearchParams({ task: String(issueNumber) });
     if (hasIssueChatParam(location.search)) params.set(ISSUE_CHAT_PARAM, ISSUE_CHAT_OPEN);
-    return <Navigate to={`/projects/${key}?${params}`} replace />;
+    return <Navigate to={projectIssuesPath(key, params.toString())} replace />; // 이슈 목록 고정 주소(WP-2085)
   }
 
   if (isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;

@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { isEditableTarget, OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
 import { currentHistoryIdx } from '@/lib/historyParam';
 import { backDeltaToOrigin, type HistoryEntries, isIssueDetailPath } from '@/lib/issueOrigin';
+import { ISSUES_TAB_STATE, projectTabPath } from '@/pages/projects/tabs/projectTabs';
 
 // 탭(문서) 수명 동안의 위치 기록 — 새로고침하면 비워지고, 그 뒤 복귀는 기본 목적지로 간다.
 const entries: HistoryEntries = {};
@@ -32,7 +33,7 @@ export function useIssueOriginTracker(): void {
 
 /**
  * 이슈 상세에서 출발 화면으로 돌아가는 콜백.
- * 출발 화면을 알면 거기까지 히스토리를 되감고, 모르면(직접 링크·푸시·새로고침) 프로젝트 화면으로 간다.
+ * 출발 화면을 알면 거기까지 히스토리를 되감고, 모르면(직접 링크·푸시·새로고침) 이슈 목록의 정식 주소(/projects/:key/issues)로 간다.
  * 기본 목적지는 현재 상세 항목을 교체(replace)한다 — push 하면 프로젝트 화면에서 뒤로가기가 방금 떠난 상세로
  * 되돌아가 "‹/← 를 눌렀는데 다시 상세"가 되는 왕복 고리가 생긴다(모바일 시스템 뒤로가기에서 특히 두드러짐).
  */
@@ -42,7 +43,7 @@ export function useReturnToIssueOrigin(projectKey: string): () => void {
     const idx = currentHistoryIdx();
     const delta = idx === null ? null : backDeltaToOrigin(entries, idx);
     if (delta !== null) navigate(delta);
-    else navigate(`/projects/${projectKey}`, { replace: true });
+    else navigate(projectTabPath(projectKey, 'issues'), { replace: true, state: ISSUES_TAB_STATE });
   }, [navigate, projectKey]);
 }
 

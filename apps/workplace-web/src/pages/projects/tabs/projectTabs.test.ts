@@ -1,13 +1,31 @@
 // 프로젝트 탭 순수 함수 테스트(WP-1477) — 길 만들기·해석·저장값 파싱·되돌리기 판단·탭 목록.
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_PROJECT_TAB, parseTab, projectTabPath, shouldRememberTab, shouldRestoreTab, tabFromPath, visibleProjectTabs } from './projectTabs'
+import { DEFAULT_PROJECT_TAB, isProjectHomePath, parseTab, projectTabPath, shouldRememberTab, shouldRestoreTab, tabFromPath, visibleProjectTabs } from './projectTabs'
 
 describe('projectTabPath', () => {
-  it('이슈 탭은 프로젝트 길, 나머지는 하위 길', () => {
-    expect(projectTabPath('WP', 'issues')).toBe('/projects/WP')
+  it('모든 탭이 /projects/:key/<탭> 하위 길(이슈 탭은 /issues)', () => {
+    expect(projectTabPath('WP', 'issues')).toBe('/projects/WP/issues')
     expect(projectTabPath('WP', 'overview')).toBe('/projects/WP/overview')
     expect(projectTabPath('WP', 'workflow')).toBe('/projects/WP/workflow')
+  })
+})
+
+describe('isProjectHomePath', () => {
+  it('정확히 프로젝트 홈일 때만 참', () => {
+    expect(isProjectHomePath('/projects/WP', 'WP')).toBe(true)
+    expect(isProjectHomePath('/projects/WP/', 'WP')).toBe(true)
+    expect(isProjectHomePath('/projects/WP/issues', 'WP')).toBe(false)
+    expect(isProjectHomePath('/projects/WP/overview', 'WP')).toBe(false)
+    expect(isProjectHomePath('/projects/%ED%82%A4', '키')).toBe(true)
+  })
+})
+
+describe('tabFromPath 이슈 고정 주소', () => {
+  it('/issues 는 이슈 탭, 번호가 붙으면 탭이 아니다', () => {
+    expect(tabFromPath('/projects/WP/issues', 'WP')).toBe('issues')
+    expect(tabFromPath('/projects/WP/issues/', 'WP')).toBe('issues')
+    expect(tabFromPath('/projects/WP/issues/12', 'WP')).toBeNull()
   })
 })
 

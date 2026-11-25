@@ -185,6 +185,8 @@ async function open(path: string, api: ReturnType<typeof personalApi>, waitForTe
   const view = renderScreen(
     <Routes>
       <Route path="/projects/:key" element={<PersonalProjectDetail project={PROJECT} workflowVisible={workflowVisible} />} />
+      {/* 이슈 목록 고정 주소(WP-2085) — 개인 프로젝트 풀페이지 이슈 리다이렉트가 여기로 온다 */}
+      <Route path="/projects/:key/issues" element={<PersonalProjectDetail project={PROJECT} workflowVisible={workflowVisible} />} />
       <Route
         path="/projects/:key/issues/:number"
         element={
@@ -502,7 +504,7 @@ describe('작업 상세 모달(?task=, WP-1374)', () => {
   test('개인 프로젝트의 풀페이지 이슈 URL 은 ?task= 모달로 리다이렉트된다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-modal')
-    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(location()).toBe(`/projects/${KEY}/issues?task=1`)
   })
 
   // 담당자가 있으면 픽커 트리거가 아이콘 대신 아바타(이니셜·사진)를 그린다(#362).
@@ -834,11 +836,11 @@ describe('채팅 서랍(WP-1374 — WP-1372 링크·알림 진입 보존)', () =
     withUnreadThread(api)
     const { user, location } = await open(`/projects/${KEY}/issues/1?chat=1`, api, 'personal-task-modal')
     expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
-    expect(location()).toBe(`/projects/${KEY}?task=1&chat=1`)
+    expect(location()).toBe(`/projects/${KEY}/issues?task=1&chat=1`)
     await waitFor(() => expect(drawerInput()).toHaveFocus())
     await user.click(within(drawer()).getByRole('button', { name: '닫기' }))
     await waitFor(() => expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument())
-    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(location()).toBe(`/projects/${KEY}/issues?task=1`)
     expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
   })
 
@@ -853,10 +855,10 @@ describe('채팅 서랍(WP-1374 — WP-1372 링크·알림 진입 보존)', () =
       window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
     })
     expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
-    expect(location()).toBe(`/projects/${KEY}?task=1&chat=1`)
+    expect(location()).toBe(`/projects/${KEY}/issues?task=1&chat=1`)
     await user.click(within(drawer()).getByRole('button', { name: '닫기' }))
     await waitFor(() => expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument())
-    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(location()).toBe(`/projects/${KEY}/issues?task=1`)
     expect(screen.getByTestId('personal-task-modal')).toBeInTheDocument()
   })
 
@@ -865,7 +867,7 @@ describe('채팅 서랍(WP-1374 — WP-1372 링크·알림 진입 보존)', () =
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })])
     const { location } = await open(`/projects/${KEY}/issues/1`, api, 'personal-task-modal')
     expect(await screen.findByTestId('personal-task-memo')).toBeInTheDocument()
-    expect(location()).toBe(`/projects/${KEY}?task=1`)
+    expect(location()).toBe(`/projects/${KEY}/issues?task=1`)
     expect(screen.queryByTestId('issue-chat-drawer')).not.toBeInTheDocument()
   })
 

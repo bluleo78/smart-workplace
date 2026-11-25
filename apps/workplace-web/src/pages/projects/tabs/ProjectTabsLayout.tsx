@@ -1,4 +1,4 @@
-// 프로젝트 화면 탭 레이아웃(WP-1477) — /projects/:key 와 그 탭 길(overview·notes·timeline·cycles·workflow·versions)을 감싼다.
+// 프로젝트 화면 탭 레이아웃(WP-1477) — /projects/:key(홈)·/projects/:key/issues(이슈 탭)와 그 탭 길(overview·notes·timeline·cycles·workflow·versions)을 감싼다.
 // 프로젝트 로딩·오류 화면, 개인/팀 분기(이 레이아웃에서만), 화면 틀(머리줄·탭 줄)과 새 이슈 대화상자를 맡고 본문은 <Outlet/>.
 // 탭 사이를 오가도 이 레이아웃은 그대로라 머리줄·탭 줄이 다시 그려지지 않는다.
 import { ArrowLeft, Plus } from 'lucide-react'
@@ -26,7 +26,7 @@ import { ProjectUnavailableState } from '../components/ProjectUnavailableState'
 import { useRememberedIssueQuery } from '../hooks/useRememberedIssueQuery'
 import { PersonalProjectDetail } from '../personal/PersonalProjectDetail'
 import { ProjectTabBar } from './ProjectTabBar'
-import { PROJECT_TABS } from './projectTabs'
+import { ISSUES_TAB_STATE, PROJECT_TABS, projectTabPath } from './projectTabs'
 import { ProjectTabsContext, type ProjectTabsValue } from './ProjectTabsContext'
 import { useRememberedProjectTab } from './useRememberedProjectTab'
 
@@ -134,11 +134,11 @@ export function ProjectTabsLayout() {
   if (project.error || !context) return <ProjectUnavailableState />
 
   // 조회 결과가 비어 있을 때만 숨긴 탭의 주소를 돌려보낸다. 조회에 실패하면 본문에서 다시 불러올 수 있다.
-  if (workflowRoute && workflowVisible === false && workflows.data != null) return <Navigate replace to={`/projects/${key}`} />
+  if (workflowRoute && workflowVisible === false && workflows.data != null) return <Navigate replace to={projectTabPath(key, 'issues')} />
 
   // 개인 프로젝트 — 탭·탭 줄·기억 없음. 팀 전용 탭 주소는 개인 이슈 화면으로 보낸다.
   if (!team) {
-    if (tab === 'overview' || tab === 'notes') return <Navigate replace to={`/projects/${key}`} />
+    if (tab === 'overview' || tab === 'notes') return <Navigate replace to={projectTabPath(key, 'issues')} />
     let body: ReactNode
     if (tab === 'issues') {
       body = <PersonalIssuesScreen projectKey={key} project={context.project} workflowVisible={workflowVisible === true} />
@@ -150,7 +150,7 @@ export function ProjectTabsLayout() {
           workflowContext={{ canManage, workflows }}
           header={{
             icon: (
-              <Button variant="ghost" size="icon" aria-label="프로젝트로 돌아가기" onClick={() => navigate(`/projects/${key}`)}>
+              <Button variant="ghost" size="icon" aria-label="프로젝트로 돌아가기" onClick={() => navigate(projectTabPath(key, 'issues'), { state: ISSUES_TAB_STATE })}>
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             ),
@@ -163,7 +163,7 @@ export function ProjectTabsLayout() {
     return <ProjectTabsContext.Provider value={context}>{body}</ProjectTabsContext.Provider>
   }
 
-  // 조건 없이 /projects/:key 에 들어왔으면 기억한 탭(없으면 기본 탭 — 지금은 이슈라 그대로)으로 바꿔 보낸다 — 그동안 이슈 목록은 그리지 않는다.
+  // 조건 없이 프로젝트 홈 /projects/:key 에 들어왔으면 기억한 탭(없으면 기본 탭)으로 바꿔 보낸다 — 그동안 이슈 목록은 그리지 않는다.
   if (redirectTo) return <Navigate replace to={redirectTo} />
   if (waitingVisibility) return tabFallback
 

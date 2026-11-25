@@ -33,6 +33,7 @@ const OPEN = 'status=TODO%2CIN_PROGRESS'
 const routes = (
   <Route path="/projects/:key" element={<ProjectTabsLayout />}>
     <Route index element={<ProjectDetailPage />} />
+    <Route path="issues" element={<ProjectDetailPage />} />
     <Route path="overview" element={<ProjectOverviewTab />} />
   </Route>
 )
@@ -140,11 +141,11 @@ describe('프로젝트 개요 — 위젯', () => {
     expect(screen.getByTestId('attention-tile-stale')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('attention-list')).toHaveTextContent('WP-1300오래 멈춘 작업9일 멈춤')
     expect(screen.getByTestId('attention-more')).toHaveTextContent('22건 더 — 이슈 탭에서 보기')
-    expect(href(screen.getByTestId('attention-more'))).toBe('/projects/WP?stale=true')
+    expect(href(screen.getByTestId('attention-more'))).toBe('/projects/WP/issues?stale=true')
 
     await user.click(screen.getByTestId('attention-tile-waiting'))
     expect(screen.getByTestId('attention-list')).toHaveTextContent('WP-1400AI 가 답을 기다리는 작업3일 기다림')
-    expect(href(screen.getByTestId('attention-more'))).toBe('/projects/WP?waiting=true')
+    expect(href(screen.getByTestId('attention-more'))).toBe('/projects/WP/issues?waiting=true')
     expect(overviewCalls()).toBe(1)
   })
 
@@ -152,17 +153,17 @@ describe('프로젝트 개요 — 위젯', () => {
     open(`/projects/${KEY}/overview`)
     await widgets()
     expect(screen.getByTestId('progress-link')).toHaveTextContent('사이클 보기')
-    expect(href(screen.getByTestId('progress-link'))).toBe('/projects/WP?cycle=3')
+    expect(href(screen.getByTestId('progress-link'))).toBe('/projects/WP/issues?cycle=3')
     // 에픽 유형 id 는 응답(progress.epics.epicTypeId)이 준다.
-    expect(href(screen.getByTestId('progress-epics-all'))).toBe(`/projects/WP?${OPEN}&type=${EPIC_TYPE_ID}`)
+    expect(href(screen.getByTestId('progress-epics-all'))).toBe(`/projects/WP/issues?${OPEN}&type=${EPIC_TYPE_ID}`)
     expect(href(screen.getByTestId('progress-epic-WP-1'))).toBe('/projects/WP/issues/1')
-    expect(href(screen.getByTestId('card-due-soon-link'))).toBe(`/projects/WP?${OPEN}&dueFrom=2026-11-11&dueTo=2026-11-17`)
-    expect(href(screen.getByTestId('card-overdue-link'))).toBe(`/projects/WP?${OPEN}&dueTo=2026-11-10`)
-    expect(href(screen.getByTestId('attention-more'))).toBe(`/projects/WP?${OPEN}&dueTo=2026-11-10`)
-    expect(href(screen.getByTestId('open-todo'))).toBe('/projects/WP?status=TODO')
-    expect(href(screen.getByTestId('open-unassigned'))).toBe(`/projects/WP?${OPEN}&assignee=null`)
-    expect(href(screen.getByTestId('workload-user-6'))).toBe(`/projects/WP?${OPEN}&assignee=6`)
-    expect(href(screen.getByTestId('activity-all'))).toBe('/projects/WP?sort=updatedAt&direction=desc')
+    expect(href(screen.getByTestId('card-due-soon-link'))).toBe(`/projects/WP/issues?${OPEN}&dueFrom=2026-11-11&dueTo=2026-11-17`)
+    expect(href(screen.getByTestId('card-overdue-link'))).toBe(`/projects/WP/issues?${OPEN}&dueTo=2026-11-10`)
+    expect(href(screen.getByTestId('attention-more'))).toBe(`/projects/WP/issues?${OPEN}&dueTo=2026-11-10`)
+    expect(href(screen.getByTestId('open-todo'))).toBe('/projects/WP/issues?status=TODO')
+    expect(href(screen.getByTestId('open-unassigned'))).toBe(`/projects/WP/issues?${OPEN}&assignee=null`)
+    expect(href(screen.getByTestId('workload-user-6'))).toBe(`/projects/WP/issues?${OPEN}&assignee=6`)
+    expect(href(screen.getByTestId('activity-all'))).toBe('/projects/WP/issues?sort=updatedAt&direction=desc')
   })
 
   test('빈 프로젝트 — 숫자 0, 위젯마다 빈 문구, 관리자에게만 「사이클 만들기」 안내', async () => {
@@ -220,7 +221,7 @@ describe('프로젝트 개요 — 위젯', () => {
     await widgets()
     expect(screen.getByTestId('progress-projection')).toHaveTextContent('8주 동안 +14 · 늘어나는 중')
     expect(screen.getByTestId('progress-count')).toHaveTextContent('열림 38')
-    expect(href(screen.getByTestId('progress-link'))).toBe(`/projects/WP?${OPEN}`)
+    expect(href(screen.getByTestId('progress-link'))).toBe(`/projects/WP/issues?${OPEN}`)
     expect(screen.queryByTestId('progress-guide')).not.toBeInTheDocument()
   })
 
@@ -262,7 +263,7 @@ describe('이슈 탭 — 개요가 여는 조건(오래 멈춤·기다리는 중
 
     // 「기한 지남」 카드 → 개요의 조건(열린 상태·마감 ~어제)으로 이슈 탭이 열린다.
     await user.click(screen.getByTestId('card-overdue-link'))
-    await waitFor(() => expect(location()).toBe(`/projects/WP?${OPEN}&dueTo=2026-11-10`))
+    await waitFor(() => expect(location()).toBe(`/projects/WP/issues?${OPEN}&dueTo=2026-11-10`))
     expect(await screen.findByTestId('condition-chip-due')).toHaveTextContent(`마감 ~ ${formatDateOnlyMonthDay('2026-11-10')}`)
     // 기억은 그대로 — 개요의 조건(고정 날짜)이 기억을 덮지 않는다.
     expect(window.localStorage.getItem(queryKey)).toBe('priority=HIGH')
@@ -272,7 +273,7 @@ describe('이슈 탭 — 개요가 여는 조건(오래 멈춤·기다리는 중
     await user.click(tabLink('개요'))
     await widgets()
     await user.click(tabLink('이슈'))
-    await waitFor(() => expect(location()).toBe('/projects/WP?priority=HIGH'))
+    await waitFor(() => expect(location()).toBe('/projects/WP/issues?priority=HIGH'))
     expect(screen.queryByTestId('condition-chip-due')).not.toBeInTheDocument()
     expect(window.localStorage.getItem(queryKey)).toBe('priority=HIGH')
   })
@@ -282,7 +283,7 @@ describe('이슈 탭 — 개요가 여는 조건(오래 멈춤·기다리는 중
     await widgets()
     await user.click(screen.getByTestId('attention-tile-stale'))
     await user.click(screen.getByTestId('attention-more'))
-    await waitFor(() => expect(location()).toBe('/projects/WP?stale=true'))
+    await waitFor(() => expect(location()).toBe('/projects/WP/issues?stale=true'))
     const chip = await screen.findByTestId('condition-chip-stale')
     expect(chip).toHaveTextContent('오래 멈춤')
     await waitFor(() => expect(searches.some((u) => u.searchParams.get('stale') === 'true')).toBe(true))
@@ -291,14 +292,14 @@ describe('이슈 탭 — 개요가 여는 조건(오래 멈춤·기다리는 중
     const before = searches.length
     await user.click(screen.getByRole('button', { name: '오래 멈춤 조건 지우기' }))
     // 조건을 지워 주소가 비어도(REPLACE) 개요로 되돌아가지 않고 이슈 탭에 머문다.
-    await waitFor(() => expect(location()).toBe('/projects/WP'))
+    await waitFor(() => expect(location()).toBe('/projects/WP/issues'))
     expect(screen.queryByTestId('condition-chip-stale')).not.toBeInTheDocument()
     await waitFor(() => expect(searches.length).toBeGreaterThan(before))
     expect(searches[searches.length - 1].searchParams.get('stale')).toBeNull()
   })
 
   test('기다리는 중·마감 조건이 걸린 주소는 waiting=true·dueTo 를 검색에 싣고 칩 둘을 보인다 — 마감 칩만 지우면 기다리는 중은 남는다', async () => {
-    const { user, location, searches } = open(`/projects/${KEY}?waiting=true&status=TODO,IN_PROGRESS&dueTo=2026-11-10`)
+    const { user, location, searches } = open(`/projects/${KEY}/issues?waiting=true&status=TODO,IN_PROGRESS&dueTo=2026-11-10`)
     expect(await screen.findByTestId('condition-chip-waiting', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toHaveTextContent('기다리는 중')
     // 날짜 글은 올해가 아니면 연도까지 붙는다(공용 포매터) — 같은 포매터로 기대값을 만든다.
     const dueLabel = `마감 ~ ${formatDateOnlyMonthDay('2026-11-10')}`
@@ -316,7 +317,7 @@ describe('이슈 탭 — 개요가 여는 조건(오래 멈춤·기다리는 중
     )
     const before = searches.length
     await user.click(screen.getByRole('button', { name: `${dueLabel} 조건 지우기` }))
-    await waitFor(() => expect(location()).toBe('/projects/WP?status=TODO%2CIN_PROGRESS&waiting=true'))
+    await waitFor(() => expect(location()).toBe('/projects/WP/issues?status=TODO%2CIN_PROGRESS&waiting=true'))
     expect(screen.getByTestId('condition-chip-waiting')).toBeInTheDocument()
     await waitFor(() =>
       expect(searches.slice(before).some((u) => u.searchParams.get('waiting') === 'true' && u.searchParams.get('dueTo') == null)).toBe(true),

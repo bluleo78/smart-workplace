@@ -6,6 +6,7 @@ import { projectPath } from '@/lib/appUrl'
 import { addDays, daysBetween } from '@/lib/closedRange'
 import { formatDateOnlyMonthDay, parseDateKey } from '@/lib/formatters'
 import { filtersToParams, parseFilters } from '@/lib/issueFilters'
+import { projectIssuesPath } from '@/lib/projectTabPaths'
 import type { IssueFilters } from '@/types/issue'
 import type {
   ProjectActivityGroup,
@@ -24,7 +25,8 @@ const OPEN_STATUSES: Partial<IssueFilters> = { statuses: ['TODO', 'IN_PROGRESS']
  */
 function issueTab(key: string, ...over: Partial<IssueFilters>[]): string {
   const filters: IssueFilters = Object.assign(parseFilters(new URLSearchParams()), ...over)
-  return `${projectPath(key)}?${filtersToParams(filters, 'list', null)}`
+  // 이슈 목록 고정 주소(WP-2085) — 홈+쿼리와 같은 목록이 주소 두 벌이 되지 않게 /issues 로.
+  return projectIssuesPath(key, filtersToParams(filters, 'list', null).toString())
 }
 
 /** 숫자 카드 「마감 임박」 — 열린 이슈 중 마감이 오늘~6일 뒤(서버 정의와 같은 7일). */

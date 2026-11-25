@@ -47,7 +47,8 @@ export function startInitialRoutePreloads(pathname: string, loaders: Record<Rout
 export const ROUTE_PRELOADS = [
   // 이슈 상세(/projects/:key/issues/:number) — 탭 밖 단독 화면이라 탭 청크 없이 상세 페이지 청크만 받는다(WP-2074)
   [ISSUE_DETAIL_PATH, ['issueDetail']],
-  [/^\/projects\/[^/]+\/?$/, ['projectTabs', 'projectIssues']],
+  // 프로젝트 홈과 이슈 목록 고정 주소(/projects/:key/issues, WP-2085) — 둘 다 이슈 탭 청크까지 받는다
+  [/^\/projects\/[^/]+(?:\/issues)?\/?$/, ['projectTabs', 'projectIssues']],
   // 탭 라우트만: overview·timeline·cycles·versions(목록)·workflow·notes(/:pageId). versions/:id 상세는 탭 밖이다.
   [/^\/projects\/[^/]+\/(?:(?:timeline|cycles|versions|overview|workflow)|notes(?:\/[^/]+)?)\/?$/, ['projectTabs']],
   [/^\/projects\/?$/, ['projectList']],

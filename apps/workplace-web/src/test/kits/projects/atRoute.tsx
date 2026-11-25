@@ -8,6 +8,8 @@ export function atRoute(pattern: string, element: ReactElement) {
   return (
     <Routes>
       <Route path={pattern} element={element} />
+      {/* 프로젝트 홈 패턴은 이슈 탭의 정식 주소(/issues, WP-2085)도 받는다 — 기억한 이슈 탭으로 되돌릴 때 그 주소로 보내므로. */}
+      {pattern === '/projects/:key' && <Route path="/projects/:key/issues" element={element} />}
       {/* 이동한 뒤 빈 화면 — 이동 자체는 location() 으로 단언한다. */}
       <Route path="*" element={null} />
     </Routes>

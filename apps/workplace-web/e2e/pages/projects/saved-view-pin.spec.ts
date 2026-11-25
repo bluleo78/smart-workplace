@@ -104,9 +104,9 @@ test.describe('Saved View 사이드바 고정', () => {
     await expect(pinnedLink).toBeVisible()
     await expect(pinnedLink).toContainText('높은 우선순위')
 
-    // (c) 사이드바 링크 클릭 → URL 이 /projects/{key}?{query} 로 이동.
+    // (c) 사이드바 링크 클릭 → URL 이 이슈 목록 고정 주소 /projects/{key}/issues?{query} 로 이동(WP-2085).
     await pinnedLink.click()
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?priority=HIGH`))
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues\\?priority=HIGH`))
 
     // (d) 선택 표시는 그 뷰를 연 때만(WP-607) — 같은 프로젝트의 전체 목록·설정 화면에서는 선택으로 보이지 않는다.
     await expect(pinnedLink).toHaveAttribute('aria-current', 'page')

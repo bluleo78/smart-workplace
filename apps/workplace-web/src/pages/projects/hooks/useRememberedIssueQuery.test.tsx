@@ -183,7 +183,7 @@ describe('useRememberedIssueQuery', () => {
         <AuthContext.Provider value={testAuthValue}>
           <MemoryRouter initialEntries={['/projects/WP/issues/5']}>
             <Routes>
-              <Route path="/projects/:key" element={<List />} />
+              <Route path="/projects/:key/issues" element={<List />} />
               <Route path="/projects/:key/issues/:number" element={<Detail />} />
             </Routes>
           </MemoryRouter>

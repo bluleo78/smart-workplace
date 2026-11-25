@@ -8,6 +8,7 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { isIncompleteDateInput } from '@/lib/dateInput';
 import { isEscapeForInnerOverlay } from '@/lib/escapeOverlay';
+import { projectIssuesPath } from '@/lib/projectTabPaths';
 
 import { useDeleteMilestone, useUpdateMilestone } from '../../../hooks/queries/useMilestones';
 import type { MilestoneResponse } from '../../../types/milestone';
@@ -157,7 +158,7 @@ export function MilestoneEditPopover({
           )}
         </div>
         <Link
-          to={`/projects/${projectKey}?milestone=${milestone.id}`}
+          to={projectIssuesPath(projectKey, `milestone=${milestone.id}`)} // 이슈 목록 고정 주소(WP-2085)
           className="text-primary block text-sm underline"
           data-testid="milestone-linked-issues-link"
         >

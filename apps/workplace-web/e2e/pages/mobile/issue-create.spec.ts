@@ -141,7 +141,7 @@ test.describe('생성 시트', () => {
     const sheet = await openSheet(page);
     await page.goBack();
     await expect(sheet).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues$`));
     await expect(page.getByTestId('mobile-new-issue')).toBeVisible();
   });
 
@@ -163,7 +163,7 @@ test.describe('생성 시트', () => {
     await page.getByTestId('issue-create-discard-confirm').click();
     await expect(dlg).toBeHidden();
     await expect(sheet).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues$`));
   });
 
   test('취소로 닫은 뒤엔 표식이 남지 않아 back 한 번에 이전 페이지로 간다(WP-222)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {

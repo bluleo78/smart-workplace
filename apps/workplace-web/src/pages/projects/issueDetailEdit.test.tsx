@@ -378,7 +378,7 @@ describe('삭제 확인 AlertDialog (#161)', () => {
     })
     await user.click(await screen.findByTestId('issue-delete', {}, { timeout: PAGE_LOAD_TIMEOUT }))
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '삭제' }))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`))
     expect(await screen.findByRole('link', { name: '남은 태스크' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '이슈' })).toBeInTheDocument()
     expect(screen.queryByTestId('project-overview')).not.toBeInTheDocument()
@@ -395,7 +395,7 @@ describe('삭제 확인 AlertDialog (#161)', () => {
       ],
     })
     await user.click(await screen.findByRole('button', { name: '프로젝트로 돌아가기' }, { timeout: PAGE_LOAD_TIMEOUT }))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`))
     expect(await screen.findByRole('link', { name: '남은 태스크' })).toBeInTheDocument()
     expect(screen.queryByTestId('project-overview')).not.toBeInTheDocument()
   })
