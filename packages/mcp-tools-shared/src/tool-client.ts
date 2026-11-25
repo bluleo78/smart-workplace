@@ -232,8 +232,15 @@ export interface IssueToolClient
   /**
    * 유형 변경 — parent 를 주면 같은 요청에서 부모도 바꾼다(WP-745: SUBTASK 로 바꿀 때 부모가 필수).
    * parent 는 같은 프로젝트 부모 번호(number) 또는 다른 프로젝트 에픽 키(string, WP-1038).
+   * opts.relateToReleasedParent 를 켜면 유형 변경으로 상위가 풀릴 때 옛 상위와 관련 관계를 같은 트랜잭션에서 남긴다
+   * (WP-2097, 생략 = 끄기). 응답 releasedParentKey 는 옵션과 무관하게 이번 변경으로 상위가 바뀌었을 때만 옛 상위 키(안 바뀌면 null).
    */
-  setIssueType(issueKey: string, typeId: number, parent?: number | string): Promise<void>;
+  setIssueType(
+    issueKey: string,
+    typeId: number,
+    parent?: number | string,
+    opts?: { relateToReleasedParent?: boolean },
+  ): Promise<{ releasedParentKey: string | null }>;
   /** 부모 지정 — 같은 프로젝트 번호(number)·다른 프로젝트 에픽 키(string, WP-1038), null 이면 해제. */
   setIssueParent(issueKey: string, parent: number | string | null): Promise<void>;
   replaceIssueAssignees(issueKey: string, assigneeIds: number[]): Promise<unknown>;

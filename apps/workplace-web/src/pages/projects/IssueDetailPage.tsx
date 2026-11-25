@@ -59,6 +59,7 @@ import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { extractApiError, isNotFoundError } from '../../lib/api-error';
 import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../lib/issueDeleteText';
+import { releasesParentType } from '../../lib/issueTypeParentLink';
 import { isProjectOwner, workflowLockedNotice } from '../../lib/projectPermissions';
 import { eulReul } from '../../lib/utils';
 import type { UpdateIssueRequest } from '../../types/issue';
@@ -263,6 +264,27 @@ export default function IssueDetailPage() {
   const isSubtask = summary.type?.name === 'SUBTASK';
   // EPIC 여부 — 부모 슬롯 숨김(EPIC 은 부모를 가질 수 없음) 분기에 사용 (EPIC 계층 확장).
   const isEpic = summary.type?.name === 'EPIC';
+  // WP-2097 — 「상위 연결 변경」 확인 창용 지금 상위 요약. 부모가 가려지지 않고(다른 프로젝트 부모를 읽을 수 없음)
+  // 유형·제목까지 응답에 있으면 넘긴다 — 값이 모자라면 호출부가 parentLink 없이 그려 창을 띄우지 않고 기존 저장 경로로 간다
+  // (서버 미리보기 API 없이 상세 데이터만 쓴다).
+  const parentSummary = summary.parent;
+  // 할아버지 에픽 — 서버가 에픽일 때만 싣고(WP-1692) 가려지면 번호 0·제목 없음이므로 없음으로 친다.
+  const grandparentEpic =
+    parentSummary?.epic && parentSummary.epic.number > 0 && parentSummary.epic.title
+      ? {
+          key: `${parentSummary.epic.projectKey ?? parentSummary.projectKey ?? key}-${parentSummary.epic.number}`,
+          title: parentSummary.epic.title,
+        }
+      : null;
+  const parentLink =
+    parentSummary && !parentSummary.hidden && parentSummary.title && parentSummary.type
+      ? {
+          parentKey: `${parentSummary.projectKey ?? key}-${parentSummary.number}`,
+          parentTypeName: parentSummary.type.name,
+          parentTitle: parentSummary.title,
+          grandparent: grandparentEpic,
+        }
+      : undefined;
 
   // 서버 플래그 기반 UI 권한 분기 — 클라이언트에서 재파생하지 않는다.
   // 미지정(구 응답 호환)은 false 로 안전하게 처리 — 실제 API 는 항상 명시적으로 내려준다.
@@ -311,10 +333,22 @@ export default function IssueDetailPage() {
           tasks.push(patch({ priority: result.priority }, { silent: true }));
           // 유형 제안 — 이름→ID 매핑 후 별도 엔드포인트로 적용.
           // 왜: IssueTypeSelectPopover 에서 유형 변경 시 updateType.mutate({ typeId }) 패턴과 동일.
+          // classifySkippedType — 유형을 건너뛴 사실(WP-2097), 통합 토스트에 이유를 더할 때 쓴다.
+          let classifySkippedType = false;
           if (result.type && allIssueTypes.data) {
             const suggestedType = allIssueTypes.data.find((t) => t.name === result.type);
             if (suggestedType) {
-              tasks.push(updateType.mutateAsync({ typeId: suggestedType.id }));
+              // WP-2097 — 제안 유형이 상위를 풀면(서버 releasesParent 와 같은 lib 판정) 유형 PATCH 를 아예 보내지 않는다:
+              // 확인 창 없이 상위 해제가 일어나는 것을 막고, 스킵 사실을 통합 토스트에 이유로 알린다.
+              const releasesParentLink =
+                summary.type != null &&
+                summary.parent != null &&
+                releasesParentType(summary.type.name, suggestedType.name);
+              if (releasesParentLink) {
+                classifySkippedType = true;
+              } else {
+                tasks.push(updateType.mutateAsync({ typeId: suggestedType.id }));
+              }
             }
           }
           // 라벨 제안 — 이름→ID 매핑 후 현재 라벨에 병합하여 교체.
@@ -330,7 +364,8 @@ export default function IssueDetailPage() {
           // 여기서는 완료 대기만 하고(allSettled) 성공 토스트 1개만 통합 노출한다 — 하나도 적용되지 않았으면 띄우지 않는다(WP-503).
           const message = aiClassifyApplyToast(await Promise.allSettled(tasks));
           if (message === null) return;
-          toast.success(message);
+          // 유형을 스킵했을 때만 이유를 덧붙인다 — 기존 통합 토스트 문구는 그대로 둔다(WP-2097).
+          toast.success(classifySkippedType ? `${message} — 상위 연결 때문에 유형은 적용하지 않음` : message);
           setClassifyReason(result.reason);
         },
         // 서버 문구를 우선한다 — AI 연동 꺼짐(409 AI_DISABLED, WP-1640)·비서 없음(422)의 이유가 보이게.
@@ -531,6 +566,7 @@ export default function IssueDetailPage() {
                         issueNumber={issueNumber}
                         current={summary.type}
                         disabled={!canEditWorkflow}
+                        parentLink={parentLink}
                       />
                     )}
                     {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
@@ -688,6 +724,7 @@ export default function IssueDetailPage() {
                   issueNumber={issueNumber}
                   current={summary.type}
                   disabled={!canEditWorkflow}
+                  parentLink={parentLink}
                 />
               </div>
             )}

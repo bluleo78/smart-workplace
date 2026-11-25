@@ -317,13 +317,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         LINK_RULE_AUTOLINK,
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, status, type, parent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, relateToReleasedParent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
         //    서로 독립 조회라 병렬로 보낸다. 부모 키 → 번호 변환(같은 프로젝트 검사)도 여기서 한다.
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
         const parentRef = parent === undefined || parent === null ? parent : parentRefOf(parent, projectKey);
+        // WP-2097: 옵션은 줬을 때만 setIssueType 에 넘긴다 — 안 주면 인자 자리도 비워 기존 호출(3개 인자)과 똑같이 보낸다.
+        const typeOpts = relateToReleasedParent === undefined ? undefined : { relateToReleasedParent };
         const fieldEntries = fields ? Object.entries(fields) : [];
         //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
         const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
@@ -366,12 +368,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           const unknown = await unknownStatusMessage(client, projectKey, statusName);
           if (unknown) return JSON.stringify({ ok: false, results: { content: `failed: ${unknown}` } });
         }
-        const run = async (key: string, fn: () => Promise<unknown>) => {
+        // 성공이면 응답 본문, 실패면 undefined 를 돌려준다 — 유형 변경 응답의 releasedParentKey 를 결과에 옮겨 담기 위해서(WP-2097).
+        const run = async <T>(key: string, fn: () => Promise<T>): Promise<T | undefined> => {
           try {
-            await fn();
+            const value = await fn();
             results[key] = 'ok';
+            return value;
           } catch (e) {
             results[key] = `failed: ${errText(e)}`;
+            return undefined;
           }
         };
 
@@ -399,13 +404,24 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         }
         // WP-745: 유형과 부모를 함께 바꾸면 한 요청으로 보낸다 — SUBTASK 로 바꾸는 순간 부모가 있어야 해서,
         // 유형·부모를 따로 보내면 순서와 상관없이 한쪽이 거절된다. 결과는 type·parent 둘 다에 같은 값으로 싣는다.
+        // WP-2097: 옵션(typeOpts)은 유형 요청에만 실어 보낸다 — 서버는 같은 트랜잭션에서 옛 상위와의 관련 관계를 남긴다.
+        // typeResult: 유형 변경 응답(실패면 undefined) — 옛 상위 키를 아래에서 옮겨 담는다.
+        let typeResult: { releasedParentKey?: unknown } | null | undefined;
         if (typeId !== undefined && parentRef != null) {
-          await run('type', () => client.setIssueType(issueKey, typeId, parentRef));
+          typeResult = typeOpts
+            ? await run('type', () => client.setIssueType(issueKey, typeId, parentRef, typeOpts))
+            : await run('type', () => client.setIssueType(issueKey, typeId, parentRef));
           results.parent = results.type;
         } else {
-          if (typeId !== undefined) await run('type', () => client.setIssueType(issueKey, typeId));
+          if (typeId !== undefined) {
+            typeResult = typeOpts
+              ? await run('type', () => client.setIssueType(issueKey, typeId, undefined, typeOpts))
+              : await run('type', () => client.setIssueType(issueKey, typeId));
+          }
           if (parentRef !== undefined) await run('parent', () => client.setIssueParent(issueKey, parentRef));
         }
+        // WP-2097: 옛 상위 키는 옵션과 무관하게 이번 변경으로 상위가 바뀌었을 때만 서버가 응답에 싣는다 — 있으면 결과에도 실린다(없으면 생략).
+        const releasedParentKey = typeof typeResult?.releasedParentKey === 'string' ? typeResult.releasedParentKey : undefined;
         if (assigneeIds !== undefined) {
           await run('assignees', () => client.replaceIssueAssignees(issueKey, assigneeIds));
         }
@@ -421,7 +437,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         const ok = Object.values(results).every((v) => v === 'ok');
         // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.
-        return JSON.stringify({ ok, ...(url && { url }), results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });
+        return JSON.stringify({ ok, ...(url && { url }), ...(releasedParentKey && { releasedParentKey }), results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });
       },
     },
     {

@@ -136,7 +136,8 @@ class IssueControllerTest extends WebMvcSliceTestBase {
         null,
         false,
         List.of(),
-        List.of());
+        List.of(),
+        null);
   }
 
   @Test
@@ -453,7 +454,8 @@ class IssueControllerTest extends WebMvcSliceTestBase {
             null,
             false,
             List.of(),
-            List.of());
+            List.of(),
+            null);
     when(issueService.get(1L, "WP", 1)).thenReturn(detail);
 
     mockMvc

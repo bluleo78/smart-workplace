@@ -309,6 +309,9 @@ export interface IssueDetailResponse {
   reporter?: UserSummary | null;
   // 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN 또는 지금 보고자. 구버전 서버는 undefined(읽기 전용으로 둔다).
   viewerCanChangeReporter?: boolean;
+  // 유형 변경 응답 전용(WP-2097) — 이번 변경으로 상위가 바뀌었을 때 옛 상위 키(안 바뀌었으면 null·없음).
+  // 웹은 아직 이 값을 쓰지 않지만 응답 타입이 서버와 맞아야 한다.
+  releasedParentKey?: string | null;
   // 이슈 사이 관계(차단 제외, WP-887) — 조회자가 상대 프로젝트를 읽을 수 있는 것만. 구버전 서버엔 없어 optional(읽을 때 `?? []`).
   relations?: IssueRelationView[];
   // 다른 시스템 이슈로 가는 외부 링크(WP-887). 구버전 서버엔 없어 optional.

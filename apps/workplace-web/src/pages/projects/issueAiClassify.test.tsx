@@ -3,6 +3,7 @@
 // 편집 화면에서 우선순위·유형·라벨 3건을 적용하고 통합 토스트 1개만 띄우는 것(#578), 실패 토스트 뒤 폼 유지는
 // 브라우저 없이 판정되므로 e2e/pages/issues/issue-ai-classify.spec.ts 에서 옮겼다(그 spec 은 지웠다).
 // 이슈 목록·상세 화면 배선은 각 화면 spec 의 @wiring 이 지킨다. 적용 결과 → 토스트 문구 규칙은 lib/aiClassifyResult.test.ts 몫이다.
+// 제안 유형이 상위를 풀 때 유형 PATCH 를 스킵하고 토스트에 이유를 덧붙이는지(WP-2097)는 편집 속성 레일 테스트가 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test, vi } from 'vitest'
@@ -12,7 +13,7 @@ import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
-import { systemTypes } from '../../../e2e/factories/issueType.factory'
+import { makeEpicType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { IssueCreateDialog } from './components/IssueCreateDialog'
 
@@ -22,6 +23,8 @@ const LABELS = [
   { id: 2, name: 'bug', colorToken: 'red' },
 ]
 const SUGGESTION = { type: 'BUG', priority: 'HIGH', labels: ['backend'], reason: '500 오류 + 사용자 직접 영향 → HIGH, 버그 유형' }
+// 상위를 풀는 유형 제안(WP-2097) — 옛 유형과 무관하게 제안 유형이 EPIC 이면 서버가 상위 연결을 풀어 준다.
+const EPIC_SUGGESTION = { ...SUGGESTION, type: 'EPIC' }
 const BUG_TYPE_ID = systemTypes().find((t) => t.name === 'BUG')!.id
 
 /** 프로젝트 하위 조회 — 유형·라벨은 값, 나머지(멤버·컴포넌트 등)는 빈 목록. */
@@ -37,13 +40,13 @@ const AI_DISABLED_BODY = {
   errors: { code: 'AI_DISABLED' },
 }
 
-/** AI 분류 엔드포인트 — 요청 본문을 모은다. status 가 있으면 그 상태(본문 errorBody, 없으면 문구 없는 본문)로 실패한다. */
-function classifyHandler(bodies: unknown[], status?: number, errorBody?: object) {
+/** AI 분류 엔드포인트 — 요청 본문을 모은다. status 가 있으면 그 상태(본문 errorBody, 없으면 문구 없는 본문)로 실패한다. suggestion 을 넘기면 그 제안을 돌려준다. */
+function classifyHandler(bodies: unknown[], status?: number, errorBody?: object, suggestion: object = SUGGESTION) {
   return http.post(`/api/v1/projects/${KEY}/issues/ai-classify`, async ({ request }) => {
     bodies.push(await request.json())
     return status
       ? HttpResponse.json(errorBody ?? { error: 'issue_classify_failed' }, { status })
-      : HttpResponse.json(SUGGESTION)
+      : HttpResponse.json(suggestion)
   })
 }
 
@@ -193,4 +196,78 @@ test('편집 속성 레일 — 제안의 우선순위·유형·라벨을 각각 
     expect(screen.queryByText(text)).not.toBeInTheDocument()
   }
   expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(1)
+})
+
+/**
+ * 상위가 있는 이슈 상세를 열고 분류 제안을 적용한다 — 쓰기 요청 본문을 writes 에 모은다.
+ * suggestion 을 넘기면 그 제안(유형)으로 분류 응답을 돌려준다. 이유 서브텍스트가 채워질 때까지
+ * 기다려 통합 토스트까지 끝난 상태를 만든다(WP-2097).
+ */
+async function classifyOnIssueWithParent(suggestion: object) {
+  const detail = createIssueDetail({
+    summary: createIssue({
+      projectKey: KEY,
+      number: 1,
+      title: '기존 이슈 제목',
+      priority: 'LOW',
+      parent: { number: 5, title: '결제 개편 에픽', type: makeEpicType() },
+    }),
+    body: '기존 본문',
+  })
+  const writes: { method: string; path: string; body: unknown }[] = []
+  const record = async ({ request }: { request: Request }) => {
+    writes.push({ method: request.method, path: new URL(request.url).pathname, body: await request.json() })
+    return HttpResponse.json(detail)
+  }
+  const { user } = await openIssueDetailScreen({
+    key: KEY,
+    number: 1,
+    detail,
+    project: { type: 'TEAM' },
+    handlers: [
+      classifyHandler([], undefined, undefined, suggestion),
+      http.patch(`/api/v1/projects/${KEY}/issues/1`, record),
+      http.patch(`/api/v1/projects/${KEY}/issues/1/type`, record),
+      http.put(`/api/v1/projects/${KEY}/issues/1/labels`, async ({ request }) => {
+        writes.push({ method: 'PUT', path: new URL(request.url).pathname, body: await request.json() })
+        return HttpResponse.json([{ id: 1, name: 'backend', colorToken: 'violet' }])
+      }),
+      ...projectMetaHandlers,
+    ],
+  })
+  await user.click(await screen.findByTestId('ai-classify-btn'))
+  expect(await screen.findByTestId('ai-classify-reason')).toHaveTextContent('500 오류')
+  return { writes }
+}
+
+test('편집 속성 레일 — 제안 유형이 상위를 풀면 유형 PATCH 를 보내지 않고 토스트에 이유를 덧붙인다(WP-2097)', async () => {
+  const { writes } = await classifyOnIssueWithParent(EPIC_SUGGESTION)
+
+  // 유형 PATCH 는 한 번도 나가지 않는다 — 상위를 풀 유형(→ EPIC)이라 서버에 상위 해제를 묻지 않고 아예 보내지 않는다.
+  expect(writes.filter((w) => w.path.endsWith('/type'))).toEqual([])
+  // 우선순위·라벨 제안은 그래도 적용된다(Review Focus 5).
+  expect(writes).toEqual(
+    expect.arrayContaining([
+      { method: 'PATCH', path: `/api/v1/projects/${KEY}/issues/1`, body: { priority: 'HIGH' } },
+      { method: 'PUT', path: `/api/v1/projects/${KEY}/issues/1/labels`, body: { labelIds: [1] } },
+    ]),
+  )
+  // 출력: 통합 토스트 1개에 스킵 이유가 덧붙는다.
+  expect(
+    await screen.findByText('AI 제안을 적용했습니다 — 상위 연결 때문에 유형은 적용하지 않음'),
+  ).toBeInTheDocument()
+  expect(document.querySelectorAll('[data-sonner-toast]')).toHaveLength(1)
+})
+
+test('편집 속성 레일 — 상위가 있어도 유형이 상위를 풀지 않으면 유형도 그대로 적용된다(WP-2097)', async () => {
+  const { writes } = await classifyOnIssueWithParent(SUGGESTION)
+
+  // TASK → BUG 는 상위를 풀지 않는다 — 유형 PATCH 도 기존처럼 나간다.
+  expect(writes).toEqual(
+    expect.arrayContaining([
+      { method: 'PATCH', path: `/api/v1/projects/${KEY}/issues/1/type`, body: { typeId: BUG_TYPE_ID } },
+    ]),
+  )
+  expect(await screen.findByText('AI 제안을 적용했습니다')).toBeInTheDocument()
+  expect(screen.queryByText(/상위 연결 때문에/)).not.toBeInTheDocument()
 })
