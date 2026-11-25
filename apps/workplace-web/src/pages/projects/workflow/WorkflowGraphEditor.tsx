@@ -15,9 +15,9 @@ import type { WorkflowProblem } from '@/lib/workflows'
 
 import { applyConnection } from './applyConnection'
 import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
-import { CARD_HEIGHT, drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './graphLayout'
+import { drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './graphLayout'
 import {
-  addAskPath, addNode, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
+  addAskPath, addNodeAtFreeSpot, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
 import { NodePanel } from './NodePanel'
 import { revealOffset } from './viewportReveal'
@@ -253,13 +253,8 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
               <DropdownMenuItem
                 key={item.type}
                 onSelect={() => {
-                  // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 위→아래 흐름에 맞춰 가장 아래 노드 밑, 가장 왼쪽 x 에 놓는다.
-                  // 질문 경로 보기의 좌표는 보기 전용이라 저장 좌표의 기준이 될 수 없다 — 늘 접은 배치로 정한다.
-                  const ps = [...(showAsk ? placeNodes(graph).positions : positions).values()]
-                  const at = ps.length
-                    ? { x: Math.min(...ps.map((p) => p.x)), y: Math.max(...ps.map((p) => p.y)) + CARD_HEIGHT + 64 }
-                    : { x: 0, y: 0 }
-                  const added = addNode(yaml, item.type, at)
+                  // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 저장·자동 배치 자리를 모두 피한 빈 자리(가장 아래 노드 밑, 가장 왼쪽 x)에 놓는다.
+                  const added = addNodeAtFreeSpot(yaml, item.type)
                   onChange(added.yaml)
                   setSelected(added.key)
                   // addNode 가 실패하면(yaml·layout 없음 등) 새 키가 없다 — 앞서 기다리던 노드도 그 시점에 대체된 것이므로

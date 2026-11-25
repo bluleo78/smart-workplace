@@ -275,7 +275,7 @@ describe('graphLayout', () => {
     expect(isAtLayoutPosition({ x: 120, y: 81 }, undefined)).toBe(false)
   })
 
-  // 손잡이 — 들어옴은 위, 나감은 아래. 카드는 가운데, 마름모·원은 도형 가운데 x 에 맞춘다(끝점 = x + 0.5)
+  // 손잡이 — 위(s-top)·아래(s-bottom) 모두 source 형이다(들어옴 형 t-* 는 없다). 카드는 가운데 x, 마름모는 도형 가운데 x 에 맞추고 아래 손잡이는 맨 아랫줄에 둔다(끝점 = x + 0.5)
   it('flowHandles_topBottom_shapeCenter', () => {
     const card = flowHandles({ key: 'a', type: 'agent_task' }).filter((h) => h.id === 's-top' || h.id === 's-bottom')
     expect(card.map((h) => [h.type, h.position, h.x + 0.5, h.y])).toEqual([['source', 'top', 100, 0], ['source', 'bottom', 100, 63]])
