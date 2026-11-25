@@ -100,6 +100,17 @@ public final class AiRunFailures {
           "provider_error",
           "runner_unavailable");
 
+  /**
+   * 구체 원인 코드(소문자) — 잠정 사유 + ai-agent 가 분류해 남기는 model_not_found·timeout·model_output_invalid. 일반
+   * 표지(http_%· runner_error·handler_error·stream_error·failed·agent_timeout 등)는 포함하지 않는다. 저장소
+   * upsert 가 잠정 provider_* 를 덮을 수 있는 사유를 이 목록으로 가른다.
+   */
+  public static final List<String> CONCRETE_REASONS =
+      Stream.concat(
+              PROVISIONAL_REASONS.stream(),
+              Stream.of("model_not_found", "timeout", "model_output_invalid"))
+          .toList();
+
   /** 사용 한도 초과 사유 코드 — 실패율에서 뺀다(AI 현황). */
   public static final String LIMIT_REASON = "provider_limit";
 
@@ -152,13 +163,14 @@ public final class AiRunFailures {
       return resp;
     }
     // 5xx 는 본문의 reason 을 읽어야 하므로 줄을 모두 읽어 두고, 호출자에게는 같은 줄을 다시 주는 응답을 돌려준다(WP-2106).
-    // 본문 읽기가 실패해도(UncheckedIOException 등) FAILED 기록은 남겨야 하므로 http_<코드> 로 기록하고 빈 재생 응답을 돌려준다.
+    // 본문 읽기가 실패하면(UncheckedIOException 등) http_<코드> 로 FAILED 를 남긴 뒤 원래 예외를 다시 던진다 — 잘린 응답을 성공처럼 넘기지
+    // 않는다.
     List<String> lines;
     try (Stream<String> body = resp.body()) {
       lines = body.toList();
     } catch (RuntimeException e) {
       recordIfServerError(r, call, resp.statusCode(), null);
-      return new ReplayedResponse(resp, List.of());
+      throw e;
     }
     recordIfServerError(r, call, resp.statusCode(), String.join("", lines));
     return new ReplayedResponse(resp, lines);

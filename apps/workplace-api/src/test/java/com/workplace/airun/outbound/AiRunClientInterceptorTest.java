@@ -144,9 +144,9 @@ class AiRunClientInterceptorTest {
     assertThat(captured().errorReason()).isEqualTo("http_503");
   }
 
-  /** 5xx 본문 읽기가 중간에 실패하면 반쯤 소비된 원 응답이 아니라 이미 읽은 바이트로 감싼 응답을 주고 http_<코드> 로 기록한다(WP-2106 리뷰 후속). */
+  /** 5xx 본문 읽기가 중간에 실패하면 http_<코드> 로 기록한 뒤 원래 예외를 다시 던진다 — 잘린 응답을 성공처럼 돌려주지 않는다(WP-2106). */
   @Test
-  void failure_5xxBodyReadFails_returnsReplayOfBytesReadSoFar() throws Exception {
+  void failure_5xxBodyReadFails_recordsHttpCodeAndRethrows() throws Exception {
     var req =
         new org.springframework.mock.http.client.MockClientHttpRequest(
             org.springframework.http.HttpMethod.POST,
@@ -168,10 +168,11 @@ class AiRunClientInterceptorTest {
         };
     org.mockito.Mockito.when(orig.getBody()).thenReturn(broken);
 
-    var resp = new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig);
+    assertThatThrownBy(
+            () -> new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig))
+        .isInstanceOf(java.io.IOException.class)
+        .hasMessage("reset");
 
-    assertThat(resp).isNotSameAs(orig);
-    assertThat(new String(resp.getBody().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("abc");
     assertThat(captured().errorReason()).isEqualTo("http_503");
   }
 

@@ -10,9 +10,14 @@ const DETAIL_MAX = 2000;
 /** 아무것도 하지 않는 sink (기록 비활성·테스트 기본값). */
 export const noopAiRunSink: AiRunSink = { enqueue: () => undefined };
 
-/** 러너 오류의 분류 사유가 o.reason 보다 앞서는가 — o.reason 이 없거나 http_5xx·runner_error 일 때만(http_4xx 등 라우트 자체 실패는 그대로 둔다). */
+/**
+ * 러너 오류의 분류 사유가 o.reason 보다 앞서는가 — 라우트 자체의 요청 오류(http_4xx)와 클라이언트 취소(client_closed)일 때만 지고,
+ * 그 밖의 일반 표지(없음·http_5xx·runner_error·handler_error·stream_error·failed 등)에는 이긴다.
+ * 왜: 이벤트 처리(POST /events)는 러너 한도 오류가 핸들러 실패로 전달돼 handler_error 로 닫히는데, 그때도 사용 한도 초과가
+ * provider_limit 로 남아야 실패율에서 빠진다(WP-2106).
+ */
 function classifiedWins(reason: string | undefined): boolean {
-  return reason === undefined || /^http_5\d\d$/.test(reason) || reason === 'runner_error';
+  return reason === undefined || !(reason === 'client_closed' || /^http_4\d\d$/.test(reason));
 }
 
 /** 문자열을 상한 길이로 자른다. */
@@ -119,7 +124,7 @@ export class AiRunScope {
     const lastFailure = runnerFailed ? this.runnerFailures[this.runnerFailures.length - 1] : null;
     const runnerErrorDetail = lastFailure?.message ?? null;
     const ok = o.ok && !runnerFailed && !forced;
-    // 사유 우선순위(WP-2106): client_closed > 러너 오류의 분류 사유(한도·인증 등; o.reason 이 없음·http_5xx·runner_error 일 때만) > o.reason > runner_error > markFailed 사유 > 'failed'.
+    // 사유 우선순위(WP-2106): client_closed > 러너 오류의 분류 사유(한도·인증 등; o.reason 이 http_4xx 가 아닐 때) > o.reason > runner_error > markFailed 사유 > 'failed'.
     // 분류 불가 러너 오류는 종전 순서를 둔다 — 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다(WP-1828).
     const classified = classifiedWins(o.reason) ? (lastFailure?.reason ?? null) : null;
     const raw =

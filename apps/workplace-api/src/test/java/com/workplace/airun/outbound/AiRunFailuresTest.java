@@ -82,10 +82,10 @@ class AiRunFailuresTest {
     org.mockito.Mockito.verify(recorder).upsert(org.mockito.ArgumentMatchers.any());
   }
 
-  /** 5xx 본문 읽기가 UncheckedIOException 으로 실패해도 FAILED(http_코드)를 기록하고 빈 재생 응답을 돌려준다(WP-2106 리뷰 후속). */
+  /** 5xx 본문 읽기가 UncheckedIOException 으로 실패해도 FAILED(http_코드)를 기록한 뒤 원래 예외를 다시 던진다(WP-2106). */
   @Test
   @SuppressWarnings("unchecked")
-  void send_5xxBodyReadFails_recordsHttpCodeAndReturnsEmptyReplay() throws Exception {
+  void send_5xxBodyReadFails_recordsHttpCodeAndRethrows() throws Exception {
     var recorder = org.mockito.Mockito.mock(com.workplace.airun.service.AiRunRecorder.class);
     var http = org.mockito.Mockito.mock(java.net.http.HttpClient.class);
     var req = java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://x/")).build();
@@ -101,10 +101,9 @@ class AiRunFailuresTest {
         .when(http)
         .send(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 
-    var resp = AiRunFailures.send(http, recorder, "/ai/chat", header -> req);
-
-    assertThat(resp.statusCode()).isEqualTo(503);
-    assertThat(resp.body().toList()).isEmpty();
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> AiRunFailures.send(http, recorder, "/ai/chat", header -> req))
+        .isInstanceOf(java.io.UncheckedIOException.class);
     var cap = org.mockito.ArgumentCaptor.forClass(com.workplace.airun.dto.AiRunRecord.class);
     org.mockito.Mockito.verify(recorder).upsert(cap.capture());
     assertThat(cap.getValue().errorReason()).isEqualTo("http_503");

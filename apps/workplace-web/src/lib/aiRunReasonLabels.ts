@@ -16,6 +16,8 @@ export const AI_RUN_REASON_LABELS: Record<string, string> = {
   agent_unreachable: 'AI 서버 연결 실패',
   client_closed: '요청 취소',
   runner_error: '실행 오류',
+  stream_error: '스트림 오류',
+  handler_error: '처리 오류',
   failed: '실패',
 }
 

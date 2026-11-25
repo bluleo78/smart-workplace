@@ -510,6 +510,24 @@ describe('POST /events', () => {
       expect(records).toEqual([]);
     });
 
+    it('러너가 한도 오류로 실패해 처리가 reject 되면 handler_error 가 아니라 provider_limit 로 닫힌다', async () => {
+      const { records, sink } = collect();
+      const limit = new Error("API Error: You've hit your org's monthly spend limit");
+      vi.mocked(runAgent).mockImplementation(async () => {
+        const s = currentAiRunScope()!;
+        s.runnerStarted('m', 'anthropic');
+        s.runnerFinished({ ok: false, usage: null, error: limit });
+        throw limit;
+      });
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.created', payload: validCreatedPayload });
+      await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+      expect(records[1].errorReason).toBe('provider_limit');
+    });
+
     it('처리 promise 가 reject 해도 202 응답은 같고 FAILED·handler_error', async () => {
       const { records, sink } = collect();
       vi.mocked(runAgent).mockImplementation(async () => {

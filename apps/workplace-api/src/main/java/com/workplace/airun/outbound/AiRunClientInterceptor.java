@@ -55,7 +55,8 @@ public class AiRunClientInterceptor implements ClientHttpRequestInterceptor {
       return response;
     }
     // 5xx 는 본문의 reason(사용 한도 초과 등)을 사유로 남기려 본문을 읽고, 호출자에게는 같은 본문을 다시 주는 응답을 돌려준다(WP-2106).
-    // 중간에 읽기가 실패해도 반쯤 소비된 원 응답을 돌려주지 않는다 — 이미 읽은 바이트로 감싼 응답을 주고 사유는 http_<코드> 로 남긴다.
+    // 중간에 읽기가 실패하면 http_<코드> 로 FAILED 를 남긴 뒤 원래 예외를 그대로 던진다 — 잘린 본문을 성공처럼 넘기지 않고, 호출자는 이 변경 전과 같은
+    // 예외를 맞는다.
     ByteArrayOutputStream buf = new ByteArrayOutputStream();
     try {
       InputStream in = response.getBody();
@@ -66,7 +67,7 @@ public class AiRunClientInterceptor implements ClientHttpRequestInterceptor {
       }
     } catch (RuntimeException | IOException e) {
       AiRunFailures.recordIfServerError(recorder, call, status);
-      return new ReplayedResponse(response, buf.toByteArray());
+      throw e;
     }
     byte[] bytes = buf.toByteArray();
     AiRunFailures.recordIfServerError(

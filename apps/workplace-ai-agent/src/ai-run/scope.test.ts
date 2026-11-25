@@ -192,6 +192,16 @@ describe('AiRunScope', () => {
     expect(sink[1].errorReason).toBe('http_502');
   });
 
+  it('close_limitRunnerError_beatsHandlerAndStreamError', () => {
+    for (const reason of ['handler_error', 'stream_error', 'runner_error', 'failed']) {
+      const { sink, scope } = make();
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+      scope.close({ ok: false, reason });
+      expect(sink[1].errorReason).toBe('provider_limit');
+    }
+  });
+
   it('close_clientClosed_stays', () => {
     const { sink, scope } = make();
     scope.runnerStarted('m', 'c');

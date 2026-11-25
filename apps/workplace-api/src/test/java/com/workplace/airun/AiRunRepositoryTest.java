@@ -494,6 +494,21 @@ class AiRunRepositoryTest extends IntegrationTestBase {
     assertThat(row(id).getErrorDetail()).isEqualTo("no model");
   }
 
+  /**
+   * 잠정 provider_limit 을 ai-agent 의 일반 사유(runner_error 등)가 덮지 않는다 — 한도 초과가 일반 실패로 바뀌지 않게(WP-2106).
+   */
+  @Test
+  void upsert_providerLimitThenGenericReason_keepsProviderLimit() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(failedRecord(id, "provider_limit", null));
+    for (String generic :
+        new String[] {"runner_error", "handler_error", "stream_error", "failed", "agent_timeout"}) {
+      repo.upsert(failedRecord(id, generic, "x"));
+      assertThat(row(id).getErrorReason()).isEqualTo("provider_limit");
+    }
+    assertThat(count(id)).isEqualTo(1);
+  }
+
   private AiRunRecord failedRecord(UUID id, String reason, String detail) {
     return new AiRunRecord(
         id, null, "AI_CHAT", null, null, null, "USER", 1L, null, T0, T0, null, null, null, null,

@@ -75,11 +75,17 @@ public class AiRunRepository {
   private static Condition overwriteHttpMarkerReason() {
     Field<String> existing = AI_RUN.ERROR_REASON;
     Field<String> incoming = excluded(AI_RUN.ERROR_REASON);
-    // API 가 503 본문에서 얻은 provider_* 코드도 잠정 사유다 — ai-agent 의 더 정확한 사유가 덮는다(WP-2106 리뷰 후속).
+    // 기존이 http_ 표지면 들어온 어떤 사유든 덮고, API 가 503 본문에서 얻은 잠정 provider_* 코드면 들어온 사유가 구체 원인 코드일 때만 덮는다 —
+    // runner_error·handler_error·stream_error 같은 일반 표지가 더 정확한 잠정 원인(예: provider_limit)을 지우지
+    // 않게(WP-2106 반려 수정).
+    Condition httpMarker = existing.like("http!_%", '!');
     Condition provisional =
-        existing.like("http!_%", '!').or(existing.in(AiRunFailures.PROVISIONAL_REASONS));
+        existing
+            .in(AiRunFailures.PROVISIONAL_REASONS)
+            .and(incoming.in(AiRunFailures.CONCRETE_REASONS));
     // 들어오는 사유가 같은 값이거나 http_ 표지면 덮지 않는다(표지가 더 정확한 사유를 지우지 않게).
-    return provisional
+    return httpMarker
+        .or(provisional)
         .and(incoming.isNotNull())
         .and(incoming.notLike("http!_%", '!'))
         .and(incoming.ne(existing));
