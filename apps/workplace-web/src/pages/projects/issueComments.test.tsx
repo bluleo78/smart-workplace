@@ -288,6 +288,28 @@ describe('새로고침 유실 경고 (#620)', () => {
   })
 })
 
+// ─── 렌더 윈도우 밖 방금 쓴 코멘트(WP-2073) ──────────────────────────────
+// 코멘트가 40건이면 처음 30건만 그려진다 — 오래된 순(기본)에서는 방금 쓴 코멘트가 목록 맨 끝이라
+// 윈도우 밖이다. 작성에 성공하면 목록을 전부 펼쳐 자기 글을 못 찾지 않게 한다.
+
+describe('렌더 윈도우 밖 방금 쓴 코멘트 (WP-2073)', () => {
+  test('작성 성공 뒤 방금 쓴 코멘트가 보인다', async () => {
+    const { user, input } = await open(
+      Array.from({ length: 40 }, (_, i) =>
+        createComment({ id: i + 1, issueId: ISSUE_ID, authorId: ME_ID + 999, authorName: '다른 사용자', body: `기존 코멘트 ${i + 1}` }),
+      ),
+    )
+    // 처음에는 렌더 윈도우(30건)만큼만 그려진다.
+    await waitFor(() => expect(commentItems()).toHaveLength(30))
+    setRichText(input, '방금 쓴 코멘트')
+    await user.click(screen.getByTestId('issue-comment-submit'))
+    // 작성 성공 → 41개가 전부 그려져 방금 만든 코멘트(id 90)가 보인다.
+    await waitFor(() => expect(commentItems()).toHaveLength(41))
+    expect(await screen.findByTestId('issue-comment-header-90')).toBeInTheDocument()
+    expect(screen.getByText('방금 쓴 코멘트')).toBeInTheDocument()
+  })
+})
+
 describe('AGENT 코멘트 마크다운 렌더 (WP-254)', () => {
   const AGENT_BODY = [
     '## 조사 결과',
