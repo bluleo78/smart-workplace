@@ -196,6 +196,8 @@ describe('buildAgentResources', () => {
   it('omitsDindGcWithoutDind', () => {
     const { pod } = buildAgentResources(desiredAgent({ sidecars: [] }), ctx, runnerConfig());
     expect(pod.spec?.containers.map((c) => c.name)).toEqual(['agent']);
+    // WP-2146 — dind 가 없으면 DOCKER_HOST 도 없다(엔트리포인트가 오지 않을 소켓을 기다리지 않게)
+    expect(container(pod, 'agent').env?.some((e) => e.name === 'DOCKER_HOST')).toBe(false);
   });
 
   it('appliesLocationNodeSelectorTolerationsHostAliases', () => {

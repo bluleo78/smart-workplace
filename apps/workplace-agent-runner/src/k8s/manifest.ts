@@ -311,8 +311,9 @@ export function buildAgentResources(
     { name: 'GENIA_WORKS_TENANT', value: String(agent.tenantId) },
     { name: 'GENIA_WORKS_API_URL', value: ctx.apiUrl },
     { name: 'GENIA_WORKS_MCP_URL', value: ctx.mcpUrl },
-    { name: 'DOCKER_HOST', value: `unix://${DIND_SOCKET_DIR}/docker.sock` },
   ];
+  // dind 가 있을 때만 — 없는 Pod(배포용 템플릿, WP-2146)에 넣으면 엔트리포인트가 오지 않을 소켓을 60초 기다린다
+  if (dindSidecar) env.push({ name: 'DOCKER_HOST', value: `unix://${DIND_SOCKET_DIR}/docker.sock` });
   if (hasClaude) {
     // optional — 연결이 지워져 키가 없어도 Pod 는 뜬다(모델만 못 부름)
     env.push({

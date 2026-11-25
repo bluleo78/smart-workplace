@@ -156,7 +156,7 @@ OpenCode 템플릿(`opencode`)은 Works 의 「OpenAI 호환」 연결(모델 �
 | `GENIA_WORKS_MCP_URL` | desired `mcpUrl` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Secret `claude-token`(optional — 없으면 비움). env 라 Pod 시작 때 고정된다(아래 「모델 연결 교체」) |
 | `GENIA_LOGIN_VERSION` | Secret 의 `login-version`(Pod 어노테이션과 같은 값). 로그인 정보(OpenCode 는 연결 정보)가 있을 때만 — 없으면 이 env 도 없다. Gen:iA Code·Codex 는 시딩 여부를 정하는 표식(OpenCode 는 쓰지 않는다) |
-| `DOCKER_HOST` | `unix:///dind/docker.sock` |
+| `DOCKER_HOST` | `unix:///dind/docker.sock`. dind 사이드카가 있을 때만 — 없으면(배포용 템플릿 등, WP-2146) 이 env 도 없고 엔트리포인트는 docker 를 기다리지 않는다 |
 
 ### 모델 연결 교체
 

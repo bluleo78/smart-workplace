@@ -98,6 +98,33 @@ class AgentTemplateRegistryTest {
     assertThat(t.plugins()).hasSize(8);
   }
 
+  /**
+   * claude-code-deploy.yaml(WP-2146) — 배포 담당 AI 용. 이미지·계정·모델 칸은 claude-code 와 같고, 특권 dind 사이드카가 없으며
+   * 자원이 작고, 대기열 라벨 기본값이 없어 담당자 없는 개발 이슈를 가져가지 않는다. 배포가 겹치지 않게 동시 진행 기본은 1 이다.
+   */
+  @Test
+  void load_whenClaudeCodeDeployTemplate_hasNoDindSmallResourcesAndNoQueueDefault()
+      throws IOException {
+    AgentTemplate t =
+        AgentTemplateRegistry.load(List.of(resource("claude-code-deploy.yaml")), ALLOWED, "0.9.103")
+            .get(0);
+
+    assertThat(t.name()).isEqualTo("claude-code-deploy");
+    assertThat(t.kind()).isEqualTo("WORKSPACE");
+    assertThat(t.card().title()).isEqualTo("Claude Code (배포)");
+    assertThat(t.image()).isEqualTo("docker.io/iacloudops/genia-works-agent-claude-code:0.9.103");
+    assertThat(t.requires()).containsExactly("claude", "repo");
+    assertThat(t.config())
+        .extracting(AgentTemplate.ConfigField::key)
+        .containsExactly("model", "effort", "queue");
+    assertThat(t.config().get(2).defaultValue()).isNull();
+    assertThat(t.sidecars()).isEmpty();
+    assertThat(t.resources())
+        .isEqualTo(new AgentTemplate.Resources("500m", "1Gi", "2", "4Gi", "10Gi"));
+    assertThat(t.plugins()).extracting(AgentTemplate.Plugin::name).containsExactly("genia-works");
+    assertThat(t.slotLimit()).isEqualTo(1);
+  }
+
   /** 템플릿 slotLimit(WP-1754) — 1·2·3·5 와 생략(기본 5)은 읽히고, 0·음수·4 는 읽을 때 실패한다. */
   @Test
   void load_whenSlotLimit_acceptsOnlyAllowedValues() {
@@ -198,7 +225,7 @@ class AgentTemplateRegistryTest {
     }
   }
 
-  /** 번들된 템플릿(default·claude-code·genia-code·codex·opencode)이 모두 검증을 통과한다. */
+  /** 번들된 템플릿(default·claude-code·claude-code-deploy·genia-code·codex·opencode)이 모두 검증을 통과한다. */
   @Test
   void load_whenBundledTemplates_allPass() throws IOException {
     List<AgentTemplate> all =
@@ -206,6 +233,7 @@ class AgentTemplateRegistryTest {
             List.of(
                 resource("default.yaml"),
                 resource("claude-code.yaml"),
+                resource("claude-code-deploy.yaml"),
                 resource("genia-code.yaml"),
                 resource("codex.yaml"),
                 resource("opencode.yaml")),
@@ -214,7 +242,8 @@ class AgentTemplateRegistryTest {
 
     assertThat(all)
         .extracting(AgentTemplate::name)
-        .containsExactly("claude-code", "codex", "default", "genia-code", "opencode");
+        .containsExactly(
+            "claude-code", "claude-code-deploy", "codex", "default", "genia-code", "opencode");
     assertThat(all.stream().filter(t -> t.name().equals("default")).findFirst().get().kind())
         .isEqualTo("SERVER");
   }
