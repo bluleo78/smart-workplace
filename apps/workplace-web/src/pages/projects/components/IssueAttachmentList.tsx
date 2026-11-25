@@ -134,6 +134,7 @@ export function IssueAttachmentList({
           />
         ))}
       </ul>
+      {/* 「n개 더 보기」 는 업로드 칩 목록 바로 뒤 — 드라이브 링크는 별도 인스턴스(driveLinksOnly)가 드롭존 아래에 그리므로 링크가 많아도 끼어들지 않는다(WP-2118). */}
       {collapsible && (
         <button
           type="button"

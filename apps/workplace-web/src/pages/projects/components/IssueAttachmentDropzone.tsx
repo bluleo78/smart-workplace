@@ -1,13 +1,12 @@
 // 이슈 첨부 드롭존 — HTML5 native DnD + 클릭 업로드.
-// disabled 일 때(이슈당 한도 도달) 드롭/클릭 모두 비활성.
+// disabled 일 때(이슈당 한도 도달)는 업로드를 하지 않고, 막힌 드롭·클릭에는 이유 토스트를 띄운다.
 
 import { Loader2, Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { toast } from 'sonner';
 
 import { ATTACHMENT_MAX_PER_ISSUE } from '../../../api/issueAttachments';
 import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
-import { attachmentLimitLabel, blockedUploadMessage } from '../../../lib/issueAttachmentUpload';
+import { attachmentLimitLabel, notifyBlockedUpload } from '../../../lib/issueAttachmentUpload';
 import { cn } from '../../../lib/utils';
 
 export function IssueAttachmentDropzone({
@@ -32,11 +31,13 @@ export function IssueAttachmentDropzone({
   // 막힌 이유 — 한도 도달이 업로드 중보다 우선. 커서·불투명도·토스트·dropEffect 를 여기서 파생한다.
   const blockReason: 'limit' | 'uploading' | null = disabled ? 'limit' : upload.isPending ? 'uploading' : null;
   const blocked = blockReason !== null;
+  // 막힌 이유를 토스트로 알린다 — 드롭과 클릭이 같은 문구를 쓴다(클릭만 말없이 무시되지 않게, WP-2118).
+  const notifyBlocked = (reason: 'limit' | 'uploading') => notifyBlockedUpload(reason, ATTACHMENT_MAX_PER_ISSUE);
   const onFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     // 막힌 때 드롭한 파일은 말없이 버리지 않고 이유를 알린다(WP-2118).
     if (blockReason) {
-      toast.info(blockedUploadMessage(blockReason, ATTACHMENT_MAX_PER_ISSUE));
+      notifyBlocked(blockReason);
       return;
     }
     upload.mutate({ files: Array.from(files), currentCount });
@@ -62,7 +63,8 @@ export function IssueAttachmentDropzone({
         setHover(false);
         onFiles(e.dataTransfer.files);
       }}
-      onClick={() => !blocked && inputRef.current?.click()}
+      // 막힌 때는 input 이 disabled 라 클릭이 오지 않으므로 감싼 이 요소에서 받아 같은 안내를 띄운다.
+      onClick={() => (blockReason ? notifyBlocked(blockReason) : inputRef.current?.click())}
       // 길고(flex-1) 두꺼운(py-4) 드롭 영역 — 점선 테두리로 "드롭/업로드"를 실선 링크 버튼과 구분.
       className={cn(
         'flex flex-1 items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-4 text-xs font-medium',
