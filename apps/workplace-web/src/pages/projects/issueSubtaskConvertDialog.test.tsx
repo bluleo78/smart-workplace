@@ -184,3 +184,49 @@ test('하위를 읽는 중 팝오버를 닫으면(취소) 늦게 온 결과로 �
   await new Promise((r) => setTimeout(r, 50))
   expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
 })
+
+// 리뷰 후속(PR #1874) — 앞 회차(취소한 조회)의 응답이 늦게 와도 지금 회차의 조회 중 잠금을 풀지 않는다.
+test('취소한 앞 조회가 늦게 끝나도 다시 고른 조회가 도는 동안 유형 목록은 잠겨 있다', async () => {
+  // closed 조회마다 따로 붙잡는다 — 첫째(취소한 회차)를 먼저 풀고, 둘째(지금 회차)는 붙든 채 잠금을 본다.
+  const releases: Array<() => void> = []
+  // 풀린 closed 응답을 핸들러가 돌려준 수 — 앞 회차 응답이 실제로 화면 코드에 닿은 뒤에 잠금을 보기 위해 센다.
+  let served = 0
+  const requests = recordRequests()
+  const detail = taskDetail(1, false)
+  const { user } = await openIssueDetailScreen({
+    key: KEY,
+    number: 1,
+    detail,
+    project: { type: 'TEAM' },
+    handlers: [
+      typesHandler,
+      http.get(CHILDREN, async (info) => {
+        if (new URL(info.request.url).searchParams.get('state') === 'closed') {
+          await new Promise<void>((r) => releases.push(r))
+          served += 1
+        }
+        return childrenResolver(() => [child(11)])(info)
+      }),
+      http.patch(TYPE_PATCH, () => HttpResponse.json(detail)),
+    ],
+  })
+  await user.click(await screen.findByTestId('issue-type-trigger', {}, { timeout: SCREEN_LOAD_TIMEOUT }))
+  await user.click(await screen.findByTestId('issue-type-option-6'))
+  await waitFor(() => expect(releases).toHaveLength(1))
+  await user.keyboard('{Escape}')
+  // 닫으면 잠금이 풀려, 다시 열었을 때 고를 수 있어야 한다.
+  await user.click(screen.getByTestId('issue-type-trigger'))
+  await waitFor(() => expect(screen.getByTestId('issue-type-option-6')).not.toBeDisabled())
+  await user.click(screen.getByTestId('issue-type-option-6'))
+  await waitFor(() => expect(releases).toHaveLength(2))
+  // 앞 회차를 푼다 — 그 finally 가 지금 회차의 잠금을 풀면 안 된다.
+  releases[0]()
+  // 앞 회차 응답이 돌아온 뒤, 그 결과 처리(finally 포함)가 끝나도록 조금 더 둔다 — 이 사이 잠금이 풀리면 안 된다.
+  await waitFor(() => expect(served).toBe(1))
+  await new Promise((r) => setTimeout(r, 100))
+  expect(screen.getByTestId('issue-type-option-1')).toBeDisabled()
+  // 지금 회차를 풀면 하위 태스크가 있어 창이 뜨고, 취소한 회차는 아무것도 저장하지 않았다.
+  releases[1]()
+  await screen.findByTestId('subtask-convert-dialog')
+  expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
+})

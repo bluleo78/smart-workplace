@@ -44,8 +44,12 @@ export function SubtaskConvertDialog({
   subtasks: IssueResponse[];
   /** 바꿀 유형 후보(EPIC·SUBTASK 제외) — 호출부가 convertTargetTypes 로 거른다. */
   targetTypes: IssueTypeResponse[];
-  /** 지금 상위 — 있으면 에픽이 되며 빠진다는 안내와 관련 관계 유지 체크를 보인다. */
-  currentParent: { key: string; title: string; typeName: string } | null;
+  /**
+   * 지금 상위 — 읽을 수 있으면 에픽이 되며 그 상위에서 빠진다는 안내와 관련 관계 유지 체크를 보인다.
+   * { hidden: true } 는 읽을 수 없는 상위(WP-2131) — 키 없이 상위 연결이 풀린다는 안내만(관계 옵션은 보내지 않는다). null 이면 상위 없음.
+   * typeName 은 상세 응답에 유형이 없으면 빠진다(WP-2131).
+   */
+  currentParent: { key: string; title: string; typeName?: string } | { hidden: true } | null;
   onConfirm: (c: SubtaskConvertChoice) => void;
   onCancel: () => void;
   /** 확인 뒤 요청 중 — 켜지는 동안 확인 단추를 끈다(연타 방지). */
@@ -99,7 +103,12 @@ export function SubtaskConvertDialog({
               ))}
             </RadioGroup>
           </div>
-          {currentParent != null && (
+          {currentParent != null && 'hidden' in currentParent && (
+            <p data-testid="subtask-convert-hidden-parent-notice" className="text-sm text-muted-foreground">
+              지금 상위를 볼 권한이 없습니다(다른 프로젝트의 상위 등). 에픽은 상위를 둘 수 없어 상위 연결이 풀립니다.
+            </p>
+          )}
+          {currentParent != null && !('hidden' in currentParent) && (
             <>
               <p data-testid="subtask-convert-parent-notice" className="text-sm text-muted-foreground">
                 에픽은 상위를 둘 수 없어 지금 상위 {currentParent.key} 에서 빠집니다
