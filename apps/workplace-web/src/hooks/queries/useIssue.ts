@@ -6,6 +6,7 @@ import { isAxiosError } from 'axios';
 import { issuesApi } from '../../api/issues';
 import { handleApiError } from '../../lib/api-error';
 import type { IssueDetailResponse, UpdateIssueRequest } from '../../types/issue';
+import { issueKeyStatusKeys } from './issueKeyStatusKeys';
 import { issueKeys } from './useIssues';
 import { projectOverviewKey } from './useProjectOverview';
 import { refreshStatusesIfGone } from './useProjectStatuses';
@@ -54,7 +55,8 @@ export function useUpdateIssue(projectKey: string, number: number) {
       // 마감일 변경이 홈 "오늘 마감" 카운트·주의 항목에 즉시 반영되도록 prefix 로 모든 날짜범위를 무효화한다.
       qc.invalidateQueries({ queryKey: ['my-issue-dues'] });
       // 본문 이슈 키 링크의 상태(삭선) 캐시도 — 완료·취소로 바뀌면 바로 따라가게 한다(WP-2102).
-      qc.invalidateQueries({ queryKey: ['issue-key-status'] });
+      // 그 이슈 키 하나만 — 같은 프로젝트의 다른 키 캐시는 건드리지 않는다.
+      qc.invalidateQueries({ queryKey: issueKeyStatusKeys.key(projectKey, number) });
       // 상태·닫기·다시 열기는 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },

@@ -1,4 +1,5 @@
 // 이슈 키 상태 일괄 로더(WP-2102) — 같은 틱에 모인 키를 한 번의 POST 로(100개씩 나눠) 보내고 키마다 자기 항목을 돌려주는지 본다.
+import { AxiosError, AxiosHeaders } from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { loadIssueKeyStatus } from './appLinks'
@@ -58,9 +59,24 @@ describe('loadIssueKeyStatus', () => {
     expect(results.slice(100).every((r) => r.status === 'fulfilled')).toBe(true)
   })
 
-  it('요청이 실패하면 그 묶음의 프라미스가 모두 거절된다', async () => {
-    post.mockRejectedValue(new Error('boom'))
+  it('요청이 계속 실패하면 묶음당 3번(첫 요청 + 재시도 2번)만 보내고 그 묶음의 프라미스가 모두 거절된다', async () => {
+    post.mockRejectedValue(new AxiosError('down', '503', undefined, undefined, { status: 503, statusText: '', headers: {}, config: { headers: new AxiosHeaders() }, data: {} }))
     const results = await Promise.allSettled([loadIssueKeyStatus('WP-1'), loadIssueKeyStatus('WP-2')])
     expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected'])
+    expect(post).toHaveBeenCalledTimes(3)
+  })
+
+  it('400 이면 재시도 없이 1번만 보내고 거절된다', async () => {
+    post.mockRejectedValue(new AxiosError('bad', '400', undefined, undefined, { status: 400, statusText: '', headers: {}, config: { headers: new AxiosHeaders() }, data: {} }))
+    const results = await Promise.allSettled([loadIssueKeyStatus('WP-1')])
+    expect(results[0].status).toBe('rejected')
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('404(볼 수 없음)는 재시도 없이 1번만 보낸다', async () => {
+    post.mockRejectedValue(new AxiosError('nf', '404', undefined, undefined, { status: 404, statusText: '', headers: {}, config: { headers: new AxiosHeaders() }, data: {} }))
+    const results = await Promise.allSettled([loadIssueKeyStatus('WP-1')])
+    expect(results[0].status).toBe('rejected')
+    expect(post).toHaveBeenCalledTimes(1)
   })
 })

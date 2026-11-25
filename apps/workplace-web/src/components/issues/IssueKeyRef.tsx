@@ -33,13 +33,14 @@ export function IssueKeyRef({ text, projectKey, number }: { text: string; projec
   const [open, setOpen] = useState(false)
   const visible = !!visibleKeys?.has(projectKey)
   // 상태는 볼 수 있는 프로젝트의 키일 때만 묻는다 — 같은 틱의 키는 일괄 로더가 한 요청으로 모은다. 실패·못 봄이면 평소 모양.
-  const { data: status } = useQuery({ ...issueKeyStatusQuery(`${projectKey}-${number}`), enabled: visible })
+  const { data: status } = useQuery({ ...issueKeyStatusQuery(projectKey, number), enabled: visible })
   if (!visible) return <>{text}</>
-  // 끝난 이슈의 모양·안내를 한 번만 정해 두 모양(마우스 링크·터치 버튼)에 같이 편다. 삭선·title 은 눈·마우스용이라 스크린리더에는 aria-label 로 상태를 알린다(WP-2102).
-  const closedProps =
-    status && isClosedStatus(status.statusCategory)
-      ? { className: CLOSED_LINK_CLASS, title: status.statusName, 'aria-label': `${text} (${status.statusName})` }
-      : { className: LINK_CLASS }
+  // 끝난 이슈의 모양·안내를 두 모양(마우스 링크·터치 버튼)에 같이 편다. 삭선은 눈용이라 스크린리더에는 aria-label 로 상태를 알린다(WP-2102).
+  // title(native 툴팁)은 터치 버튼에만 둔다 — 마우스 링크는 호버 카드에 상태가 보여 툴팁과 겹쳐 뜨는 것을 막는다.
+  const closed = !!status && isClosedStatus(status.statusCategory)
+  const closedProps = closed
+    ? { className: CLOSED_LINK_CLASS, 'aria-label': `${text} (${status.statusName})` }
+    : { className: LINK_CLASS }
 
   const link: AppLink = { kind: 'ISSUE', to: issuePath(projectKey, number), key: projectKey, number }
   const testId = `issue-key-ref-${projectKey}-${number}`
@@ -49,7 +50,7 @@ export function IssueKeyRef({ text, projectKey, number }: { text: string; projec
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           {/* 글자 링크 모양의 버튼 — 누르면 바로 이동하지 않고 미리보기를 연다(터치는 호버가 없다). */}
-          <button type="button" {...closedProps} data-testid={testId} onClick={stop}>
+          <button type="button" {...closedProps} title={closed ? status.statusName : undefined} data-testid={testId} onClick={stop}>
             {text}
           </button>
         </PopoverTrigger>

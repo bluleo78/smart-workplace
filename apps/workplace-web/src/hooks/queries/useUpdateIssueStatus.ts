@@ -11,6 +11,7 @@ import type { ClosedHidingNotice } from '../../lib/closedHiding';
 import type { IssueResponse, IssueStatus } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
 import { toastStatusChange } from './closedHidingToast';
+import { issueKeyStatusKeys } from './issueKeyStatusKeys';
 import { copyIssueIntoStatusColumn, findIssueInSearchCache, patchIssueInSearchCache } from './issueSearchCache';
 import { projectOverviewKey } from './useProjectOverview';
 import { refreshStatusesIfGone } from './useProjectStatuses';
@@ -75,11 +76,11 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
       // 고른 상태가 삭제돼 없으면(WP-936) 상태 목록을 다시 받아 보드 컬럼·고르기에서 지운다.
       refreshStatusesIfGone(qc, projectKey, err);
     },
-    onSettled: () => {
+    onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
       // 본문 이슈 키 링크의 상태(삭선) 캐시도 새로 받는다(WP-2102).
-      qc.invalidateQueries({ queryKey: ['issue-key-status'] });
+      qc.invalidateQueries({ queryKey: issueKeyStatusKeys.key(projectKey, vars.number) });
       // 상태 변경이 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },

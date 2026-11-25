@@ -2,6 +2,9 @@
 import { isAxiosError } from 'axios'
 
 import { driveFilePath } from '@/components/viewer/driveOpen'
+import { issueKeyStatusKeys } from '@/hooks/queries/issueKeyStatusKeys'
+import { sleep } from '@/lib/abortableWait'
+import { isTransientRequestError } from '@/lib/api-error'
 import type { AppLink } from '@/lib/appLinks'
 import { driveFolderPath } from '@/lib/appUrl'
 import type { UserSummary } from '@/types/user'
@@ -159,18 +162,42 @@ export function appLinkCardQuery(link: AppLink) {
 // 서버가 한 번에 받는 키 최대 개수 — 넘기면 400 이라 이 크기로 나눠 보낸다.
 const ISSUE_STATUS_CHUNK = 100
 
+// 묶음 POST 가 일시 오류로 실패했을 때 다시 보내기 전 기다리는 기본 간격 — 시도 횟수를 곱한다(500ms, 1000ms).
+const ISSUE_STATUS_RETRY_DELAY_MS = 500
+// 첫 요청 뒤 묶음 단위로 더 시도하는 최대 횟수(총 3번).
+const ISSUE_STATUS_MAX_RETRIES = 2
+
 type StatusWaiter = { resolve: (v: IssueKeyStatus | null) => void; reject: (e: unknown) => void }
 // 이번 틱에 모인 키 → 기다리는 쪽들. 같은 키는 한 항목에 모아 본문에 한 번만 싣는다.
 let pendingStatusKeys = new Map<string, StatusWaiter[]>()
 
-/** 모인 키를 100개씩 나눠 한 묶음에 POST 한 번 — 묶음이 실패하면 그 묶음 키의 프라미스를 모두 거절한다. */
+/**
+ * 한 묶음 POST — 일시 오류(5xx·연결 끊김)면 같은 묶음을 최대 두 번 더 보낸다. 4xx 는 다시 물어도 같아 바로 던진다.
+ * 재시도를 키별 쿼리(useQuery retry)가 아니라 여기서 묶음 단위로 하는 이유: 장식용 상태라, 키마다 재시도하면
+ * 이미 실패한 서버에 요청이 키 수만큼 쏟아진다.
+ */
+async function postIssueStatusesWithRetry(chunk: string[]): Promise<IssueKeyStatus[]> {
+  for (let attempt = 0; attempt <= ISSUE_STATUS_MAX_RETRIES; attempt++) {
+    try {
+      return await appLinksApi.issueStatuses(chunk)
+    } catch (err) {
+      // 일시 오류(응답 없음·5xx)만 다시 보낸다(공용 판정) — 400·403·404 등은 다시 보내도 같아 바로 던진다.
+      if (!isTransientRequestError(err) || attempt === ISSUE_STATUS_MAX_RETRIES) throw err
+      await sleep(ISSUE_STATUS_RETRY_DELAY_MS * (attempt + 1))
+    }
+  }
+  // 위 루프는 성공 반환이나 throw 로만 끝난다 — 타입 검사용.
+  throw new Error('unreachable')
+}
+
+/** 모인 키를 100개씩 나눠 한 묶음에 POST 한 번(실패 시 묶음 단위 재시도) — 끝내 실패하면 그 묶음 키의 프라미스를 모두 거절한다. */
 function flushIssueStatuses() {
   const batch = pendingStatusKeys
   pendingStatusKeys = new Map()
   const keys = [...batch.keys()]
   for (let i = 0; i < keys.length; i += ISSUE_STATUS_CHUNK) {
     const chunk = keys.slice(i, i + ISSUE_STATUS_CHUNK)
-    appLinksApi.issueStatuses(chunk).then(
+    postIssueStatusesWithRetry(chunk).then(
       (items) => {
         // 응답 순서는 입력과 달라 issueKey 로 짝짓는다. 응답에 없는 키(못 보는·없는 이슈)는 null.
         const byKey = new Map(items.map((it) => [it.issueKey, it]))
@@ -198,12 +225,12 @@ export function loadIssueKeyStatus(key: string): Promise<IssueKeyStatus | null> 
 }
 
 /** 키 상태 조회 옵션 — 키별 캐시라 같은 키가 여러 곳에 있어도 한 번만 받는다. */
-export function issueKeyStatusQuery(key: string) {
+export function issueKeyStatusQuery(projectKey: string, number: number) {
   return {
-    queryKey: ['issue-key-status', key],
-    queryFn: () => loadIssueKeyStatus(key),
-    // 카드 조회와 같은 규칙 — 일시 오류(5xx·연결 끊김)는 두 번까지 다시 묻는다. 끝내 실패하면 링크는 평소 모양이다.
-    retry: (count: number, err: unknown) => !isAppLinkDenied(err) && count < 2,
+    queryKey: issueKeyStatusKeys.key(projectKey, number),
+    queryFn: () => loadIssueKeyStatus(`${projectKey}-${number}`),
+    // 재시도는 키별 쿼리가 아니라 묶음 POST 쪽(postIssueStatusesWithRetry)에서 한다 — 여기서 하면 키마다 요청이 나간다. 끝내 실패하면 링크는 평소 모양이다.
+    retry: false,
     staleTime: 60_000,
   }
 }
