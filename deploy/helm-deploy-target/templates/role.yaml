@@ -26,6 +26,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
     verbs: ["get", "list"]
+  # 앱 매니페스트에 네임스페이스 ResourceQuota 가 있으면 apply 가 현재 값을 읽는다 — 읽기만 준다.
+  # 바뀌지 않은 쿼터는 apply 를 통과하고, 쿼터를 바꾸는(상한을 푸는) apply 는 거절된다 — 쿼터는 사람이 바꾼다.
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["get", "list"]
   {{- with .Values.extraRules }}
   # 앱이 더 필요하다고 values extraRules 로 더한 것
   {{- toYaml . | nindent 2 }}

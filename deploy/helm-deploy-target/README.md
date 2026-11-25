@@ -22,6 +22,7 @@
 | `apps/replicasets` | get·list·watch | `rollout status`·`rollout history` |
 | `services`, `networking.k8s.io/ingresses` | get·list·create·patch·update | apply |
 | `pods`, `pods/log` | get·list | 반영 뒤 상태·로그 확인 |
+| `resourcequotas` | get·list | 앱 매니페스트에 든 네임스페이스 쿼터를 apply 가 읽는다. 바뀌지 않으면 통과하고, 쿼터를 바꾸는 apply 는 거절된다(상한은 사람이 바꾼다) |
 
 `secrets`·`configmaps`·`pods/exec`·`delete` 는 주지 않습니다. 배포 AI 가 앱 비밀값을 읽거나, 컨테이너에 들어가거나, 리소스를 지우지 못하게 하려는 것입니다.
 앱에 이 밖의 리소스(statefulsets·cronjobs 등)가 있으면 `extraRules` 로 더합니다. 대상 네임스페이스 안에만 더해집니다.

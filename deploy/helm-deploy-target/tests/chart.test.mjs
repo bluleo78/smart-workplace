@@ -57,6 +57,8 @@ test('grantsOnlyDeployPermissionsInsideTargetNamespace', () => {
     'networking.k8s.io/ingresses': ['create', 'get', 'list', 'patch', 'update'],
     '/pods': ['get', 'list'],
     '/pods/log': ['get', 'list'],
+    // 쿼터는 읽기만 — 배포 AI 가 앱 상한을 풀지 못하게
+    '/resourcequotas': ['get', 'list'],
   });
   // 비밀값·컨테이너 진입·삭제는 없다(설명 주석은 빼고 본다)
   assert.doesNotMatch(role.replace(/^\s*#.*$/gm, ''), /secrets|configmaps|pods\/exec|"delete"/);
