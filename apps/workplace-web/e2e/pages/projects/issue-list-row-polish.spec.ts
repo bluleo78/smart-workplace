@@ -95,7 +95,7 @@ test('종료 제목은 흐리고 취소에 삭선이 있으며 행 hover로 제�
   await page.mouse.move(0, 0);
 
   const doneTitle = page.getByRole('link', { name: done.title, exact: true });
-  const canceledTitle = page.getByRole('link', { name: canceled.title, exact: true });
+  const canceledTitle = page.getByTestId('issue-row-22-title-cell').locator('a');
   await expect(doneTitle).toBeVisible();
   await expect(canceledTitle).toBeVisible();
 
@@ -112,6 +112,16 @@ test('종료 제목은 흐리고 취소에 삭선이 있으며 행 hover로 제�
   await expect(canceledTitle).toHaveCSS('color', foreground);
   await expect(canceledTitle).toHaveCSS('text-decoration-line', /line-through/);
   await expect(doneTitle).toHaveCSS('color', muted);
+
+  await page.getByTestId('issue-row-22-menu').click();
+  await expect(page.getByTestId('issue-row-22-menu')).toHaveAttribute('aria-expanded', 'true');
+  await expect(canceledTitle).toHaveCSS('color', foreground);
+  await expect(canceledTitle).toHaveCSS('text-decoration-line', /line-through/);
+  await page.keyboard.press('Escape');
+
+  await page.getByTestId('select-issue-21').check();
+  await expect(doneTitle).toHaveCSS('color', foreground);
+  expect(await textContrast(doneTitle)).toBeGreaterThanOrEqual(4.5);
 });
 
 test('다크 모드의 종료 제목은 흐린 글자색으로 표시하고 배경과 4.5:1 이상 대비된다', { tag: '@layout' }, async ({

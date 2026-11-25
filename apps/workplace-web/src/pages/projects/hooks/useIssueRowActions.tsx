@@ -99,7 +99,7 @@ export function useIssueRowActions({
   open: ((issue: IssueResponse) => void) | undefined;
   /** ⋯ 버튼·우클릭 — 데스크톱은 드롭다운, 모바일은 액션 시트. 안정 참조. */
   openMenu: OpenRowMenu;
-  /** 데스크톱 메뉴가 열린 이슈 번호 — 해당 행·카드를 강조하고 ⋯ 를 계속 보이게 한다. */
+  /** 데스크톱 메뉴 또는 모바일 작업 시트가 열린 이슈 번호 — 해당 행·카드를 강조하고 ⋯ 를 계속 보이게 한다. */
   menuIssueNumber: number | null;
   sheets: ReactNode;
 } {
@@ -400,5 +400,11 @@ export function useIssueRowActions({
       {deleteDialog}
     </>
   );
-  return { open, openMenu, menuIssueNumber: null, sheets };
+  // 모바일 카드도 액션 시트가 열린 동안 종료 제목을 전경색으로 복원하도록 대상을 컨텍스트에 알린다.
+  return {
+    open,
+    openMenu,
+    menuIssueNumber: state?.kind === 'sheet' ? state.issue.number : null,
+    sheets,
+  };
 }

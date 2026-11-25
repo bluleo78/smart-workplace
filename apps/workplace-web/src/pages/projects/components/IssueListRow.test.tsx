@@ -36,4 +36,53 @@ describe('데스크톱 목록 제목', () => {
       expect(title).not.toHaveClass('line-through');
     }
   });
+
+  it.each(['DONE', 'CANCELED'] as const)('%s 상태에서 행 메뉴를 열면 제목이 배경과 구분된다', (status) => {
+    const issue = createIssue({ status });
+    renderWithProviders(
+      <table>
+        <tbody>
+          <IssueRow
+            issue={issue}
+            projectKey="WP"
+            selected={false}
+            onToggleSelect={() => {}}
+            onOpenMenu={() => {}}
+            menuOpen
+            columns={{ defs: [], left: [], right: [] }}
+          />
+        </tbody>
+      </table>,
+    );
+
+    const title = screen.getByRole('link', { name: issue.title });
+    expect(title).toHaveClass('text-foreground');
+    expect(title).not.toHaveClass('text-muted-foreground');
+    if (status === 'CANCELED') expect(title).toHaveClass('line-through');
+    else expect(title).not.toHaveClass('line-through');
+  });
+
+  it.each(['DONE', 'CANCELED'] as const)('%s 상태에서 여러 행을 고르면 제목 대비를 보존한다', (status) => {
+    const issue = createIssue({ status });
+    renderWithProviders(
+      <table>
+        <tbody>
+          <IssueRow
+            issue={issue}
+            projectKey="WP"
+            selected
+            onToggleSelect={() => {}}
+            columns={{ defs: [], left: [], right: [] }}
+          />
+        </tbody>
+      </table>,
+    );
+
+    const title = screen.getByRole('link', { name: issue.title });
+    expect(title).toHaveClass('text-foreground');
+    expect(title).not.toHaveClass('text-muted-foreground');
+    expect(title.closest('tr')).toHaveClass('bg-primary/10');
+    if (status === 'CANCELED') expect(title).toHaveClass('line-through');
+    else expect(title).not.toHaveClass('line-through');
+  });
 });

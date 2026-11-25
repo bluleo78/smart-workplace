@@ -22,6 +22,7 @@ const ISSUES = `/api/v1/projects/${KEY}/issues`
 
 const EPIC = createIssue({ id: 10, number: 10, projectKey: KEY, title: '결제 안정화', type: makeEpicType(), childCount: 3, childDoneCount: 1 })
 const LONG = createIssue({ id: 21, number: 21, projectKey: KEY, title: '결제 모듈 환불 처리 간헐적 실패 원인 분석 — PG 콜백 타임아웃 시 PENDING 잔류', type: makeTaskType(), status: 'TODO' })
+const CLOSED = createIssue({ id: 23, number: 23, projectKey: KEY, title: '종료된 모바일 목록 이슈', type: makeTaskType(), status: 'CANCELED' })
 const OTHER = createIssue({ id: 22, number: 22, projectKey: KEY, title: '환불 콜백 재시도 로직 추가', type: makeTaskType(), status: 'TODO' })
 
 type Call = { path: string; body: unknown }
@@ -35,7 +36,7 @@ function issueApi() {
     http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
     http.get(ISSUES, ({ request }) => {
       const sp = new URL(request.url).searchParams
-      return HttpResponse.json(createIssueSearchResponse(sp.get('type') === String(makeEpicType().id) ? [EPIC] : [LONG, OTHER], null))
+      return HttpResponse.json(createIssueSearchResponse(sp.get('type') === String(makeEpicType().id) ? [EPIC] : [LONG, OTHER, CLOSED], null))
     }),
     // 선택 해제 뒤 탭으로 들어가는 상세(22) — 화면이 뜨는 데 필요한 조회만.
     http.get(`${ISSUES}/22`, () => HttpResponse.json(createIssueDetail({ summary: OTHER }))),
@@ -70,6 +71,16 @@ function longPress(target: HTMLElement) {
 }
 
 describe('모바일 이슈 행 액션 시트', () => {
+  test('완료·취소 제목은 작업 시트가 열려 있는 동안 전경색으로 보인다', async () => {
+    const { user } = await open()
+    await user.click(screen.getByTestId('issue-row-23-menu'))
+
+    const title = screen.getByTestId('issue-row-23-title')
+    expect(title).toHaveClass('text-foreground', 'line-through')
+    expect(title).not.toHaveClass('text-muted-foreground')
+    expect(screen.getByTestId('issue-row-23')).toHaveClass('bg-accent')
+  })
+
   // 상태 시트 선택지는 프로젝트 상태(시드 id 1~4, WP-808) — statusId 로 보낸다.
   test('상태 변경 → 진행 중 → PATCH statusId', async () => {
     const { user, api } = await open()

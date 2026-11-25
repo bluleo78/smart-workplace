@@ -18,6 +18,7 @@ const json = (body: unknown) => ({ status: 200, contentType: 'application/json',
 const EPIC = createIssue({ id: 10, number: 10, projectKey: KEY, title: '결제 안정화', type: makeEpicType(), childCount: 3, childDoneCount: 1 });
 // 실데이터 수준의 긴 제목 — 2줄 이상으로 넘친다.
 const LONG = createIssue({ id: 21, number: 21, projectKey: KEY, title: '결제 모듈 환불 처리 간헐적 실패 원인 분석 — PG 콜백 타임아웃 시 PENDING 잔류', type: makeTaskType(), status: 'TODO' });
+const CLOSED = createIssue({ id: 23, number: 23, projectKey: KEY, title: '취소된 모바일 목록 이슈', type: makeTaskType(), status: 'CANCELED' });
 const OTHER = createIssue({ id: 22, number: 22, projectKey: KEY, title: '환불 콜백 재시도 로직 추가', type: makeTaskType(), status: 'TODO' });
 
 /** 목록·에픽·메타 스텁. 돌려주는 calls() 는 status/parent 변경 요청 기록. group=none 으로 진입해 사이클 기본 그룹을 피한다. */
@@ -44,6 +45,21 @@ async function mock(page: Page, { member = true, issues = [LONG, OTHER] } = {}) 
 test.describe('이슈 행 길게 누르기', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await stubChat(page);
+  });
+
+  test('취소된 행의 제목은 모바일 작업 시트가 열리면 전경색으로 보인다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await mock(page, { issues: [LONG, OTHER, CLOSED] });
+    await page.goto(`/projects/${KEY}?group=none`);
+    const row = page.getByTestId('issue-row-23');
+    await expect(row).toBeVisible();
+
+    await row.getByTestId('issue-row-23-menu').click();
+
+    const title = page.getByTestId('issue-row-23-title');
+    await expect.poll(() => title.evaluate((el) => el.classList.contains('text-foreground'))).toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.classList.contains('line-through'))).toBe(true);
+    await expect.poll(() => title.evaluate((el) => el.classList.contains('text-muted-foreground'))).toBe(false);
+    await expect.poll(() => row.evaluate((el) => el.classList.contains('bg-accent'))).toBe(true);
   });
 
   test('길게 누르면 액션 시트가 뜨고 상세로 이동하지 않는다, 체크박스는 없다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
