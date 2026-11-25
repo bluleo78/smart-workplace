@@ -247,11 +247,11 @@ export function RichInput({
   // 멘션 후보 팝업 aria(WP-2061): 목록 id 는 RichInput 마다 달라야 하고, 활성 후보 순번(null=팝업 없음)은 MentionList 가 알려 준다.
   const mentionListId = useId();
   const [mentionActive, setMentionActive] = useState<number | null>(null);
-  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음, 본문 모드만 읽음), dismissed: 이번 자동완성에서 Esc 로 닫았는가
+  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음 — 본문 모드 키 위임과 코멘트·채팅 수정 Esc 양보가 읽음, WP-2082), dismissed: 이번 자동완성에서 Esc 로 닫았는가
   // (닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
   // 본문에는 @Override·@media 처럼 멤버가 아닌 @단어가 흔한데 그때도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음), 키를 팝업에 넘기면
-  // Enter·Esc 가 아무 일도 하지 않았다 — 본문 모드는 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅은 popupOpenRef 를 그대로 쓰지만,
-  // 숨긴 팝업(dismissed)은 코멘트·채팅 Enter 전송 가드도 함께 읽는다 — dismissed 를 본문 전용으로 읽지 않게.
+  // Enter·Esc 가 아무 일도 하지 않았다 — 본문 모드는 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅 Enter 는 popupOpenRef 를 그대로 쓰지만,
+  // 숨긴 팝업(dismissed)은 코멘트·채팅 Enter 전송 가드도 함께 읽는다 — dismissed 를 본문 전용으로 읽지 않게. 수정 중 Esc 는 live 를 본다(WP-2082).
   const bodyPopupRef = useRef<{ live: boolean; dismissed: boolean; hide: (() => void) | null }>({
     live: false,
     dismissed: false,
@@ -497,7 +497,8 @@ export function RichInput({
                   return true;
                 }
                 // Esc 로 숨긴 팝업(dismissed)에는 방향키·Enter 를 목록에 넘기지 않는다 — 본문 모드와 같게,
-                // 보이지 않는 후보가 선택되지 않게 한다(WP-2062). Escape 는 위에서 팝업 쪽이 먼저 먹는다(두 번째 Esc 도 그대로 삼킨다).
+                // 보이지 않는 후보가 선택되지 않게 한다(WP-2062). Escape 는 위에서 팝업 쪽이 먼저 먹는다.
+                // (onCancel 이 있으면 숨긴 팝업은 양보하지 않으므로 두 번째 Esc 는 handleKeyDown 이 먼저 받아 수정을 취소한다 — onCancel 이 없을 때만 팝업 쪽이 삼킨다, WP-2082.)
                 if (bodyPopupRef.current.dismissed) return false;
                 return component?.ref?.onKeyDown(props) ?? false;
               },
@@ -607,6 +608,12 @@ export function RichInput({
           return true;
         }
         if (event.key === 'Escape' && onCancel) {
+          // 한글 조합 중 Esc 는 조합만 끝낸다 — 수정 전체를 취소하지 않는다(본문 모드 Esc 와 같게).
+          if (isImeComposing(event)) return false;
+          // 멘션 후보가 보이는 중이면 Esc 는 팝업만 닫는다(WP-2082). editorProps 는 플러그인보다 먼저 불려
+          // 여기서 취소해 버리면 suggestion 의 Esc 처리가 돌지 않아 수정 전체가 날아간다 — 양보하고, 닫힌 뒤 두 번째 Esc 부터 취소한다.
+          // 맞는 멤버가 없어 아무것도 안 보이는 팝업(live=false)은 양보하지 않는다 — 보이는 변화 없이 Esc 를 삼키지 않게.
+          if (bodyPopupRef.current.live && !bodyPopupRef.current.dismissed) return false;
           event.preventDefault();
           onCancel();
           return true;
