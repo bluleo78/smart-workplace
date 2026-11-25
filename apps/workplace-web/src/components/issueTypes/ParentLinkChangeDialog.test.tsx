@@ -1,6 +1,6 @@
 // 「상위 연결 변경」 확인 창(WP-2097) — 지금 상위 표시, 에픽 유무에 따른 선택지, 관련 관계 유지 기본값,
 // 「유형 변경」·「취소」·Esc 판정을 그린다. 창은 서버 요청 전에 뜨고(서버 미리보기 없음), 닫으면 아무것도 보내지 않는다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { expect, test, vi } from 'vitest'
 
@@ -16,7 +16,9 @@ function Harness({
   epic,
   onConfirm,
   parent = currentParent,
+  moveBlocked,
 }: {
+  moveBlocked?: boolean
   epic: { key: string; title: string } | null
   onConfirm: (p: ParentLinkChangeChoice) => void
   parent?: { key: string; title: string; typeName: string }
@@ -28,6 +30,7 @@ function Harness({
       onOpenChange={setOpen}
       currentParent={parent}
       epic={epic}
+      moveBlocked={moveBlocked}
       onConfirm={onConfirm}
       onCancel={() => setOpen(false)}
     />
@@ -103,4 +106,43 @@ test('Esc 를 누르면 확인 없이 창이 닫힌다', async () => {
   await user.keyboard('{Escape}')
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   expect(onConfirm).not.toHaveBeenCalled()
+})
+
+// WP-2132 — 완료된 에픽이면 이동 라디오를 끄고 안내를 보이며 기본을 상위 없이 변경으로 둔다.
+test('moveBlocked 면 이동 라디오가 비활성이고 안내가 보이며 기본은 상위 없이 변경', async () => {
+  const onConfirm = vi.fn()
+  const { user } = renderScreen(<Harness epic={{ key: 'WP-9', title: '기능 에픽' }} moveBlocked onConfirm={onConfirm} />)
+  await screen.findByRole('alertdialog')
+  const move = screen.getByRole('radio', { name: /상위의 에픽 아래로 이동/ })
+  expect(move).toBeDisabled()
+  // 접근성 — 비활성 라디오가 안내 문구 요소를 aria-describedby 로 가리킨다.
+  expect(move.getAttribute('aria-describedby')).toBe(screen.getByTestId('parent-link-move-blocked').id)
+  expect(screen.getByTestId('parent-link-move-blocked')).toHaveTextContent('완료된 에픽이라 옮길 수 없습니다 — 에픽을 다시 열면 옮길 수 있어요')
+  expect(screen.getByRole('radio', { name: /상위 없이 변경/ })).toBeChecked()
+  await user.click(screen.getByText('상위의 에픽 아래로 이동'))
+  expect(screen.getByRole('radio', { name: /상위 없이 변경/ })).toBeChecked()
+  await user.click(screen.getByTestId('parent-link-confirm'))
+  expect(onConfirm).toHaveBeenCalledWith({ moveToEpic: false, relateToReleasedParent: true })
+})
+
+// WP-2132 — 창이 열린 뒤 재조회로 에픽이 완료돼 막힘이 켜져도 화면 선택과 전송이 일치한다.
+test('열린 뒤 moveBlocked 가 켜지면 상위 없이 변경이 선택돼 보이고 확인은 moveToEpic false', async () => {
+  const onConfirm = vi.fn()
+  function Late() {
+    const [blocked, setBlocked] = useState(false)
+    return (
+      <>
+        <button onClick={() => setBlocked(true)}>막기</button>
+        <Harness epic={{ key: 'WP-9', title: '기능 에픽' }} moveBlocked={blocked} onConfirm={onConfirm} />
+      </>
+    )
+  }
+  const { user } = renderScreen(<Late />)
+  await screen.findByRole('alertdialog')
+  expect(screen.getByRole('radio', { name: /상위의 에픽 아래로 이동/ })).toBeChecked()
+  // 모달이 바깥을 inert 로 만들 수 있어 단추는 fireEvent 로 누른다.
+  fireEvent.click(screen.getByText('막기', { selector: 'button' }))
+  await waitFor(() => expect(screen.getByRole('radio', { name: /상위 없이 변경/ })).toBeChecked())
+  await user.click(screen.getByTestId('parent-link-confirm'))
+  expect(onConfirm).toHaveBeenCalledWith({ moveToEpic: false, relateToReleasedParent: true })
 })

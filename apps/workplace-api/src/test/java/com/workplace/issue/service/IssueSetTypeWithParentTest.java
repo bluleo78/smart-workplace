@@ -571,4 +571,79 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     assertThat(historyRepository.findByIssue(parent.id()))
         .noneMatch(h -> "RELATION_ADDED".equals(h.eventType()));
   }
+
+  /** WP-2132 — 완료 에픽 → 스토리 → 하위 태스크 구성. 에픽은 자식이 없을 때 DONE 처리한다. 두 테스트(이동 거절·떼어내기 성공)가 같은 구성을 쓴다. */
+  private record DoneEpicFixture(
+      Long owner,
+      String projectKey,
+      int epicNumber,
+      Long storyId,
+      Long subId,
+      int subNumber,
+      Long subTypeId,
+      Long taskTypeId) {}
+
+  private DoneEpicFixture doneEpicFixture(String userSuffix, String projectKey) {
+    Long owner = createUser(userSuffix);
+    var p = newProject(owner, projectKey);
+    Long epicTypeId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+    Long subTypeId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    Long taskTypeId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicTypeId, null, null));
+    var story =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("st", null, null, null, null, null, null, null));
+    var sub =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("s", null, null, null, null, subTypeId, story.number(), null));
+    issueService.updateStatus(owner, p.key(), epic.number(), "DONE");
+    return new DoneEpicFixture(
+        owner, p.key(), epic.number(), story.id(), sub.id(), sub.number(), subTypeId, taskTypeId);
+  }
+
+  /**
+   * WP-2132 — 하위 태스크를 완료(DONE)된 에픽 아래로 옮기며(유형 변경 + parentKey) 거절되는 서버 규칙(WP-689)을 고정한다. 웹은 확인 창에서
+   * 먼저 막지만, 서버가 마지막 방어선이다. 같은 InvalidParentException 은 자기 자신 부모 등에도 쓰이므로 메시지로 완료 에픽 규칙임을 가리고, 거절 뒤
+   * 유형·상위가 하나도 바뀌지 않음도 확인한다.
+   */
+  @Test
+  void move_under_done_epic_is_rejected_for_open_issue() {
+    var f = doneEpicFixture("l", "STPG");
+
+    assertThatThrownBy(
+            () ->
+                issueService.setType(
+                    f.owner(),
+                    f.projectKey(),
+                    f.subNumber(),
+                    f.taskTypeId(),
+                    null,
+                    f.projectKey() + "-" + f.epicNumber(),
+                    false))
+        .isInstanceOf(InvalidParentException.class)
+        .hasMessageContaining("완료된 에픽");
+
+    // 거절 뒤에는 유형·상위가 그대로다.
+    var unchanged = issueRepository.findById(f.subId()).orElseThrow();
+    assertThat(unchanged.typeId()).isEqualTo(f.subTypeId());
+    assertThat(unchanged.parentIssueId()).isEqualTo(f.storyId());
+  }
+
+  /** WP-2132 — 같은 구성에서 상위 없이(떼어내기) 유형만 바꾸면 완료 에픽과 무관하게 성공한다: 유형 TASK, 상위 null. */
+  @Test
+  void detach_under_done_epic_succeeds_for_open_issue() {
+    var f = doneEpicFixture("m", "STPH");
+
+    issueService.setType(f.owner(), f.projectKey(), f.subNumber(), f.taskTypeId());
+
+    var row = issueRepository.findById(f.subId()).orElseThrow();
+    assertThat(row.typeId()).isEqualTo(f.taskTypeId());
+    assertThat(row.parentIssueId()).isNull();
+  }
 }

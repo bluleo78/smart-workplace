@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { cn } from '@/lib/utils';
 import type { IssueTypeSummary } from '@/types/issueType';
 
 import { IssueTypeBadge } from './IssueTypeBadge';
@@ -40,6 +41,7 @@ export function ParentLinkChangeDialog({
   onOpenChange,
   currentParent,
   epic,
+  moveBlocked = false,
   onConfirm,
   onCancel,
   pending = false,
@@ -50,15 +52,19 @@ export function ParentLinkChangeDialog({
   currentParent: { key: string; title: string; typeName: string };
   /** 지금 상위의 위에 있는 에픽 — 있으면 「에픽 아래로 이동」 선택지를 기본으로 그린다. 없으면 「상위 없이 변경」만. */
   epic: { key: string; title: string } | null;
+  /** 완료된 에픽이라 이동을 못 고를 때(WP-2132) — 이동 라디오를 끄고 이유를 보이며 기본을 상위 없이 변경으로 둔다. */
+  moveBlocked?: boolean;
   onConfirm: (p: ParentLinkChangeChoice) => void;
   onCancel: () => void;
   /** 확인 뒤 요청 중 — 켜지는 동안 확인 단추를 끈다(연타 방지). */
   pending?: boolean;
 }) {
   // 선택 상태 — 마운트 1회에만 초기화된다. 호출부(IssueTypeSelectPopover)가 열려 있을 때만 이 컴포넌트를 조건부로
-  // 그려 열림마다 재마운트하므로, 여기 초기값이 매 열림의 기본값(에픽 있으면 이동·아니면 상위 없이, 관계 유지 켬)이 된다.
-  const [moveToEpic, setMoveToEpic] = useState(epic != null);
+  // 그려 열림마다 재마운트하므로, 여기 초기값이 매 열림의 기본값(에픽이 있고 막히지 않았으면 이동·아니면 상위 없이, 관계 유지 켬)이 된다.
+  const [wantsMove, setWantsMove] = useState(epic != null && !moveBlocked);
   const [relate, setRelate] = useState(true);
+  // 실제 선택값 — 창이 열린 뒤 재조회로 에픽이 완료돼 막힘이 켜져도 화면(라디오)과 전송이 같도록 파생한다.
+  const moveToEpic = wantsMove && !moveBlocked;
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -78,16 +84,27 @@ export function ParentLinkChangeDialog({
         <div className="space-y-3">
           <RadioGroup
             value={moveToEpic ? 'move' : 'detach'}
-            onValueChange={(v) => setMoveToEpic(v === 'move')}
+            onValueChange={(v) => setWantsMove(v === 'move')}
             aria-label="상위 연결 방식"
             className="gap-2.5"
           >
             {epic != null && (
+              <>
               <div className="flex items-start gap-2">
-                <RadioGroupItem value="move" id="parent-link-move" className="mt-0.5" />
+                {/* 막혔을 때만 안내 문구와 잇는다 — 스크린리더가 비활성 이유를 함께 읽게 한다(WP-2132). */}
+                <RadioGroupItem
+                  value="move"
+                  id="parent-link-move"
+                  className="mt-0.5"
+                  disabled={moveBlocked}
+                  aria-describedby={moveBlocked ? 'parent-link-move-blocked-hint' : undefined}
+                />
                 <label
                   htmlFor="parent-link-move"
-                  className="flex flex-1 flex-wrap items-center gap-1.5 text-sm cursor-pointer"
+                  className={cn(
+                    'flex flex-1 flex-wrap items-center gap-1.5 text-sm',
+                    moveBlocked ? 'text-muted-foreground' : 'cursor-pointer',
+                  )}
                 >
                   <span>상위의 에픽 아래로 이동</span>
                   <IssueTypeBadge type={badgeSummary('EPIC', -2)} size="sm" />
@@ -96,6 +113,12 @@ export function ParentLinkChangeDialog({
                   </span>
                 </label>
               </div>
+              {moveBlocked && (
+                <p id="parent-link-move-blocked-hint" data-testid="parent-link-move-blocked" className="pl-6 text-xs text-muted-foreground">
+                  완료된 에픽이라 옮길 수 없습니다 — 에픽을 다시 열면 옮길 수 있어요
+                </p>
+              )}
+              </>
             )}
             <div className="flex items-start gap-2">
               <RadioGroupItem value="detach" id="parent-link-detach" className="mt-0.5" />

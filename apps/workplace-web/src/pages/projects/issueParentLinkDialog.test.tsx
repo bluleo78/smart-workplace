@@ -84,3 +84,37 @@ test('부모가 없는 이슈는 확인 창 없이 곧바로 유형 PATCH 가 �
   expect(screen.queryByTestId('parent-link-dialog')).toBeNull()
   await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 6 }]))
 })
+
+// WP-2132 — 완료된 에픽 아래 스토리의 하위 태스크는 에픽으로 옮길 수 없다(서버 거절) — 창에서 막고 parentKey 를 안 보낸다.
+test('완료된 에픽 아래 스토리의 하위 태스크를 태스크로 바꾸면 이동이 막히고 PATCH 에 parentKey 가 없다', async () => {
+  const requests = recordRequests()
+  const detail = createIssueDetail({
+    summary: createIssue({
+      projectKey: KEY,
+      number: 1,
+      type: makeSubtaskType(),
+      status: 'TODO',
+      parent: {
+        number: 3,
+        title: '로그인 개선',
+        type: makeTaskType(),
+        projectKey: KEY,
+        epic: { number: 9, title: '기능 에픽', type: makeEpicType(), projectKey: KEY, status: 'DONE' },
+      },
+    }),
+  })
+  const { user } = await openIssueDetailScreen({
+    key: KEY,
+    number: 1,
+    detail,
+    project: { type: 'TEAM' },
+    handlers: [typesHandler, http.patch(TYPE_PATCH, () => HttpResponse.json(detail))],
+  })
+
+  await user.click(await screen.findByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-1'))
+  await screen.findByTestId('parent-link-dialog', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  expect(screen.getByTestId('parent-link-move-blocked')).toHaveTextContent('완료된 에픽이라 옮길 수 없습니다 — 에픽을 다시 열면 옮길 수 있어요')
+  await user.click(screen.getByTestId('parent-link-confirm'))
+  await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 1, relateToReleasedParent: true }]))
+})
