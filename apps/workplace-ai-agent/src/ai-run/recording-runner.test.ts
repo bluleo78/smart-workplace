@@ -114,6 +114,24 @@ describe('recordingRunner', () => {
     expect(sink[1]).toMatchObject({ status: 'FAILED', errorDetail: 'stream-boom' });
   });
 
+  // WP-2122 리뷰 후속: RUNNING 기록을 만들다 실패해도 순번이 남아, 그 호출의 실패를 call 로 용서할 수 있어야 한다.
+  it('RUNNING 기록이 실패해도 그 호출의 실패는 call 로 용서된다', async () => {
+    const { sink, scope } = make();
+    const build = vi.spyOn(scope as unknown as { build: () => AiRunRecord }, 'build').mockImplementationOnce(() => {
+      throw new Error('build 실패');
+    });
+    const err = new Error('effort 거절');
+    const call = { model: 'm-1' } as unknown as RunnerInput;
+    const inner: AgentRunner = { collect: async () => { throw err; }, stream: vi.fn() };
+    await withAiRunScope(scope, () => recordingRunner(inner, 'anthropic').collect(call).catch(() => undefined));
+    // 첫 build(RUNNING 기록)가 실제로 던져 그 경로를 지났는지 — RUNNING 기록은 남지 않는다.
+    expect(build).toHaveBeenCalled();
+    expect(sink.some((r) => r.status === 'RUNNING')).toBe(false);
+    scope.forgiveRunnerFailure(call);
+    scope.close({ ok: true });
+    expect(sink.at(-1)).toMatchObject({ status: 'SUCCEEDED', errorReason: null });
+  });
+
   it('범위 메서드가 throw 해도 러너 결과는 같다', async () => {
     const { scope } = make();
     vi.spyOn(scope, 'runnerStarted').mockImplementation(() => { throw new Error('s1'); });
