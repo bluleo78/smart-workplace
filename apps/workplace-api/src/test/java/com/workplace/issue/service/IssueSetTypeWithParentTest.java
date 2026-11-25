@@ -572,7 +572,11 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
         .noneMatch(h -> "RELATION_ADDED".equals(h.eventType()));
   }
 
-  /** WP-2132 — 완료 에픽 → 스토리 → 하위 태스크 구성. 에픽은 자식이 없을 때 DONE 처리한다. 두 테스트(이동 거절·떼어내기 성공)가 같은 구성을 쓴다. */
+  /**
+   * WP-2132 — 완료 에픽 E → 스토리 S → 하위 태스크 T 사슬. 에픽의 DONE 전이는 직계 하위(S)가 미완료면 막히지만(#710,
+   * findIncompleteChildKeys) 스토리의 DONE 전이는 열린 하위 태스크가 있어도 허용되므로, T 는 TODO 로 둔 채 S → E 순으로 DONE 해 최종
+   * 상태(E=DONE, S=DONE 이며 E 아래, T=TODO 이고 T 의 상위는 S)를 만든다. 두 테스트(이동 거절·떼어내기 성공)가 같은 구성을 쓴다.
+   */
   private record DoneEpicFixture(
       Long owner,
       String projectKey,
@@ -596,13 +600,26 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
             new CreateIssueRequest("e", null, null, null, null, epicTypeId, null, null));
     var story =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("st", null, null, null, null, null, null, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("st", null, null, null, null, null, epic.number(), null));
     var sub =
         issueService.create(
             owner,
             p.key(),
             new CreateIssueRequest("s", null, null, null, null, subTypeId, story.number(), null));
+    issueService.updateStatus(owner, p.key(), story.number(), "DONE");
     issueService.updateStatus(owner, p.key(), epic.number(), "DONE");
+
+    // 사슬이 의도대로 만들어졌는지 단언 — 픽스처가 조용히 어긋나지 않게.
+    var epicRow = issueRepository.findById(epic.id()).orElseThrow();
+    var storyRow = issueRepository.findById(story.id()).orElseThrow();
+    var subRow = issueRepository.findById(sub.id()).orElseThrow();
+    assertThat(storyRow.parentIssueId()).isEqualTo(epic.id());
+    assertThat(subRow.parentIssueId()).isEqualTo(story.id());
+    assertThat(epicRow.status()).isEqualTo("DONE");
+    assertThat(storyRow.status()).isEqualTo("DONE");
+    assertThat(subRow.status()).isEqualTo("TODO");
     return new DoneEpicFixture(
         owner, p.key(), epic.number(), story.id(), sub.id(), sub.number(), subTypeId, taskTypeId);
   }
