@@ -2,8 +2,14 @@ package com.workplace.airun.outbound;
 
 import com.workplace.airun.context.AiRunHeader;
 import com.workplace.airun.service.AiRunRecorder;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
@@ -38,12 +44,77 @@ public class AiRunClientInterceptor implements ClientHttpRequestInterceptor {
       }
       throw e;
     }
+    int status;
     try {
-      // 사유는 ai-agent 가 같은 runId 로 보고하는 값에 양보한다(AiRunFailures.recordServerError).
-      AiRunFailures.recordIfServerError(recorder, call, response.getStatusCode().value());
+      status = response.getStatusCode().value();
     } catch (RuntimeException | IOException e) {
       // 상태 읽기 실패는 기록만 포기한다 — 응답은 그대로 돌려준다.
+      return response;
     }
-    return response;
+    if (status < 500) {
+      return response;
+    }
+    // 5xx 는 본문의 reason(사용 한도 초과 등)을 사유로 남기려 본문을 읽고, 호출자에게는 같은 본문을 다시 주는 응답을 돌려준다(WP-2106).
+    // 중간에 읽기가 실패하면 http_<코드> 로 FAILED 를 남긴 뒤 원래 예외를 그대로 던진다 — 잘린 본문을 성공처럼 넘기지 않고, 호출자는 이 변경 전과 같은
+    // 예외를 맞는다.
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+    try {
+      InputStream in = response.getBody();
+      byte[] chunk = new byte[8192];
+      int n;
+      while ((n = in.read(chunk)) != -1) {
+        buf.write(chunk, 0, n);
+      }
+    } catch (RuntimeException | IOException e) {
+      AiRunFailures.recordIfServerError(recorder, call, status);
+      // 호출자에게 응답을 돌려주지 않고 던지므로 아무도 닫지 않는다 — 여기서 닫아 연결이 풀로 돌아가게 한다(WP-2106).
+      // 닫기 실패는 원래 예외를 가리지 않도록 suppressed 로만 붙인다.
+      try {
+        response.close();
+      } catch (RuntimeException closeError) {
+        e.addSuppressed(closeError);
+      }
+      throw e;
+    }
+    byte[] bytes = buf.toByteArray();
+    AiRunFailures.recordIfServerError(
+        recorder, call, status, new String(bytes, StandardCharsets.UTF_8));
+    return new ReplayedResponse(response, bytes);
+  }
+
+  /** 본문을 미리 읽어 둔 응답 — 헤더·상태는 원 응답에 위임하고 본문만 읽어 둔 바이트에서 다시 준다. */
+  private static final class ReplayedResponse implements ClientHttpResponse {
+    private final ClientHttpResponse delegate;
+    private final byte[] body;
+
+    ReplayedResponse(ClientHttpResponse delegate, byte[] body) {
+      this.delegate = delegate;
+      this.body = body;
+    }
+
+    @Override
+    public HttpStatusCode getStatusCode() throws IOException {
+      return delegate.getStatusCode();
+    }
+
+    @Override
+    public String getStatusText() throws IOException {
+      return delegate.getStatusText();
+    }
+
+    @Override
+    public void close() {
+      delegate.close();
+    }
+
+    @Override
+    public InputStream getBody() {
+      return new ByteArrayInputStream(body);
+    }
+
+    @Override
+    public HttpHeaders getHeaders() {
+      return delegate.getHeaders();
+    }
   }
 }

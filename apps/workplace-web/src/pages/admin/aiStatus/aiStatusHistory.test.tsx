@@ -310,6 +310,22 @@ test('상세 시트: AI 처리 행을 누르면 상세를 불러 요약·오류 
   expect(paths).toEqual([`/api/v1/admin/ai-status/runs/${DETAIL_UUID}`])
 })
 
+// WP-2106: 상세 원문이 있어도 사유 이름을 함께 보인다 — 원문만 보이면 한도 초과가 영문 메시지로만 남는다
+test('상세 시트: 사유가 provider_limit 이고 상세 원문이 있으면 사유 이름과 원문을 둘 다 보인다', async () => {
+  const raw = "API Error: You've hit your org's monthly spend limit"
+  const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+  const { user } = renderScreen(<AiStatusHistoryPage />, {
+    path: '/settings/ai-status/history',
+    auth: { isAdmin: true },
+    handlers: [h.handler, http.get(`${RUNS}/:id`, () => HttpResponse.json(createAiRunDetail({ errorDetail: raw })))],
+  })
+  await user.click(await screen.findByTestId('ai-run-row'))
+  const dialog = await screen.findByRole('dialog')
+  const errorSection = await within(dialog).findByRole('region', { name: '오류' })
+  expect(await within(errorSection).findByText(raw)).toBeInTheDocument()
+  expect(within(errorSection).getByText('사용 한도 초과')).toBeInTheDocument()
+})
+
 test('상세 시트: 위임 작업 행은 상세 API 를 부르지 않는다', async () => {
   let detailCalls = 0
   const h = runsHandler([createAiRunPage([createAiRunItem({ id: 'W-9', kind: 'DELEGATED_WORK' })])])
@@ -402,6 +418,29 @@ test('상세 시트: 상세 조회가 실패하면 「상세를 불러오지 못
   expect(within(dialog).getByText('응답 시간 초과')).toBeInTheDocument()
 })
 
+// 사유 코드가 이름으로 보인다(WP-2106) — 표 셀·상세 시트 모두 「사용 한도 초과」
+test('사유 provider_limit 행은 표에서 「사용 한도 초과」로 보인다', async () => {
+  const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+  renderHistory('/settings/ai-status/history', h)
+  const row = await screen.findByTestId('ai-run-row')
+  const cell = within(row).getAllByRole('cell')[9]
+  expect(cell).toHaveTextContent('사용 한도 초과')
+  // 칸 글은 한글 이름, title 은 원래 코드(운영자가 코드로 대조할 수 있게)
+  expect(cell).toHaveAttribute('title', 'provider_limit')
+})
+
+test('상세 시트: 사유 provider_limit 은 「사용 한도 초과」로 보인다', async () => {
+  const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+  const { user } = renderScreen(<AiStatusHistoryPage />, {
+    path: '/settings/ai-status/history',
+    auth: { isAdmin: true },
+    handlers: [h.handler, http.get(`${RUNS}/:id`, () => HttpResponse.json({}, { status: 500 }))],
+  })
+  await user.click(await screen.findByTestId('ai-run-row'))
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('사용 한도 초과')).toBeInTheDocument()
+})
+
 // 모바일 — 표 대신 3줄 카드, 기간은 칩 줄 맨 앞 칩, 상세 시트는 아래에서 올라온다.
 describe('모바일', () => {
   beforeEach(() => {
@@ -422,6 +461,13 @@ describe('모바일', () => {
     expect(lines[0]).toHaveTextContent('실패')
     expect(lines[1]).toHaveTextContent('메일 20통 · 김민수')
     expect(lines[2]).toHaveTextContent('자동 · 30초 · 응답 시간 초과')
+  })
+
+  test('모바일 카드: 사유 provider_limit 은 「사용 한도 초과」로 보인다', async () => {
+    const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+    renderHistory('/settings/ai-status/history', h)
+    const card = await screen.findByTestId('ai-run-card')
+    expect(card.querySelectorAll('[data-line]')[2]).toHaveTextContent('사용 한도 초과')
   })
 
   test('모바일 기간 칩으로 7일을 고르면 주소 period=7d', async () => {

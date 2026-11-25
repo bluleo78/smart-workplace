@@ -57,7 +57,7 @@ function runInScope(
     run = withAiRunScope(scope, handler);
   } catch (err) {
     // 핸들러의 동기 예외는 기록 때문에 바꾸지 않고 그대로 던진다(기존 동작 유지) — 범위만 닫는다.
-    safeClose(scope, { ok: false, reason: 'handler_error', detail: String(err) });
+    safeClose(scope, { ok: false, reason: 'handler_error', detail: String(err), error: err });
     throw err;
   }
   if (run === undefined) {
@@ -66,7 +66,7 @@ function runInScope(
   }
   run.then(
     () => safeClose(scope, { ok: true }),
-    (err: unknown) => safeClose(scope, { ok: false, reason: 'handler_error', detail: String(err) }),
+    (err: unknown) => safeClose(scope, { ok: false, reason: 'handler_error', detail: String(err), error: err }),
   );
 }
 

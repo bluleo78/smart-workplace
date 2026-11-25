@@ -510,6 +510,46 @@ describe('POST /events', () => {
       expect(records).toEqual([]);
     });
 
+    it('러너가 한도 오류로 실패해 처리가 reject 되면 handler_error 가 아니라 provider_limit 로 닫힌다', async () => {
+      const { records, sink } = collect();
+      const limit = new Error("API Error: You've hit your org's monthly spend limit");
+      vi.mocked(runAgent).mockImplementation(async () => {
+        const s = currentAiRunScope()!;
+        s.runnerStarted('m', 'anthropic');
+        s.runnerFinished({ ok: false, usage: null, error: limit });
+        throw limit;
+      });
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.created', payload: validCreatedPayload });
+      await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+      expect(records[1].errorReason).toBe('provider_limit');
+    });
+
+    it('앞서 우회된 러너 한도 오류가 있어도 처리가 다른 오류로 reject 되면 provider_limit 이 아니라 handler_error 로 닫힌다', async () => {
+      const { records, sink } = collect();
+      const limit = new Error("API Error: You've hit your org's monthly spend limit");
+      vi.mocked(runAgent).mockImplementation(async () => {
+        const s = currentAiRunScope()!;
+        // 한도 오류로 실패한 러너를 다른 러너로 우회해 성공한 뒤, 러너와 무관한 오류로 처리가 실패한다.
+        s.runnerStarted('m', 'anthropic');
+        s.runnerFinished({ ok: false, usage: null, error: limit });
+        s.runnerStarted('m', 'anthropic');
+        s.runnerFinished({ ok: true, usage: null });
+        throw new Error('댓글 저장 실패');
+      });
+      await request(buildApp(sink))
+        .post('/events')
+        .set('Authorization', AUTH)
+        .set('X-AI-Run', encodeAiRunHeader({ tenantId: 9 }))
+        .send({ type: 'issue.created', payload: validCreatedPayload });
+      await vi.waitFor(() => expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']));
+      expect(records[1].errorReason).toBe('handler_error');
+      expect(records[1].errorDetail).toContain('댓글 저장 실패');
+    });
+
     it('처리 promise 가 reject 해도 202 응답은 같고 FAILED·handler_error', async () => {
       const { records, sink } = collect();
       vi.mocked(runAgent).mockImplementation(async () => {

@@ -162,4 +162,44 @@ describe('recordingRunner', () => {
     scope.close({ ok: true });
     expect(sink[1]).toMatchObject({ status: 'FAILED', errorDetail: 'sync-boom' });
   });
+
+  // WP-2106: 성공한 호출은 자기보다 먼저 끝난 실패만 우회로 표시한다
+  const LIMIT = new Error("API Error: You've hit your org's monthly spend limit");
+
+  it('collect: 한도 실패 뒤 다른 호출이 성공하면 우회 — 라우트 500 이면 http_500', async () => {
+    const { sink, scope } = make();
+    const failing: AgentRunner = { collect: async () => { throw LIMIT; }, stream: vi.fn() };
+    const ok: AgentRunner = { collect: async () => [resultEv()], stream: vi.fn() };
+    await withAiRunScope(scope, async () => {
+      await recordingRunner(failing, 'a').collect(input).catch(() => undefined);
+      await recordingRunner(ok, 'b').collect(input);
+    });
+    scope.close({ ok: false, reason: 'http_500' });
+    expect(sink[1].errorReason).toBe('http_500');
+  });
+
+  it('collect: 함께 돌던 호출의 성공은 다른 호출의 한도 실패를 우회하지 않는다 — 라우트 500 이어도 provider_limit', async () => {
+    const { sink, scope } = make();
+    let failNow!: () => void;
+    const failing: AgentRunner = {
+      collect: () => new Promise((_res, rej) => { failNow = () => rej(LIMIT); }),
+      stream: vi.fn(),
+    };
+    let okNow!: () => void;
+    const ok: AgentRunner = {
+      collect: () => new Promise((res) => { okNow = () => res([resultEv()]); }),
+      stream: vi.fn(),
+    };
+    await withAiRunScope(scope, async () => {
+      const p1 = recordingRunner(failing, 'a').collect(input).catch(() => undefined);
+      const p2 = recordingRunner(ok, 'b').collect(input);
+      await Promise.resolve();
+      failNow();
+      await p1;
+      okNow();
+      await p2;
+    });
+    scope.close({ ok: false, reason: 'http_500' });
+    expect(sink[1].errorReason).toBe('provider_limit');
+  });
 });

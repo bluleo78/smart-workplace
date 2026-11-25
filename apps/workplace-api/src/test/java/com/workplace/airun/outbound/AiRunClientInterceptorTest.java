@@ -37,6 +37,7 @@ class AiRunClientInterceptorTest {
   private String baseUrl;
   private int status = 200;
   private long sleepMs = 0;
+  private String responseBody = "{}";
   private final AtomicReference<String> seenHeader = new AtomicReference<>();
   private AiRunRecorder recorder;
 
@@ -56,7 +57,7 @@ class AiRunClientInterceptorTest {
               Thread.currentThread().interrupt();
             }
           }
-          byte[] b = "{}".getBytes(StandardCharsets.UTF_8);
+          byte[] b = responseBody.getBytes(StandardCharsets.UTF_8);
           ex.getResponseHeaders().add("Content-Type", "application/json");
           try {
             ex.sendResponseHeaders(status, b.length);
@@ -118,6 +119,101 @@ class AiRunClientInterceptorTest {
     assertThat(r.errorDetail()).isNull();
     assertThat(r.kind()).isEqualTo("MAIL_CLASSIFY_BATCH");
     assertThat(r.runId().toString()).isEqualTo(decode(seenHeader.get()).get("runId"));
+  }
+
+  /** ai-agent 503 본문의 reason 이 사용 한도 초과면 그 소문자 코드를 사유로 남기고, 호출자는 같은 본문을 그대로 받는다(WP-2106). */
+  @Test
+  void failure_503WithProviderLimitReason_recordsProviderLimit() {
+    status = 503;
+    responseBody = "{\"error\":\"mail_unavailable\",\"reason\":\"PROVIDER_LIMIT\"}";
+    assertThatThrownBy(() -> post(client(baseUrl, Duration.ofSeconds(1)), "/mail/classify-batch"))
+        .isInstanceOfSatisfying(
+            HttpServerErrorException.class,
+            e -> assertThat(e.getResponseBodyAsString()).contains("PROVIDER_LIMIT"));
+
+    assertThat(captured().errorReason()).isEqualTo("provider_limit");
+  }
+
+  @Test
+  void failure_503WithoutReason_keepsHttp503() {
+    status = 503;
+    responseBody = "{\"error\":\"mail_unavailable\"}";
+    assertThatThrownBy(() -> post(client(baseUrl, Duration.ofSeconds(1)), "/mail/classify-batch"))
+        .isInstanceOf(HttpServerErrorException.ServiceUnavailable.class);
+
+    assertThat(captured().errorReason()).isEqualTo("http_503");
+  }
+
+  /**
+   * 5xx 본문 읽기가 중간에 실패하면 http_<코드> 로 기록하고 응답을 닫은 뒤 원래 예외를 다시 던진다 — 잘린 응답을 성공처럼 돌려주지 않고, 호출자가 받지 못한
+   * 응답의 연결이 풀에서 새지 않게 한다(WP-2106).
+   */
+  @Test
+  void failure_5xxBodyReadFails_recordsHttpCodeAndRethrows() throws Exception {
+    var req =
+        new org.springframework.mock.http.client.MockClientHttpRequest(
+            org.springframework.http.HttpMethod.POST,
+            java.net.URI.create("http://x/mail/classify-batch"));
+    var orig = mock(org.springframework.http.client.ClientHttpResponse.class);
+    org.mockito.Mockito.when(orig.getStatusCode())
+        .thenReturn(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+    java.io.InputStream broken =
+        new java.io.InputStream() {
+          int i = 0;
+
+          @Override
+          public int read() throws java.io.IOException {
+            if (i < 3) {
+              return "abc".charAt(i++);
+            }
+            throw new java.io.IOException("reset");
+          }
+        };
+    org.mockito.Mockito.when(orig.getBody()).thenReturn(broken);
+
+    assertThatThrownBy(
+            () -> new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig))
+        .isInstanceOf(java.io.IOException.class)
+        .hasMessage("reset");
+
+    assertThat(captured().errorReason()).isEqualTo("http_503");
+    org.mockito.Mockito.verify(orig).close();
+  }
+
+  /** 본문 읽기 실패 뒤 응답 닫기마저 실패하면 원래 예외를 그대로 던지고 닫기 오류는 suppressed 로만 붙인다(WP-2106). */
+  @Test
+  void failure_5xxBodyReadFails_closeFails_keepsOriginalWithSuppressed() throws Exception {
+    var req =
+        new org.springframework.mock.http.client.MockClientHttpRequest(
+            org.springframework.http.HttpMethod.POST,
+            java.net.URI.create("http://x/mail/classify-batch"));
+    var orig = mock(org.springframework.http.client.ClientHttpResponse.class);
+    org.mockito.Mockito.when(orig.getStatusCode())
+        .thenReturn(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+    org.mockito.Mockito.when(orig.getBody()).thenThrow(new java.io.IOException("reset"));
+    org.mockito.Mockito.doThrow(new IllegalStateException("close failed")).when(orig).close();
+
+    assertThatThrownBy(
+            () -> new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig))
+        .isInstanceOf(java.io.IOException.class)
+        .hasMessage("reset")
+        .satisfies(
+            e ->
+                assertThat(e.getSuppressed())
+                    .extracting(Throwable::getMessage)
+                    .containsExactly("close failed"));
+
+    assertThat(captured().errorReason()).isEqualTo("http_503");
+  }
+
+  @Test
+  void failure_unknownReasonOrNonJson_keepsHttpStatus() {
+    assertThat(AiRunFailures.serverErrorReason(503, "{\"reason\":\"WHATEVER\"}"))
+        .isEqualTo("http_503");
+    assertThat(AiRunFailures.serverErrorReason(502, "<html>bad gateway</html>"))
+        .isEqualTo("http_502");
+    assertThat(AiRunFailures.serverErrorReason(503, "{\"reason\":\"RUNNER_UNAVAILABLE\"}"))
+        .isEqualTo("runner_unavailable");
   }
 
   @Test

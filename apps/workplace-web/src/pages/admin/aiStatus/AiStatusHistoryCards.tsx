@@ -3,6 +3,7 @@
 import type { AiRunListItem } from '@/api/aiStatus'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { aiRunReasonLabel } from '@/lib/aiRunReasonLabels'
 import { formatDurationMs } from '@/lib/formatters'
 
 import { AiStatusActor } from './AiStatusActor'
@@ -21,7 +22,7 @@ function detailParts(item: AiRunListItem): string[] {
   return [
     item.durationMs === null ? null : formatDurationMs(item.durationMs),
     hasTokens ? tokensText(item.inputTokens, item.outputTokens) : null,
-    item.errorReason,
+    item.errorReason == null ? null : aiRunReasonLabel(item.errorReason),
   ].filter((p): p is string => p !== null && p !== '')
 }
 

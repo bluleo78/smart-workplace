@@ -2,6 +2,7 @@ package com.workplace.airun.status;
 
 import static com.workplace.jooq.Tables.AGENT_ACCOUNT_USAGE;
 
+import com.workplace.airun.outbound.AiRunFailures;
 import com.workplace.airun.status.dto.AiRunFilter;
 import java.time.Duration;
 import java.time.Instant;
@@ -49,12 +50,26 @@ public class AiStatusQueryRepository {
           + RUN_MS
           + ") FILTER (WHERE status IN ('SUCCEEDED','FAILED') AND ended_at IS NOT NULL) AS p95";
 
-  /** 건수·토큰·성공/실패 수 조각. */
+  /** 사용 한도 초과 사유 코드(ai-agent·API 가 ai_run.error_reason 에 남기는 값). 실패율에서 뺀다(WP-2106). */
+  private static final String LIMIT_REASON = AiRunFailures.LIMIT_REASON;
+
+  /** 한도 초과가 아닌 사유 조건(null 사유 포함) / 한도 초과 사유 조건 SQL 조각. */
+  private static final String NOT_LIMITED_SQL =
+      "coalesce(error_reason, '') <> '" + LIMIT_REASON + "'";
+
+  private static final String IS_LIMITED_SQL = "error_reason = '" + LIMIT_REASON + "'";
+
+  /** 건수·토큰·성공/실패 수 조각. failed 는 사용 한도 초과를 뺀 실패, limited 는 한도 초과만. */
   private static final String RUN_SUMS =
       "count(*) AS cnt, "
           + "coalesce(sum(input_tokens), 0) AS in_tok, coalesce(sum(output_tokens), 0) AS out_tok, "
           + "count(*) FILTER (WHERE status = 'SUCCEEDED') AS succeeded, "
-          + "count(*) FILTER (WHERE status = 'FAILED') AS failed";
+          + "count(*) FILTER (WHERE status = 'FAILED' AND "
+          + NOT_LIMITED_SQL
+          + ") AS failed, "
+          + "count(*) FILTER (WHERE status = 'FAILED' AND "
+          + IS_LIMITED_SQL
+          + ") AS limited";
 
   /** 위임 작업의 첫 「실제 시작」 시각 — IssueMetricsRepository.findFirstAgentRunAt 과 같은 정의. */
   private static final String WORK_REAL_START =
@@ -70,10 +85,11 @@ public class AiStatusQueryRepository {
       long outputTokens,
       long succeeded,
       long failed,
+      long limited,
       Double p50,
       Double p95) {
 
-    /** 실패율 = FAILED / (SUCCEEDED + FAILED), 분모 0 이면 null. */
+    /** 실패율 = FAILED(한도 초과 제외) / (SUCCEEDED + 그 FAILED), 분모 0 이면 null. */
     public Double failureRate() {
       long done = succeeded + failed;
       return done == 0 ? null : (double) failed / done;
@@ -127,13 +143,33 @@ public class AiStatusQueryRepository {
     return toTotals(r);
   }
 
+  /** [from, to) 한도 초과로 끝난 호출의 자격 증명 라벨 — 최근 순, 중복·null 제외, 최대 3개. */
+  public List<String> limitedCredentials(Instant from, Instant to) {
+    List<String> out = new ArrayList<>();
+    for (Record r :
+        dsl.fetch(
+            "SELECT credential_label FROM ai_run WHERE status = 'FAILED' AND "
+                + IS_LIMITED_SQL
+                + " AND credential_label IS NOT NULL "
+                + "AND started_at >= ?::timestamptz AND started_at < ?::timestamptz "
+                + "GROUP BY credential_label ORDER BY max(coalesce(ended_at, started_at)) DESC, credential_label LIMIT 3",
+            ts(from),
+            ts(to))) {
+      out.add(r.get("credential_label", String.class));
+    }
+    return out;
+  }
+
   /** [from, to) 종류별 합계 + 종류별 마지막 실패. */
   public List<KindTotals> kindTotals(Instant from, Instant to) {
     Map<String, Record> lastFailures = new HashMap<>();
     for (Record f :
         dsl.fetch(
             "SELECT DISTINCT ON (kind) kind, coalesce(ended_at, started_at) AS at, error_reason "
-                + "FROM ai_run WHERE status = 'FAILED' AND started_at >= ?::timestamptz AND started_at < ?::timestamptz "
+                // 마지막 실패는 사용 한도 초과를 뺀다 — 한도 초과는 장애가 아니라 별도 지표로 본다(WP-2106).
+                + "FROM ai_run WHERE status = 'FAILED' AND "
+                + NOT_LIMITED_SQL
+                + " AND started_at >= ?::timestamptz AND started_at < ?::timestamptz "
                 + "ORDER BY kind, coalesce(ended_at, started_at) DESC, id DESC",
             ts(from),
             ts(to))) {
@@ -192,7 +228,9 @@ public class AiStatusQueryRepository {
         dsl.fetch(
             "SELECT date_bin(? * interval '1 second', started_at, "
                 + BIN_ORIGIN_SQL
-                + ") AS bucket, count(*) FILTER (WHERE status = 'FAILED') AS failed, "
+                + ") AS bucket, count(*) FILTER (WHERE status = 'FAILED' AND "
+                + NOT_LIMITED_SQL
+                + ") AS failed, "
                 + RUN_PCT
                 + " FROM ai_run WHERE started_at >= ?::timestamptz AND started_at < ?::timestamptz GROUP BY 1",
             bucket.toSeconds(),
@@ -579,6 +617,7 @@ public class AiStatusQueryRepository {
         r.get("out_tok", Long.class),
         r.get("succeeded", Long.class),
         r.get("failed", Long.class),
+        r.get("limited", Long.class),
         r.get("p50", Double.class),
         r.get("p95", Double.class));
   }

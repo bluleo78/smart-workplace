@@ -131,3 +131,26 @@ export function classifyProviderError(e: unknown): ProviderErrorReason | null {
   if (has(OVERLOADED_PHRASES)) return 'PROVIDER_OVERLOADED';
   return null;
 }
+
+/** 모델이 없거나 비활성화됐다는 문구(소문자 비교) — 게이트웨이가 404 로 돌려준다(WP-2106). */
+const MODEL_NOT_FOUND_PHRASE = 'does not exist or is disabled';
+
+/**
+ * 오류가 "모델 없음/비활성"인지 — 러너가 낸 오류(RUNNER_MARKERS 문구 또는 opencode 404 오류 객체)이고 문구가 맞을 때만 참이다.
+ * 왜: 러너와 무관한 임의 오류(도구·클라이언트·파서)가 우연히 같은 문구를 담아도 모델 없음으로 보지 않게 한다(classifyProviderError 와 같은 게이트).
+ * 모델 출력 파싱 오류는 제외한다.
+ */
+export function isModelNotFoundError(e: unknown): boolean {
+  if (e instanceof ModelOutputError || e instanceof SyntaxError) return false;
+  const cause = e instanceof Error ? (e as { cause?: unknown }).cause : undefined;
+  const text = `${messageOf(e)}\n${messageOf(cause)}`.toLowerCase();
+  if (!text.includes(MODEL_NOT_FOUND_PHRASE)) return false;
+  // opencode 오류 객체: APIError + statusCode 404 면 러너 오류로 본다.
+  const isOpencode404 = (v: unknown): boolean => {
+    if (!v || typeof v !== 'object') return false;
+    const o = v as { name?: unknown; data?: { statusCode?: unknown } };
+    return o.name === 'APIError' && o.data?.statusCode === 404;
+  };
+  if (isOpencode404(cause) || isOpencode404(e)) return true;
+  return RUNNER_MARKERS.some((p) => text.includes(p));
+}

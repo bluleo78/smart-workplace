@@ -52,6 +52,7 @@ function kindRow(kind: string, o: Partial<KindRow>): KindRow {
     inputTokens: null,
     outputTokens: null,
     lastFailure: null,
+    limited: 0,
     ...o,
   }
 }
@@ -235,6 +236,20 @@ describe('alertRows', () => {
     threshold,
   })
 
+  test('종류 경고 문구는 종류를 한글 이름으로 보인다', () => {
+    const rows = alertRows(
+      [
+        { ...base, code: 'KIND_FAILURE', severity: 'DANGER', kind: 'MAIL_CLASSIFY_BATCH', value: 0.25, threshold: 0.09 },
+        { ...base, code: 'BACKLOG_STUCK', kind: 'MAIL_CLASSIFY_BATCH', value: 12, threshold: 10 },
+      ],
+      '24h',
+    )
+    expect(rows[0].item.label).toContain('메일 분류')
+    expect(rows[0].item.label).not.toContain('MAIL_CLASSIFY_BATCH')
+    expect(rows[1].item.label).toContain('메일 분류')
+    expect(rows[1].item.label).not.toContain('MAIL_CLASSIFY_BATCH')
+  })
+
   test('계정 경고 여러 개는 첫 계정 경고 자리에 한 줄로 묶인다', () => {
     const alerts: AiStatusAlert[] = [
       { ...base, code: 'KIND_FAILURE', severity: 'DANGER', kind: 'MAIL', value: 0.25, threshold: 0.09 },
@@ -351,6 +366,8 @@ describe('statCards', () => {
     responseTime: { current: { p50: 800, p95: 12_300 }, previous: { p50: 700, p95: 10_000 } },
     waitTime: { current: { p95: 245_000, queueWaiting: 12 }, previous: { p95: null, queueWaiting: null } },
     slotUsage: { current: { used: 3, limit: 8 }, previous: null },
+    limited: 0,
+    limitedCredentials: [],
   }
 
   test('statCards — 지표 6장의 testId·제목·값·아랫줄', () => {

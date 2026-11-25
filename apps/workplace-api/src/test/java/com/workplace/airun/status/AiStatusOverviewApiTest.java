@@ -76,6 +76,18 @@ class AiStatusOverviewApiTest extends AiStatusTestSupport {
     useTenant(1L);
   }
 
+  /** 사유·자격 증명 라벨이 있는 실패 ai_run 한 건. */
+  private void failed(String kind, Instant startedAt, String reason, String credentialLabel) {
+    runIn(1L, kind, "FAILED", startedAt, 10L, 1L, 1L, reason);
+    if (credentialLabel != null) {
+      baseDsl
+          .update(AI_RUN)
+          .set(AI_RUN.CREDENTIAL_LABEL, credentialLabel)
+          .where(AI_RUN.STARTED_AT.eq(utc(startedAt)))
+          .execute();
+    }
+  }
+
   private void sample(
       Instant at, int used, int limit, int queue, Integer oldest, String accounts, String backlog) {
     sampleRepo.insert(new AiCapacitySample(utc(at), used, limit, queue, oldest, accounts, backlog));
@@ -137,6 +149,61 @@ class AiStatusOverviewApiTest extends AiStatusTestSupport {
     assertThat(m.tokens().current().input()).isEqualTo(40);
     assertThat(m.tokens().current().output()).isEqualTo(20);
     assertThat(m.tokens().previous().input()).isEqualTo(1);
+  }
+
+  /** 사용 한도 초과(provider_limit)는 실패율 분자·분모에서 빠지고 limited 로 따로 센다(WP-2106). */
+  @Test
+  void overview_excludesProviderLimitFromFailureRate() {
+    for (int i = 1; i <= 6; i++) {
+      run("AI_CHAT", "SUCCEEDED", ago(now, Duration.ofMinutes(i * 10)), 100L, 1L, 1L);
+    }
+    failed("AI_CHAT", ago(now, Duration.ofHours(2)), "http_502", null);
+    failed("AI_CHAT", ago(now, Duration.ofHours(3)), "http_502", null);
+    failed("AI_CHAT", ago(now, Duration.ofHours(4)), "provider_limit", "계정A");
+    failed("AI_CHAT", ago(now, Duration.ofHours(5)), "provider_limit", "계정B");
+    failed("AI_CHAT", ago(now, Duration.ofHours(6)), "provider_limit", "계정A");
+    failed("AI_CHAT", ago(now, Duration.ofHours(7)), "provider_limit", null);
+
+    var m = overview(AiStatusPeriod.H24).metrics();
+
+    assertThat(m.failureRate().current()).isEqualTo(0.25);
+    assertThat(m.limited()).isEqualTo(4);
+    // 최근 순·중복 없음·null 라벨 제외
+    assertThat(m.limitedCredentials()).containsExactly("계정A", "계정B");
+  }
+
+  @Test
+  void kindRow_onlyLimited_rateNullAndLastFailureEmpty() {
+    failed("AI_CHAT", ago(now, Duration.ofHours(1)), "provider_limit", "계정A");
+    failed("AI_CHAT", ago(now, Duration.ofHours(2)), "provider_limit", "계정A");
+
+    var row = overview(AiStatusPeriod.H24).kinds().get(0);
+
+    assertThat(row.count()).isEqualTo(2);
+    assertThat(row.limited()).isEqualTo(2);
+    assertThat(row.failureRate()).isNull();
+    assertThat(row.lastFailure()).isNull();
+  }
+
+  @Test
+  void kindRow_lastFailureSkipsLimited() {
+    failed("AI_CHAT", ago(now, Duration.ofHours(3)), "http_502", null);
+    failed("AI_CHAT", ago(now, Duration.ofHours(1)), "provider_limit", "계정A");
+
+    var row = overview(AiStatusPeriod.H24).kinds().get(0);
+
+    assertThat(row.lastFailure().reason()).isEqualTo("http_502");
+    assertThat(row.limited()).isEqualTo(1);
+  }
+
+  @Test
+  void alerts_ignoreLimitedFailures() {
+    for (int i = 0; i < 10; i++) {
+      failed("MAIL_CLASSIFY", ago(now, Duration.ofMinutes(10 + i)), "provider_limit", "계정A");
+      run("MAIL_CLASSIFY", "SUCCEEDED", ago(now, Duration.ofHours(30).plusMinutes(i)), 10L, 1L, 1L);
+    }
+
+    assertThat(overview(AiStatusPeriod.H24).alerts()).isEmpty();
   }
 
   @Test

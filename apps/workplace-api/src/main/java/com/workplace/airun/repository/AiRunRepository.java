@@ -9,6 +9,7 @@ import static org.jooq.impl.DSL.least;
 import static org.jooq.impl.DSL.val;
 
 import com.workplace.airun.dto.AiRunRecord;
+import com.workplace.airun.outbound.AiRunFailures;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Set;
@@ -65,13 +66,29 @@ public class AiRunRepository {
   }
 
   /**
-   * 기존 사유가 5xx 표지({@code http_<코드>})이고 이번 보고에 사유가 있으면 그 사유로 덮는다 — keep-first 의 예외.
+   * 기존 사유가 잠정 사유(5xx 표지 {@code http_<코드>} 또는 API 가 본문에서 얻은 provider_* 코드)이고 이번 보고에 다른 사유가 있으면 그 사유로
+   * 덮는다 — keep-first 의 예외.
    *
    * <p>왜: 표지는 API 쪽이 먼저 채우는 값이라 keep-first 를 그대로 두면 ai-agent 가 뒤에 보고한 실제 사유가 영구히 묻힌다. 사유가 비어 온
    * 보고(성공·건너뜀)는 표지를 지우지 않는다(WP-1829 리뷰 후속).
    */
   private static Condition overwriteHttpMarkerReason() {
-    return AI_RUN.ERROR_REASON.like("http!_%", '!').and(excluded(AI_RUN.ERROR_REASON).isNotNull());
+    Field<String> existing = AI_RUN.ERROR_REASON;
+    Field<String> incoming = excluded(AI_RUN.ERROR_REASON);
+    // 기존이 http_ 표지면 들어온 어떤 사유든 덮고, API 가 503 본문에서 얻은 잠정 provider_* 코드면 들어온 사유가 구체 원인 코드일 때만 덮는다 —
+    // runner_error·handler_error·stream_error 같은 일반 표지가 더 정확한 잠정 원인(예: provider_limit)을 지우지
+    // 않게(WP-2106 반려 수정).
+    Condition httpMarker = existing.like("http!_%", '!');
+    Condition provisional =
+        existing
+            .in(AiRunFailures.PROVISIONAL_REASONS)
+            .and(incoming.in(AiRunFailures.CONCRETE_REASONS));
+    // 들어오는 사유가 같은 값이거나 http_ 표지면 덮지 않는다(표지가 더 정확한 사유를 지우지 않게).
+    return httpMarker
+        .or(provisional)
+        .and(incoming.isNotNull())
+        .and(incoming.notLike("http!_%", '!'))
+        .and(incoming.ne(existing));
   }
 
   /**

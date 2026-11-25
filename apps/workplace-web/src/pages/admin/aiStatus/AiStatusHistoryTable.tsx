@@ -6,6 +6,7 @@ import type { AiRunListItem } from '@/api/aiStatus'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton'
+import { aiRunReasonLabel } from '@/lib/aiRunReasonLabels'
 import { EMPTY_GLYPH, formatDurationMs } from '@/lib/formatters'
 
 import { AiStatusActor } from './AiStatusActor'
@@ -76,7 +77,7 @@ export function AiStatusHistoryTable({
                   <TableCell className="whitespace-nowrap">{tokensText(item.inputTokens, item.outputTokens)}</TableCell>
                   <TableCell>{item.model ?? EMPTY_GLYPH}</TableCell>
                   <TableCell className="max-w-[16rem] truncate text-muted-foreground" title={item.errorReason ?? undefined}>
-                    {item.errorReason ?? EMPTY_GLYPH}
+                    {item.errorReason == null ? EMPTY_GLYPH : aiRunReasonLabel(item.errorReason)}
                   </TableCell>
                 </TableRow>
               ))

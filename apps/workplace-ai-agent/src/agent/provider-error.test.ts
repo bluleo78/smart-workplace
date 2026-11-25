@@ -3,7 +3,7 @@
  * 제공자 장애(한도·인증·속도·과부하)만 가려내고, 그 밖의 오류는 null 이어야 한다.
  */
 import { describe, expect, it } from 'vitest';
-import { classifyProviderError, ModelOutputError } from './provider-error.js';
+import { classifyProviderError, isModelNotFoundError, ModelOutputError } from './provider-error.js';
 
 /** opencode 오류 객체를 cause 로 가진 Error 를 만든다. */
 const withCause = (cause: unknown) =>
@@ -139,5 +139,24 @@ describe('classifyProviderError', () => {
       err = e;
     }
     expect(classifyProviderError(err)).toBeNull();
+  });
+});
+
+describe('isModelNotFoundError', () => {
+  it('러너 표지가 있는 모델 없음 문구는 참', () => {
+    expect(isModelNotFoundError(new Error('API Error: 404 model genia/x does not exist or is disabled'))).toBe(true);
+  });
+
+  it('opencode 404 오류 객체는 참', () => {
+    const cause = { name: 'APIError', data: { statusCode: 404, message: 'channel x does not exist or is disabled' } };
+    expect(isModelNotFoundError(Object.assign(new Error('opencode failed'), { cause }))).toBe(true);
+  });
+
+  it('러너 표지 없는 일반 문구는 거짓', () => {
+    expect(isModelNotFoundError(new Error('channel X does not exist or is disabled'))).toBe(false);
+  });
+
+  it('모델 출력 파싱 오류는 거짓', () => {
+    expect(isModelNotFoundError(new ModelOutputError('API Error: 404 does not exist or is disabled'))).toBe(false);
   });
 });
