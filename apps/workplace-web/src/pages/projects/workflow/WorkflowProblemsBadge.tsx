@@ -61,7 +61,13 @@ export function WorkflowProblemsBadge({ problems, checking, failed, stale = fals
   const label = liveLabel(counts)
   // 숨긴 상태 영역은 어느 분기에서도 같은 자리(첫 자식)에 한 번만 그린다 — 문제가 없을 때도, 실패 동안에도 마운트를 유지해야
   // 첫 오류·실패 뒤 첫 결과 알림이 읽힌다(나중에 생긴 영역은 알리지 않는 스크린리더가 있다)
-  const liveRegion = announce ? <span role="status" className="sr-only">{failed || stale ? '' : label}</span> : null
+  // 실패·지난 결과 동안에는 비우지 않고 앞서 알린 문구를 그대로 둔다 — 비웠다 같은 문구로 돌아오면 스크린리더가 같은 결과를 다시 읽는다.
+  // 새 결과가 앞서 알린 것과 다를 때만 글자가 바뀌어 알린다(렌더 중 상태 갱신으로 마지막 알림을 기억한다)
+  const settled = !failed && !stale
+  const [announced, setAnnounced] = useState(settled ? label : '')
+  // 알림을 맡지 않는 보기(announce=false)는 기억할 필요가 없어 렌더 중 갱신도 하지 않는다
+  if (announce && settled && announced !== label) setAnnounced(label)
+  const liveRegion = announce ? <span role="status" className="sr-only">{settled ? label : announced}</span> : null
   // 알림을 맡지 않는 보기(YAML)는 검증 결과 패널이 같은 실패 문구를 보이므로 실패 안내를 중복해 그리지 않는다
   if (failed) return <>{liveRegion}{announce && <span className="text-sm text-muted-foreground"><WorkflowValidationFailure onRetry={onRetry} announce /></span>}</>
   if (problems.length === 0) return <>{liveRegion}{checking ? checkingText : null}</>

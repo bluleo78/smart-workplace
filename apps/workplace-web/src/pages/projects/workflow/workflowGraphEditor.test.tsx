@@ -475,6 +475,19 @@ it('graphEditor_escapeOnNode_closesPanel', async () => {
   fireEvent.keyDown(node, { key: 'Escape' })
   await waitFor(() => expect(screen.queryByLabelText('노드 이름')).toBeNull())
 })
+// 「+ 노드」 메뉴가 열려 있을 때 Esc 는 메뉴만 닫는다 — 위로 올라가 열려 있던 노드 편집 패널까지 닫으면 안 된다
+it('graphEditor_escapeInAddNodeMenu_closesMenuKeepsPanel', async () => {
+  const user = userEvent.setup()
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  fireEvent.keyDown(screen.getByLabelText('개발, AI · developer'), { key: 'Enter' })
+  expect(await screen.findByLabelText('노드 이름')).toHaveValue('개발')
+  await user.click(screen.getByRole('button', { name: '+ 노드' }))
+  expect(await screen.findByRole('menu')).toBeInTheDocument()
+  // Radix 메뉴가 Esc 를 소비하고, 패널 닫기 Esc 는 포커스가 노드 안일 때만 동작한다(메뉴는 포털) — 회귀 방지
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  expect(screen.getByLabelText('노드 이름')).toHaveValue('개발')
+})
 
 // WP-2089 — 질문 경로(ask 줄임)와 공통 오류 처리(onError 3개가 모두 triage)를 가진 작은 흐름
 const RECOVERY = `schema: genia/workflow@1
