@@ -62,6 +62,12 @@ export const ROUTE_PRELOADS = [
   [/^\/drive\/?$/, ['driveLayout', 'driveIndex']],
   [/^\/drive(?:\/|$)/, ['driveLayout']],
   [/^\/$/, ['home']],
+  // 관리 화면(WP-2080): 설정 레이아웃(SettingsModuleLayout)과 목록 화면 청크 — 상세(/settings/users/5 등)는 다른 청크라 일부러 일치하지 않게 좁혀 둔다.
+  // 이슈가 짚은 네 화면만 넣었다(AI 현황 등 나머지 관리 화면은 필요해지면 같은 방식으로 더한다). 옛 /admin/* 주소는 리다이렉트 뒤라 받지 않는다.
+  [/^\/settings\/users\/?$/, ['settingsLayout', 'adminUsers']],
+  [/^\/settings\/audit-logs\/?$/, ['settingsLayout', 'adminAuditLogs']],
+  [/^\/settings\/roles\/?$/, ['settingsLayout', 'adminRoles']],
+  [/^\/settings\/agents(?:\/(?:locations|accounts))?\/?$/, ['settingsLayout', 'adminAgents']],
 ] as const
 
 /** 미리 받기 키 — 표에서 뽑아 App.tsx 의 로더 맵이 오타 없이 키를 채우게 한다. */
