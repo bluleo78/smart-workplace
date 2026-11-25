@@ -1,5 +1,6 @@
 package com.workplace.support;
 
+import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static com.workplace.jooq.Tables.ROLE;
@@ -41,6 +42,23 @@ public final class TestFixtures {
   public static final String BOM = String.valueOf((char) 0xFEFF);
 
   private TestFixtures() {}
+
+  /**
+   * 이슈 담당 행을 담당 지정 API 를 거치지 않고 바로 넣는다(WP-2120) — 담당 지정이 워크플로우를 자동 시작하므로, 실행이 없는 상태의 담당을 만들려는 워크플로우
+   * 테스트가 함께 쓴다. 이미 있는 담당은 건너뛴다.
+   *
+   * @param assignedBy 지정한 사람으로 남길 사용자
+   */
+  public static void seedAssignees(DSLContext dsl, long assignedBy, long issue, long... users) {
+    for (long u : users) {
+      dsl.insertInto(ISSUE_ASSIGNEE)
+          .set(ISSUE_ASSIGNEE.ISSUE_ID, issue)
+          .set(ISSUE_ASSIGNEE.USER_ID, u)
+          .set(ISSUE_ASSIGNEE.ASSIGNED_BY, assignedBy)
+          .onConflictDoNothing()
+          .execute();
+    }
+  }
 
   /**
    * 프로젝트 범주의 기본 상태 id 를 고르는 스칼라 서브쿼리(WP-868) — raw jOOQ 로 issue 를 넣거나 범주를 바꿀 때 status_id 를 함께 쓴다.

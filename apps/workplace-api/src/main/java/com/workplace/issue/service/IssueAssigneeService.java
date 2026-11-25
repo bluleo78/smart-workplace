@@ -4,6 +4,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueAssigneesReplacedEvent;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -96,6 +97,14 @@ public class IssueAssigneeService {
     toRemove.removeAll(target);
 
     writeDiff(callerId, project, issue, toAdd, toRemove, wakeAgent, true);
+
+    // WP-2120 담당 지정 = 워크플로우 시작 — 깨우는 교체(REST·MCP·claim)에서 새로 넣은 사람이 있으면 동기 이벤트로 워크플로우 모듈에 알린다. 리스너가
+    // 시작 조건이 맞는 정의를 같은 트랜잭션에서 시작한다(실패하면 이 교체도 롤백). 반복 AI 작업 저장처럼 깨우지 않는 교체(wakeAgent=false)는
+    // 시작하라는 뜻이 아니라서 내지 않는다.
+    if (wakeAgent && !toAdd.isEmpty()) {
+      publisher.publishEvent(
+          new IssueAssigneesReplacedEvent(issue.id(), project.id(), callerId, Set.copyOf(toAdd)));
+    }
 
     return repo.findByIssue(issue.id());
   }

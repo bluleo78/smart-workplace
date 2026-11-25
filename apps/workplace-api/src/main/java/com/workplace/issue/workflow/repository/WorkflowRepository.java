@@ -236,14 +236,28 @@ public class WorkflowRepository {
    * 조건으로 판정하는 데 쓴다. 정의 id 순. 다른 테넌트의 것은 RLS 로 보이지 않는다.
    */
   public List<Long> findEnabledPublishedVersionIds(long projectId) {
-    return dsl.select(WORKFLOW.ACTIVE_VERSION_ID)
+    // 「켜져 있고 게시됨」 조건을 한 곳(findEnabledPublishedDefs)에만 둔다.
+    return findEnabledPublishedDefs(projectId).stream()
+        .map(EnabledPublishedDef::activeVersionId)
+        .toList();
+  }
+
+  /**
+   * 켜져 있고 게시된 정의의 id·이름·활성 버전 id(WP-2120) — 담당 지정 자동 시작이 시작 조건을 정의마다 판정하고, 안내에 이름을 쓰는 데 쓴다. 정의 id
+   * 순.
+   */
+  public List<EnabledPublishedDef> findEnabledPublishedDefs(long projectId) {
+    return dsl.select(WORKFLOW.ID, WORKFLOW.NAME, WORKFLOW.ACTIVE_VERSION_ID)
         .from(WORKFLOW)
         .where(WORKFLOW.PROJECT_ID.eq(projectId))
         .and(WORKFLOW.ENABLED.isTrue())
         .and(WORKFLOW.ACTIVE_VERSION_ID.isNotNull())
         .orderBy(WORKFLOW.ID)
-        .fetch(WORKFLOW.ACTIVE_VERSION_ID);
+        .fetch(r -> new EnabledPublishedDef(r.value1(), r.value2(), r.value3()));
   }
+
+  /** {@link #findEnabledPublishedDefs} 의 한 행. */
+  public record EnabledPublishedDef(long id, String name, long activeVersionId) {}
 
   /**
    * 프로젝트별 「켜기」 직렬화 잠금(WP-2119, 트랜잭션 종료 시 자동 해제) — 같은 프로젝트에서 두 정의가 동시에 켜져 서로의 겹침 검사를 지나치는 것을 막는다.

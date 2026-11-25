@@ -115,11 +115,17 @@ class WorkflowTimerSchedulerTest extends IntegrationTestBase {
     long issue =
         call(
                 post(API + "/projects/" + key + "/issues")
-                    .content(json("title", "이슈", "assigneeIds", List.of(worker))),
+                    .content(json("title", "이슈", "assigneeIds", List.of())),
                 pm,
                 200)
             .get("id")
             .asLong();
+    // WP-2120 담당을 API 로 넣으면 자동 시작되므로 행으로 바로 넣고 아래에서 직접 시작한다.
+    dsl.insertInto(com.workplace.jooq.Tables.ISSUE_ASSIGNEE)
+        .set(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.ISSUE_ID, issue)
+        .set(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.USER_ID, worker)
+        .set(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.ASSIGNED_BY, pm)
+        .execute();
     call(
         post(API + "/issues/" + issue + "/workflow/start")
             .content(json("workflowId", wf, "dryRun", false)),

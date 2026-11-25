@@ -415,7 +415,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   @DisplayName("워크플로우가 없는 이슈의 챗 답은 지금처럼 INPUT_REQUIRED 를 작업 중으로 되돌린다")
   void humanReply_withoutRun_stillResumes() {
     long bot = agent("EXTERNAL");
-    long issue = issue(lead, bot);
+    long issue = issueViaApi(lead, bot);
     dsl.update(AGENT_WORK)
         .set(AGENT_WORK.STATE, "INPUT_REQUIRED")
         .where(AGENT_WORK.ISSUE_ID.eq(issue))
@@ -744,6 +744,39 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName(
+      "시작 역할의 외부 AI 를 담당으로 넣어 이슈를 만들면 시작 전 행을 따로 열지 않고 담당 변경의 깨우기를 끈다 — 깨우기는 노드 진입 하나(WP-2120)")
+  void createIssue_withStartRoleAgent_noSubmittedRowAndNoAssignedWake() {
+    long bot = agent("EXTERNAL");
+    // 시작 조건의 역할이 곧 AI 인 정의 — 생성 때 담당이 시작 조건에 맞아 같은 요청에서 실행이 시작된다.
+    publish(
+        """
+        schema: genia/workflow@1
+        name: AI 시작
+        roles:
+          bot: { members: ["%s"] }
+        nodes:
+          start: { type: start }
+          work: { type: agent_task, role: bot, instructions: 작업, outcomes: { done: { to: end } } }
+          end: { type: end }
+        start:
+          - { when: { assigneeRole: bot }, to: work }
+        """
+            .formatted(username(bot)));
+    events.clear();
+
+    long issue = issueViaApi(bot);
+
+    // 노드 진입이 연 행 하나뿐이고(생성 경로가 따로 연 시작 전 행이 겹치지 않는다), 깨우기도 노드 진입의 하나다.
+    assertThat(activeStates(issue, bot)).containsExactly("SUBMITTED");
+    assertThat(allStates(issue, bot)).hasSize(1);
+    List<IssueAssignedEvent> assigned = events.stream(IssueAssignedEvent.class).toList();
+    assertThat(assigned).hasSize(1);
+    assertThat(assigned.getFirst().wakeAgent()).isFalse();
+    assertThat(wakes()).hasSize(1);
+  }
+
+  @Test
   @DisplayName("활성 실행이 있는 이슈는 정의를 끈 뒤에도 담당 지정이 깨우지 않는다")
   void activeRun_assignDoesNotWake_evenIfWorkflowDisabled() {
     long bot = agent("EXTERNAL");
@@ -923,7 +956,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
   @DisplayName("실행이 없는 이슈를 닫으면 오류 없이 지금 AI 작업 규칙 그대로다")
   void issueDone_withoutRun_unchanged() {
     long bot = agent("EXTERNAL");
-    long issue = issue(lead, bot);
+    long issue = issueViaApi(lead, bot);
     events.clear();
 
     ok(issuePatch(issue, "DONE"), pm);
@@ -2052,10 +2085,38 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     JsonNode body =
         expect(
             post(API + "/projects/" + key + "/issues")
-                .content(json("title", "이슈", "assigneeIds", ids)),
+                .content(json("title", "이슈", "assigneeIds", List.of())),
             pm,
             200);
-    return body.get("id").asLong();
+    long id = body.get("id").asLong();
+    seedAssignees(id, assignees);
+    return id;
+  }
+
+  /**
+   * 담당을 생성 API 로 넣어 만든 이슈 — 워크플로우가 없는 이슈에서 담당 지정이 AI 작업(시작 전)을 여는 지금 규칙을 시험할 때 쓴다(워크플로우가 켜진 프로젝트에서는
+   * 자동 시작되므로 {@link #issue} 를 쓴다).
+   */
+  private long issueViaApi(long... assignees) {
+    List<Long> ids = new ArrayList<>();
+    for (long a : assignees) {
+      ids.add(a);
+    }
+    return expect(
+            post(API + "/projects/" + key + "/issues")
+                .content(json("title", "이슈", "assigneeIds", ids)),
+            pm,
+            200)
+        .get("id")
+        .asLong();
+  }
+
+  /**
+   * 시험 준비 — 담당을 이슈 생성·담당 교체 API 가 아니라 행으로 바로 넣는다. WP-2120 이후 API 로 시작 조건에 맞는 담당을 넣으면 실행이 자동으로 시작돼,
+   * 「담당만 있고 아직 시작 전」 이슈를 시험이 직접 시작(start)하는 이 시험의 흐름과 부딪히기 때문이다.
+   */
+  private void seedAssignees(long issue, long... users) {
+    com.workplace.support.TestFixtures.seedAssignees(dsl, pm, issue, users);
   }
 
   private MockHttpServletRequestBuilder startReq(long issue, long wf) {

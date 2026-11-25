@@ -1,8 +1,8 @@
-// 이슈 상세 「AI 작업 단계」 카드(WP-1989) — 지나온·지금·남은 단계, 시작 단추, 켜지지 않은 프로젝트의 숨김.
+// 이슈 상세 「AI 작업 단계」 카드(WP-1989) — 지나온·지금·남은 단계, 시작 조건 안내(WP-2120), 켜지지 않은 프로젝트의 숨김.
 // 카드와 레일 그룹(IssueWorkflowGroup)만 renderScreen 으로 띄운다 — 이슈 상세 전체는 필요 없다.
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { useIssueWorkflow } from '@/lib/workflow'
 import { useProjectWorkflows } from '@/lib/workflows'
@@ -49,11 +49,13 @@ function handlers(view: object, list: object = enabledList, versionHandler?: Req
     http.get(`${API}/issues/7/workflow`, () => HttpResponse.json(view)),
     http.get(`${API}/projects/9/workflows`, () => HttpResponse.json(list)),
     versionHandler ?? http.get(`${API}/workflows/3/versions/2`, () => HttpResponse.json(version)),
+    // 담당 미리보기(WP-2120) — 기본은 지금 담당으로는 시작하지 않는 응답.
+    http.post(`${API}/issues/7/workflow/assign-preview`, () => HttpResponse.json({ start: null, blocked: null, active: false, startRoles: ['developer'] })),
   ]
 }
 
-const card = (props: { canEdit?: boolean; isManager?: boolean; closed?: boolean; onStart?: () => void } = {}) => (
-  <IssueWorkflowCard issueId={7} projectKey="WP" projectId={9} canEdit={props.canEdit ?? true} isManager={props.isManager ?? false} closed={props.closed} onStart={props.onStart ?? (() => {})} />
+const card = (props: { canEdit?: boolean; isManager?: boolean; closed?: boolean; assigneeIds?: number[] } = {}) => (
+  <IssueWorkflowCard issueId={7} projectKey="WP" projectId={9} canEdit={props.canEdit ?? true} isManager={props.isManager ?? false} closed={props.closed} assigneeIds={props.assigneeIds ?? [4]} />
 )
 
 describe('AI 작업 단계 카드', () => {
@@ -61,6 +63,7 @@ describe('AI 작업 단계 카드', () => {
     renderScreen(card({ closed: true }), { path: '/projects/WP/issues/1', handlers: handlers(noRun, enabledList) })
     expect(await screen.findByText('아직 워크플로우가 없어요.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '워크플로우 시작' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('workflow-start-condition')).not.toBeInTheDocument()
   })
 
   test('card_showsPassedCurrentRemaining', async () => {
@@ -93,12 +96,62 @@ describe('AI 작업 단계 카드', () => {
     expect(screen.queryByText(/방금째/)).not.toBeInTheDocument()
   })
 
-  test('noRun_showsStartButton', async () => {
-    const onStart = vi.fn()
-    const view = renderScreen(card({ onStart }), { handlers: handlers(noRun) })
+  test('workflowCard_noRun_showsStartCondition_noStartButton', async () => {
+    const bodies: unknown[] = []
+    renderScreen(card({ assigneeIds: [9, 4] }), {
+      handlers: [
+        ...handlers(noRun).slice(0, 3),
+        http.post(`${API}/issues/7/workflow/assign-preview`, async ({ request }) => {
+          bodies.push(await request.json())
+          return HttpResponse.json({ start: null, blocked: null, active: false, startRoles: ['developer', 'reviewer'] })
+        }),
+      ],
+    })
     expect(await screen.findByText('아직 워크플로우가 없어요.')).toBeInTheDocument()
-    await view.user.click(screen.getByRole('button', { name: '워크플로우 시작' }))
-    expect(onStart).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText('이 담당으로는 시작하지 않아요 · 시작 조건: developer, reviewer 역할')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '워크플로우 시작' })).not.toBeInTheDocument()
+    // 지금 담당(정렬한 id)으로 물었다.
+    // 카드는 지금 담당 기준(current)으로 묻는다(WP-2120 코드 리뷰).
+    expect(bodies).toEqual([{ userIds: [4, 9], current: true }])
+  })
+
+  test('workflowCard_manager_showsOpenWorkflowLink', async () => {
+    renderScreen(card({ isManager: true }), { handlers: handlers(noRun) })
+    expect(await screen.findByRole('link', { name: '워크플로우 열기' })).toHaveAttribute('href', '/projects/WP/workflow')
+  })
+
+  test('workflowCard_nonManager_noOpenWorkflowLink', async () => {
+    renderScreen(card(), { handlers: handlers(noRun) })
+    await screen.findByText('이 담당으로는 시작하지 않아요 · 시작 조건: developer 역할')
+    expect(screen.queryByRole('link', { name: '워크플로우 열기' })).not.toBeInTheDocument()
+  })
+
+  test('workflowCard_noAssignees_showsAssignHintWithoutPreview', async () => {
+    let asked = 0
+    renderScreen(card({ assigneeIds: [] }), {
+      handlers: [
+        ...handlers(noRun).slice(0, 3),
+        http.post(`${API}/issues/7/workflow/assign-preview`, () => {
+          asked += 1
+          return HttpResponse.json({ start: null, blocked: null, active: false, startRoles: ['developer'] })
+        }),
+      ],
+    })
+    expect(await screen.findByText('담당을 지정하면 워크플로우가 시작돼요')).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 100))
+    expect(asked).toBe(0)
+  })
+
+  test('workflowCard_wouldStartNow_noConditionLine', async () => {
+    renderScreen(card(), {
+      handlers: [
+        ...handlers(noRun).slice(0, 3),
+        http.post(`${API}/issues/7/workflow/assign-preview`, () => HttpResponse.json({ start: { workflowId: 3, workflowName: 'AI 개발 흐름', stageName: '개발' }, blocked: null, active: false, startRoles: ['developer'] })),
+      ],
+    })
+    await screen.findByText('아직 워크플로우가 없어요.')
+    await new Promise((r) => setTimeout(r, 100))
+    expect(screen.queryByTestId('workflow-start-condition')).not.toBeInTheDocument()
   })
 
   test('noRun_withoutEditPermission_hasNoStartButton', async () => {
@@ -121,7 +174,7 @@ describe('AI 작업 단계 카드', () => {
     }
     renderScreen(
       <>
-        <IssueWorkflowGroup issueId={7} projectKey="WP" projectId={9} canEdit isManager={false} onStart={() => {}} />
+        <IssueWorkflowGroup issueId={7} projectKey="WP" projectId={9} canEdit isManager={false} assigneeIds={[]} />
         <Probe />
       </>,
       { handlers: hs },
@@ -136,20 +189,21 @@ describe('AI 작업 단계 카드', () => {
 
   test('enabledProject_groupShowsTitle', async () => {
     renderScreen(
-      <IssueWorkflowGroup issueId={7} projectKey="WP" projectId={9} canEdit isManager={false} onStart={() => {}} />,
+      <IssueWorkflowGroup issueId={7} projectKey="WP" projectId={9} canEdit isManager={false} assigneeIds={[]} />,
       { handlers: handlers(noRun) },
     )
     expect(await screen.findByText('AI 작업 단계')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '워크플로우 시작' })).toBeInTheDocument()
+    expect(await screen.findByTestId('issue-workflow-card')).toBeInTheDocument()
   })
 
-  test('endedRun_showsDoneAndStartAgain', async () => {
+  test('workflowCard_endedRun_noStartButton', async () => {
     renderScreen(card(), {
       handlers: handlers({ ...runningView, status: 'COMPLETED', currentNode: null, outcomes: [], remainingNodeKeys: [] }),
     })
     expect(await screen.findByText('완료')).toBeInTheDocument()
     expect(screen.getByText('✓ 분류')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '워크플로우 시작' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '워크플로우 시작' })).not.toBeInTheDocument()
+    expect(await screen.findByText(/이 담당으로는 시작하지 않아요/)).toBeInTheDocument()
   })
 
   test('remaining_fallsBackToKeys', async () => {

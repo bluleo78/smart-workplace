@@ -838,10 +838,20 @@ class WorkflowAskChatTest extends IntegrationTestBase {
     JsonNode body =
         expect(
             post(API + "/projects/" + key + "/issues")
-                .content(json("title", "이슈", "assigneeIds", ids)),
+                .content(json("title", "이슈", "assigneeIds", List.of())),
             pm,
             200);
-    return body.get("id").asLong();
+    long id = body.get("id").asLong();
+    seedAssignees(id, assignees);
+    return id;
+  }
+
+  /**
+   * 시험 준비 — 담당을 이슈 생성·담당 교체 API 가 아니라 행으로 바로 넣는다. WP-2120 이후 API 로 시작 조건에 맞는 담당을 넣으면 실행이 자동으로 시작돼,
+   * 「담당만 있고 아직 시작 전」 이슈를 시험이 직접 시작(start)하는 이 시험의 흐름과 부딪히기 때문이다.
+   */
+  private void seedAssignees(long issue, long... users) {
+    com.workplace.support.TestFixtures.seedAssignees(dsl, pm, issue, users);
   }
 
   private MockHttpServletRequestBuilder startReq(long issue, long wf) {
