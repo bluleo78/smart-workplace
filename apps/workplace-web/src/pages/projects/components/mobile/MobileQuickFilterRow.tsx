@@ -23,7 +23,7 @@ import { HIDE_SCROLLBAR, HIT_EXPAND, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './c
 /** 칩 줄이 쓰는 컨트롤만 — 이슈 목록 훅(useIssueFilterControls)의 일부. */
 export type MobileQuickFilterControls = Pick<
   IssueFilterControls,
-  'facets' | 'filterValue' | 'onFilterChange' | 'quickChips' | 'quickFilterStorageKey' | 'activeFilterCount' | 'clearFacets'
+  'facets' | 'filterValue' | 'onFilterChange' | 'quickChips' | 'quickFilterStorageKey' | 'hasActiveFilters' | 'reset'
 >;
 
 type SheetState = { kind: 'facet'; key: string } | { kind: 'more' } | null;
@@ -107,11 +107,14 @@ export function MobileQuickFilterRow({ controls }: { controls: MobileQuickFilter
             <Plus className="size-3.5" aria-hidden />
           </button>
         )}
-        {controls.activeFilterCount > 0 && (
+        {/* 「필터 지우기」 — 데스크탑 필터 줄과 같은 reset·같은 노출 조건(hasActiveFilters, WP-2086).
+            검색어·에픽 범위·완료 모두 보기까지 지우고 view·group·정렬은 남긴다 — 0건 빈 상태 「필터 지우기」와 결과가 같아
+            같은 이름의 두 단추가 한 화면에 보여도 누르는 쪽에 따라 결과가 갈리지 않는다. */}
+        {controls.hasActiveFilters && (
           <button
             type="button"
             className={cn(HIT_EXPAND, 'h-8 shrink-0 px-1.5 text-sm font-medium whitespace-nowrap text-primary')}
-            onClick={controls.clearFacets}
+            onClick={controls.reset}
             data-testid="mobile-quick-filter-clear-all"
           >
             필터 지우기

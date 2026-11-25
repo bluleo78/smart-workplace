@@ -376,11 +376,11 @@ export function useIssueFilterControls(
     );
   }
 
-  // 활성 facet 수(q 제외) — 모바일 칩 줄 「필터 지우기」 노출 판정.
+  // 활성 facet 수(q 제외) — 필터 시트 「전체 해제」 활성 판정용(MobileFilterControls 를 타임라인과 같은 모양으로 맞춘다).
   // 담당자 「미지정」은 assignee facet 값('none')에 담기므로 담당자 facet 하나로 센다.
   // 조건 칩(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 라벨 기준일은 완료일 프리셋과 같은 KST 오늘 정오.
   const conditionChips = useMemo(() => issueConditionChips(filters, todayNoon), [filters, todayNoon]);
-  // 조건 칩도 하나씩 센다 — 모바일 「필터 지우기」가 조건 칩만 걸린 때도 보이게.
+  // 조건 칩도 하나씩 센다.
   const activeFilterCount = countActiveFacets(filterValue, filters.includeUnassigned) + conditionChips.length;
 
   // 조건 칩 하나 지우기 — 그 조건만 빼고 다시 쓴다.
@@ -393,7 +393,8 @@ export function useIssueFilterControls(
     writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupParam);
   }
 
-  // facet 값만 비운다 — 모바일 칩 줄 「필터 지우기」(검색은 툴바 🔍 가 따로 보이므로 남긴다). 검색어·view·group·에픽 범위는 유지.
+  // facet 값만 비운다 — 필터 시트 「전체 해제」 모양(MobileFilterControls)에 맞춘 것. 검색어·view·group·에픽 범위는 유지.
+  // 모바일 칩 줄 「필터 지우기」는 데스크탑처럼 reset 을 쓴다(WP-2086).
   function clearFacets() {
     writeFilters(clearFacetFilters(filters), view, groupParam);
   }
