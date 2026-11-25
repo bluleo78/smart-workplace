@@ -12,9 +12,12 @@ import {
 } from './resourceInvalidation';
 
 describe('issue 변경 → 키 링크 상태 캐시(WP-2102)', () => {
-  it('상태가 바뀌면 끝난 이슈 키 링크가 새로 받도록 [issue-key-status] 접두사를 무효화한다', () => {
+  it('상태가 바뀌면 끝난 이슈 키 링크가 새로 받도록 [issue-key-status] 프로젝트 키를 무효화한다', () => {
     const keys = invalidationTargets({ resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 21 }).map((t) => t.queryKey);
-    expect(keys).toContainEqual(['issue-key-status']);
+    expect(keys).toContainEqual(['issue-key-status', 'EX']);
+    // 다른 프로젝트 캐시([issue-key-status, WP, 1])는 EX 접두사에 걸리지 않는다.
+    expect(keys).not.toContainEqual(['issue-key-status']);
+    expect(keys).not.toContainEqual(['issue-key-status', 'WP']);
   });
 });
 

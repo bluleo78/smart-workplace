@@ -90,22 +90,25 @@ function expectStruck(el: HTMLElement) {
 }
 
 describe('끝난 이슈 키 링크(WP-2102)', () => {
-  it('완료·취소 이슈는 삭선과 상태 이름 title, 진행 중·못 보는 키는 지금 모양', async () => {
+  it('완료·취소 이슈는 삭선과 상태 이름 aria-label(마우스 링크엔 title 없음), 진행 중·못 보는 키는 지금 모양', async () => {
     renderScreen(
       <ChatMarkdownText body="WP-20 WP-21 WP-22 WP-23" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
       { handlers: handlers() },
     )
     const done = await screen.findByTestId('issue-key-ref-WP-20')
-    await waitFor(() => expect(done).toHaveAttribute('title', '완료'))
+    await waitFor(() => expect(done).toHaveAttribute('aria-label', 'WP-20 (완료)'))
+    // 호버 카드와 native 툴팁이 겹치지 않도록 마우스 링크엔 title 을 두지 않는다.
+    expect(done).not.toHaveAttribute('title')
     expect(done.className).toContain('line-through')
     expectStruck(done)
     const canceled = screen.getByTestId('issue-key-ref-WP-21')
-    await waitFor(() => expect(canceled).toHaveAttribute('title', '취소'))
+    await waitFor(() => expect(canceled).toHaveAttribute('aria-label', 'WP-21 (취소)'))
     expect(canceled.className).toContain('line-through')
     for (const n of [22, 23]) {
       const el = screen.getByTestId(`issue-key-ref-WP-${n}`)
       expect(el.className).not.toContain('line-through')
       expect(el).not.toHaveAttribute('title')
+      expect(el).not.toHaveAttribute('aria-label')
     }
   })
 
@@ -115,12 +118,12 @@ describe('끝난 이슈 키 링크(WP-2102)', () => {
       <ChatMarkdownText body="WP-20 WP-21 WP-22 AB-5" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
       { handlers: handlers([], statusRequests) },
     )
-    await waitFor(() => expect(screen.getByTestId('issue-key-ref-WP-20')).toHaveAttribute('title', '완료'))
+    await waitFor(() => expect(screen.getByTestId('issue-key-ref-WP-20')).toHaveAttribute('aria-label', 'WP-20 (완료)'))
     expect(statusRequests).toHaveLength(1)
     expect([...statusRequests[0]].sort()).toEqual(['WP-20', 'WP-21', 'WP-22'])
   })
 
-  it('끝난 이슈 링크는 title 외에 스크린리더용 aria-label(키 (상태 이름))도 갖는다', async () => {
+  it('끝난 이슈 링크는 스크린리더용 aria-label(키 (상태 이름))을 갖는다', async () => {
     renderScreen(
       <ChatMarkdownText body="WP-20 WP-22" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
       { handlers: handlers() },
@@ -131,16 +134,29 @@ describe('끝난 이슈 키 링크(WP-2102)', () => {
     expect(screen.getByTestId('issue-key-ref-WP-22')).not.toHaveAttribute('aria-label')
   })
 
-  it('상태 요청이 500 이면 링크는 평소 모양(삭선·title 없음)', async () => {
+  it('상태 요청이 500 이면 묶음 재시도 포함 정확히 3번만 보내고 링크는 평소 모양', async () => {
+    let calls = 0
     renderScreen(
-      <ChatMarkdownText body="WP-20" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
-      { handlers: [http.post(`${API}/app-links/issue-statuses`, () => new HttpResponse(null, { status: 500 })), ...handlers()] },
+      <ChatMarkdownText body="WP-20 WP-21 WP-22" mentions={mentions} renderMention={chip} renderIssueRef={renderIssueKeyRef} />,
+      {
+        handlers: [
+          http.post(`${API}/app-links/issue-statuses`, () => {
+            calls += 1
+            return new HttpResponse(null, { status: 500 })
+          }),
+          ...handlers(),
+        ],
+      },
     )
     const link = await screen.findByTestId('issue-key-ref-WP-20')
-    // 재시도(최대 두 번)까지 끝난 뒤에도 평소 모양이어야 한다 — 잠시 기다려 본다.
+    // 첫 요청 + 묶음 재시도 2번(500ms·1000ms 간격)이 끝날 때까지 기다린다.
+    await waitFor(() => expect(calls).toBe(3), { timeout: 5000 })
+    // 키 수(3)만큼 늘어나지 않는다 — 재시도는 키별이 아니라 묶음 단위다.
     await new Promise((r) => setTimeout(r, 300))
-    expect(link.className).not.toContain('line-through')
+    expect(calls).toBe(3)
+    for (const n of [20, 21, 22]) expect(screen.getByTestId(`issue-key-ref-WP-${n}`).className).not.toContain('line-through')
     expect(link).not.toHaveAttribute('title')
+    expect(link).not.toHaveAttribute('aria-label')
   })
 
   it('일시 오류 한 번 뒤 재시도로 받으면 삭선이 그려진다', async () => {
@@ -159,7 +175,7 @@ describe('끝난 이슈 키 링크(WP-2102)', () => {
       },
     )
     const link = await screen.findByTestId('issue-key-ref-WP-20')
-    await waitFor(() => expect(link).toHaveAttribute('title', '완료'), { timeout: 5000 })
+    await waitFor(() => expect(link).toHaveAttribute('aria-label', 'WP-20 (완료)'), { timeout: 5000 })
     expect(calls).toBe(2)
   })
 
