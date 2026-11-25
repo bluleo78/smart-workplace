@@ -28,9 +28,12 @@ describe('isTabRoot', () => {
 describe('moduleRootFor', () => {
   it.each([
     ['/chat/channels/1', '/chat'],
-    // 프로젝트 하위 화면은 그 프로젝트로(병합 헤더의 ‹ 가 "프로젝트로 돌아가기" 아이콘을 대체).
+    // 프로젝트 탭의 상세(이슈·버전 등)는 그 탭 목록의 정식 주소로(WP-2085·WP-2114).
     ['/projects/MOB/issues/1', '/projects/MOB/issues'],
-    ['/projects/MOB/versions/3', '/projects/MOB'],
+    ['/projects/MOB/versions/3', '/projects/MOB/versions'],
+    ['/projects/MOB/versions/3/', '/projects/MOB/versions'],
+    // 위 규칙에 걸리지 않는 프로젝트 하위 경로는 그 프로젝트로(PROJECT_SUB 폴백).
+    ['/projects/MOB/versions/3/x', '/projects/MOB'],
     // 설정은 데스크탑 「프로젝트로 돌아가기」와 같이 이슈 목록 주소로(WP-2085).
     ['/projects/MOB/settings', '/projects/MOB/issues'],
     // 프로젝트 탭 길(WP-1477)은 이슈 탭(/projects/:key/issues)과 같은 곳으로 — 탭은 하위 화면이 아니다.
