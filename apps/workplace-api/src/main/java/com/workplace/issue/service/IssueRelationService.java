@@ -62,6 +62,7 @@ public class IssueRelationService {
 
   private final IssueRelationRepository relationRepository;
   private final IssueRelationTypeRepository typeRepository;
+  private final IssueRelationTypeService relationTypeService;
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
   private final ProjectAccessGuard accessGuard;
@@ -138,6 +139,63 @@ public class IssueRelationService {
           thisStoredAsSource);
     }
     return listFor(callerId, thisRow, project);
+  }
+
+  /**
+   * 유형 변경으로 옛 상위가 풀릴 때 그들과 남기는 관련(RELATES) 관계(WP-2097) — {@code IssueService.setType} 이 유형·부모를 바꾸기
+   * 전에, 같은 트랜잭션 안에서만 부른다. 관계를 만들 수 없으면(유형 없음 등) 예외를 던져 유형 변경까지 함께 되돌린다(완료 기준 5).
+   *
+   * <p>방향은 「이 이슈 &lt;관련&gt; 옛 상위」로 고정한다 — RELATES 는 비방향이라 저장은 (작은 id, 큰 id) 로 정규화되고 이 말은 어느 쪽이어도
+   * 같다.
+   *
+   * <p>호출자가 옛 상위의 프로젝트를 읽을 수 없으면(교차 프로젝트 부모 — 부모를 누가 지정했거나 접근이 회수된 경우) 관계를 만들지 않고 건너뛴다. {@code
+   * resolveTarget} 이 {@code add} 에서 지키는 읽기 검사와 같은 규칙이라, 관계를 만들면 호출자가 결국 볼 수 없는 경계 너머에 영구적인
+   * RELATION_ADDED 이력과 실시간 신호가 남는다. 건너뛰어도 유형·부모 변경 자체는 그대로 진행된다(호출부는 false 를 무시한다).
+   *
+   * <p>교차 프로젝트인데 어느 한쪽이 개인 프로젝트면 {@code add} 가 걸고 지울 때 막는 {@code crossProjectNotAllowed} 와 같은 규칙으로
+   * 보고 건너뛴다 — 개인 프로젝트는 완전 비공개라 관계가 생기면 {@code add} 가 막을 일을 만드는 셈이라, 여기서는 예외 대신 false 로 한다(반려 요청).
+   *
+   * @return 새로 만들었으면 true, 만들지 않았으면 false — false 는 ① 이미 있어 그대로 뒀거나 ② 호출자가 옛 상위를 읽을 수 없어 건너뛰거나 ③ 교차
+   *     프로젝트에 개인 프로젝트가 끼어 건너뛴 경우다(셋 다 이력·신호 없음 — 중복 행도 생기지 않는다)
+   */
+  public boolean relateToReleasedParent(long callerId, IssueRow issue, IssueRow oldParent) {
+    // 읽기 검사(위 문서) — 관계를 만들기 전에 판정한다. 건너뛴 쪽은 false 로 돌아가고 이력·신호를 남기지 않는다.
+    ProjectRow oldParentProject = projectOf(oldParent);
+    if (!accessGuard.canRead(oldParentProject, callerId)) {
+      return false;
+    }
+    // 개인 프로젝트 교차 금지(위 문서) — add 와 같은 규칙, 예외 대신 건너뛰기.
+    ProjectRow issueProject = projectOf(issue);
+    if (!issueProject.id().equals(oldParentProject.id())
+        && (issueProject.isPersonal() || oldParentProject.isPersonal())) {
+      return false;
+    }
+    // 코드→이름 순으로 RELATES 유형을 찾는다 — 찾지 못하면 예외로 롤백에 맡긴다(숨긴 유형은 이름·코드가 그대로라 쓸 수 있다).
+    IssueRelationTypeRow type =
+        relationTypeService
+            .resolveByCodeOrName(IssueRelationBuiltIns.RELATES)
+            .orElseThrow(IssueRelationException::notFound);
+    StoredPair pair = StoredPair.of(type.directed(), issue.id(), oldParent.id());
+    if (!relationRepository.insertIfAbsent(
+        type.id(), pair.sourceIssueId(), pair.targetIssueId(), callerId)) {
+      // 위 검사로 건너뛴 경우와 다른 false — 이미 관계가 있어 그대로 뒀다(중복 행 방지, 마찬가지로 이력·신호 없음).
+      return false;
+    }
+    // add 와 같은 방식으로 두 이슈에 RELATION_ADDED 이력을 남기고 각 프로젝트 화면을 갱신한다.
+    recordBoth(
+        IssueHistoryEventType.RELATION_ADDED,
+        callerId,
+        type,
+        issueProject,
+        issue,
+        new Endpoint(oldParentProject, oldParent),
+        pair.sourceIssueId() == issue.id());
+    return true;
+  }
+
+  /** 이슈 행 → 그 프로젝트 행 — 관계 이력·실시간 신호가 프로젝트 단위라 둘 다 필요하다. 없는 프로젝트는 예외(호출부가 롤백). */
+  private ProjectRow projectOf(IssueRow row) {
+    return projectRepository.findById(row.projectId()).orElseThrow();
   }
 
   /**

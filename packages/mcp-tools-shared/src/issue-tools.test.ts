@@ -696,6 +696,27 @@ describe('buildSharedIssueTools', () => {
     expect(c.setIssueParent).toHaveBeenCalledWith('WP-12', null);
   });
 
+  it('WP-2097: update_issue 유형 변경에 relateToReleasedParent 를 주면 같은 옵션으로 부르고, 결과에 releasedParentKey 를 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.setIssueType).mockResolvedValue({ releasedParentKey: 'WP-3' });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', type: 'BUG', relateToReleasedParent: true })));
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 2, undefined, { relateToReleasedParent: true });
+    expect(out).toEqual({ ok: true, results: { type: 'ok' }, releasedParentKey: 'WP-3' });
+
+    // 유형과 부모를 함께 바꿔도 같은 옵션을 실어 보낸다 — 옛 상위가 풀리는 것은 이 경로뿐이다.
+    vi.mocked(c.setIssueType).mockClear();
+    await t.handler({ issueKey: 'WP-12', type: 'BUG', parent: 'WP-3', relateToReleasedParent: true });
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 2, 3, { relateToReleasedParent: true });
+
+    // 옵션을 안 주면 3개 인자로 부르고(생략 = 서버 기본 끄기), 상위가 안 바뀌었으면(null) 결과에 키도 없다.
+    vi.mocked(c.setIssueType).mockClear();
+    vi.mocked(c.setIssueType).mockResolvedValue({ releasedParentKey: null });
+    const plain = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', type: 'BUG' })));
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 2);
+    expect(plain).toEqual({ ok: true, results: { type: 'ok' } });
+  });
+
   it('WP-394: update_issue 는 담당자 이름이 틀리면 라벨을 포함해 아무것도 쓰지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

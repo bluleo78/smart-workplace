@@ -1084,7 +1084,9 @@ public class IssueService {
         accessGuard.canChangeReporter(project, row.reporterId(), callerId),
         // 관계(WP-887) — 조회자가 읽을 수 있는 상대만. 외부 링크는 외부 주소라 프로젝트 권한과 무관하게 전부 싣는다.
         relationService.listFor(callerId, row, project),
-        externalLinkService.listFor(row.id()));
+        externalLinkService.listFor(row.id()),
+        // 옛 상위 키(WP-2097) — 조회 경로는 유형 변경 요청이 아니므로 늘 null, setType 이 반환 직전에 덮어쓴다.
+        null);
   }
 
   /**
@@ -1488,6 +1490,23 @@ public class IssueService {
       Long newTypeId,
       Integer parentNumber,
       String parentKey) {
+    // 기존 호출부는 옵션 없이 쓴다 — 옛 상위 관련 관계 유지(WP-2097)는 명시적으로 켠 요청에서만.
+    return setType(callerId, projectKey, number, newTypeId, parentNumber, parentKey, false);
+  }
+
+  /**
+   * {@link #setType(Long, String, int, Long, Integer, String)} 에 옛 상위 관련 관계 유지 옵션(WP-2097)을 더한 것 —
+   * relateToReleasedParent 를 켜고 상위가 실제로 바뀌면(해제 또는 에픽 이동) 옛 상위와 시스템 「관련(RELATES)」 관계를 유형·부모 변경과 같은
+   * 트랜잭션에서 만든다. 관계를 만들 수 없으면 유형도 바뀌지 않는다(완료 기준 5).
+   */
+  public IssueDetailResponse setType(
+      Long callerId,
+      String projectKey,
+      int number,
+      Long newTypeId,
+      Integer parentNumber,
+      String parentKey,
+      boolean relateToReleasedParent) {
     var project = accessGuard.assertMember(projectKey, callerId);
     ParentTarget parentTarget = ParentTarget.of(parentNumber, parentKey, project.key());
     // 행을 잠근 채 읽는다(setParent 와 같은 이유).
@@ -1579,6 +1598,10 @@ public class IssueService {
         !parentChanges || issue.parentIssueId() == null
             ? null
             : issueRepository.findById(issue.parentIssueId()).orElse(null);
+    // WP-2097 — 옛 상위와의 관련 관계: 부모·유형을 바꾸기 전에 만든다. 같은 트랜잭션이라 관계가 안 생기면 유형도 바뀌지 않는다.
+    if (relateToReleasedParent && parentChanges && oldParentRow != null) {
+      relationService.relateToReleasedParent(callerId, issue, oldParentRow);
+    }
     if (releasesParent) {
       issueRepository.updateParent(issue.id(), null);
       historyRecorder.recordParentChanged(callerId, issue.id(), parentRefOf(oldParentRow), null);
@@ -1606,7 +1629,24 @@ public class IssueService {
         new IssueTypeSummary(newType.id(), newType.name(), newType.colorToken(), newType.icon()));
     // 유형 변경은 정리성 쓰기 — AI 작업을 시작·터치하지 않는다(WP-425).
     changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
-    return get(callerId, projectKey, number);
+    // WP-2097 — 옛 상위 키는 옵션과 무관하게 이번 변경으로 상위가 바뀌었을 때만 싣는다: 키가 없으면 상위가 안 바뀐 것이다.
+    // 읽을 수 없는 옛 상위(교차 프로젝트, 접근 미회여)의 키는 응답·MCP 결과로 드러내지 않는다 — 관계를 건너뛰는 canRead 와 같은 판정(반려 요청).
+    String releasedParentKey =
+        parentChanges
+                && oldParentRow != null
+                && accessGuard.canRead(oldParentRow.projectId(), callerId)
+            ? releasedParentKeyOf(oldParentRow)
+            : null;
+    return get(callerId, projectKey, number).withReleasedParentKey(releasedParentKey);
+  }
+
+  /**
+   * 옛 상위 행 → 응답용 키({@code 프로젝트키-번호}) — 옛 상위가 다른 프로젝트여도 같은 꼴이라 IssueRelationView·parentRefOf 가 쓰는
+   * 형식과 같다(WP-2097). 프로젝트를 모르면 null(응답에도 null).
+   */
+  private String releasedParentKeyOf(IssueRow parent) {
+    String key = projectRepository.findById(parent.projectId()).map(ProjectRow::key).orElse(null);
+    return key == null ? null : key + "-" + parent.number();
   }
 
   /**

@@ -248,8 +248,13 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async updateIssueContent(issueKey, body) {
       return (await http.patch(issue(issueKey), body)).data;
     },
-    async setIssueType(issueKey, typeId, parent) {
-      await http.patch(`${issue(issueKey)}/type`, parent === undefined ? { typeId } : { typeId, ...parentBody(parent) });
+    async setIssueType(issueKey, typeId, parent, opts) {
+      // WP-2097: 옵션은 준 값(true/false) 그대로 본문에 싣고, 안 주면 아예 싣지 않는다 — 생략이 서버 기본(끄기)과 똑같은 요청이 되게.
+      const relate = opts?.relateToReleasedParent === undefined ? {} : { relateToReleasedParent: opts.relateToReleasedParent };
+      // 유형 변경 응답(이슈 상세)에 실린 옛 상위 키를 그대로 돌려보낸다 — 서버는 이번 변경으로 상위가 바뀌었을 때만 싣는다(옵션과 무관).
+      return (
+        await http.patch(`${issue(issueKey)}/type`, parent === undefined ? { typeId, ...relate } : { typeId, ...parentBody(parent), ...relate })
+      ).data;
     },
     async setIssueParent(issueKey, parent) {
       await http.patch(`${issue(issueKey)}/parent`, parent === null ? { parentNumber: null } : parentBody(parent));

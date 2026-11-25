@@ -70,6 +70,23 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/type', { typeId: 2 });
   });
 
+  it('WP-2097: setIssueType 옵션은 본문에 relateToReleasedParent 로 싣고, 응답의 releasedParentKey 를 그대로 돌려준다', async () => {
+    const { http, client } = mockHttp();
+    http.patch.mockResolvedValue({ data: { releasedParentKey: 'WP-3' } });
+    const res = await client.setIssueType('WP-12', 2, 3, { relateToReleasedParent: true });
+    expect(http.patch).toHaveBeenCalledWith('/projects/WP/issues/12/type', {
+      typeId: 2,
+      parentNumber: 3,
+      relateToReleasedParent: true,
+    });
+    expect(res).toEqual({ releasedParentKey: 'WP-3' });
+
+    // 옵션을 안 주면 본문에도 없다(생략 = 서버 기본 끄기). 상위가 안 바뀐 응답(null)도 그대로 올라온다.
+    http.patch.mockResolvedValue({ data: { releasedParentKey: null } });
+    expect(await client.setIssueType('WP-12', 2)).toEqual({ releasedParentKey: null });
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/type', { typeId: 2 });
+  });
+
   it('updateIssueContent 는 이슈 경로로 PATCH', async () => {
     const { http, client } = mockHttp();
     await client.updateIssueContent('WP-12', { title: 't' });

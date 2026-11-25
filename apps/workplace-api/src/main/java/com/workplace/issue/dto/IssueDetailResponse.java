@@ -37,4 +37,27 @@ public record IssueDetailResponse(
      */
     List<IssueRelationView> relations,
     /** 외부 링크(WP-887) — 다른 시스템 이슈를 관계 유형·키·제목·주소로 붙인 것. */
-    List<IssueExternalLinkView> externalLinks) {}
+    List<IssueExternalLinkView> externalLinks,
+    /** 유형 변경으로 상위가 바뀌었을 때의 옛 상위 키 — 아니면 null (WP-2097) */
+    String releasedParentKey) {
+
+  /** 응답에 옛 상위 키를 싣는 새 인스턴스(WP-2097) — setType 이 반환 직전에 부른다. */
+  public IssueDetailResponse withReleasedParentKey(String key) {
+    return new IssueDetailResponse(
+        summary,
+        body,
+        comments,
+        history,
+        attachments,
+        aiContext,
+        viewerCanEditContent,
+        viewerCanEditWorkflow,
+        viewerCanDelete,
+        viewerCanComment,
+        reporter,
+        viewerCanChangeReporter,
+        relations,
+        externalLinks,
+        key);
+  }
+}

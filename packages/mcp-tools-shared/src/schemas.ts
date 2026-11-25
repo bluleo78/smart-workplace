@@ -103,6 +103,9 @@ export const updateIssueInput = z.object({
   clearStartDate: z.boolean().optional(),
   type: z.string().optional(), // 유형 이름 → typeId
   parent: z.string().min(1).nullable().describe('Parent issue key (same project, or an EPIC in another project); null clears').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 다른 프로젝트는 에픽만(WP-1038)
+  // WP-2097: 유형 변경으로 상위가 풀릴 때 옛 상위와의 관련 관계 남기기 — 생략하면 끄기(서버 기본과 같다).
+  // 핸들러가 type 없이 오면 이 인자를 아예 쓰지 않으므로(무시) 설명에 그 한정을 함께 적는다.
+  relateToReleasedParent: z.boolean().optional().describe('하위 태스크의 상위가 풀릴 때 옛 상위와 관련 관계를 남긴다 — type 과 함께 줄 때만 유효'),
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
   // WP-944: 보고자 username(me=호출자) → PUT .../reporter. 프로젝트 OWNER·ADMIN·지금 보고자만, 사람만 — 서버가 거절하면 results.reporter 실패.
   reporter: z.string().min(1).optional(),
