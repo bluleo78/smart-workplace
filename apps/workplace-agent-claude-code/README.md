@@ -6,6 +6,7 @@ Works 가 띄우는 AI Pod 의 작업 공간 이미지다(WP-1252). runner(`apps
 
 - 베이스 `mcr.microsoft.com/playwright:v1.60.0-noble`. 개발용 작업 공간이라 DHI 규칙의 예외다(사유는 Dockerfile 머리에 있다).
 - tmux, git, gh, glab(GitLab — 사용 통계·업데이트 확인 끔), jq, tini, OpenJDK 21, docker CLI·compose v2, pnpm(corepack)
+- kubectl(WP-2136, 운영·PoC 서버와 같은 minor 로 고정) — 허용 목록 ServiceAccount 를 받은 배포 담당 AI 만 쓸 수 있다(그 밖의 AI 는 토큰이 없다, WP-2135·계약 문서 「클러스터 권한」)
 - 포트·프로세스 확인 도구(WP-1404): lsof, ss·ip(iproute2), nc(BSD 판), netstat, fuser·killall, file, xxd, column, bc, zip, dig, ping, rsync, uuidgen — Mac 에 기본으로 있어 스크립트가 쓰는 명령
 - playwright-cli(고정 버전, WP-1404) — 그 cli 가 품은 Playwright 의 chromium 을 `/ms-playwright` 에 굳히고, `~/.playwright/cli.config.json` 이 chromium headless 를 기본으로 둔다(`--config` 없이 `playwright-cli open <url>`). 엔트리포인트가 cli 설치를 PVC 브라우저 폴더의 `.links` 에 올려(`genia-playwright-cli`) 부팅 때 브라우저 정리(`browser-prune`)가 그 chromium 을 「쓰는 것」으로 남기게 하고, Xvfb 가상 화면(`DISPLAY=:99`)을 띄워 `--headed` 도 그리게 한다
 - Claude Code `2.1.330`(npm 전역 설치, `DISABLE_AUTOUPDATER=1`). 버전은 고정하고 손으로 올린다 — 칸이 쓰는 Code Mode 가 실험 기능이라 릴리스마다 바뀔 수 있다. 올릴 때는 다른 실행기 이미지 세 개의 `CLAUDE_CODE_VERSION` 도 같이 올리고(테스트가 같은지 본다), 아래 「Code Mode 확인」을 다시 한다
