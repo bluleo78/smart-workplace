@@ -3,20 +3,20 @@
 import { useEffect, useState } from 'react';
 
 import { useIssueTotal } from '../../../hooks/queries/useIssueGroupCounts';
-import { withDefaultIssueScope, withoutSort } from '../../../lib/issueFilters';
+import { withDefaultIssueScope, withoutViewOrder } from '../../../lib/issueFilters';
 import { issueResultAnnouncement } from '../../../lib/issueResultAnnouncement';
 import type { IssueFilters } from '../../../types/issue';
 
 /**
  * 결과 건수 안내 영역. 화면에는 보이지 않는다.
  * - 처음 렌더의 조건은 안내하지 않고 총계도 요청하지 않는다(첫 진입에 요청이 늘지 않게). 조건이 한 번이라도 바뀐 뒤부터 요청·안내한다.
- * - 정렬은 건수와 무관하므로 조건 키에서 뺀다.
+ * - 정렬·「끝난 이슈 아래로」(WP-2103)는 건수와 무관하므로 조건 키에서 뺀다.
  * - 조건이 바뀌면 문구를 먼저 비우고, 새 조건의 총계가 오면 다시 채운다 — 같은 건수여도 낭독기가 변화를 알아채게 한다.
  * - 같은 조건에서 이미 알렸다면 재조회로 건수가 달라져도 다시 읽지 않는다(편집 중 불쑥 읽히는 것 방지).
  */
 export function IssueResultStatus({ projectKey, filters }: { projectKey: string; filters: IssueFilters }) {
   const scoped = withDefaultIssueScope(filters);
-  const key = JSON.stringify(withoutSort(scoped));
+  const key = JSON.stringify(withoutViewOrder(scoped));
 
   // 렌더 중 상태 보정 패턴(effect 대신) — 조건 키가 처음 바뀐 순간부터 총계를 요청·안내한다(한 번 바뀌면 계속 켜 둔다).
   // 프로젝트 전환은 부모가 key={projectKey} 로 다시 마운트해 새 프로젝트 첫 진입으로 다룬다(여기서 따로 보정하지 않는다).

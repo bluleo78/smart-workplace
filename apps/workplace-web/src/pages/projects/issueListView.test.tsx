@@ -382,6 +382,62 @@ describe('정렬 (WP-1238)', () => {
   })
 })
 
+// WP-2103 — 목록 「끝난 이슈 아래로」: 그룹 없는 목록은 기본 켜짐(closedLast=true), 정렬 메뉴 항목으로 끈다(URL closedLast=off).
+describe('끝난 이슈 아래로 (WP-2103)', () => {
+  const withClosedLast = (api: ReturnType<typeof openList>['api']) => api.searches.filter((u) => u.searchParams.get('closedLast') === 'true')
+
+  test('그룹 없는 목록은 처음부터 closedLast=true 로 한 번만 검색한다', async () => {
+    const { api } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?group=none` })
+    await screen.findByTestId('issue-row-7')
+    expect(withClosedLast(api)).toHaveLength(1)
+  })
+
+  test('메뉴에서 끄면 주소에 closedLast=off 가 생기고 검색에서 closedLast 가 빠지며, 다시 켜면 되돌아온다', async () => {
+    const { user, api, location } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?group=none` })
+    await screen.findByTestId('issue-row-7')
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    const item = await screen.findByTestId('issue-sort-closed-last')
+    expect(item).toHaveAttribute('aria-checked', 'true')
+    await user.click(item)
+    await waitFor(() => expect(location()).toMatch(/closedLast=off/))
+    await waitFor(() => expect(api.lastBodySearch()?.searchParams.has('closedLast')).toBe(false))
+    // 메뉴는 열린 채 — 이어서 다시 켠다.
+    expect(screen.getByTestId('issue-sort-closed-last')).toHaveAttribute('aria-checked', 'false')
+    await user.click(screen.getByTestId('issue-sort-closed-last'))
+    await waitFor(() => expect(location()).not.toMatch(/closedLast/))
+    // 처음 켜짐 조회와 같은 쿼리 키라 캐시를 다시 쓴다 — 새 요청 없이 closedLast=true 검색은 처음 한 번뿐이다.
+    await waitFor(() => expect(screen.getByTestId('issue-sort-closed-last')).toHaveAttribute('aria-checked', 'true'))
+    expect(withClosedLast(api)).toHaveLength(1)
+  })
+
+  test('「기본으로」는 정렬만 되돌리고 끝난 이슈 아래로 설정은 건드리지 않는다', async () => {
+    const { user, location } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?group=none&closedLast=off&sort=dueDate&direction=asc` })
+    await screen.findByTestId('issue-row-7')
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    await user.click(await screen.findByTestId('issue-sort-reset'))
+    await waitFor(() => expect(location()).not.toMatch(/sort=/))
+    expect(location()).toMatch(/closedLast=off/)
+  })
+
+  test('그룹을 묶은 목록에서는 closedLast 를 보내지 않고 메뉴 항목도 없다', async () => {
+    const { user, api } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?group=status` })
+    await screen.findByTestId('issue-row-7')
+    expect(withClosedLast(api)).toHaveLength(0)
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    await screen.findByTestId('issue-sort-menu')
+    expect(screen.queryByTestId('issue-sort-closed-last')).not.toBeInTheDocument()
+  })
+
+  test('보드에서는 closedLast 를 보내지 않고 메뉴 항목도 없다', async () => {
+    const { user, api } = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?view=board` })
+    await waitFor(() => expect(api.searches.some((u) => u.searchParams.has('statusId'))).toBe(true))
+    expect(withClosedLast(api)).toHaveLength(0)
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    await screen.findByTestId('issue-sort-menu')
+    expect(screen.queryByTestId('issue-sort-closed-last')).not.toBeInTheDocument()
+  })
+})
+
 // WP-1929 리뷰 3차 — 그룹 헤더 수(headerCount) 판정 규칙.
 // 임시(이전 필터) 총계 placeholder 는 행과 맞물려 있을 때만 쓴다 · 실패·로드 뒤에는 행 수 폴백 · 로딩 중만 비운다.
 describe('그룹 헤더 수 (WP-1929 리뷰 3차)', () => {

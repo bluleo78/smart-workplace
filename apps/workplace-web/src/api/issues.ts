@@ -128,6 +128,8 @@ export async function searchIssues(
     params.set('sort', filters.sort);
     params.set('direction', filters.direction);
   }
+  // 끝난 이슈 아래로(WP-2103) — 서버가 sort 와 함께 쓸 수 있지만 checklist 정렬(order)과는 배타라 order 가 있으면 보내지 않는다.
+  if (filters.closedLast && !extra?.order) params.set('closedLast', 'true');
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(

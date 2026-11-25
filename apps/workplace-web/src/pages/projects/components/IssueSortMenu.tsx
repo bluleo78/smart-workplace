@@ -6,6 +6,7 @@ import { ArrowUpDown } from 'lucide-react';
 
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -19,6 +20,7 @@ import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import {
+  type ClosedLastToggle,
   DEFAULT_SORT,
   ISSUE_SORT_DIRECTION_LABEL,
   ISSUE_SORT_LABEL,
@@ -33,10 +35,13 @@ const SECTION_LABEL_CLASS = 'text-xs font-normal text-muted-foreground';
 export function IssueSortMenu({
   sort,
   onChange,
+  closedLast,
 }: {
   /** 고른 정렬 — null 이면 기본(수정일 내림차순, 서버 기본). */
   sort: IssueSortValue | null;
   onChange: (next: IssueSortValue | null) => void;
+  /** 「끝난 이슈 아래로」(WP-2103) — 그룹 없는 목록에서만 넘긴다. 없으면 항목을 숨긴다. */
+  closedLast?: ClosedLastToggle;
 }) {
   const { keys, directions } = sortMenuModel(sort);
   // 한 묶음(기준 또는 방향)의 라디오 — 골라도 메뉴를 닫지 않는다(preventDefault): 기준을 고르고 이어서 방향을 바꾸며 뒤의 목록을 볼 수 있게(열 메뉴와 같다).
@@ -79,6 +84,22 @@ export function IssueSortMenu({
         <DropdownMenuSeparator />
         <DropdownMenuLabel className={SECTION_LABEL_CLASS}>방향</DropdownMenuLabel>
         {radios(directions, 'issue-sort-direction')}
+        {closedLast && (
+          <>
+            <DropdownMenuSeparator />
+            {/* 골라도 메뉴를 닫지 않는다 — 정렬 항목과 같다. 「기본으로」는 정렬만 되돌리고 이 설정은 건드리지 않는다. */}
+            <DropdownMenuCheckboxItem
+              checked={closedLast.on}
+              data-testid="issue-sort-closed-last"
+              onSelect={(e) => {
+                e.preventDefault();
+                closedLast.onChange(!closedLast.on);
+              }}
+            >
+              끝난 이슈 아래로
+            </DropdownMenuCheckboxItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem data-testid="issue-sort-reset" disabled={!sort} onSelect={() => onChange(null)}>
           기본으로

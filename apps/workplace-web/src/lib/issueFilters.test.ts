@@ -12,8 +12,11 @@ import {
   resolveListGroupBy,
   toClientGroupBy,
   withDefaultIssueScope,
+  withListOrder,
   withoutSort,
+  withoutViewOrder,
 } from './issueFilters';
+import { applySort } from './issueSort';
 
 const EMPTY = parseFilters(new URLSearchParams());
 
@@ -471,5 +474,45 @@ describe('오래 멈춤·기다리는 중 (WP-1478)', () => {
   it('걸려 있으면 필터로 센다(filterOnlyKey) — 「전체」·저장 뷰 판정이 조건을 놓치지 않게', () => {
     expect(filterOnlyKey(EMPTY)).toBe('');
     expect(filterOnlyKey({ ...EMPTY, stale: true })).toBe('stale=true');
+  });
+});
+
+// WP-2103: 「끝난 이슈 아래로」 — 기본 켜짐이라 URL 에는 끈 상태(closedLast=off)만 싣는다.
+describe('끝난 이슈 아래로(closedLastOff)', () => {
+  const OFF = parseFilters(new URLSearchParams('closedLast=off'));
+
+  it('closedLast=off 는 왕복하고, 부재·on 은 필드가 없다', () => {
+    expect(OFF.closedLastOff).toBe(true);
+    expect(filtersToParams(OFF, 'list', null).get('closedLast')).toBe('off');
+    expect('closedLastOff' in EMPTY).toBe(false);
+    expect('closedLastOff' in parseFilters(new URLSearchParams('closedLast=on'))).toBe(false);
+  });
+
+  it('정렬을 바꾸거나 지워도 끔 설정은 남는다', () => {
+    expect(applySort(OFF, { key: 'priority', direction: 'asc' }).closedLastOff).toBe(true);
+    expect(applySort(OFF, null).closedLastOff).toBe(true);
+  });
+
+  it('filterOnlyKey 는 끔 설정을 필터로 세지 않는다', () => {
+    expect(filterOnlyKey(OFF)).toBe('');
+  });
+
+  it('withoutViewOrder 는 정렬·끔 설정·주입값을 모두 뺀다', () => {
+    const f = withoutViewOrder({ ...OFF, closedLast: true, sort: 'status', direction: 'asc' });
+    expect(f.sort).toBeUndefined();
+    expect(f.closedLastOff).toBeUndefined();
+    expect(f.closedLast).toBeUndefined();
+  });
+
+  it('carrySort 는 이전 쿼리의 closedLast=off 를 이어 붙인다', () => {
+    expect(carrySort(new URLSearchParams(), new URLSearchParams('closedLast=off')).get('closedLast')).toBe('off');
+    expect(carrySort(new URLSearchParams(), new URLSearchParams()).has('closedLast')).toBe(false);
+  });
+
+  it('withListOrder 는 그룹 없음·켜짐일 때만 closedLast 를 주입하고 URL 에는 싣지 않는다', () => {
+    expect(withListOrder(EMPTY, null).closedLast).toBe(true);
+    expect(withListOrder(EMPTY, 'status').closedLast).toBeUndefined();
+    expect(withListOrder(OFF, null).closedLast).toBeUndefined();
+    expect(filtersToParams(withListOrder(EMPTY, null), 'list', null).has('closedLast')).toBe(false);
   });
 });

@@ -516,6 +516,11 @@ export interface IssueFilters {
   sort?: IssueSortKey;
   // 정렬 방향 — URL direction. sort 가 있을 때만 의미가 있다(parseFilters 가 sort 없이 온 값은 버린다).
   direction?: IssueSortDirection;
+  // 「끝난 이슈 아래로」 끔(WP-2103) — URL closedLast=off. 기본은 켜짐이라 꺼진 때만 필드를 둔다(예전 필터 객체와 같은 모양).
+  // 정렬처럼 필터가 아니라 표시 옵션이다(withoutViewOrder 가 뺀다).
+  closedLastOff?: true;
+  // 끝난(DONE·CANCELED) 이슈를 정렬 맨 뒤로 보내라는 서버 요청값 — URL 비직렬화 API 전용 주입값. withListOrder 만 주입하고 searchIssues 가 closedLast=true 로 보낸다.
+  closedLast?: true;
 }
 
 // 이슈 목록 정렬 기준(WP-1238) — 서버 목록 API 의 sort 토큰과 같은 이름. 빈 값(마감 없음·담당자 없음)은 서버가 방향과 무관하게 맨 뒤로 보낸다.

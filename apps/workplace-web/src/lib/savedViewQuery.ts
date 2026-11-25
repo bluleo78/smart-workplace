@@ -86,7 +86,14 @@ export function queryHasNoFilters(query: string): boolean {
 export function savedViewShowsDisplayChoice(query: string): boolean {
   const params = new URLSearchParams(query);
   // 정렬(WP-1238)도 그룹·열과 같은 보기 선택 — 정렬만 담은 뷰도 주소로 열면 그 뷰 칩이 켜진다(「전체」 판정은 정렬을 보지 않으므로).
-  return savedGroup(params) !== 'none' || savedViewHasColumns(query) || parseFilters(params).sort != null;
+  // closedLast=off(WP-2103, 끝난 이슈 아래로 끔)도 같은 표시 옵션이라 정렬과 똑같이 센다 — 안 세면 그것만 담은 뷰 칩이 안 켜진다.
+  const filters = parseFilters(params);
+  return (
+    savedGroup(params) !== 'none' ||
+    savedViewHasColumns(query) ||
+    filters.sort != null ||
+    filters.closedLastOff === true
+  );
 }
 
 /**

@@ -19,6 +19,7 @@ function Harness() {
       <button onClick={() => setParams('q=a')}>검색 a</button>
       <button onClick={() => setParams('q=b')}>검색 b</button>
       <button onClick={() => setParams('sort=priority&direction=desc')}>정렬</button>
+      <button onClick={() => setParams('closedLast=off')}>끝난 이슈 아래로 끔</button>
       <IssueResultStatus key={project} projectKey={project} filters={parseFilters(new URLSearchParams(params))} />
     </>
   )
@@ -94,6 +95,16 @@ describe('IssueResultStatus', () => {
     const { calls, handler } = setup({ '': 5 })
     const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [handler] })
     await user.click(screen.getByText('정렬'))
+    await settle()
+    expect(region().textContent).toBe('')
+    expect(calls).toHaveLength(0)
+  })
+
+  // WP-2103: 「끝난 이슈 아래로」도 순서만 바꾸므로 건수 안내·총계 요청 조건이 아니다.
+  it('끝난 이슈 아래로만 끄면 안내하지 않는다', async () => {
+    const { calls, handler } = setup({ '': 5 })
+    const { user } = renderScreen(<Harness />, { path: '/projects/WP', handlers: [handler] })
+    await user.click(screen.getByText('끝난 이슈 아래로 끔'))
     await settle()
     expect(region().textContent).toBe('')
     expect(calls).toHaveLength(0)

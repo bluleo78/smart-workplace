@@ -258,6 +258,124 @@ class IssueSortTest extends IntegrationTestBase {
   }
 
   @Test
+  void closedLastPutsClosedIssuesAtBottomWithDefaultOrder() {
+    long open1 = seed(p, "open1", "MID", null, null);
+    long done1 = seed(p, "done1", "MID", null, "DONE");
+    long open2 = seed(p, "open2", "MID", null, null);
+    long canceled1 = seed(p, "canceled1", "MID", null, "CANCELED");
+    long open3 = seed(p, "open3", "MID", null, null);
+
+    assertThat(ids(page(Map.of("closedLast", "true"), 100, null)))
+        .containsExactly(open3, open2, open1, canceled1, done1);
+  }
+
+  @Test
+  void closedLastKeepsChosenSortInsideEachGroup() {
+    long openLow = seed(p, "open-low", "LOW", null, null);
+    long doneHigh = seed(p, "done-high", "HIGH", null, "DONE");
+    long openHigh = seed(p, "open-high", "HIGH", null, null);
+    long canceledLow = seed(p, "canceled-low", "LOW", null, "CANCELED");
+
+    Map<String, String> params = new HashMap<>(sort("priority", "asc"));
+    params.put("closedLast", "true");
+    assertThat(ids(page(params, 100, null)))
+        .containsExactly(openHigh, openLow, doneHigh, canceledLow);
+  }
+
+  @Test
+  void closedLastPagingHasNoGapOrDuplicate() {
+    long alice = fx.loginUser("aa");
+    seed(p, "o1", "HIGH", date(10, 1), null);
+    seed(p, "o2", "HIGH", date(10, 1), null);
+    long o3 = seed(p, "o3", "MID", date(10, 1), "DONE");
+    seed(p, "n1", "LOW", null, null);
+    seed(p, "n2", "LOW", null, "IN_PROGRESS");
+    seed(p, "n3", "LOW", null, null);
+    long a1 = seed(p, "a1", "MID", date(10, 3), null);
+    long a2 = seed(p, "a2", "MID", null, "CANCELED");
+    assign(a1, alice);
+    assign(a2, alice);
+
+    List<Map<String, String>> sorts =
+        List.of(
+            Map.of(),
+            sort("dueDate", "asc"),
+            sort("priority", "asc"),
+            sort("priority,dueDate", "desc,asc"),
+            sort("status,assignee", "asc"),
+            sort("assignee", "desc"),
+            sort("updatedAt", "asc"),
+            sort("createdAt", "desc"));
+    for (Map<String, String> s : sorts) {
+      Map<String, String> base = new HashMap<>(s);
+      base.put("closedLast", "true");
+      List<Long> all = ids(page(base, 100, null));
+      assertThat(all).as(base.toString()).hasSize(8);
+      assertThat(all.subList(6, 8)).as(base.toString()).containsExactlyInAnyOrder(o3, a2);
+      for (int size : List.of(1, 2, 3)) {
+        List<Long> paged = pageThrough(base, size);
+        assertThat(paged).as(base + " size=" + size).containsExactlyElementsOf(all);
+        assertThat(new HashSet<>(paged)).hasSize(paged.size());
+      }
+    }
+  }
+
+  @Test
+  void closedLastCursorMismatchIs400() {
+    seed(p, "a", "MID", null, null);
+    seed(p, "b", "MID", null, null);
+    Map<String, String> on = new HashMap<>(sort("dueDate", "asc"));
+    on.put("closedLast", "true");
+    String closedCursor = page(on, 1, null).nextCursor();
+    String plainCursor = page(sort("dueDate", "asc"), 1, null).nextCursor();
+    assertThat(IssueSortCursor.decode(closedCursor).signature())
+        .isEqualTo("closedLast;dueDate:asc");
+
+    assertThatThrownBy(() -> page(sort("dueDate", "asc"), 1, closedCursor))
+        .isInstanceOf(InvalidCursorException.class);
+    assertThatThrownBy(() -> page(on, 1, plainCursor)).isInstanceOf(InvalidCursorException.class);
+  }
+
+  @Test
+  void closedLastOtherValuesAreOff() {
+    long a = seed(p, "a", "MID", null, "DONE");
+    long b = seed(p, "b", "MID", null, null);
+    long c = seed(p, "c", "MID", null, null);
+
+    assertThat(ids(page(Map.of("closedLast", "off"), 100, null))).containsExactly(c, b, a);
+    IssueSearchResponse first = page(Map.of("closedLast", "off"), 2, null);
+    assertThat(IssueCursor.decode(first.nextCursor()).id()).isEqualTo(b);
+  }
+
+  @Test
+  void closedLastWithChecklistOrderIs400() throws Exception {
+    assertThat(
+            status(
+                "/api/v1/projects/"
+                    + p.key()
+                    + "/issues?order=checklist&mode=status&closedLast=true"))
+        .isEqualTo(400);
+    // sort 없이 closedLast 만 온 충돌은 field·문구가 closedLast 로 나간다(WP-2103).
+    String body =
+        body("/api/v1/projects/" + p.key() + "/issues?order=checklist&mode=status&closedLast=true");
+    assertThat(body).contains("closedLast 는 order=checklist 와 함께 쓸 수 없습니다");
+    assertThat(body).doesNotContain("sort 는");
+    // 빈 sort= 는 정렬 키가 없으니 closedLast 가 원인이다 — 원시 파라미터 유무가 아니라 키로 가른다(WP-2103 리뷰).
+    assertThat(
+            body(
+                "/api/v1/projects/"
+                    + p.key()
+                    + "/issues?order=checklist&mode=status&sort=&closedLast=true"))
+        .contains("closedLast 는 order=checklist 와 함께 쓸 수 없습니다");
+
+    String meBody = body("/api/v1/me/issues?group=due&closedLast=true");
+    assertThat(meBody).contains("closedLast 는 group 과 함께 쓸 수 없습니다");
+    // sort 가 함께 오면 기존 sort 문구 그대로.
+    assertThat(body("/api/v1/me/issues?group=due&sort=dueDate&closedLast=true"))
+        .contains("sort 는 group 과 함께 쓸 수 없습니다");
+  }
+
+  @Test
   void defaultOrderUnchangedWithoutSort() {
     long a = seed(p, "a", "HIGH", date(10, 1), null);
     long b = seed(p, "b", "LOW", null, null);
@@ -381,14 +499,24 @@ class IssueSortTest extends IntegrationTestBase {
     return page.items().stream().map(IssueResponse::id).toList();
   }
 
+  /** 응답 본문 문자열 — 400 의 field·문구를 확인할 때 쓴다. */
+  private String body(String url) throws Exception {
+    return perform(url).getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+  }
+
   private int status(String url) throws Exception {
+    return perform(url).getStatus();
+  }
+
+  /** 내 토큰으로 GET 을 보내 응답을 돌려준다 — body·status 가 같이 쓴다. */
+  private org.springframework.mock.web.MockHttpServletResponse perform(String url)
+      throws Exception {
     return mvc.perform(
             get(url)
                 .header(
                     "Authorization",
                     "Bearer " + jwtTokenProvider.generateAccessToken(me, "user-" + me)))
         .andReturn()
-        .getResponse()
-        .getStatus();
+        .getResponse();
   }
 }

@@ -127,8 +127,9 @@ public class IssueSearchService {
    * 검색. params 키: q, status, statusId·statusName(WP-807), assignee, priority, dueFrom, dueTo,
    * startFrom·startTo·updatedFrom·updatedTo(WP-1238), label, type, component(WP-933, id·이름·none),
    * fixVersion·affectsVersion(WP-888, id·이름·none), cursor, size, watching(WP-356, true 만),
-   * sort·direction(WP-1238, {@link IssueSort}), stale·waiting(WP-1478, true 만). assignee·reporter 는
-   * me/숫자 id/username, label·type 은 숫자 id/이름을 받는다(#841).
+   * sort·direction(WP-1238, {@link IssueSort}), closedLast(WP-2103, true 만 — 끝난 이슈를 맨 뒤로),
+   * stale·waiting(WP-1478, true 만). assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을
+   * 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -138,9 +139,12 @@ public class IssueSearchService {
         ChecklistOrder.parse(
             params.get("order"), params.get("mode"), params.get("today"), params.get("weekEnd"));
     // WP-1238: sort 가 있으면 사용자 지정 정렬로. 체크리스트 정렬과는 함께 쓸 수 없다(둘 다 정렬을 정한다).
-    IssueSort sort = IssueSort.parse(params.get("sort"), params.get("direction"));
+    IssueSort sort =
+        IssueSort.parse(params.get("sort"), params.get("direction"), params.get("closedLast"));
     if (order != null && sort != null) {
-      throw new InvalidIssueFilterException("sort", "sort 는 order=checklist 와 함께 쓸 수 없습니다");
+      // 정렬 키 없이(sort 부재·빈 값) closedLast 만 켠 요청이면 그 파라미터가 원인이므로 field·문구를 closedLast 로 낸다(WP-2103).
+      String field = sort.keys().isEmpty() ? "closedLast" : "sort";
+      throw new InvalidIssueFilterException(field, field + " 는 order=checklist 와 함께 쓸 수 없습니다");
     }
     if (order != null) {
       return searchChecklist(callerId, project.id(), project.key(), params, order);
@@ -256,9 +260,12 @@ public class IssueSearchService {
     MeIssueGrouping grouping = MeIssueGrouping.parse(trimToNull(params.get("group")));
     // WP-1238: sort 가 있으면 사용자 지정 정렬로. 프로젝트 묶음 정렬과는 함께 쓸 수 없다(둘 다 정렬을 정한다) — projectKey 위임보다
     // 먼저 검사해 projectKey 가 있어도 같은 규칙(400)이다(위임하면 group 이 조용히 버려진다).
-    IssueSort sort = IssueSort.parse(params.get("sort"), params.get("direction"));
+    IssueSort sort =
+        IssueSort.parse(params.get("sort"), params.get("direction"), params.get("closedLast"));
     if (grouping != null && sort != null) {
-      throw new InvalidIssueFilterException("sort", "sort 는 group 과 함께 쓸 수 없습니다");
+      // 정렬 키 없이(sort 부재·빈 값) closedLast 만 켠 요청이면 그 파라미터가 원인이므로 field·문구를 closedLast 로 낸다(WP-2103).
+      String field = sort.keys().isEmpty() ? "closedLast" : "sort";
+      throw new InvalidIssueFilterException(field, field + " 는 group 과 함께 쓸 수 없습니다");
     }
     String projectKey = trimToNull(params.get("projectKey"));
     if (projectKey != null) {

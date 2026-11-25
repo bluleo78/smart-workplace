@@ -112,6 +112,16 @@ describe('searchIssues — 정렬', () => {
     expect(q().has('direction')).toBe(false);
   });
 
+  it('closedLast 주입값이면 closedLast=true 를 보내고, checklist 정렬(order)과는 함께 보내지 않는다(WP-2103)', async () => {
+    const q = sentQuery();
+    await searchIssues('WP', { ...EMPTY, closedLast: true }, null);
+    expect(q().get('closedLast')).toBe('true');
+    await searchIssues('WP', { ...EMPTY, closedLast: true }, null, 100, { order: 'checklist', mode: 'status' });
+    expect(q().has('closedLast')).toBe(false);
+    await searchIssues('WP', EMPTY, null);
+    expect(q().has('closedLast')).toBe(false);
+  });
+
   it('그룹 총계엔 정렬을 보내지 않는다', async () => {
     const q = sentQuery();
     await getIssueGroupCounts('WP', { ...EMPTY, sort: 'status', direction: 'asc' }, 'priority');

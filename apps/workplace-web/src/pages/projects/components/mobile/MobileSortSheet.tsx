@@ -5,18 +5,22 @@ import { Check } from 'lucide-react';
 import { useState } from 'react';
 
 import { MOBILE_SHEET_ROW, MobileSheetShell } from '@/components/mobile/MobileSheetShell';
+import { Switch } from '@/components/ui/switch';
 import { SELECTED_ROW_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
-import { DEFAULT_SORT, type IssueSortValue, sortChipLabel, sortMenuModel } from '../../../../lib/issueSort';
+import { type ClosedLastToggle, DEFAULT_SORT, type IssueSortValue, sortChipLabel, sortMenuModel } from '../../../../lib/issueSort';
 import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
 
 export function MobileSortChip({
   sort,
   onChange,
+  closedLast,
 }: {
   sort: IssueSortValue | null;
   onChange: (next: IssueSortValue | null) => void;
+  /** 「끝난 이슈 아래로」(WP-2103) — 그룹 없는 목록에서만 넘긴다. 없으면 줄을 숨긴다. */
+  closedLast?: ClosedLastToggle;
 }) {
   const [open, setOpen] = useState(false);
   // 항목·체크·고른 뒤 값은 데스크톱 메뉴와 같은 sortMenuModel — 기본 상태의 체크는 수정일·내림차순이다.
@@ -83,6 +87,18 @@ export function MobileSortChip({
             </button>
           ))}
         </div>
+        {/* 끝난 이슈 아래로(WP-2103) — 스위치 한 줄. 「기본으로」는 이 설정을 건드리지 않는다. */}
+        {closedLast && (
+          // 행 전체가 label 이라 글자를 눌러도 스위치가 토글된다(MobileViewSheet 의 「완료 모두 보기」와 같은 마크업).
+          <label className={cn(MOBILE_SHEET_ROW, 'border-t')}>
+            <span className="min-w-0 flex-1">끝난 이슈 아래로</span>
+            <Switch
+              checked={closedLast.on}
+              onCheckedChange={closedLast.onChange}
+              data-testid="mobile-sort-closed-last"
+            />
+          </label>
+        )}
       </MobileSheetShell>
     </>
   );

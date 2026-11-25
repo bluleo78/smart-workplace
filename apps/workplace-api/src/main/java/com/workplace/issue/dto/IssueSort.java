@@ -16,9 +16,14 @@ import java.util.stream.Collectors;
  * <p>방향 파라미터 이름은 {@code direction} 이다 — {@code order} 는 이미 체크리스트 정렬({@link ChecklistOrder}, {@code
  * order=checklist})이 쓰고 있어 겹치지 않게 했다.
  *
+ * <p>WP-2103: {@code closedLast=true} 면 끝난 이슈(DONE·CANCELED)를 정렬 맨 뒤로 보낸다 — 고른 키 앞에 「끝남 여부」 칸이 하나 더
+ * 붙어, 열린 묶음·끝난 묶음 각각 안에서 고른 정렬(없으면 updatedAt DESC → id DESC)을 따른다. 정렬 키 없이 closedLast 만 와도 이 정렬이
+ * 켜진다. 커서 서명에도 실려, closedLast 가 다른 요청의 커서는 이어 읽을 수 없다(400).
+ *
  * @param keys 사용자가 고른 정렬 키(순서대로, 중복 없음). 동률 깨기(updatedAt DESC → id DESC)는 리포지토리가 덧붙인다.
+ * @param closedLast 끝난 이슈를 맨 뒤로 보낼지
  */
-public record IssueSort(List<Key> keys) {
+public record IssueSort(List<Key> keys, boolean closedLast) {
 
   /** 정렬할 수 있는 키 — {@code param} 은 쿼리 파라미터 표기. */
   public enum Field {
@@ -61,9 +66,12 @@ public record IssueSort(List<Key> keys) {
    * 달라 이어 읽을 수 없다).
    */
   public String signature() {
-    return keys.stream()
-        .map(k -> k.field().param() + ":" + (k.desc() ? "desc" : "asc"))
-        .collect(Collectors.joining(","));
+    String base =
+        keys.stream()
+            .map(k -> k.field().param() + ":" + (k.desc() ? "desc" : "asc"))
+            .collect(Collectors.joining(","));
+    // closedLast 는 첫 칸이 하나 더 있는 다른 정렬이라 서명 앞에 표시한다.
+    return closedLast ? "closedLast;" + base : base;
   }
 
   /**
@@ -75,16 +83,20 @@ public record IssueSort(List<Key> keys) {
    *       키에, 여럿이면 키와 자리별로 짝지으며 개수가 다르면 400.
    * </ul>
    *
-   * 오류는 {@link InvalidIssueFilterException}(400, 필드별 사유) — 다른 검색 필터 오류와 같은 모양.
+   * closedLast(WP-2103): 대소문자 무시 {@code true} 만 켠다(그 밖의 값은 꺼짐). 켜졌는데 sort 가 없으면 키 없는 정렬({@code new
+   * IssueSort(List.of(), true)})을 돌려준다 — direction 만 오면 여전히 400. 둘 다 없으면 null.
+   *
+   * <p>오류는 {@link InvalidIssueFilterException}(400, 필드별 사유) — 다른 검색 필터 오류와 같은 모양.
    */
-  public static IssueSort parse(String sort, String direction) {
+  public static IssueSort parse(String sort, String direction, String closedLast) {
+    boolean closed = closedLast != null && closedLast.trim().equalsIgnoreCase("true");
     List<String> sortTokens = csv(sort);
     List<String> dirTokens = csv(direction);
     if (sortTokens.isEmpty()) {
       if (!dirTokens.isEmpty()) {
         throw new InvalidIssueFilterException("direction", "direction 에는 sort 가 필요합니다");
       }
-      return null;
+      return closed ? new IssueSort(List.of(), true) : null;
     }
     if (dirTokens.size() > 1 && dirTokens.size() != sortTokens.size()) {
       throw new InvalidIssueFilterException(
@@ -115,7 +127,7 @@ public record IssueSort(List<Key> keys) {
               : dirTokens.size() == 1 ? dirTokens.get(0) : dirTokens.get(i);
       keys.add(new Key(f, parseDirection(dir)));
     }
-    return new IssueSort(List.copyOf(keys));
+    return new IssueSort(List.copyOf(keys), closed);
   }
 
   private static boolean parseDirection(String raw) {
