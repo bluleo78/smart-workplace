@@ -167,6 +167,29 @@ describe('빈 상태 (#337)', () => {
     expect(lastSearch()!.searchParams.has('q')).toBe(false)
   })
 
+  // WP-2125: 검색어를 치고 300ms 안에 빈 상태 「필터 지우기」를 누르면 대기 중이던 q 쓰기가 지운 뒤 되살아나지 않는다.
+  test('검색어를 치자마자 빈 상태 「필터 지우기」를 눌러도 300ms 뒤 q 가 되살아나지 않고, 지운 뒤 새 검색어는 URL 에 쓰인다', async () => {
+    const { user, location } = openList([], {
+      path: `/projects/${KEY}?status=IN_PROGRESS`,
+      search: (url) => (url.searchParams.has('status') || url.searchParams.has('q') ? [] : [createIssue({ number: 5, title: '정상 이슈' })]),
+    })
+    const input = await screen.findByRole('textbox', { name: '이슈 필터: 제목·키' })
+    await user.click(input)
+    await user.paste('결제')
+    // 300ms debounce 가 끝나기 전에 빈 상태 CTA 로 지운다.
+    await user.click(await screen.findByTestId('empty-reset-filter'))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
+    // debounce 시간이 충분히 흐른 뒤에도 q 가 없고 검색 칸이 비어 있다.
+    await new Promise((r) => setTimeout(r, 500))
+    expect(location()).toBe(`/projects/${KEY}`)
+    expect(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' })).toHaveValue('')
+    // 지운 뒤 다시 친 검색어는 평소처럼 300ms 뒤 URL 에 쓰인다.
+    await user.click(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('버그')
+    await waitFor(() => expect(location()).toMatch(/q=/))
+    expect(decodeURIComponent(location())).toContain('q=버그')
+  })
+
   // 필터 없는 0건 → 「이슈가 없습니다」 + 「새 이슈 만들기」 → 유형 중립 「새 이슈」 다이얼로그(#641).
   test('필터 없이 0건이면 「이슈가 없습니다」와 CTA, 누르면 「새 이슈」 다이얼로그가 열린다', async () => {
     const { user } = openList([])

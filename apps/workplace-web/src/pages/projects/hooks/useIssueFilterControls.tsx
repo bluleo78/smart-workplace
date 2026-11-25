@@ -3,7 +3,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 
 import { type FacetDef, type FilterValue, QUICK_FILTER_STORAGE_PREFIX } from '@/components/filter';
 
@@ -46,6 +46,7 @@ import { assigneeFacetValue, assigneeFilterFromFacet, buildAssigneeFacet } from 
 import { buildComponentFacet, componentFacetValue, componentFilterFromFacet } from './componentFacet';
 import { buildStatusFacets } from './statusFacets';
 import { useSetIssueSort } from './useIssueSortParam';
+import { issueFiltersResetNav, readIssueFiltersReset } from './useResetIssueFilters';
 import { buildVersionFacet, versionFacetValue, versionFilterFromFacet } from './versionFacet';
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
@@ -145,8 +146,13 @@ export function useIssueFilterControls(
   // 검색어 draft — 300ms debounce 후 URL 에 반영해 매 키 입력마다 네트워크 호출을 막는다.
   // URL 의 q 가 외부 변경(예: 필터 지우기 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
   // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003). 쓰는 순간의 최신 필터·view·group 에 q 만 바꾼다.
-  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(filters.q, (q) =>
-    writeFilters({ ...filters, q }, view, groupParam),
+  // 「필터 지우기」(빈 상태 CTA 포함)가 싣는 router state 신호를 cancelKey 로 받아, 대기 중인 q 쓰기를 접는다(WP-2125).
+  const { state: locationState } = useLocation();
+  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(
+    filters.q,
+    (q) => writeFilters({ ...filters, q }, view, groupParam),
+    300,
+    readIssueFiltersReset(locationState),
   );
 
   // view·groupBy 는 IssueFilters 와 분리된 URL 키 — 필터 변경 시에도 함께 보존해야 한다.
@@ -201,9 +207,9 @@ export function useIssueFilterControls(
       if (view === 'board') p.set('view', 'board');
       if (groupParam) p.set('group', groupParam);
       return carryViewOptions(carrySort(p, prev), prev);
-    }, { replace: true });
-    // 검색 입력 직후(300ms debounce 대기 중)에 눌러도 예약된 q 쓰기가 URL 을 되살리지 않게 draft 를 비운다 —
-    // draft 가 바뀌면 debounce 효과가 정리돼 예약된 쓰기가 사라지고, 새 타이머는 '' 를 비운 URL 과 비교해 쓰지 않는다(WP-2115).
+    }, issueFiltersResetNav());
+    // 검색 입력 직후(300ms debounce 대기 중)에 눌러도 예약된 q 쓰기가 URL 을 되살리지 않게 draft 도 비운다 —
+    // router state 의 지우기 신호(WP-2125)와 함께, 이 훅 안의 draft 는 바로 '' 로 맞춘다(WP-2115).
     setQDraft('');
   }
 
