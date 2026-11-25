@@ -1,9 +1,12 @@
 package com.workplace.wiki.report;
 
 import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.airun.service.AiRunSkips;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -99,6 +102,8 @@ public class ProjectReportGenerator {
     NOT_DUE,
     /** 워크스페이스 공통 비서가 없어 AI 를 부르지 않았다(실패가 아니라 설정 상태). */
     SKIPPED_NO_ASSISTANT,
+    /** 공통 비서 자격이 사용 한도 대기 중이라 AI 를 부르지 않았다(WP-2108) — 대기가 풀리면 같은 회차를 다시 잡는다. */
+    SKIPPED_LIMIT_WAIT,
     /** 실패 — 30분 뒤 재시도하거나(3회째면) 다음 예정으로 넘겼다. */
     FAILED
   }
@@ -119,6 +124,7 @@ public class ProjectReportGenerator {
   private final ProjectReportLocation location;
   private final ReportPageWriter pageWriter;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentIssueClient client;
   private final AiAgentProperties aiAgentProperties;
   private final AiRunRecorder aiRunRecorder;
@@ -135,6 +141,7 @@ public class ProjectReportGenerator {
       ProjectReportTemplate template,
       ProjectReportLocation location,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentIssueClient client,
       AiAgentProperties aiAgentProperties,
       AiRunRecorder aiRunRecorder,
@@ -151,6 +158,7 @@ public class ProjectReportGenerator {
     // 쓰기 뼈대는 받은 writer 로 만든다 — 테스트가 넘기는 스파이 writer 가 쓰기 단계에도 그대로 쓰이게(빈 주입이 아니라).
     this.pageWriter = new ReportPageWriter(writer);
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.client = client;
     this.aiAgentProperties = aiAgentProperties;
     this.aiRunRecorder = aiRunRecorder;
@@ -198,7 +206,23 @@ public class ProjectReportGenerator {
     }
 
     try {
-      Optional<AssistantSpec> spec = workspaceAssistant();
+      AssistantResolution resolution = workspaceResolution();
+      // WP-2108: 한도 대기면 건너뛰고 기록.
+      Optional<AssistantSpec> spec =
+          limitGuard.specOrSkip(
+              resolution, AiRunKinds.PROJECT_REPORT, aiRunContext(project, now, false));
+      if (resolution.isWaiting()) {
+        // 한도 대기 — 그 회차를 버리지 않는다. 예약을 풀고 점유가 민 다음 예정을 대기가 풀리는 시각으로 되돌려, 풀린 뒤 같은 회차를 다시 잡게 한다.
+        log.debug("공통 비서가 한도 대기 중이라 프로젝트 리포트를 미룸 projectId={}", projectId);
+        OffsetDateTime retryAt =
+            OffsetDateTime.ofInstant(resolution.limitWaitUntil(), now.getOffset());
+        tx.executeWithoutResult(
+            s -> {
+              reports.release(projectId, period);
+              settings.retryAt(projectId, retryAt);
+            });
+        return Outcome.SKIPPED_LIMIT_WAIT;
+      }
       if (spec.isEmpty()) {
         log.debug("공통 비서가 없어 프로젝트 리포트를 건너뜀 projectId={}", projectId);
         tx.executeWithoutResult(s -> reports.release(projectId, period));
@@ -237,8 +261,11 @@ public class ProjectReportGenerator {
     long projectId = project.id();
     // AI 연동이 꺼져 있으면 예약·계산·노트 쓰기 전에 거절한다(WP-1639).
     if (!aiAgentProperties.enabled()) throw ProjectReportGenerateException.aiDisabled();
+    AssistantResolution resolution = workspaceResolution();
+    // 직접 요청은 대기 중이면 곧바로 한도 안내로 거절한다(WP-2108) — 「비서 없음」 이 아니다.
+    resolution.throwIfWaiting();
     AssistantSpec spec =
-        workspaceAssistant().orElseThrow(ProjectReportGenerateException::noAssistant);
+        resolution.readySpec().orElseThrow(ProjectReportGenerateException::noAssistant);
     ReportPeriod period = manualPeriod(setting, now);
     Optional<Takeover> reserved = tx.execute(s -> reports.reserveNow(projectId, period, now));
     if (reserved == null || reserved.isEmpty()) throw ProjectReportGenerateException.busy();
@@ -300,10 +327,10 @@ public class ProjectReportGenerator {
         manual ? null : now);
   }
 
-  /** 워크스페이스 공통 비서(없으면 empty) — 짧은 tx 로 읽는다. */
-  private Optional<AssistantSpec> workspaceAssistant() {
-    Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveWorkspaceOrEmpty());
-    return spec == null ? Optional.empty() : spec;
+  /** 워크스페이스 공통 비서 해석 결과(없음·준비됨·한도 대기) — 짧은 tx 로 읽는다. */
+  private AssistantResolution workspaceResolution() {
+    AssistantResolution r = tx.execute(s -> assistantResolver.workspaceResolution());
+    return r == null ? AssistantResolution.none() : r;
   }
 
   /**
@@ -376,11 +403,16 @@ public class ProjectReportGenerator {
     }
 
     // tx 밖 AI — 커넥션을 붙잡지 않는다.
+    // 한도로 실패하면 그 자격을 대기로 건다(WP-2108) — 실패 처리 흐름은 그대로(같은 예외가 올라간다).
     ProjectReportAiResult result =
-        AiRunScope.call(
-            aiRunContext(project, now, manual),
+        limitGuard.call(
+            spec,
             () ->
-                client.writeProjectReport(request(project, period, facts, templateMarkdown, spec)));
+                AiRunScope.call(
+                    aiRunContext(project, now, manual),
+                    () ->
+                        client.writeProjectReport(
+                            request(project, period, facts, templateMarkdown, spec))));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 리포트를 돌려줬어요.");
     if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {

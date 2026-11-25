@@ -49,6 +49,7 @@ import { useAuth } from '../../../hooks/useAuth';
 import { accountLabel } from '../../../lib/agentAccount';
 import { providerIdOf } from '../../../lib/ai/suggestionModel';
 import { handleApiError } from '../../../lib/api-error';
+import { limitWaitBadgeText } from '../../../lib/assistantLimit';
 import { formatMonthDayClock } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../../types/assistant';
@@ -210,6 +211,8 @@ export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
   const isCurrent = ws?.agentUserId === agentUserId;
   // 공통 비서 지정 블록 노출(WP-1170) — 관리자가 설정할 수 있는 에이전트면 늘, 개인 비서는 지정이 남아 있을 때만(끄기 전용).
   const showAssistantToggle = canConfigure || isCurrent;
+  // 사용 한도 대기 배지 글자(WP-2108) — 대기 중이 아니거나 지났으면 null.
+  const limitWaitText = limitWaitBadgeText(ws?.limitWaitUntil);
 
   // 모델 목록 — 공통 비서일 때만 조회. 저장된 자격증명 기준.
   const { data: modelsData, isLoading: modelsLoading } = useAgentModels(
@@ -323,6 +326,16 @@ export function WorkspaceAssistantGroup({ agentUserId, canConfigure }: Props) {
                     className="text-xs"
                   >
                     ✓ 지정됨
+                  </Badge>
+                ) : null}
+                {/* WP-2108: 이 비서의 AI 계정이 사용 한도 대기 중이면 풀리는 시각을 알린다. */}
+                {isCurrent && limitWaitText ? (
+                  <Badge
+                    variant="warning"
+                    data-testid="workspace-assistant-limit-wait-badge"
+                    className="text-xs"
+                  >
+                    {limitWaitText}
                   </Badge>
                 ) : null}
               </div>

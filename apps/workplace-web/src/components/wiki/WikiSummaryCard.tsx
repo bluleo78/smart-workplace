@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { AiContent } from '@/components/ai/AiContent'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { bulletLines } from '@/components/ai/bulletLines'
+import { apiErrorStatus, userFacingServerMessage } from '@/lib/api-error'
 import { formatMonthDayClock } from '@/lib/formatters'
 
 import { useGenerateWikiSummary, useWikiSummary } from '../../hooks/queries/useWikiSummary'
@@ -36,6 +37,9 @@ export function WikiSummaryCard({ pageId, accessLost = false }: { pageId: number
   // 다른 노트의 생성 상태가 이 카드에 새지 않도록 변수로 확인한다.
   const pendingHere = generate.isPending && generate.variables === pageId
   const failedHere = generate.isError && generate.variables === pageId
+  // 사용 한도 대기(503, WP-2108)면 서버의 한도 문구(풀리는 시각 포함)를 보인다. 그 밖의 실패는 고정 문구.
+  const limitMessage =
+    failedHere && apiErrorStatus(generate.error) === 503 ? userFacingServerMessage(generate.error) : null
 
   if (!data) return null
   if (!data.summary && !pendingHere && !failedHere) return null // TOO_SHORT 또는 생성 전
@@ -58,7 +62,7 @@ export function WikiSummaryCard({ pageId, accessLost = false }: { pageId: number
                     문구는 작은 글자 AA(4.5:1)를 지키도록 본문색으로 둔다(text-destructive 는 카드 배경 위 3.3:1). */}
                 <span data-testid="wiki-ai-summary-failed" className="inline-flex items-center gap-1 font-medium text-foreground">
                   <AlertCircle className="h-3 w-3 shrink-0 text-destructive" aria-hidden="true" />
-                  요약하지 못했어요
+                  {limitMessage ?? '요약하지 못했어요'}
                 </span>
                 {!accessLost && <RegenerateButton testId="wiki-ai-summary-retry" label="다시 시도" onClick={regenerate} />}
               </>

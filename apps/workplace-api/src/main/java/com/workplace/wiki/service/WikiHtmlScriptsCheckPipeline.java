@@ -1,5 +1,8 @@
 package com.workplace.wiki.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.exception.FileAiException;
@@ -40,6 +43,7 @@ public class WikiHtmlScriptsCheckPipeline {
 
   private final WikiHtmlScriptsCheckRepository repo;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentDriveClient driveClient;
   private final ObjectMapper objectMapper;
 
@@ -49,11 +53,13 @@ public class WikiHtmlScriptsCheckPipeline {
   public WikiHtmlScriptsCheckPipeline(
       WikiHtmlScriptsCheckRepository repo,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentDriveClient driveClient,
       ObjectMapper objectMapper,
       PlatformTransactionManager txManager) {
     this.repo = repo;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.driveClient = driveClient;
     this.objectMapper = objectMapper;
     this.tx = new TransactionTemplate(txManager);
@@ -69,7 +75,12 @@ public class WikiHtmlScriptsCheckPipeline {
     Outcome early =
         tx.execute(
             s -> {
-              Optional<AssistantSpec> spec = assistantResolver.resolveWorkspaceOrEmpty();
+              // 한도 대기 중이면 SKIPPED(limit_wait)를 남기고 빈 값 — 행을 선점하지 않아 풀린 뒤 스케줄러가 다시 줍는다(WP-2108).
+              Optional<AssistantSpec> spec =
+                  limitGuard.specOrSkip(
+                      assistantResolver.workspaceResolution(),
+                      AiRunKinds.DRIVE_SECURITY_CHECK,
+                      AiRunContext.auto("WIKI_PAGE", String.valueOf(pageId)));
               if (spec.isEmpty()) return Outcome.NO_AI;
               if (!repo.claim(pageId, hash)) return Outcome.NOT_CLAIMED;
               WikiHtmlScriptsCheckRecord row = repo.find(pageId, hash).orElseThrow();
@@ -111,7 +122,9 @@ public class WikiHtmlScriptsCheckPipeline {
       evidenceJson =
           objectMapper.writeValueAsString(res.evidence() == null ? List.of() : res.evidence());
     } catch (RuntimeException ex) {
-      return onAgentFailure(pageId, hash, ex);
+      // 한도 실패면 그 자격을 대기로 건다(WP-2108)
+      boolean limited = limitGuard.onFailure(spec, ex);
+      return onAgentFailure(pageId, hash, ex, limited);
     }
 
     // ③ 저장
@@ -126,11 +139,12 @@ public class WikiHtmlScriptsCheckPipeline {
    * AI 호출 실패 처리 — 요청이 닿지도 못했으면 시도를 되돌려 PENDING, 그 밖엔 최대 시도에 닿았으면 FAILED, 아니면 PENDING 으로 돌려 스케줄러가 다시
    * 줍게 한다.
    */
-  private Outcome onAgentFailure(long pageId, String hash, Exception ex) {
+  private Outcome onAgentFailure(long pageId, String hash, Exception ex, boolean limited) {
     String message = ex.getMessage();
-    if (ex instanceof FileAiException f && f.isUnreached()) {
+    // 사용 한도(limited)도 페이지 탓이 아니므로 닿지 못한 실패처럼 시도를 되돌려 PENDING 으로 둔다(WP-2108) — FAILED 로 끝나지 않는다.
+    if (limited || (ex instanceof FileAiException f && f.isUnreached())) {
       String cause = AgentOutageGuard.describe(ex);
-      log.warn("ai-agent 불가 — 시도 횟수 유지, PENDING 복귀: pageId={} ({})", pageId, cause);
+      log.warn("ai-agent 불가·사용 한도 — 시도 횟수 유지, PENDING 복귀: pageId={} ({})", pageId, cause);
       tx.executeWithoutResult(s -> repo.revertToPending(pageId, hash, cause, true));
       return Outcome.ATTEMPT_FAILED;
     }

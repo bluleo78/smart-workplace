@@ -67,6 +67,11 @@ public record AiRunContext(
     return new AiRunContext(null, null, null, "AUTO", null, null);
   }
 
+  /** 백그라운드(AUTO) 주체에 대상(종류·id)만 정한 맥락 — 자동 처리가 대상 하나를 가리킬 때 쓴다(라벨·원천 시각 없음). */
+  public static AiRunContext auto(String targetType, String targetId) {
+    return new AiRunContext(targetType, targetId, null, "AUTO", null, null);
+  }
+
   /** 아무것도 정하지 않은 빈 맥락. */
   public static AiRunContext empty() {
     return new AiRunContext(null, null, null, null, null, null);

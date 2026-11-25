@@ -6,8 +6,12 @@ import static com.workplace.agentaccount.service.AgentAccountService.STATUS_RELO
 
 import com.workplace.agentaccount.dto.AgentAccountRow;
 import com.workplace.agentaccount.repository.AgentAccountRepository;
+import com.workplace.auth.outbound.AiLimitWaitNoticeEvent;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.user.repository.UserRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -15,6 +19,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -47,6 +52,8 @@ public class AgentAccountUsageCollector {
   private final AgentAccountUsageRepository usage;
   private final EncryptionService encryption;
   private final AgentAccountUsageProperties props;
+  private final UserRepository userRepository;
+  private final ApplicationEventPublisher publisher;
 
   /** provider → 조회기. */
   private final Map<String, UsageProbe> probes;
@@ -60,11 +67,15 @@ public class AgentAccountUsageCollector {
       EncryptionService encryption,
       List<UsageProbe> probes,
       AgentAccountUsageProperties props,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      UserRepository userRepository,
+      ApplicationEventPublisher publisher) {
     this.accounts = accounts;
     this.usage = usage;
     this.encryption = encryption;
     this.props = props;
+    this.userRepository = userRepository;
+    this.publisher = publisher;
     this.probes =
         probes.stream()
             .collect(Collectors.toUnmodifiableMap(UsageProbe::provider, Function.identity()));
@@ -144,7 +155,7 @@ public class AgentAccountUsageCollector {
       usage.releaseLease(accountId);
       throw e;
     }
-    return Boolean.TRUE.equals(tx.execute(s -> save(account, outcome)));
+    return Boolean.TRUE.equals(tx.execute(s -> save(tenantId, account, outcome)));
   }
 
   /** 원문을 복호화해 조회기를 부른다. 복호화 실패는 네트워크 호출 없이 BAD_SECRET 실패. */
@@ -183,7 +194,7 @@ public class AgentAccountUsageCollector {
    *
    * @return 저장했으면 true, 결과를 버렸으면 false
    */
-  private boolean save(AgentAccountRow probed, Outcome outcome) {
+  private boolean save(long tenantId, AgentAccountRow probed, Outcome outcome) {
     Optional<AgentAccountRow> current = accounts.findActiveForUpdate(probed.id());
     if (current.isEmpty() || current.get().secretVersion() != probed.secretVersion()) {
       // 조회 중 폐기됐거나 원문이 바뀌었다 — 옛 결과는 버리고 다음 회차가 새 원문으로 다시 조회하게 임대만 푼다.
@@ -192,7 +203,11 @@ public class AgentAccountUsageCollector {
     }
     String status = current.get().status();
     if (outcome.succeeded()) {
+      // 이전 판정은 저장 전 값으로 해야 하므로 알림 준비는 저장 앞에서, 이벤트 발행은 저장 뒤에 한다 — 알림 준비 실패가 사용량 저장을 되돌리지 않게.
+      Optional<AiLimitWaitNoticeEvent> notice =
+          prepareLimitNotice(tenantId, current.get(), outcome.reading());
       usage.saveSuccess(probed.id(), outcome.reading().windows(), outcome.reading().limitReached());
+      notice.ifPresent(this::publishQuietly);
       // 조회 성공은 저장된 키가 지금 통한다는 증거다 — 「확인 필요」뿐 아니라 「다시 로그인 필요」(일시 장애 중 401 로 넘어갔을 수 있다)도 「정상」으로
       // 되돌린다. 안 그러면 상태 계산에서 RELOGIN_REQUIRED 가 이겨 이후 조회가 계속 성공해도 빨간 표시가 남는다.
       if (STATUS_NEEDS_CHECK.equals(status) || STATUS_RELOGIN_REQUIRED.equals(status)) {
@@ -205,6 +220,60 @@ public class AgentAccountUsageCollector {
       }
     }
     return true;
+  }
+
+  /**
+   * 이 조회로 계정이 한도에 새로 걸렸으면 활성 관리자에게 알린다(WP-2108) — 저장 전의 마지막 성공 값으로 이전 판정을 한다. 마지막 시도가 실패였는지는 보지
+   * 않는다: 한도 중간에 낀 조회 실패(CHECK_FAILED)가 두 번째 알림을 만들지 않게. 이벤트는 트랜잭션 안에서 내고 커밋 뒤(AFTER_COMMIT)에 전달된다.
+   * 활성 관리자가 없으면 받을 사람이 없어 내지 않는다.
+   */
+  private Optional<AiLimitWaitNoticeEvent> prepareLimitNotice(
+      long tenantId, AgentAccountRow account, UsageReading reading) {
+    try {
+      return buildLimitNotice(tenantId, account, reading);
+    } catch (RuntimeException e) {
+      // 알림은 부가 기능 — 준비에 실패해도 사용량 저장·상태 갱신은 계속한다.
+      log.warn("계정 한도 알림 준비 실패 accountId={}: {}", account.id(), e.toString());
+      return Optional.empty();
+    }
+  }
+
+  /** 이벤트 발행 실패도 사용량 저장 트랜잭션을 되돌리지 않게 로그만 남긴다. */
+  private void publishQuietly(AiLimitWaitNoticeEvent event) {
+    try {
+      publisher.publishEvent(event);
+    } catch (RuntimeException e) {
+      log.warn("계정 한도 알림 발행 실패: {}", e.toString());
+    }
+  }
+
+  private Optional<AiLimitWaitNoticeEvent> buildLimitNotice(
+      long tenantId, AgentAccountRow account, UsageReading reading) {
+    Instant now = Instant.now();
+    if (!UsageStatusCalculator.limitReached(reading.windows(), reading.limitReached(), now)) {
+      return Optional.empty();
+    }
+    long id = account.id();
+    UsageCheckRow check = usage.findChecks(List.of(id)).get(id);
+    // 직전 확인이 없거나 성공한 적 없으면 직전 한도 상태가 없으니 스냅샷을 읽지 않는다.
+    if (check != null && check.succeededAt() != null) {
+      List<UsageSnapshot> prevSnaps = usage.findSnapshots(List.of(id)).getOrDefault(id, List.of());
+      if (UsageStatusCalculator.limitReached(prevSnaps, check.limitReached(), now)) {
+        return Optional.empty();
+      }
+    }
+    List<Long> admins = userRepository.findWorkspaceActiveAdminIds(tenantId);
+    if (admins.isEmpty()) return Optional.empty();
+    return Optional.of(
+        new AiLimitWaitNoticeEvent(
+            tenantId,
+            admins,
+            null,
+            AssistantLimitWaitService.SCOPE_ACCOUNT,
+            AssistantLimitWaitService.accountNotice(
+                account.label(),
+                UsageStatusCalculator.limitResetsAt(reading.windows(), now),
+                now)));
   }
 
   /** 사용량을 조회하는 provider 인가 — 조회기가 등록된 종류만(genia·opencode 는 한도가 없어 조회기가 없다). */

@@ -180,6 +180,49 @@ class PushContentServiceTest extends IntegrationTestBase {
         name);
   }
 
+  /** AI 사용 한도 대기(WP-2108) — scope 별로 누르면 가는 설정 화면이 다르고 본문은 서버가 만든 message 다. */
+  @Test
+  void forInbox_aiLimitWait_urlByScope() {
+    PushMessage personal = content.forInbox(limitWait("PERSONAL_ASSISTANT", null, "내 비서 대기"));
+    PushMessage workspace = content.forInbox(limitWait("WORKSPACE_ASSISTANT", 42L, "공통 비서 대기"));
+    PushMessage account = content.forInbox(limitWait("AGENT_ACCOUNT", null, "계정 대기"));
+    PushMessage workspaceNoActor = content.forInbox(limitWait("WORKSPACE_ASSISTANT", null, "x"));
+
+    assertThat(personal.url()).isEqualTo("/settings/assistant");
+    assertThat(workspace.url()).isEqualTo("/settings/agents/42");
+    assertThat(account.url()).isEqualTo("/settings/agents/accounts");
+    assertThat(workspaceNoActor.url()).isEqualTo("/settings/agents");
+    assertThat(personal.title()).isEqualTo("AI 사용 한도");
+    assertThat(personal.body()).isEqualTo("내 비서 대기");
+    assertThat(account.body()).isEqualTo("계정 대기");
+    assertThat(personal.tag()).isEqualTo("ai-limit-wait");
+    assertThat(personal.urgency()).isEqualTo("normal");
+    assertThat(personal.ttlSeconds()).isEqualTo(259200);
+    assertThat(personal.category()).isEqualTo(PushCategory.MENTION);
+  }
+
+  /** message 가 없으면 기본 문구. */
+  @Test
+  void forInbox_aiLimitWait_defaultBody() {
+    assertThat(content.forInbox(limitWait("PERSONAL_ASSISTANT", null, null)).body())
+        .isEqualTo("AI 비서가 사용 한도에 걸렸어요");
+  }
+
+  /** NotificationService 가 내는 모양 그대로 — eventTitle=message, statusName=scope. */
+  private InboxPushRequestedEvent limitWait(String scope, Long actorId, String message) {
+    return new InboxPushRequestedEvent(
+        1L,
+        NotificationType.AI_ASSISTANT_LIMIT_WAIT,
+        PushCategory.MENTION,
+        List.of(1L),
+        actorId,
+        null,
+        null,
+        null,
+        message,
+        scope);
+  }
+
   @Test
   void forInbox_deletedIssue_returnsNull() {
     PushMessage m =

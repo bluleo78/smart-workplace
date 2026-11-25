@@ -22,12 +22,14 @@ import com.workplace.jooq.tables.AgentScreenSession.AgentScreenSessionPath;
 import com.workplace.jooq.tables.AgentServerRun.AgentServerRunPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
+import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.AiCapacitySample.AiCapacitySamplePath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.AiMemoryChange.AiMemoryChangePath;
 import com.workplace.jooq.tables.AiMemoryForgotten.AiMemoryForgottenPath;
 import com.workplace.jooq.tables.AiRun.AiRunPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
+import com.workplace.jooq.tables.AssistantLimitWait.AssistantLimitWaitPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
 import com.workplace.jooq.tables.CalendarDeletedMeeting.CalendarDeletedMeetingPath;
@@ -491,6 +493,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _aiRun = new AiRunPath(this, null, Keys.AI_RUN__AI_RUN_TENANT_ID_FKEY.getInverseKey());
 
         return _aiRun;
+    }
+
+    private transient AssistantLimitWaitPath _assistantLimitWait;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.assistant_limit_wait</code> table
+     */
+    public AssistantLimitWaitPath assistantLimitWait() {
+        if (_assistantLimitWait == null)
+            _assistantLimitWait = new AssistantLimitWaitPath(this, null, Keys.ASSISTANT_LIMIT_WAIT__ASSISTANT_LIMIT_WAIT_TENANT_ID_FKEY.getInverseKey());
+
+        return _assistantLimitWait;
     }
 
     private transient CalendarDeletedMeetingPath _calendarDeletedMeeting;
@@ -2564,6 +2579,14 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public UserPath agentRuntimeSettingAgentUserIdFkey() {
         return agentRuntimeSetting().agentRuntimeSettingAgentUserIdFkey();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.ai_agent_credential</code> table
+     */
+    public AiAgentCredentialPath aiAgentCredential() {
+        return assistantLimitWait().aiAgentCredential();
     }
 
     /**

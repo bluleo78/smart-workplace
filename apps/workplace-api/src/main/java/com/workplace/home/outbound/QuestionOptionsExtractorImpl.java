@@ -1,5 +1,9 @@
 package com.workplace.home.outbound;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.chat.outbound.QuestionOptionsExtractor;
@@ -36,30 +40,38 @@ public class QuestionOptionsExtractorImpl implements QuestionOptionsExtractor {
 
   private final ProjectRepository projectRepo;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentSuggestionClient client;
   private final TransactionTemplate txTemplate;
 
   public QuestionOptionsExtractorImpl(
       ProjectRepository projectRepo,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentSuggestionClient client,
       PlatformTransactionManager txManager) {
     this.projectRepo = projectRepo;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.client = client;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
   @Override
   public List<String> extract(String projectKey, String question) {
-    Optional<AssistantSpec> spec =
+    AssistantResolution resolution =
         txTemplate.execute(
             s ->
                 projectRepo
                     .findByKey(projectKey)
-                    .flatMap(
-                        p -> assistantResolver.resolveForProject(p.isPersonal(), p.ownerId())));
-    if (spec == null || spec.isEmpty()) return List.of();
+                    .map(p -> assistantResolver.projectResolution(p.isPersonal(), p.ownerId()))
+                    .orElseGet(AssistantResolution::none));
+    if (resolution == null) return List.of();
+    // 한도 대기 중이면 SKIPPED(limit_wait)를 남기고 선택지 추출을 건너뛴다(WP-2108). 이 클라이언트는 실패를 삼켜 빈 목록을 주므로 한도 표시는 다른
+    // 호출부가 맡는다.
+    Optional<AssistantSpec> spec =
+        limitGuard.specOrSkip(resolution, AiRunKinds.HOME_SUGGESTIONS, AiRunContext.auto());
+    if (spec.isEmpty()) return List.of();
     return client.suggest(
         new SuggestionRequest(
             "answer",

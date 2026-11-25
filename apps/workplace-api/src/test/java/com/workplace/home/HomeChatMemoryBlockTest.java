@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
+import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.service.HomeChatPumpTestSupport;
 import java.util.List;
 import java.util.Map;
@@ -94,7 +95,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             inv -> {
               Consumer<String> onDelta = inv.getArgument(1);
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
-              Consumer<String> onError = inv.getArgument(3);
+              Consumer<AiAgentChatClient.ChatError> onError = inv.getArgument(3);
               Consumer<String> onProgress = inv.getArgument(4);
               Consumer<JsonNode> onTool = inv.getArgument(6);
               Consumer<String> tool =
@@ -106,7 +107,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
                     }
                   };
               String fullText = script.run(onDelta, onProgress, tool);
-              if (fail) onError.accept("AI 구성 요청에 실패했어요.");
+              if (fail) onError.accept(AiAgentChatClient.ChatError.plain("AI 구성 요청에 실패했어요."));
               else onDone.accept(fullText, null);
               return null;
             })

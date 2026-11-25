@@ -130,6 +130,17 @@ test('생성에 실패하면 자동 재시도 없이 오류 표시와 다시 시
   await waitFor(() => expect(calls.post).toBe(2))
 })
 
+test('낡은 요약의 「다시 요약」이 사용 한도로 503 이면 서버의 한도 문구를 보인다(WP-2108)', async () => {
+  const limitMessage = '사용 한도에 걸렸어요(15:30 이후 다시 시도해 주세요)'
+  const handlers = [
+    http.get(`/api/v1/wiki/pages/${PAGE_ID}/summary`, () => HttpResponse.json(state('STALE', { summary: '낡은 요약', summaryVersion: 1, summarizedAt: '2026-10-08T05:20:00Z' }))),
+    http.post(`/api/v1/wiki/pages/${PAGE_ID}/summary`, () => HttpResponse.json({ message: limitMessage }, { status: 503 })),
+  ]
+  const { user } = renderScreen(<WikiSummaryCard pageId={PAGE_ID} />, { handlers })
+  await user.click(await screen.findByTestId('wiki-ai-summary-refresh'))
+  expect(await screen.findByTestId('wiki-ai-summary-failed')).toHaveTextContent(limitMessage)
+})
+
 test('실패 뒤 노트가 삭제·접근 불가(accessLost)면 다시 시도를 거두고 실패 문구는 남긴다(WP-296)', async () => {
   const { handlers } = summaryHandlers(PAGE_ID, { initial: state('MISSING'), post: 'fail' })
   const { user } = renderScreen(<Switcher first={{ pageId: PAGE_ID }} next={{ pageId: PAGE_ID, accessLost: true }} />, { handlers })

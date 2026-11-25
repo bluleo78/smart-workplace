@@ -193,7 +193,7 @@ public class ProjectOverviewService {
             .find(projectId)
             .filter(r -> r.summary() != null && !r.summary().isBlank() && r.badge() != null);
     if (row.isEmpty()) return null;
-    if (assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) return null;
+    if (!assistantResolver.hasWorkspaceAssistant()) return null;
     var r = row.get();
     StatusBadge live = ProjectStatusRule.badge(progress, today);
     return new StatusSummary(live.name(), r.summary(), r.checkedAt(), r.nextRunAt());

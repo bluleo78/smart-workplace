@@ -136,12 +136,60 @@ class AiAgentChatClientTest {
         dummyReq(),
         delta -> {},
         (ft, w, src) -> {},
-        errorMsg::set,
+        e -> errorMsg.set(e.message()),
         label -> {},
         node -> {},
         tn -> {});
 
     assertThat(errorMsg.get()).contains("실패");
+  }
+
+  /** WP-2108: 503 본문 reason=PROVIDER_LIMIT 이면 일반 문구와 함께 reason·resetsAt 를 싣는다. */
+  @Test
+  void 한도_503은_reason_resetsAt를_실어_onError로_전달() throws Exception {
+    boot(
+        "{\"error\":\"x\",\"reason\":\"PROVIDER_LIMIT\",\"resetsAt\":\"2026-11-25T15:00:00Z\"}",
+        503);
+
+    List<AiAgentChatClient.ChatError> errors = new ArrayList<>();
+    client.composeStream(
+        dummyReq(), d -> {}, (ft, w, src) -> {}, errors::add, l -> {}, n -> {}, t -> {});
+
+    assertThat(errors).hasSize(1);
+    assertThat(errors.get(0).reason()).isEqualTo("PROVIDER_LIMIT");
+    assertThat(errors.get(0).resetsAt()).isEqualTo("2026-11-25T15:00:00Z");
+    assertThat(errors.get(0).message()).contains("실패");
+  }
+
+  /** WP-2108: SSE event: error 의 data 에 reason=PROVIDER_LIMIT 이 있어도 같은 결과. */
+  @Test
+  void 한도_SSE_error는_reason_resetsAt를_실어_onError로_전달() throws Exception {
+    boot(
+        "event: error\ndata: {\"error\":\"x\",\"reason\":\"PROVIDER_LIMIT\",\"resetsAt\":\"2026-11-25T15:00:00Z\"}\n\n",
+        200);
+
+    List<AiAgentChatClient.ChatError> errors = new ArrayList<>();
+    client.composeStream(
+        dummyReq(), d -> {}, (ft, w, src) -> {}, errors::add, l -> {}, n -> {}, t -> {});
+
+    assertThat(errors).hasSize(1);
+    assertThat(errors.get(0).reason()).isEqualTo("PROVIDER_LIMIT");
+    assertThat(errors.get(0).resetsAt()).isEqualTo("2026-11-25T15:00:00Z");
+  }
+
+  /** WP-2108: 한도가 아닌 오류는 reason=null 로 지금 문구 그대로. */
+  @Test
+  void 일반_SSE_error는_reason이_null이고_문구_그대로() throws Exception {
+    boot("event: error\ndata: {\"message\":\"chat_failed\"}\n\n", 200);
+
+    List<AiAgentChatClient.ChatError> errors = new ArrayList<>();
+    client.composeStream(
+        dummyReq(), d -> {}, (ft, w, src) -> {}, errors::add, l -> {}, n -> {}, t -> {});
+
+    assertThat(errors).hasSize(1);
+    assertThat(errors.get(0).reason()).isNull();
+    assertThat(errors.get(0).resetsAt()).isNull();
+    assertThat(errors.get(0).message()).isEqualTo("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
   }
 
   @Test
@@ -160,7 +208,7 @@ class AiAgentChatClientTest {
         dummyReq(),
         deltas::add,
         (ft, w, src) -> done.set(true),
-        errorMsg::set,
+        e -> errorMsg.set(e.message()),
         label -> {},
         node -> {},
         tn -> {});
@@ -180,7 +228,7 @@ class AiAgentChatClientTest {
         dummyReq(),
         delta -> {},
         (ft, w, src) -> {},
-        errorMsg::set,
+        e -> errorMsg.set(e.message()),
         label -> {},
         node -> {},
         tn -> {});
@@ -197,7 +245,7 @@ class AiAgentChatClientTest {
         dummyReq(),
         delta -> {},
         (ft, w, src) -> {},
-        errorMsg::set,
+        e -> errorMsg.set(e.message()),
         label -> {},
         node -> {},
         tn -> {});
@@ -325,7 +373,7 @@ class AiAgentChatClientTest {
     AiAgentChatClient interruptClient = new AiAgentChatClient(props, mockHttp, recorder);
 
     @SuppressWarnings("unchecked")
-    Consumer<String> onError = mock(Consumer.class);
+    Consumer<AiAgentChatClient.ChatError> onError = mock(Consumer.class);
 
     assertThatThrownBy(
             () ->

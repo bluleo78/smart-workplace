@@ -156,7 +156,8 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
         memoryService,
         mock(SharedMemorySpaces.class),
         sharedReader,
-        mock(com.workplace.help.service.HelpGapRecorder.class));
+        mock(com.workplace.help.service.HelpGapRecorder.class),
+        mock(com.workplace.auth.service.AssistantLimitGuard.class));
   }
 
   private void stubAssistant() {

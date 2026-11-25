@@ -17,6 +17,7 @@ class AssistantSettingsWriter {
 
   private final AssistantConfigRepository configRepo;
   private final AiAgentCredentialService credentialService;
+  private final AssistantLimitWaitService limitWaitService;
 
   /** agent 의 설정에 요청을 병합해 저장한다. 빈 문자열 추천 모델은 자동(null)으로 본다. */
   void apply(long agentId, UpdateAssistantSettingsRequest req) {
@@ -28,6 +29,11 @@ class AssistantSettingsWriter {
       String depth =
           req.hasThinkingDepth() ? storedDepth(agentId, req.thinkingDepth()) : cur.thinkingDepth();
       configRepo.upsert(agentId, model, depth, cur.maxTurns(), cur.timeoutMs());
+      // WP-2108: 모델이 실제로 바뀌면 그 비서 자격의 사용 한도 대기를 푼다 — 새 모델은 한도에 걸리지 않았을 수 있고, 한도 알림의 「다른 모델로
+      // 바꾸거나」 안내가 참이 되려면 대기 단위(자격)를 풀어야 한다. 모델 미지정(null)은 기본 모델로 같은지 비교한다.
+      if (req.hasModel() && !effectiveModel(cur.model()).equals(effectiveModel(model))) {
+        limitWaitService.clearForAgent(agentId);
+      }
     }
     if (req.hasSuggestionModel()) {
       configRepo.updateSuggestionModel(agentId, Texts.stripToNull(req.suggestionModel()));
@@ -40,6 +46,11 @@ class AssistantSettingsWriter {
               : configRepo.find(agentId).map(ConfigRow::model).orElse(null);
       credentialService.updateModelVision(agentId, model, req.vision());
     }
+  }
+
+  /** 저장된 모델이 없으면 기본 모델로 본 실제 모델 — 「바뀌었나」 비교용. */
+  private static String effectiveModel(String model) {
+    return model != null ? model : AssistantDefaults.MODEL;
   }
 
   /**

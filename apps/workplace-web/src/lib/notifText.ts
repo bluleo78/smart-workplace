@@ -31,6 +31,8 @@ export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   AI_WORK_FAILED: '님이 작업에 실패했습니다',
   // WP-1170 내 개인 비서 연결 해제 — 행위자(관리자)가 없으면(일회성 정리) InboxList 가 PERSONAL_ASSISTANT_REVOKED_NO_ACTOR 를 쓴다.
   PERSONAL_ASSISTANT_REVOKED: '님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요',
+  // WP-2108 비서·작업 AI 계정 사용 한도 대기 — 완성 문장은 message 가 싣는다(InboxList 가 행위자 접두 없이 그린다). 이 값은 종류 라벨.
+  AI_ASSISTANT_LIMIT_WAIT: 'AI 사용 한도',
   // WP-1686 새 앱 연결 — 행위자가 없어 이름 뒤에 붙지 않는다. InboxList 가 「새 앱 연결 — {앱 이름}」으로 그린다.
   OAUTH_APP_CONNECTED: '새 앱 연결',
   // WP-1786 메일 보내기 실패 — 행위자 없는 알림. 결과를 모르는 변형은 notificationAction 이 MAIL_SEND_UNKNOWN 으로 바꾼다. 메일 제목은 InboxList 가 아래 줄에.
@@ -47,6 +49,9 @@ export const MAIL_SEND_UNKNOWN = '보냈는지 확인하지 못함 — 보낸편
 
 // 행위자 없는 개인 비서 연결 해제 문구(WP-1170) — 일회성 정리가 해제해 actor 가 null 인 알림.
 export const PERSONAL_ASSISTANT_REVOKED_NO_ACTOR = '내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요';
+
+// message 가 없을 때의 AI 사용 한도 알림 본문(WP-2108) — 서버는 늘 완성 문장을 싣지만 구 데이터·누락에 대비한다.
+export const AI_LIMIT_WAIT_FALLBACK = 'AI 비서가 사용 한도에 걸렸어요';
 
 // AI 작업 상태 → 문구(WP-913) — 종류 기본 문구(ACTION_LABEL)와 다른 상태만 둔다. 검토 대기(REVIEW)·실패(FAILED)·모르는 상태·상태 없음은
 // 종류 문구로 떨어진다(AI 질문은 「이슈 챗에서 질문」, 실패 알림은 「작업에 실패」). 서버 PushContentService 의 같은 이름 표와 같다.

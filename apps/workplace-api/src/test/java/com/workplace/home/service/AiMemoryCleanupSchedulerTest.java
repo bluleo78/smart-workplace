@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
 import static com.workplace.jooq.Tables.AI_MEMORY;
 import static com.workplace.jooq.Tables.AI_MEMORY_CHANGE;
 import static com.workplace.jooq.Tables.AI_MEMORY_FORGOTTEN;
+import static com.workplace.jooq.Tables.ASSISTANT_LIMIT_WAIT;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
 import static com.workplace.jooq.Tables.HOME_SESSION;
@@ -17,6 +18,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.repository.AssistantLimitWaitRepository;
+import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantResolver;
@@ -91,6 +94,9 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
   @Autowired WorkspaceAssistantRepository workspaceAssistantRepo;
   @Autowired AiAgentCredentialService credentialService;
   @Autowired AiMemoryUndoService undoService;
+  @Autowired PersonalAssistantRepository personalRepo;
+  @Autowired AiMemoryCleanupCollector collector;
+  @Autowired AssistantLimitWaitRepository limitWaitRepo;
 
   @MockitoBean AiAgentMemoryCleanupClient client;
   @MockitoBean SessionCleanupParticipant participant;
@@ -127,6 +133,10 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
               .where(AI_MEMORY_FORGOTTEN.USER_ID.in(users))
               .execute();
           baseDsl.deleteFrom(HOME_SESSION).where(HOME_SESSION.USER_ID.in(users)).execute();
+          baseDsl
+              .deleteFrom(ASSISTANT_LIMIT_WAIT)
+              .where(ASSISTANT_LIMIT_WAIT.AGENT_USER_ID.in(users))
+              .execute();
           baseDsl
               .deleteFrom(AI_AGENT_CREDENTIAL)
               .where(
@@ -644,6 +654,65 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     verify(client, never()).cleanup(argThat(r -> carries(r, next)));
     assertThat(processed(second)).isNull();
     assertThat(failures(second)).isZero();
+  }
+
+  /** 사용 한도 대기 중인 개인 비서를 가진 사용자 — 개인 비서를 달고 그 자격에 대기를 건다(알림 없이 리포지토리로 직접). */
+  private long waitingUser() {
+    long uid = user();
+    long agent = TestFixtures.createAgentWithToken(baseDsl, credentialService, uid);
+    users.add(agent);
+    inTenant(
+        () -> {
+          personalRepo.setAgentId(uid, agent);
+          long cred = credentialService.findServerUsableActive(agent).orElseThrow().id();
+          limitWaitRepo.upsert(cred, agent, Instant.now().plus(Duration.ofDays(2)), null);
+          return null;
+        });
+    return uid;
+  }
+
+  /** WP-2108 최종 검토 1: 한도 대기 중인 사용자의 세션이 테넌트 슬롯(20)을 다 차지해 다른 사용자가 굶지 않는다. */
+  @Test
+  void 한도_대기_사용자의_세션이_많아도_다른_사용자의_세션은_정리된다() {
+    long waiting = waitingUser();
+    for (int i = 0; i < AiMemoryCleanupScheduler.SESSIONS_PER_TENANT + 1; i++)
+      conversation(waiting, Duration.ofDays(6), "USER", LONG + "대기-" + i);
+    long ready = user();
+    String marker = "준비-" + ready;
+    UUID sid = conversation(ready, Duration.ofDays(5), "USER", LONG + marker);
+
+    scheduler.runAllTenants();
+
+    verify(client, atLeastOnce()).cleanup(argThat(r -> carries(r, marker)));
+    assertThat(processed(sid)).isEqualTo(lastMessageId(sid));
+  }
+
+  /** WP-2108 최종 검토 2: 한도 대기 중에는 경계를 올리지 않고(Nothing) 대기가 풀리면 같은 세션을 이어 정리한다. */
+  @Test
+  void 한도_대기_중에는_경계를_올리지_않고_풀리면_이어_정리한다() {
+    long waiting = waitingUser();
+    String marker = "대기경계-" + waiting;
+    UUID sid = conversation(waiting, Duration.ofDays(5), "USER", LONG + marker);
+
+    scheduler.runAllTenants();
+
+    verify(client, never()).cleanup(argThat(r -> carries(r, marker)));
+    assertThat(processed(sid)).isNull();
+    TenantContext.set(1L);
+    assertThat(inTenant(() -> collector.collect(1L, waiting, sid, null)))
+        .isInstanceOf(AiMemoryCleanupCollector.Nothing.class);
+
+    // 대기를 푼다 — 같은 세션이 Ready 로 수집돼 정리된다.
+    inTenant(
+        () ->
+            baseDsl
+                .deleteFrom(ASSISTANT_LIMIT_WAIT)
+                .where(ASSISTANT_LIMIT_WAIT.AGENT_USER_ID.in(users))
+                .execute());
+    scheduler.runAllTenants();
+
+    verify(client, atLeastOnce()).cleanup(argThat(r -> carries(r, marker)));
+    assertThat(processed(sid)).isEqualTo(lastMessageId(sid));
   }
 
   /** 테스트가 앞으로 돌리는 시계(UTC). */

@@ -103,6 +103,10 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
     users.add(id);
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+    // 자동(비동기) 요약은 해석 결과(WP-2108)를 쓴다 — 같은 비서를 준비됨으로 스텁한다.
+    when(assistantResolver.resolveOrEmpty(anyLong()))
+        .thenReturn(
+            java.util.Optional.of(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
     return id;
   }
 

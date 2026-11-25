@@ -45,3 +45,9 @@ describe('aiRunKindLabel 이벤트 종류', () => {
     expect(aiRunKindLabel(code)).toBe(label)
   })
 })
+
+describe('aiRunReasonLabel 한도 대기 건너뜀 (WP-2108)', () => {
+  it('limit_wait -> 한도 대기(건너뜀)', () => {
+    expect(aiRunReasonLabel('limit_wait')).toBe('한도 대기(건너뜀)')
+  })
+})

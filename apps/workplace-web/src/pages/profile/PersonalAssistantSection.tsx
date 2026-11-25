@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/overlay/select';
 import { useAnthropicWorkspaceId } from '@/lib/anthropicWorkspaceId';
+import { limitWaitBadgeText } from '@/lib/assistantLimit';
 import { PROBE_MODELS_EMPTY } from '@/lib/probeModelsError';
 import { AnthropicWorkspaceIdField } from '@/pages/admin/components/credential-fields/AnthropicWorkspaceIdField';
 import { CLAUDE_TOKEN_MIN } from '@/pages/admin/components/credential-fields/ClaudeTokenField';
@@ -73,6 +74,9 @@ export function PersonalAssistantSection() {
       : status.provider === 'anthropic'
         ? 'Claude 구독'
         : (presetLabelFor(status.baseUrl) ?? 'OpenAI 호환');
+
+  // 사용 한도 대기 배지 글자(WP-2108) — 대기 중이 아니거나 지났으면 null.
+  const limitWaitText = limitWaitBadgeText(status?.limitWaitUntil);
 
   // 등록 폼 — 연결 방식.
   const [connectionType, setConnectionType] = useState<CredentialProvider>('anthropic');
@@ -327,6 +331,11 @@ export function PersonalAssistantSection() {
                 {connectionBadge ? (
                   <Badge variant="secondary" data-testid="assistant-connection-badge">
                     {connectionBadge}
+                  </Badge>
+                ) : null}
+                {limitWaitText ? (
+                  <Badge variant="warning" data-testid="assistant-limit-wait-badge">
+                    {limitWaitText}
                   </Badge>
                 ) : null}
                 {status.tokenLabel ? (

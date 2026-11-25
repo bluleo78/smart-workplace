@@ -168,7 +168,7 @@ public class UserService {
     Long id = user.id();
     List<RoleResponse> roles = roleRepository.findByUserId(id);
     // AI 가용성 — 개인 또는 공통 비서(active token) 보유 여부. 프론트가 AI affordance 게이트에 사용.
-    boolean aiAvailable = assistantResolver.resolveOrEmpty(id).isPresent();
+    boolean aiAvailable = assistantResolver.hasAssistant(id);
     // 비밀번호 유무·아바타 해시를 한 번에 읽는다(WP-1222) — 아바타 때문에 /users/me 에 조회가 하나 더 늘지 않게.
     UserRepository.PasswordAndAvatar credentials = userRepository.findPasswordAndAvatar(id);
     return new UserDetailResponse(

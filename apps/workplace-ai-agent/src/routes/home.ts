@@ -28,6 +28,7 @@ import { parseMemoryToolResult } from '../mcp/memory-tools.js';
 import { screenContextSchema } from '../agent/screen-context.js';
 import { currentSpaceField, sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { thinkingDepthSchema } from '../agent/thinking.js';
+import { chatErrorData, sendIfProviderLimit } from './provider-failure.js';
 
 // 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
 const priorityClassifySchema = z.object({
@@ -218,7 +219,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
       });
       // 연결이 살아 있을 때만 error 발행(닫힌 소켓 write → EPIPE 방지).
       if (!aborted) {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: 'chat_failed' })}\n\n`);
+        res.write(`event: error\ndata: ${JSON.stringify(chatErrorData(e))}\n\n`);
         res.end();
       }
     }
@@ -235,6 +236,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runHomePriorityClassify(parsed.data, deps));
     } catch (e) {
+      if (sendIfProviderLimit(res, 'home_priority_classify', e)) return;
       console.error('[home-priority-classify] 실패:', e instanceof Error ? e.message : String(e));
       res.status(502).json({ error: 'home_priority_classify_failed' });
     }
@@ -250,6 +252,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runHomeContextSummary(parsed.data, deps));
     } catch (e) {
+      if (sendIfProviderLimit(res, 'home_context_summary', e)) return;
       console.error('[home-context-summary] 실패:', e instanceof Error ? e.message : String(e));
       res.status(502).json({ error: 'home_context_summary_failed' });
     }
@@ -265,6 +268,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runSuggestions(parsed.data, deps));
     } catch (e) {
+      if (sendIfProviderLimit(res, 'home_suggestions', e)) return;
       log.error('suggestions', 'error', {
         mode: parsed.data.mode,
         agentId: parsed.data.agentId,
@@ -284,6 +288,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runMemoryCleanup(parsed.data, deps));
     } catch (e) {
+      if (sendIfProviderLimit(res, 'home_memory_cleanup', e)) return;
       log.error('memory-cleanup', 'error', {
         agentId: parsed.data.agentId,
         error: e instanceof Error ? e.message : String(e),
@@ -306,6 +311,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
       if (out.results.length === 0) throw new Error('판정 출력이 깨졌습니다');
       res.status(200).json(out);
     } catch (e) {
+      if (sendIfProviderLimit(res, 'home_shared_memory_check', e)) return;
       log.error('shared-memory', 'check_error', {
         spaceType: parsed.data.spaceType,
         error: e instanceof Error ? e.message : String(e),
@@ -324,6 +330,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runSharedMemoryExtract(parsed.data, deps));
     } catch (e) {
+      if (sendIfProviderLimit(res, 'home_shared_memory_extract', e)) return;
       log.error('shared-memory', 'extract_error', {
         spaceType: parsed.data.spaceType,
         error: e instanceof Error ? e.message : String(e),

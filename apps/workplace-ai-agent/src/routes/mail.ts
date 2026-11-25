@@ -6,7 +6,7 @@ import { mailCategoryInput } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import { logRunFailure } from '../ai-run/model-output-failure.js';
-import { classifyProviderError } from '../agent/provider-error.js';
+import { providerFailureBody } from './provider-failure.js';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
@@ -205,10 +205,10 @@ export function handler<T>(
       res.status(200).json(await run(parsed.data, deps));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      const reason = classifyProviderError(e);
-      if (reason) {
-        console.warn(`[${tag}] 제공자 장애(${reason}):`, message);
-        res.status(503).json({ error: `${tag}_unavailable`, reason });
+      const body = providerFailureBody(tag, e);
+      if (body) {
+        console.warn(`[${tag}] 제공자 장애(${body.reason}):`, message);
+        res.status(503).json(body);
         return;
       }
       // 모델 출력 파싱 실패는 사유·원문 앞부분과 함께 기록한다(WP-2105).

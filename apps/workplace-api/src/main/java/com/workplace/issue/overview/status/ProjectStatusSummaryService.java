@@ -1,5 +1,8 @@
 package com.workplace.issue.overview.status;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -48,6 +51,7 @@ public class ProjectStatusSummaryService {
   private final ProjectRepository projectRepository;
   private final ProjectOverviewService overviewService;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentIssueClient client;
   private final TransactionTemplate txTemplate;
   private final AiAgentProperties aiAgentProperties;
@@ -57,6 +61,7 @@ public class ProjectStatusSummaryService {
       ProjectRepository projectRepository,
       ProjectOverviewService overviewService,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentIssueClient client,
       PlatformTransactionManager txManager,
       AiAgentProperties aiAgentProperties) {
@@ -64,6 +69,7 @@ public class ProjectStatusSummaryService {
     this.projectRepository = projectRepository;
     this.overviewService = overviewService;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.client = client;
     this.aiAgentProperties = aiAgentProperties;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -87,10 +93,11 @@ public class ProjectStatusSummaryService {
   }
 
   /** tx2 의 결과 — AI 를 불러야 하면 request 가 있고, 그 전에 끝났으면 done 이 있다. */
-  private record Prepared(Outcome done, ProjectStatusAiRequest request, String hash) {
+  private record Prepared(
+      Outcome done, ProjectStatusAiRequest request, String hash, AssistantSpec spec) {
 
     static Prepared done(Outcome outcome) {
-      return new Prepared(outcome, null, null);
+      return new Prepared(outcome, null, null, null);
     }
   }
 
@@ -119,6 +126,7 @@ public class ProjectStatusSummaryService {
     try {
       result = client.summarizeProjectStatus(prepared.request());
     } catch (RuntimeException e) {
+      limitGuard.onFailure(prepared.spec(), e); // 한도 실패면 그 자격을 대기로 건다(WP-2108)
       log.warn("프로젝트 상태 요약 AI 실패 projectId={}: {}", projectId, e.toString());
       return Outcome.FAILED;
     }
@@ -161,9 +169,15 @@ public class ProjectStatusSummaryService {
       return Prepared.done(Outcome.UNCHANGED);
     }
 
-    Optional<AssistantSpec> spec = assistantResolver.resolveWorkspaceOrEmpty();
+    // 한도 대기 중이면 SKIPPED(limit_wait)를 남기고 빈 값 — 이전 요약을 유지한 채 건너뛴다(WP-2108).
+    Optional<AssistantSpec> spec =
+        limitGuard.specOrSkip(
+            assistantResolver.workspaceResolution(),
+            AiRunKinds.PROJECT_STATUS,
+            new AiRunContext(
+                "PROJECT", String.valueOf(projectId), project.name(), "AUTO", null, now));
     if (spec.isEmpty()) {
-      log.debug("공통 비서가 없어 프로젝트 상태 요약을 건너뜀 projectId={}", projectId);
+      log.debug("공통 비서가 없거나 한도 대기 중이라 프로젝트 상태 요약을 건너뜀 projectId={}", projectId);
       return Prepared.done(Outcome.SKIPPED);
     }
     AssistantSpec s = spec.get();
@@ -177,6 +191,7 @@ public class ProjectStatusSummaryService {
             s.model(),
             s.maxTurns(),
             s.timeoutMs()),
-        hash);
+        hash,
+        s);
   }
 }

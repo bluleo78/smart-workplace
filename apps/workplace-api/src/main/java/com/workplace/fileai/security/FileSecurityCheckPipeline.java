@@ -1,5 +1,8 @@
 package com.workplace.fileai.security;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.file.storage.FileStore;
@@ -111,6 +114,7 @@ public class FileSecurityCheckPipeline {
 
   private final FileSecurityCheckRepository repo;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentDriveClient driveClient;
   private final FileStore fileStore;
   private final ObjectMapper objectMapper;
@@ -121,12 +125,14 @@ public class FileSecurityCheckPipeline {
   public FileSecurityCheckPipeline(
       FileSecurityCheckRepository repo,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentDriveClient driveClient,
       FileStore fileStore,
       ObjectMapper objectMapper,
       PlatformTransactionManager txManager) {
     this.repo = repo;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.driveClient = driveClient;
     this.fileStore = fileStore;
     this.objectMapper = objectMapper;
@@ -157,7 +163,12 @@ public class FileSecurityCheckPipeline {
     Outcome claimed =
         tx.execute(
             s -> {
-              Optional<AssistantSpec> spec = assistantResolver.resolveWorkspaceOrEmpty();
+              // 한도 대기 중이면 SKIPPED(limit_wait)를 남기고 빈 값 — 행을 선점하지 않아 풀린 뒤 스케줄러가 다시 줍는다(WP-2108).
+              Optional<AssistantSpec> spec =
+                  limitGuard.specOrSkip(
+                      assistantResolver.workspaceResolution(),
+                      AiRunKinds.DRIVE_SECURITY_CHECK,
+                      AiRunContext.auto("DRIVE_FILE", String.valueOf(fileId)));
               if (spec.isEmpty()) return Outcome.NO_AI;
               specHolder[0] = spec.get();
               FileMeta m = repo.findFileMeta(fileId).orElse(null);
@@ -238,7 +249,9 @@ public class FileSecurityCheckPipeline {
       evidenceJson =
           objectMapper.writeValueAsString(res.evidence() == null ? List.of() : res.evidence());
     } catch (RuntimeException ex) {
-      return onAgentFailure(fileId, ex, bytesMode);
+      // 한도 실패면 그 자격을 대기로 건다(WP-2108)
+      boolean limited = limitGuard.onFailure(spec, ex);
+      return onAgentFailure(fileId, ex, bytesMode, limited);
     }
 
     // ⑥ 저장
@@ -274,15 +287,16 @@ public class FileSecurityCheckPipeline {
    * AI 호출 실패 처리. 메일(바이트) 경로는 바로 FAILED. 요청이 닿지도 못했으면 시도를 되돌려 PENDING, 그 밖엔 최대 시도에 닿았으면 FAILED, 아니면
    * PENDING 으로 돌려 스케줄러가 다시 줍게 한다.
    */
-  private Outcome onAgentFailure(long fileId, Exception ex, boolean bytesMode) {
+  private Outcome onAgentFailure(long fileId, Exception ex, boolean bytesMode, boolean limited) {
     String message = ex.getMessage();
     if (bytesMode) {
       log.warn("HTML 보안 점검 실패(메일 사본) — FAILED: fileId={}", fileId, ex);
       return fail(fileId, message);
     }
-    if (ex instanceof FileAiException f && f.isUnreached()) {
+    // 사용 한도(limited)도 파일 탓이 아니므로 닿지 못한 실패처럼 시도를 되돌려 PENDING 으로 둔다(WP-2108) — FAILED 로 끝나지 않는다.
+    if (limited || (ex instanceof FileAiException f && f.isUnreached())) {
       String cause = AgentOutageGuard.describe(ex);
-      log.warn("ai-agent 불가 — 시도 횟수 유지, PENDING 복귀: fileId={} ({})", fileId, cause);
+      log.warn("ai-agent 불가·사용 한도 — 시도 횟수 유지, PENDING 복귀: fileId={} ({})", fileId, cause);
       tx.executeWithoutResult(s -> repo.revertToPending(fileId, cause, true));
       return Outcome.ATTEMPT_FAILED;
     }

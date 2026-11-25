@@ -1,5 +1,8 @@
 package com.workplace.mail.service;
 
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
@@ -57,6 +60,9 @@ public class MailAiService {
   private final EmailAccountRepository accountRepo;
   private final AssistantResolver assistantResolver;
 
+  /** 직접 요청이 한도 503 을 받으면 그 비서 자격을 대기로 건다(WP-2108) — 다음 요청부터 즉답한다. */
+  private final AssistantLimitGuard limitGuard;
+
   /** WP-381: 답장 초안·초안 코칭에 싣는 읽기 전용 메모리(공통 + 메일). */
   private final AiMemoryReader memoryReader;
 
@@ -79,6 +85,7 @@ public class MailAiService {
       EmailMessageRepository messageRepo,
       EmailAccountRepository accountRepo,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiMemoryReader memoryReader,
       PlatformTransactionManager txManager,
       SharedAiMemoryReader sharedReader,
@@ -88,6 +95,7 @@ public class MailAiService {
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
     this.peopleRepo = peopleRepo;
@@ -137,6 +145,12 @@ public class MailAiService {
             ? analysis.generatePersonalSummary(userId, messageId, true)
             : analysis.generateContentSummary(userId, messageId, true);
     if (!ran) {
+      // 직접 누른 버튼이 한도 대기 때문에 건너뛰어졌으면 「요약을 못 만든다」 가 아니라 한도 안내로 답한다(WP-2108).
+      AssistantResolution r =
+          personalTier
+              ? assistantResolver.personalResolution(userId)
+              : assistantResolver.workspaceResolution();
+      r.throwIfWaiting();
       throw unavailable(personalTier);
     }
     AnalysisContext after = contextOrThrow(userId, messageId);
@@ -149,7 +163,7 @@ public class MailAiService {
    * 공통 비서 유무만 본다.
    */
   private MailAiUnavailableException unavailable(boolean personalTier) {
-    if (!personalTier && assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) {
+    if (!personalTier && !assistantResolver.hasWorkspaceAssistant()) {
       return MailAiUnavailableException.assistantNotConfigured();
     }
     return new MailAiUnavailableException("요약을 아직 만들 수 없어요. 잠시 후 다시 시도해 주세요.");
@@ -157,7 +171,7 @@ public class MailAiService {
 
   /** 개인 티어 여부 — AI 사용 계정 + 개인 비서(현행 규칙). */
   private boolean personalTier(long userId, AnalysisContext ctx) {
-    return ctx.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
+    return ctx.aiEnabled() && assistantResolver.hasPersonalAssistant(userId);
   }
 
   private AnalysisContext contextOrThrow(long userId, long messageId) {
@@ -203,17 +217,20 @@ public class MailAiService {
     // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
     SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(userId, null, null));
     ReplyDraftResult r =
-        mailClient.replyDraft(
-            new ReplyDraftRequest(
-                in.thread(),
-                nz(in.selfAddress()),
-                in.spec().agentUserId(),
-                in.spec().model(),
-                MAX_TURNS,
-                in.spec().timeoutMs(),
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
-                shared.items(),
-                shared.moreCount()));
+        limitGuard.call(
+            in.spec(),
+            () ->
+                mailClient.replyDraft(
+                    new ReplyDraftRequest(
+                        in.thread(),
+                        nz(in.selfAddress()),
+                        in.spec().agentUserId(),
+                        in.spec().model(),
+                        MAX_TURNS,
+                        in.spec().timeoutMs(),
+                        memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
+                        shared.items(),
+                        shared.moreCount())));
     return new MailReplyDraft(r.draftBody());
   }
 
@@ -248,22 +265,25 @@ public class MailAiService {
     // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
     SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(userId, null, null));
     DraftCoachingResult r =
-        mailClient.coachDraft(
-            new DraftCoachingRequest(
-                // WP-404: 초안은 HTML 로 넘긴다 — 텍스트(getText)는 문단 경계가 모두 \n\n 이 되어
-                // 빈 줄·굵게·목록·링크 구조가 사라지고, 개선본이 원래 서식을 따를 수 없다. HTML 이 없을 때만 텍스트.
-                req.bodyHtml() == null || req.bodyHtml().isBlank()
-                    ? nz(req.bodyText())
-                    : req.bodyHtml(),
-                in.thread(),
-                nz(in.selfAddress()),
-                in.spec().agentUserId(),
-                in.spec().model(),
-                MAX_TURNS,
-                in.spec().timeoutMs(),
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
-                shared.items(),
-                shared.moreCount()));
+        limitGuard.call(
+            in.spec(),
+            () ->
+                mailClient.coachDraft(
+                    new DraftCoachingRequest(
+                        // WP-404: 초안은 HTML 로 넘긴다 — 텍스트(getText)는 문단 경계가 모두 \n\n 이 되어
+                        // 빈 줄·굵게·목록·링크 구조가 사라지고, 개선본이 원래 서식을 따를 수 없다. HTML 이 없을 때만 텍스트.
+                        req.bodyHtml() == null || req.bodyHtml().isBlank()
+                            ? nz(req.bodyText())
+                            : req.bodyHtml(),
+                        in.thread(),
+                        nz(in.selfAddress()),
+                        in.spec().agentUserId(),
+                        in.spec().model(),
+                        MAX_TURNS,
+                        in.spec().timeoutMs(),
+                        memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
+                        shared.items(),
+                        shared.moreCount())));
     List<CoachingNote> notes =
         r.notes() == null
             ? List.of()
@@ -295,22 +315,25 @@ public class MailAiService {
     // 요청 제목이 있으면 그대로 두고 AI 는 제목을 만들지 않는다(응답 subject=null).
     boolean hasSubject = req.subject() != null && !req.subject().isBlank();
     ComposeDraftResult r =
-        mailClient.composeDraft(
-            new ComposeDraftRequest(
-                req.instruction().strip(),
-                req.to() == null ? List.of() : req.to(),
-                req.cc() == null ? List.of() : req.cc(),
-                hasSubject ? req.subject().strip() : "",
-                nz(in.account().emailAddress()),
-                in.senderName(),
-                in.account().spec().agentUserId(),
-                in.account().spec().model(),
-                MAX_TURNS,
-                in.account().spec().timeoutMs(),
-                // 새 메일이라 메모리 질의가 없다(고정 + 최신)
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null),
-                shared.items(),
-                shared.moreCount()));
+        limitGuard.call(
+            in.account().spec(),
+            () ->
+                mailClient.composeDraft(
+                    new ComposeDraftRequest(
+                        req.instruction().strip(),
+                        req.to() == null ? List.of() : req.to(),
+                        req.cc() == null ? List.of() : req.cc(),
+                        hasSubject ? req.subject().strip() : "",
+                        nz(in.account().emailAddress()),
+                        in.senderName(),
+                        in.account().spec().agentUserId(),
+                        in.account().spec().model(),
+                        MAX_TURNS,
+                        in.account().spec().timeoutMs(),
+                        // 새 메일이라 메모리 질의가 없다(고정 + 최신)
+                        memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null),
+                        shared.items(),
+                        shared.moreCount())));
     String body = nz(r.body());
     if (body.isBlank()) {
       // 빈 본문을 성공으로 돌려주면 사용자가 "초안이 비었다"를 결과로 오해한다 — 실패(502)로 알려 다시 시도하게 한다.
@@ -350,6 +373,9 @@ public class MailAiService {
   private AssistantSpec requireSpec(long userId) {
     try {
       return assistantResolver.resolve(userId);
+    } catch (AssistantLimitWaitingException e) {
+      // 한도 대기는 「비서 미설정」 이 아니다 — 사용자에게 한도 안내(503)로 그대로 답한다(WP-2108).
+      throw e;
     } catch (Exception e) {
       throw MailAiUnavailableException.assistantNotConfigured();
     }

@@ -1,5 +1,9 @@
 package com.workplace.issue.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -43,6 +47,7 @@ public class IssueAiClassifyService {
   private final ProjectAccessGuard accessGuard;
   private final LabelRepository labelRepository;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentIssueClient aiClient;
   private final TransactionTemplate txTemplate;
   private final AiAgentProperties aiAgentProperties;
@@ -54,12 +59,14 @@ public class IssueAiClassifyService {
       ProjectAccessGuard accessGuard,
       LabelRepository labelRepository,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentIssueClient aiClient,
       PlatformTransactionManager txManager,
       AiAgentProperties aiAgentProperties) {
     this.accessGuard = accessGuard;
     this.labelRepository = labelRepository;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.aiClient = aiClient;
     this.aiAgentProperties = aiAgentProperties;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -97,10 +104,27 @@ public class IssueAiClassifyService {
                   labelRepository.findByProject(project.id()).stream().map(l -> l.name()).toList();
 
               // 프로젝트 유형별 어시스턴트 해석(개인 → 소유자 비서·공용 폴백, 팀 → 공용 비서).
+              // 한도 대기 중이면 specOrSkip 이 SKIPPED(limit_wait)를 한 번 남기고, 직접 요청이라 곧바로 한도 안내로
+              // 거절한다(WP-2108).
+              AssistantResolution resolution =
+                  assistantResolver.projectResolution(project.isPersonal(), project.ownerId());
               AssistantSpec spec =
-                  assistantResolver
-                      .resolveForProject(project.isPersonal(), project.ownerId())
-                      .orElseThrow(IssueAiAssistantUnavailableException::new);
+                  limitGuard
+                      .specOrSkip(
+                          resolution,
+                          AiRunKinds.ISSUE_CLASSIFY,
+                          new AiRunContext(
+                              "PROJECT",
+                              String.valueOf(project.id()),
+                              null,
+                              "USER",
+                              callerId,
+                              null))
+                      .orElseThrow(
+                          () -> {
+                            resolution.throwIfWaiting();
+                            return new IssueAiAssistantUnavailableException();
+                          });
 
               return new Gathered(project, projectLabels, spec);
             });
@@ -118,7 +142,8 @@ public class IssueAiClassifyService {
             gathered.spec().maxTurns(),
             gathered.spec().timeoutMs());
 
-    IssueClassifyResult result = aiClient.classify(req); // 실패 시 IssueAiException 전파
+    // 실패 시 IssueAiException 전파 — 한도로 실패하면 그 자격을 대기로 건다(WP-2108).
+    IssueClassifyResult result = limitGuard.call(gathered.spec(), () -> aiClient.classify(req));
 
     // ── 단계 3: 응답 변환 (DB 저장 없음) ──────────────────────────────────────────────
     // 우선순위는 ai-agent(normalizePriority)가 5단계(WP-886) 안의 값으로 맞춰 보내므로 그대로 넘긴다.

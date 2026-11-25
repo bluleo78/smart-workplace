@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.workplace.global.outbound.ProviderLimitSignal;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
@@ -73,6 +74,25 @@ class AiAgentMailClientTest {
                         "s", "a@b", "x", false, true, false, 5L, "m", 1, 60000)))
         .isInstanceOf(MailAiUnavailableException.class);
     server.verify();
+  }
+
+  /** 503 PROVIDER_LIMIT 본문을 담은 원인 예외를 실어 줘야 한도 도우미가 대기를 걸 수 있다(WP-2108). */
+  @Test
+  void _503_PROVIDER_LIMIT_은_원인으로_HTTP_예외를_싣는다() {
+    server
+        .expect(requestTo("http://ai-agent.test/mail/analyze-content"))
+        .andRespond(
+            withStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                .body("{\"reason\":\"PROVIDER_LIMIT\",\"resetsAt\":\"2026-11-25T06:30:00Z\"}")
+                .contentType(MediaType.APPLICATION_JSON));
+    Throwable thrown =
+        org.assertj.core.api.Assertions.catchThrowable(
+            () ->
+                client.analyzeContent(
+                    new AnalyzeContentRequest(
+                        "s", "a@b", "x", false, true, false, 5L, "m", 1, 60000)));
+    assertThat(thrown).isInstanceOf(MailAiUnavailableException.class);
+    assertThat(ProviderLimitSignal.detect(thrown)).isPresent();
   }
 
   @Test

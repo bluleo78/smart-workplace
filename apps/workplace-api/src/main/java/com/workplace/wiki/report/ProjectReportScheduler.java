@@ -93,7 +93,8 @@ public class ProjectReportScheduler {
     tenantRunner.forEachActiveTenant(
         tenantId -> {
           if (targets.size() >= limit) return;
-          if (assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) return;
+          // 한도 대기 중인 테넌트도 거르지 않는다(WP-2108) — 생성기가 예약을 풀고 다음 예정을 대기 해제 시각으로 미뤄 회차를 잃지 않는다.
+          if (!assistantResolver.hasWorkspaceAssistant()) return;
           for (Long pid : settings.dueProjectIds(now, limit - targets.size())) {
             targets.add(new Target(tenantId, pid));
           }

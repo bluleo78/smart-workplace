@@ -50,7 +50,8 @@ class NotificationSettingItemTest {
       // 메일 발송 실패(WP-1786)도 같은 계정 알림이라 줄이 없다(MailSendFailedNotificationTest 가 따로 본다).
       if (t == NotificationType.PERSONAL_ASSISTANT_REVOKED
           || t == NotificationType.OAUTH_APP_CONNECTED
-          || t == NotificationType.MAIL_SEND_FAILED) continue;
+          || t == NotificationType.MAIL_SEND_FAILED
+          || t == NotificationType.AI_ASSISTANT_LIMIT_WAIT) continue;
       assertThat(NotificationSettingItem.of(t)).isNotNull();
     }
   }

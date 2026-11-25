@@ -209,7 +209,7 @@ public class PersonalReportSettingsService {
         where.locationPath(),
         where.spaceId(),
         row.dailyEnabled() ? row.nextRunAt() : null,
-        assistantResolver.resolveOrEmpty(userId).isPresent(),
+        assistantResolver.hasAssistant(userId),
         row.lastError());
   }
 

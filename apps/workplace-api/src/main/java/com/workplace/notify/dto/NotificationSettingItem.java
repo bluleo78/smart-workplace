@@ -100,7 +100,11 @@ public enum NotificationSettingItem {
       // 개인 비서 연결 회수(WP-1170)는 설정 줄이 없다 — 늘 보내므로 설정 판정을 거치지 않는다(NotificationService).
       // 새 앱 연결(WP-1686)도 모르는 연결을 알아채게 하는 계정 알림이라 같은 이유로 줄이 없다.
       // 메일 발송 실패(WP-1786)도 내 메일이 안 나간 것을 알리는 계정 알림이라 줄이 없다.
-      case PERSONAL_ASSISTANT_REVOKED, OAUTH_APP_CONNECTED, MAIL_SEND_FAILED ->
+      // AI 사용 한도 대기(WP-2108)도 내 AI 가 멈춘 것을 알리는 계정 알림이라 줄이 없다.
+      case PERSONAL_ASSISTANT_REVOKED,
+          OAUTH_APP_CONNECTED,
+          MAIL_SEND_FAILED,
+          AI_ASSISTANT_LIMIT_WAIT ->
           throw new IllegalArgumentException(type + " 는 알림 설정 없이 늘 보낸다");
     };
   }

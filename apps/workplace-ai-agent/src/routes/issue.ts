@@ -8,6 +8,7 @@ import { runWorkProfile, workProfileInputSchema } from '../agent/run-work-profil
 import { projectStatusInputSchema, runProjectStatus } from '../agent/run-project-status.js'
 import { projectReportInputSchema, runProjectReport } from '../agent/run-project-report.js'
 import { personalReportInputSchema, runPersonalReport } from '../agent/run-personal-report.js'
+import { sendIfProviderLimit } from './provider-failure.js'
 
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
@@ -56,6 +57,7 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runIssueProgressSummary(parsed.data, deps))
     } catch (e) {
+      if (sendIfProviderLimit(res, 'issue_progress_summary', e)) return
       console.error('[issue-progress-summary] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'issue_progress_summary_failed' })
     }
@@ -71,6 +73,7 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runIssueClassify(parsed.data, deps))
     } catch (e) {
+      if (sendIfProviderLimit(res, 'issue_classify', e)) return
       console.error('[issue-classify] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'issue_classify_failed' })
     }
@@ -86,6 +89,7 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runWorkProfile(parsed.data, deps))
     } catch (e) {
+      if (sendIfProviderLimit(res, 'work_profile', e)) return
       console.error('[issue-work-profile] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'work_profile_failed' })
     }
@@ -101,6 +105,7 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runProjectStatus(parsed.data, deps))
     } catch (e) {
+      if (sendIfProviderLimit(res, 'project_status', e)) return
       console.error('[issue-project-status] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'project_status_failed' })
     }
@@ -116,6 +121,7 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runProjectReport(parsed.data, deps))
     } catch (e) {
+      if (sendIfProviderLimit(res, 'project_report', e)) return
       console.error('[issue-project-report] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'project_report_failed' })
     }
@@ -131,6 +137,7 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
     try {
       res.status(200).json(await runPersonalReport(parsed.data, deps))
     } catch (e) {
+      if (sendIfProviderLimit(res, 'personal_report', e)) return
       console.error('[issue-personal-report] 실패:', e instanceof Error ? e.message : String(e))
       res.status(502).json({ error: 'personal_report_failed' })
     }

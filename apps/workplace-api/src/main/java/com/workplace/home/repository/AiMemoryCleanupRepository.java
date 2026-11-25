@@ -46,6 +46,18 @@ public class AiMemoryCleanupRepository {
    * 20).
    */
   public List<Target> findTargets(OffsetDateTime idleBefore, OffsetDateTime notBefore, int limit) {
+    return findTargets(idleBefore, notBefore, limit, List.of());
+  }
+
+  /**
+   * 위와 같되 {@code excludeUserIds} 사용자의 세션은 뺀다 — 한도 대기 중인 사용자의 세션이 테넌트당 슬롯을 계속 차지해 다른 사용자가 굶지 않게
+   * 한다(WP-2108).
+   */
+  public List<Target> findTargets(
+      OffsetDateTime idleBefore,
+      OffsetDateTime notBefore,
+      int limit,
+      java.util.Collection<Long> excludeUserIds) {
     var newer =
         DSL.selectOne()
             .from(HOME_MESSAGE)
@@ -61,6 +73,10 @@ public class AiMemoryCleanupRepository {
         .where(HOME_SESSION.LAST_MESSAGE_AT.lt(idleBefore))
         .and(HOME_SESSION.LAST_MESSAGE_AT.gt(notBefore))
         .andExists(newer)
+        .and(
+            excludeUserIds.isEmpty()
+                ? DSL.noCondition()
+                : HOME_SESSION.USER_ID.notIn(excludeUserIds))
         .orderBy(HOME_SESSION.LAST_MESSAGE_AT.asc(), HOME_SESSION.ID.asc())
         .limit(limit)
         .fetch(r -> new Target(r.value1(), r.value2(), r.value3()));

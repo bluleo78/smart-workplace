@@ -46,6 +46,7 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   AI_REVIEW_REQUESTED: ClipboardCheck, // AI 작업 검토 요청(WP-913)
   AI_WORK_FAILED: CircleAlert, // AI 작업 실패·거절(WP-913)
   PERSONAL_ASSISTANT_REVOKED: Bot, // 내 개인 비서 AI 연결 해제(WP-1170)
+  AI_ASSISTANT_LIMIT_WAIT: Bot, // 비서·AI 계정 사용 한도 대기(WP-2108)
   OAUTH_APP_CONNECTED: Plug, // 새 앱 연결(WP-1686)
   MAIL_SEND_FAILED: MailX, // 메일 보내기 실패(WP-1786)
   WORKFLOW_VISIT_LIMIT: RotateCcw, // 워크플로우 되돌림 한도(WP-1985)

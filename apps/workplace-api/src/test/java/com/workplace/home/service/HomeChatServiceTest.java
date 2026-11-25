@@ -7,19 +7,24 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionSummary;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.support.ExternalClientMockedTestBase;
+import com.workplace.support.LimitWaitFixtures;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,6 +37,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -61,6 +67,9 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
   @Autowired AssistantResolver assistantResolver;
   @Autowired SseRegistry sseRegistry;
   @Autowired StreamingGenerationRegistry registry;
+  @Autowired AssistantLimitWaitService waitService;
+  @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired PlatformTransactionManager txManager;
 
   private void stubAssistant() {
     when(assistantResolver.resolve(anyLong()))
@@ -600,6 +609,45 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
     assertThat(payloadCaptor.getValue())
         .containsEntry("correlationId", correlationId)
         .containsEntry("message", "ai-agent 응답 실패");
+  }
+
+  /**
+   * WP-2108: 채팅 중 ai-agent 가 사용 한도로 실패하면 그 자격을 대기로 적고 home.chat.error 를 한도 문구로 끝낸다. (대기 중 다음 시작의
+   * 503 은 AssistantLimitWaitHttpTest 가 실제 해석기로 검증한다.)
+   */
+  @Test
+  void 채팅중_한도면_자격을_대기로_적고_한도문구로_끝낸다() throws Exception {
+    LimitWaitFixtures fixtures = new LimitWaitFixtures(txManager, dsl, credentialRepo);
+    try {
+      var f = fixtures.create();
+      long uid = user("limit" + System.nanoTime());
+      doReturn(f.spec()).when(assistantResolver).resolve(anyLong());
+      java.time.Instant resets = java.time.Instant.now().plus(java.time.Duration.ofHours(2));
+      doAnswer(
+              inv -> {
+                Consumer<AiAgentChatClient.ChatError> onError = inv.getArgument(3);
+                onError.accept(
+                    new AiAgentChatClient.ChatError(
+                        "AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.", "PROVIDER_LIMIT", resets.toString()));
+                return null;
+              })
+          .when(chatClient)
+          .composeStream(forUser(uid), any(), any(), any(), any(), any(), any());
+
+      TenantContext.set(1L);
+      composeService.startChat(uid, null, "안녕");
+
+      @SuppressWarnings("unchecked")
+      ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+      verify(sseRegistry).fanOut(eq(Set.of(uid)), eq("home.chat.error"), payload.capture());
+      java.time.Instant until = waitService.activeUntil(f.credentialId()).orElseThrow();
+      assertThat(until).isEqualTo(resets.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+      assertThat(payload.getValue().get("message"))
+          .isEqualTo(AssistantLimitWaitService.waitingMessage(until, java.time.Instant.now()));
+    } finally {
+      TenantContext.clear();
+      fixtures.cleanup();
+    }
   }
 
   /**

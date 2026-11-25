@@ -577,6 +577,37 @@ public class NotificationService {
   }
 
   /**
+   * AI 사용 한도 대기 알림(WP-2108) — AI 가 사용 한도에 걸려 쉬기 시작했을 때 수신자마다 1건. 내 AI 가 멈춘 것을 알리는 계정 알림이라 알림 설정과
+   * 무관하게 늘 보낸다(설정 줄이 없다). scope 는 status_name 칸에, 서버가 만든 본문은 message 에 싣는다. insert 후 SSE
+   * fan-out·푸시(본문·scope 를 이벤트의 eventTitle·statusName 칸으로 넘긴다).
+   */
+  @Transactional
+  public void createAiLimitWaitAndFanOut(
+      List<Long> recipientIds, Long actorId, String scope, String message) {
+    if (recipientIds == null || recipientIds.isEmpty()) return;
+    NotificationType type = NotificationType.AI_ASSISTANT_LIMIT_WAIT;
+    for (long recipientId : recipientIds) {
+      repo.insertAiLimitWaitNotice(recipientId, actorId, scope, message);
+    }
+    registry.fanOut(recipientIds, "notify.created", Map.of("type", type.name()));
+    Long tenantId = TenantContext.get();
+    // 테넌트 없으면 푸시를 건너뛴다(다른 이슈 밖 알림 푸시와 같은 이유 — 어느 워크스페이스로 보낼지 모른다).
+    if (tenantId == null) return;
+    publisher.publishEvent(
+        new InboxPushRequestedEvent(
+            tenantId,
+            type,
+            PushCategory.of(type),
+            recipientIds,
+            actorId,
+            null,
+            null,
+            null,
+            message,
+            scope));
+  }
+
+  /**
    * 새 앱 연결 알림(WP-1686) — OAuth 로 앱이 새로 연결됐을 때 연결한 본인에게. 내가 하지 않은 연결을 알아채게 하는 계정 알림이라 알림 설정과 무관하게 늘
    * 보낸다(설정 줄이 없다). 행위자는 없고 앱 이름은 message 에 싣는다. 푸시 문구에 앱 이름이 필요해 이벤트의 eventTitle 칸으로 넘긴다. insert 후
    * SSE fan-out·푸시.

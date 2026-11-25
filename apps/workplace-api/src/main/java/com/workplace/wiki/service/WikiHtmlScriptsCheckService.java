@@ -130,7 +130,7 @@ public class WikiHtmlScriptsCheckService {
 
   /** 워크스페이스에 AI(비서)가 있는지. */
   private boolean aiAvailable() {
-    return assistantResolver.resolveWorkspaceOrEmpty().isPresent();
+    return assistantResolver.hasWorkspaceAssistant();
   }
 
   /**

@@ -512,6 +512,7 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
             null,
             null,
             null,
+            null,
             task -> {
               throw new TaskRejectedException("가득 참");
             },

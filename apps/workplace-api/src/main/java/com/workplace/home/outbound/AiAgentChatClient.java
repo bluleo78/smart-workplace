@@ -6,6 +6,7 @@ import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.json.JsonMappers;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
+import com.workplace.global.outbound.ProviderLimitSignal;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.io.InterruptedIOException;
 import java.net.URI;
@@ -98,7 +99,7 @@ public class AiAgentChatClient {
    * @param request 직렬화될 에이전트 요청 본문
    * @param onDelta delta 텍스트 토큰 콜백
    * @param onDone done 이벤트 콜백 — fullText, widgets(nullable), source(nullable, WP-139)
-   * @param onError 오류 메시지 콜백
+   * @param onError 오류 콜백 — 사용자에게 보일 문구와, 사용 한도 실패면 reason(PROVIDER_LIMIT)·resetsAt(WP-2108)
    * @param onProgress 위임 진행 라벨 콜백 (#333 M2)
    * @param onPendingAction 확인 카드 제안 객체 콜백, raw JsonNode (#333 M2)
    * @param onTool 도구 호출 이벤트 콜백, raw JsonNode({seq, phase, toolName, args?, isError?})
@@ -107,7 +108,7 @@ public class AiAgentChatClient {
       ChatRequest request,
       Consumer<String> onDelta,
       DoneHandler onDone,
-      Consumer<String> onError,
+      Consumer<ChatError> onError,
       Consumer<String> onProgress,
       Consumer<JsonNode> onPendingAction,
       Consumer<JsonNode> onTool)
@@ -142,11 +143,13 @@ public class AiAgentChatClient {
         if (resp.statusCode() == 503 && body.contains("home_composer_not_configured")) {
           log.error("ai-agent home composer 미설정: {}", body);
           // 스트리밍 소비 경로이므로 예외를 던지지 않고 onError 로 흘린다 — 호출자가 SSE error 로 변환한다.
-          onError.accept("AI 홈 컴포저가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+          onError.accept(ChatError.plain("AI 홈 컴포저가 아직 설정되지 않았어요. 관리자에게 문의해주세요."));
           return;
         }
         log.error("ai-agent chat 비정상 상태: {} body={}", resp.statusCode(), body);
-        onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
+        // WP-2108: 503 + reason=PROVIDER_LIMIT 이면 한도 실패로 표시한다 — 호출자가 그 비서 자격을 대기에 건다.
+        onError.accept(
+            resp.statusCode() == 503 ? limitOrPlain(body) : ChatError.plain(GENERIC_ERROR));
         return;
       }
 
@@ -209,7 +212,8 @@ public class AiAgentChatClient {
               return;
             } else if ("error".equals(event)) {
               log.error("ai-agent home chat stream error: {}", data);
-              onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
+              // WP-2108: error 이벤트 data 의 reason=PROVIDER_LIMIT·resetsAt 를 함께 전한다.
+              onError.accept(limitOrPlain(data));
               return;
             }
           }
@@ -226,7 +230,7 @@ public class AiAgentChatClient {
       //     onDone 을 부르지 않아 빈 행을 남기지 않고, onError 로 마감해 살아있는 emitter 가
       //     300s 타임아웃까지 매달리지 않게 한다.
       log.error("ai-agent home chat 스트림이 done 이벤트 없이 종료됨");
-      onError.accept("AI 응답이 완료되지 않았어요. 잠시 후 다시 시도해주세요.");
+      onError.accept(ChatError.plain("AI 응답이 완료되지 않았어요. 잠시 후 다시 시도해주세요."));
 
     } catch (Exception e) {
       // 취소(Future.cancel(true))로 인한 인터럽트는 onError 콜백으로 뭉뚱그리지 않고 그대로
@@ -237,8 +241,42 @@ public class AiAgentChatClient {
         throw e;
       }
       log.error("ai-agent home chat 실패: {}", e.getMessage());
-      onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
+      onError.accept(ChatError.plain(GENERIC_ERROR));
     }
+  }
+
+  /** 일반 실패 문구 — 한도 실패도 사용자에게는 이 문구가 기본이고, 한도 문구는 호출자가 대기 시각으로 만든다. */
+  private static final String GENERIC_ERROR = "AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.";
+
+  /** 한도 실패를 알리는 reason 값(ai-agent 503·SSE error 공통). */
+  private static final String REASON_LIMIT = ProviderLimitSignal.REASON;
+
+  /**
+   * 채팅 오류 — message 는 지금까지의 일반 문구, reason 은 한도 실패일 때만 {@code PROVIDER_LIMIT}, resetsAt 은 ai-agent 가
+   * 읽은 풀리는 시각(ISO-8601, 모르면 null).
+   */
+  public record ChatError(String message, String reason, String resetsAt) {
+
+    /** 한도가 아닌 일반 오류. */
+    public static ChatError plain(String message) {
+      return new ChatError(message, null, null);
+    }
+
+    /** 사용 한도 때문에 실패했는가. */
+    public boolean isLimit() {
+      return REASON_LIMIT.equals(reason);
+    }
+  }
+
+  /** JSON 본문의 reason=PROVIDER_LIMIT 이면 한도 오류, 아니거나 JSON 이 아니면 일반 오류. */
+  private ChatError limitOrPlain(String json) {
+    JsonNode node = readTreeOrMissing(json);
+    if (REASON_LIMIT.equals(node.path("reason").asString(""))) {
+      JsonNode resets = node.path("resetsAt");
+      return new ChatError(
+          GENERIC_ERROR, REASON_LIMIT, resets.isString() ? resets.asString("") : null);
+    }
+    return ChatError.plain(GENERIC_ERROR);
   }
 
   /**

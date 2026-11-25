@@ -1,9 +1,13 @@
 package com.workplace.wiki.report;
 
 import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.airun.service.AiRunSkips;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantLimitWaitService;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.issue.outbound.AiAgentIssueClient;
@@ -24,6 +28,7 @@ import com.workplace.wiki.report.PersonalReportSettingRepository.SettingRow;
 import com.workplace.wiki.report.ReportErrors.ReportFailure;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -89,6 +94,8 @@ public class PersonalReportGenerator {
     NOT_DUE,
     /** 비서가 없어 AI 를 부르지 않았다(설정 상태). */
     SKIPPED_NO_ASSISTANT,
+    /** 비서 자격이 사용 한도 대기 중이라 AI 를 부르지 않았다(WP-2108) — 대기가 풀리면 같은 날을 다시 잡는다. */
+    SKIPPED_LIMIT_WAIT,
     /** 실패 — 자동은 30분 뒤 재시도하거나(3회째면) 다음 날로 넘겼고, 수동은 회차를 FAILED 로 닫았다. */
     FAILED
   }
@@ -104,6 +111,7 @@ public class PersonalReportGenerator {
   private final PersonalReportTemplate template;
   private final ReportPageWriter pageWriter;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentIssueClient client;
   private final UserRepository users;
   private final AiRunRecorder aiRunRecorder;
@@ -119,6 +127,7 @@ public class PersonalReportGenerator {
       PersonalReportTemplate template,
       ReportPageWriter pageWriter,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentIssueClient client,
       UserRepository users,
       AiRunRecorder aiRunRecorder,
@@ -132,6 +141,7 @@ public class PersonalReportGenerator {
     this.template = template;
     this.pageWriter = pageWriter;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.client = client;
     this.users = users;
     this.aiRunRecorder = aiRunRecorder;
@@ -165,8 +175,26 @@ public class PersonalReportGenerator {
       long id = reserved.id();
       reportId = id;
 
-      Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveOrEmpty(userId));
-      if (spec == null || spec.isEmpty()) {
+      AssistantResolution resolution = resolve(userId);
+      // WP-2108: 한도 대기면 건너뛰고 기록.
+      Optional<AssistantSpec> spec =
+          limitGuard.specOrSkip(
+              resolution, AiRunKinds.PERSONAL_REPORT, aiRunContext(userId, now, true));
+      if (resolution.isWaiting()) {
+        // 한도 대기 — 예약을 풀고, 점유가 내일로 민 다음 시각을 대기가 풀리는 시각으로 되돌려 풀린 뒤 같은 날을 다시 잡게 한다. 일일 한도처럼
+        // 대기가 다음 일일 슬롯 안에 풀리면 그날이 지켜지지만, 주간 한도처럼 슬롯을 넘기면 그날 보고는 빠진다(알려진 한계).
+        // 실패 수는 지우지 않는다(설정 상태가 아니라 앞선 실패가 이어진다).
+        log.debug("비서가 한도 대기 중이라 개인 일일 보고를 미룸 userId={}", userId);
+        OffsetDateTime retryAt =
+            OffsetDateTime.ofInstant(resolution.limitWaitUntil(), now.getOffset());
+        tx.executeWithoutResult(
+            s -> {
+              reports.release(id);
+              settings.retryAt(userId, retryAt);
+            });
+        return Outcome.SKIPPED_LIMIT_WAIT;
+      }
+      if (spec.isEmpty()) {
         // 설정 상태라 실패로 세지 않는다 — 행을 남기지 않아 비서를 붙인 뒤 다음 날부터 정상으로 돈다.
         log.debug("비서가 없어 개인 일일 보고를 건너뜀 userId={}", userId);
         tx.executeWithoutResult(s -> reports.release(id));
@@ -227,8 +255,18 @@ public class PersonalReportGenerator {
     long userId = row.userId();
     PersonalReportPeriod period = new PersonalReportPeriod(row.start(), row.end(), row.kind());
 
-    Optional<AssistantSpec> spec = tx.execute(s -> assistantResolver.resolveOrEmpty(userId));
-    if (spec == null || spec.isEmpty()) {
+    AssistantResolution resolution = resolve(userId);
+    Optional<AssistantSpec> spec =
+        limitGuard.specOrSkip(
+            resolution, AiRunKinds.PERSONAL_REPORT, aiRunContext(userId, now, false));
+    if (resolution.isWaiting()) {
+      // 한도 대기 — 화면이 이유를 그대로 보이게 회차를 한도 문구로 닫는다(AI 는 부르지 않는다).
+      String message =
+          AssistantLimitWaitService.waitingMessage(resolution.limitWaitUntil(), Instant.now());
+      tx.executeWithoutResult(s -> reports.markFailed(reportId, message, now));
+      return Outcome.SKIPPED_LIMIT_WAIT;
+    }
+    if (spec.isEmpty()) {
       tx.executeWithoutResult(s -> reports.markFailed(reportId, NO_ASSISTANT, now));
       AiRunSkips.record(
           aiRunRecorder,
@@ -240,6 +278,12 @@ public class PersonalReportGenerator {
 
     Optional<Long> pendingPageId = tx.execute(s -> reports.pendingPageId(reportId));
     return generate(userId, period, reportId, spec.get(), pendingPageId, false, false, now);
+  }
+
+  /** 짧은 tx 로 비서 해석 결과를 읽는다(개인 → 공용, 대기 중이면 WAITING). */
+  private AssistantResolution resolve(long userId) {
+    AssistantResolution r = tx.execute(s -> assistantResolver.resolution(userId));
+    return r == null ? AssistantResolution.none() : r;
   }
 
   /**
@@ -326,12 +370,22 @@ public class PersonalReportGenerator {
         workTable != null && ReportMarkdown.hasTable(templateMarkdown, workTable);
 
     // tx 밖 AI — 커넥션을 붙잡지 않는다.
+    // 한도로 실패하면 그 자격을 대기로 건다(WP-2108) — 실패 처리 흐름은 그대로(같은 예외가 올라간다).
     PersonalReportAiResult result =
-        AiRunScope.call(
-            aiRunContext(userId, now, auto),
+        limitGuard.call(
+            spec,
             () ->
-                client.writePersonalReport(
-                    request(userName, period, facts, templateMarkdown, workTableInTemplate, spec)));
+                AiRunScope.call(
+                    aiRunContext(userId, now, auto),
+                    () ->
+                        client.writePersonalReport(
+                            request(
+                                userName,
+                                period,
+                                facts,
+                                templateMarkdown,
+                                workTableInTemplate,
+                                spec))));
     String markdown = result == null || result.markdown() == null ? "" : result.markdown().strip();
     if (markdown.isEmpty()) throw new ReportFailure("AI 가 빈 보고를 돌려줬어요.");
     if (ReportPageWriter.codePoints(markdown) > OUTPUT_MAX) {

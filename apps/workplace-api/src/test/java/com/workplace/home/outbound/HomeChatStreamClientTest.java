@@ -201,7 +201,7 @@ class HomeChatStreamClientTest {
         dummyReq(),
         delta -> {},
         (ft, w, src) -> {},
-        errorMsg::set,
+        e -> errorMsg.set(e.message()),
         label -> {},
         node -> {},
         tn -> {});
@@ -219,7 +219,7 @@ class HomeChatStreamClientTest {
         dummyReq(),
         delta -> {},
         (ft, w, src) -> {},
-        errorMsg::set,
+        e -> errorMsg.set(e.message()),
         label -> {},
         node -> {},
         tn -> {});

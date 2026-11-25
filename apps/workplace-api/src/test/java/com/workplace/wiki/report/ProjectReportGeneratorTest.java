@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
 import static org.jooq.impl.DSL.table;
@@ -25,6 +26,9 @@ import static org.mockito.Mockito.when;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.airun.service.AiRunRecorder;
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -50,6 +54,7 @@ import com.workplace.wiki.report.dto.UpdateProjectReportSettingsRequest;
 import com.workplace.wiki.repository.ProjectNoteSpaceRepository;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSystemPageWriter;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -490,6 +495,50 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     verify(client, never()).writeProjectReport(any());
   }
 
+  /**
+   * 공통 비서 자격이 사용 한도 대기 중이면(WP-2108) 예약을 풀고 SKIPPED_LIMIT_WAIT — 회차 행 없음, AI 는 부르지 않고, 건너뜀은
+   * limit_wait 한 행으로 남는다. 점유가 민 다음 예정을 대기가 풀리는 시각으로 되돌려, 풀린 뒤 다시 돌면 같은 회차를 만든다.
+   */
+  @Test
+  void run_limitWait_releasesReservationAndRunsAgainAfterWait() {
+    int number = activity();
+    Instant until = NOW.toInstant().plusSeconds(30 * 60);
+    doReturn(AssistantResolution.waiting(920_000_000L + owner, until))
+        .when(assistantResolver)
+        .workspaceResolution();
+
+    assertThat(generator.run(project.id(), NOW)).isEqualTo(Outcome.SKIPPED_LIMIT_WAIT);
+
+    assertThat(reportRows()).isZero();
+    assertThat(setting().nextRunAt().toInstant()).isEqualTo(until);
+    verify(client, never()).writeProjectReport(any());
+    var rows = aiRuns();
+    assertThat(rows).hasSize(1);
+    assertThat(rows.get(0).get(AI_RUN.STATUS)).isEqualTo("SKIPPED");
+    assertThat(rows.get(0).get(AI_RUN.ERROR_REASON)).isEqualTo("limit_wait");
+
+    // 대기가 풀린 뒤 — 같은 회차를 만든다.
+    doReturn(AssistantResolution.ready(new AssistantSpec(owner, "m", "low", 4, 60_000)))
+        .when(assistantResolver)
+        .workspaceResolution();
+    aiReturnsMessy(number);
+    assertThat(generator.run(project.id(), NOW.plusHours(1))).isEqualTo(Outcome.GENERATED);
+    assertThat(reportRows()).isEqualTo(1);
+  }
+
+  /** 「지금 생성」(직접 요청)은 대기 중이면 회차를 맡지 않고 곧바로 한도 안내로 거절한다. */
+  @Test
+  void runNow_limitWait_throwsWaitingException() {
+    doReturn(AssistantResolution.waiting(921_000_000L + owner, Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .workspaceResolution();
+    var row = projectRepository.findById(project.id()).orElseThrow();
+
+    assertThatThrownBy(() -> generator.runNow(row, setting(), NOW))
+        .isInstanceOf(AssistantLimitWaitingException.class);
+    verify(client, never()).writeProjectReport(any());
+  }
+
   // ───────────── AI 처리 기록(WP-1829) ─────────────
 
   /** 이 프로젝트의 ai_run 행(대상 id 로 거른다 — 다른 테스트가 커밋한 행과 섞이지 않게). */
@@ -838,6 +887,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
   @Autowired ProjectReportTemplate reportTemplate;
   @Autowired ProjectReportLocation reportLocation;
   @Autowired AiAgentProperties aiAgentProperties;
+  @Autowired AssistantLimitGuard limitGuard;
 
   /** 노트 쓰기·회차 저장소를 Mockito 스파이로 바꾼 생성기 — 페이지를 만든 뒤의 실패를 만든다(실제 빈의 대상 객체를 감싸 동작은 그대로). */
   private ProjectReportGenerator generatorWith(
@@ -852,6 +902,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
         reportTemplate,
         reportLocation,
         assistantResolver,
+        limitGuard,
         client,
         aiAgentProperties,
         aiRunRecorder,

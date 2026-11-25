@@ -338,6 +338,34 @@ test('서버 400 이면 서버 메시지를 토스트로 띄우고 대화상자�
   expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
 })
 
+// WP-2108: 공통 비서가 사용 한도 대기 중이면 지정 줄에 「한도 대기 · … 이후」 배지가 보인다.
+test('공통 비서로 지정된 에이전트가 한도 대기 중이면 한도 대기 배지가 보이고, 아니면 없다 (WP-2108)', async () => {
+  const wsAssistant = (limitWaitUntil: string | null) =>
+    http.get('/api/v1/admin/workspace-assistant', () =>
+      HttpResponse.json({
+        agentUserId: AGENT_ID,
+        agentName: '공통 비서',
+        hasActiveToken: true,
+        model: 'claude-sonnet-5-5',
+        thinkingDepth: 'HIGH',
+        limitWaitUntil,
+      }),
+    )
+  // 지정된 공통 비서는 모델 목록도 읽는다.
+  const models = http.get(`/api/v1/admin/agents/${AGENT_ID}/models`, () =>
+    HttpResponse.json({ provider: 'anthropic', models: [] }),
+  )
+  const until = new Date(Date.now() + 3 * 3600_000).toISOString()
+  const waiting = await renderSection(ANTHROPIC_META, {}, [wsAssistant(until), models])
+  const badge = await screen.findByTestId('workspace-assistant-limit-wait-badge')
+  expect(badge.textContent).toMatch(/^한도 대기 · /)
+  waiting.unmount()
+
+  await renderSection(ANTHROPIC_META, {}, [wsAssistant(null), models])
+  await screen.findByTestId('workspace-assistant-current')
+  expect(screen.queryByTestId('workspace-assistant-limit-wait-badge')).not.toBeInTheDocument()
+})
+
 // WP-1163: 구성원의 개인 비서는 관리자가 연결을 등록·재발급하거나 공통 비서로 지정할 수 없다(서버 403) — 버튼·스위치 대신 안내를 보이고, 회수만 남긴다.
 test('개인 비서(canConfigure=false)는 재발급·연결하기·공통 비서 스위치 대신 안내를 보이고 회수만 할 수 있다', async () => {
   const api = credentialApi(ANTHROPIC_META)

@@ -7,11 +7,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
@@ -26,6 +29,7 @@ import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.exception.WikiSummaryFailedException;
 import com.workplace.wiki.outbound.WikiAiAgentSummaryClient;
 import com.workplace.wiki.repository.WikiPageRepository;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -125,6 +129,21 @@ class WikiSummaryServiceTest extends ExternalClientMockedTestBase {
     assertThat(s.summaryVersion()).isEqualTo(p.version());
     assertThat(s.summarizedAt()).isNotNull();
     assertThat(summaryService.get(u, p.id()).status()).isEqualTo(WikiSummaryStatus.READY);
+  }
+
+  /** WP-2108: 「다시 요약」 은 직접 요청 — 공용 비서가 한도 대기 중이면 「비서 없음」 이 아니라 한도 안내로 답하고 AI 를 부르지 않는다. */
+  @Test
+  void generate_대기중이면_한도_안내로_답한다() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    doReturn(AssistantResolution.waiting(961L, Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .workspaceResolution();
+
+    assertThatThrownBy(() -> summaryService.generate(u, p.id()))
+        .isInstanceOf(AssistantLimitWaitingException.class)
+        .hasMessageStartingWith("사용 한도에 걸렸어요(");
+    verify(agent, never()).summarize(any());
   }
 
   @Test

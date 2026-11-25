@@ -1,6 +1,8 @@
 // 홈 알림 위젯 "캐치업" 로직 — 최근 알림을 객체별로 묶고 '내 차례/업데이트'로 분류한다.
 // 전부 순수 함수(클라이언트 파생) — 백엔드 변경 없음. (내 작업 위젯 myTasks.ts 선례)
 import {
+  AI_LIMIT_WAIT_LABEL,
+  isAiLimitWaitType,
   isCalendarType,
   isMailSendFailedType,
   isMentionLike,
@@ -59,6 +61,7 @@ export function notifSection(n: NotificationResponse): NotifSection {
     n.type === "WORKFLOW_TURN_REMIND" || // WP-1987 오래 기다리는 내 차례 — 행동 필요
     n.type === "WORKFLOW_TURN_ESCALATE" || // WP-1987 관리자 확인 필요
     isPersonalAssistantRevokedType(n) ||
+    isAiLimitWaitType(n) || // WP-2108 한도에 걸린 내 비서·관리 대상 — 풀리거나 모델을 바꿀 사람이 확인해야 함
     isOAuthAppConnectedType(n) || // WP-1686
     isMailSendFailedType(n) || // WP-1786
     isMentionLike(n)
@@ -71,6 +74,8 @@ export function notifSection(n: NotificationResponse): NotifSection {
 function groupKey(n: NotificationResponse): string {
   // 개인 비서 연결 해제(WP-1170)는 대상이 내 비서 하나뿐이라 한 줄로 묶는다(이슈 키가 없어 이슈 분기로 새지 않게 먼저 본다).
   if (isPersonalAssistantRevokedType(n)) return "assistant";
+  // AI 사용 한도(WP-2108)는 범위(개인·공통·계정)와 비서마다 한 줄 — 같은 비서가 다시 걸리면 그 줄에 쌓인다.
+  if (isAiLimitWaitType(n)) return `ai-limit:${n.statusName ?? ""}:${n.actorId ?? ""}`;
   // 새 앱 연결(WP-1686)도 이슈 키가 없어 한 줄로 묶는다 — 앱이 여러 번 연결돼도 「앱 연결 N건」 한 행.
   if (isOAuthAppConnectedType(n)) return "oauth-app";
   // 메일 보내기 실패(WP-1786)는 임시보관마다 한 줄 — 같은 메일이 다시 실패하면 그 줄에 쌓이고, 다른 메일은 따로 보인다(푸시 태그와 같은 단위).
@@ -91,6 +96,7 @@ function groupKey(n: NotificationResponse): string {
 // 표시 제목 — 캘린더 알림은 일정 제목, 이슈는 'KEY-번호 · 제목'.
 function repTitle(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL; // WP-1170
+  if (isAiLimitWaitType(n)) return AI_LIMIT_WAIT_LABEL; // WP-2108
   if (isOAuthAppConnectedType(n)) return OAUTH_APP_LABEL; // WP-1686
   if (isMailSendFailedType(n)) return mailSendFailedLabel(n); // WP-1786
   if (isWikiShareType(n)) return n.wikiPageTitle ?? "노트";
@@ -122,6 +128,7 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "WIKI_SHARED",
   "WIKI_SHARE_ACCESS_APPROVED",
   "PERSONAL_ASSISTANT_REVOKED", // WP-1170
+  "AI_ASSISTANT_LIMIT_WAIT", // WP-2108
   "OAUTH_APP_CONNECTED", // WP-1686
   "MAIL_SEND_FAILED", // WP-1786
 ];
@@ -170,6 +177,8 @@ function deltaSummary(group: NotificationResponse[]): string {
     else if (t === "WIKI_SHARE_ACCESS_APPROVED") parts.push("접근 승인");
     else if (t === "PERSONAL_ASSISTANT_REVOKED")
       parts.push(c > 1 ? `개인 비서 연결 해제 ${c}건` : "개인 비서 연결 해제"); // WP-1170
+    else if (t === "AI_ASSISTANT_LIMIT_WAIT")
+      parts.push(c > 1 ? `AI 사용 한도 ${c}건` : "AI 사용 한도"); // WP-2108
     else if (t === "OAUTH_APP_CONNECTED")
       parts.push(c > 1 ? `앱 연결 ${c}건` : "앱 연결"); // WP-1686
     else if (t === "MAIL_SEND_FAILED") {

@@ -89,7 +89,7 @@ public class AiCapacitySampler {
 
     Map<String, Integer> backlog = new LinkedHashMap<>();
     // 메일 분류는 워크스페이스 비서가 없으면 AI 를 켠 계정만 돌므로, 비서 유무를 넘겨 일꾼이 안 집는 계정의 메일을 빼고 센다.
-    boolean workspaceAssistant = assistantResolver.resolveWorkspaceOrEmpty().isPresent();
+    boolean workspaceAssistant = assistantResolver.hasWorkspaceAssistant();
     backlog.put("MAIL_CLASSIFY", emailMessageRepository.countUncategorized(workspaceAssistant));
     // 파일 요약은 워크스페이스 비서가 없으면 요약기가 집지 않고 건너뛰므로(FileExtractionPipeline.summarizePending) 0 으로 센다.
     backlog.put(

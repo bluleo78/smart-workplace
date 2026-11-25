@@ -1,5 +1,9 @@
 package com.workplace.messaging.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
@@ -37,6 +41,7 @@ public class MessagingAttentionService {
   private final MessagingClassifyWatermarkRepository wmRepo;
   private final AiAgentMessagingClient aiClient;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
 
   /** 한 배치에서 가져올 최대 메시지 수. */
   private static final int BATCH_LIMIT = 30;
@@ -127,7 +132,17 @@ public class MessagingAttentionService {
 
     // 채널 단위 작업이라 공용 비서(토큰 보유)로 호출한다. 예전엔 id 2 하드코딩이라 운영에서 HUMAN 을 가리켰다(WP-110).
     // 비서가 없으면 이름필터 skip 과 같이 watermark 만 전진 — 설정 후 과거 배치를 몰아 재분류하지 않는다.
-    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
+    AssistantResolution resolution = assistantResolver.workspaceResolution();
+    // WP-2108: 한도 대기면 건너뛰고 기록.
+    AssistantSpec spec =
+        limitGuard
+            .specOrSkip(
+                resolution,
+                AiRunKinds.MESSAGING_CLASSIFY,
+                AiRunContext.auto("CHANNEL", String.valueOf(channelId)))
+            .orElse(null);
+    // 한도 대기는 watermark 를 올리지 않는다 — 올리면 그동안의 메시지가 영영 분류되지 않는다. 풀린 뒤 다음 메시지가 한 배치로 이어 분류한다.
+    if (spec == null && resolution.isWaiting()) return;
     if (spec == null) {
       wmRepo.advance(channelId, newWatermark);
       return;
@@ -147,7 +162,7 @@ public class MessagingAttentionService {
             CLASSIFY_MAX_TURNS,
             CLASSIFY_TIMEOUT_MS);
     log.info("messaging-classify 호출 channel={} batch={}", channelId, batch.size());
-    var res = aiClient.classify(req);
+    var res = limitGuard.call(spec, () -> aiClient.classify(req)); // 한도 실패면 그 자격을 대기로 건다(WP-2108)
 
     // 결과 유무와 무관하게 watermark 전진 — relevant=[] 여도 영구 재분류 차단.
     wmRepo.advance(channelId, newWatermark);

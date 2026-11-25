@@ -5,7 +5,9 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
 import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
 import com.workplace.airun.context.AiRunScope;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
@@ -86,6 +88,7 @@ public class FileExtractionPipeline {
   private final WorkerProperties props;
   private final AiAgentDriveClient driveClient;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final DSLContext dsl;
 
   /**
@@ -115,6 +118,7 @@ public class FileExtractionPipeline {
       WorkerProperties props,
       AiAgentDriveClient driveClient,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       DSLContext dsl,
       PlatformTransactionManager txManager,
       @Qualifier("issueAiSummaryExecutor") Executor summaryExecutor,
@@ -124,6 +128,7 @@ public class FileExtractionPipeline {
     this.props = props;
     this.driveClient = driveClient;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
     this.afterCommitTx = new TransactionTemplate(txManager);
@@ -348,7 +353,12 @@ public class FileExtractionPipeline {
             txTemplate.execute(
                 status -> {
                   // AssistantSpec 을 CAS 이전에 조회 — 미설정이면 claim 하지 않고 종료
-                  var specOpt = assistantResolver.resolveWorkspaceOrEmpty();
+                  // 한도 대기 중이면 SKIPPED(limit_wait)를 남기고 빈 값 — claim 하지 않아 풀린 뒤 다시 줍는다(WP-2108).
+                  var specOpt =
+                      limitGuard.specOrSkip(
+                          assistantResolver.workspaceResolution(),
+                          AiRunKinds.DRIVE_SUMMARIZE,
+                          AiRunContext.auto("DRIVE_FILE", String.valueOf(fileId)));
                   if (specOpt.isEmpty()) {
                     log.debug("요약 비서 미설정 — 테넌트에 공용 비서 없음: fileId={}", fileId);
                     return false;
@@ -401,6 +411,15 @@ public class FileExtractionPipeline {
                           MAX_TURNS,
                           spec.timeoutMs())));
     } catch (RuntimeException ex) {
+      // 한도 실패면 그 자격을 대기로 건다(WP-2108)
+      boolean limited = limitGuard.onFailure(spec, ex);
+      if (limited) {
+        // 사용 한도는 파일 탓이 아니다 — 소진한 시도를 되돌리고 TEXT_READY 로 복귀해 한도가 풀린 뒤 다시 줍게 한다(FAILED 로 끝나지 않는다).
+        String cause = AgentOutageGuard.describe(ex);
+        log.warn("ai-agent 사용 한도 — 시도 횟수 유지, TEXT_READY 복귀: fileId={} ({})", fileId, cause);
+        txTemplate.executeWithoutResult(s -> jobs.revertToTextReady(fileId, cause, true));
+        return SummaryOutcome.SKIPPED; // agent 장애가 아니므로 배치 중단 근거로 세지 않는다
+      }
       FileAiException aiError = ex instanceof FileAiException f ? f : null;
       boolean agentDown = aiError != null && aiError.isAgentDown();
       if (aiError != null && aiError.isUnreached()) {

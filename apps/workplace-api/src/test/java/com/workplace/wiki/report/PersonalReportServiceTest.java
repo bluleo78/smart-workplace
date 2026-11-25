@@ -9,10 +9,13 @@ import static org.jooq.impl.DSL.name;
 import static org.jooq.impl.DSL.table;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -30,6 +33,7 @@ import com.workplace.wiki.report.dto.PersonalReportConflictResponse;
 import com.workplace.wiki.report.dto.PersonalReportLookupResponse;
 import com.workplace.wiki.report.dto.PersonalReportStatusResponse;
 import com.workplace.wiki.service.WikiSystemPageWriter;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -234,6 +238,18 @@ class PersonalReportServiceTest extends ExternalClientMockedTestBase {
     // 오늘(진행 중)은 된다.
     assertThat(service.create(me, daily(LocalDate.parse("2026-11-12"), false), NOW).status())
         .isEqualTo("PENDING");
+  }
+
+  @Test
+  void create_limitWait_throwsWaitingException() {
+    long me = human();
+    doReturn(AssistantResolution.waiting(970L, Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .resolution(me);
+
+    assertThatThrownBy(() -> service.create(me, daily(DAY, false), NOW))
+        .isInstanceOf(AssistantLimitWaitingException.class);
+    verify(client, never()).writePersonalReport(any());
   }
 
   @Test

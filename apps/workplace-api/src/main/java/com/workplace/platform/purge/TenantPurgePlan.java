@@ -79,6 +79,7 @@ public final class TenantPurgePlan {
           AGENT_WORK_EVENT,
           AGENT_WORK,
           AGENT_SERVER_RUN, // 서버 AI 의 도는 이슈 실행(WP-1986) — issue·user 를 참조(CASCADE)
+          ASSISTANT_LIMIT_WAIT, // 비서 자격의 사용 한도 대기(WP-2108) — 자격·user 를 참조(CASCADE)
           // 반복 AI 작업(WP-989)은 issue 를 참조(CASCADE)하지만 목록 가드가 tenant_id 테이블을 빠짐없이 요구하므로 이슈 앞에 둔다.
           ISSUE_RECURRENCE,
           ISSUE,

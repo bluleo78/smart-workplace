@@ -155,6 +155,7 @@ class AiCapacitySamplerTest extends ExternalClientMockedTestBase {
     // 워크스페이스 비서가 있는 테넌트 — 파일 요약 대기도 센다(비서가 없으면 요약기가 집지 않아 0).
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     var base = sampleAndRead(now.minusHours(3));
 
     // AI 둘(상한 기본 5+5) — 한 AI 에 진행 중(WORKING) 작업 1건.
@@ -293,6 +294,7 @@ class AiCapacitySamplerTest extends ExternalClientMockedTestBase {
 
     // 비서가 없으면 같은 TEXT_READY 파일이 있어도 파일 요약 대기는 늘지 않는다(요약기가 집지 않는다).
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     var noAssistant = sampleAndRead(now.minusHours(1));
     assertThat(noAssistant.backlog().get("FILE_SUMMARY").asInt()).isZero();
   }

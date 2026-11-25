@@ -519,6 +519,38 @@ describe('POST /ai/chat', () => {
   });
 });
 
+describe('WP-2108: 사용 한도 응답', () => {
+  const limitErr = new Error("Claude Code returned an error result: You've hit your limit · resets 3pm (UTC)");
+  it('/ai/chat 러너 한도 오류 → error 이벤트에 reason·resetsAt', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runAiChatStream).mockRejectedValue(limitErr);
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    expect(res.text).toContain('event: error');
+    expect(res.text).toContain('"reason":"PROVIDER_LIMIT"');
+    expect(res.text).toContain('"resetsAt":"');
+  });
+  it('/home/priority-classify 한도 → 503 PROVIDER_LIMIT', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.mocked(runHomePriorityClassify).mockRejectedValue(limitErr);
+    const res = await request(buildApp()).post('/home/priority-classify').send({
+      items: [{ sourceType: 'ISSUE_DUE', sourceId: '1', title: 'a', context: 'b' }],
+      assistantAgentId: 99, model: 'm', maxTurns: 6, timeoutMs: 90000,
+    });
+    expect(res.status).toBe(503);
+    expect(res.body.reason).toBe('PROVIDER_LIMIT');
+    expect(res.body.error).toBe('home_priority_classify_unavailable');
+  });
+  it('/home/priority-classify 일반 오류는 502 그대로', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runHomePriorityClassify).mockRejectedValue(new Error('boom'));
+    const res = await request(buildApp()).post('/home/priority-classify').send({
+      items: [{ sourceType: 'ISSUE_DUE', sourceId: '1', title: 'a', context: 'b' }],
+      assistantAgentId: 99, model: 'm', maxTurns: 6, timeoutMs: 90000,
+    });
+    expect(res.status).toBe(502);
+  });
+});
+
 describe('POST /home/priority-classify', () => {
   const validBody = {
     items: [{ sourceType: 'ISSUE_DUE', sourceId: '1', title: '이슈 A', context: '마감 오늘' }],

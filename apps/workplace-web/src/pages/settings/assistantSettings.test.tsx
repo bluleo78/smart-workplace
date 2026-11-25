@@ -124,6 +124,28 @@ describe('AI 비서 화면', () => {
   })
 })
 
+// WP-2108 개인 비서 사용 한도 대기 배지 — 연결 줄(assistant-configured)에 「한도 대기 · … 이후」를 보인다.
+describe('개인 비서 한도 대기 배지 (WP-2108)', () => {
+  async function openPersonalStatus(s: Record<string, unknown>) {
+    const api = assistantApi(s)
+    const view = renderScreen(<PersonalAssistantSection />, { path: '/settings/assistant', handlers: api.handlers })
+    await screen.findByTestId('assistant-configured')
+    return view
+  }
+
+  test('limitWaitUntil 이 미래면 연결 줄에 한도 대기 배지가 보인다', async () => {
+    await openPersonalStatus(status({ limitWaitUntil: new Date(Date.now() + 3 * 3600_000).toISOString() }))
+    const badge = await screen.findByTestId('assistant-limit-wait-badge')
+    expect(badge.textContent).toMatch(/^한도 대기 · /)
+    expect(within(screen.getByTestId('assistant-configured')).getByTestId('assistant-limit-wait-badge')).toBe(badge)
+  })
+
+  test('limitWaitUntil 이 null 이면 배지가 없다', async () => {
+    await openPersonalStatus(status({ limitWaitUntil: null }))
+    expect(screen.queryByTestId('assistant-limit-wait-badge')).not.toBeInTheDocument()
+  })
+})
+
 // WP-139 추천 질문 모델 — 개인 비서 섹션만 띄운다.
 describe('개인 비서 추천 모델 (WP-139)', () => {
   async function openPersonal(s: Record<string, unknown>, models: Array<{ id: string; label: string }>) {

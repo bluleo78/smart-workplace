@@ -69,8 +69,11 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   void assistants() {
     // 기본: 공통 비서만 있는 사용자처럼 resolveOrEmpty 는 있고, 개인 비서·공통 비서(③용)는 없음
     when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(true);
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.empty());
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(false);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
   }
 
   private static AnalyzePersonalResult reply(boolean needsReply) {
@@ -208,6 +211,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void workspaceAssistantPresent_categoryNotRequested() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -280,6 +284,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void personalAssistant_longBody_storesPersonalSummary() {
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -299,6 +304,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void personalAssistant_shortBody_marksSkipped_withoutRequesting() {
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, SHORT_BODY, SHORT_BODY);
     long env =
@@ -318,7 +324,9 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   void personalAssistant_rulesHit_skipsLlmAndMarksSummarySkipped() {
     // WP-1812: 개인 비서라도 규칙으로 정해졌고 기억·분류 보충이 없으면 LLM 을 부르지 않고 요약 생략만 표시한다
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -335,6 +343,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   void blockedByRulesSkipsLlmForWorkspaceAssistant() {
     // WP-1812: 공통 비서만 있고 분류도 있는 사용자 — 규칙(noreply 발신)으로 false 가 정해져 LLM 이 필요 없다
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -356,6 +365,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
     // WP-1812: 분류만 걸린 메일은 LLM 을 부른다 — 분류는 사용자가 나중에 바꿀 수 있어, 생략해 raw=false 로 저장하면
     // 업무로 바꿔도 회신 필요가 될 수 없다. 최종값(⑤)은 분류 규칙으로 false.
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     dsl.update(EMAIL_CONTENT)
@@ -380,6 +390,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
     // 사용자 분류(업무) 위에 원본 분류(알림)가 있는 메일 — 분류는 규칙 생략 근거가 아니므로 LLM 을 부르고 raw 가 저장돼
     // 업무로 바꾼 뒤 최종값이 true 가 된다.
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     dsl.update(EMAIL_CONTENT)
@@ -406,7 +417,9 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   void personalAssistantStillCallsLlm() {
     // 개인 비서에 메일 기억이 있으면 개인 분류를 같은 호출에서 받으므로 규칙에 걸려도 LLM 을 부른다
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     when(memoryReader.readAppScope(anyLong(), any()))
         .thenReturn(List.of(new AiMemoryLine(1, "PREFERENCE", "사내 소식은 뉴스레터", null, null, null)));
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
@@ -440,6 +453,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void invalidPersonalSummary_keepsNeedsReply_leavesSummaryUnattempted() {
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -518,6 +532,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void noAssistant_noCall() {
     when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.empty());
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(false);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
@@ -531,6 +546,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void finalValue_sameRegardlessOfOrder() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
     when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("프로모션", null));
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
@@ -692,6 +708,7 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
   @Test
   void summarizeBeforeAnalyzed_leavesActorAndSourceAtUnset() {
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =

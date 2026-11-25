@@ -85,6 +85,9 @@ class ProjectReportSchedulerTest extends ExternalClientMockedTestBase {
                 Long.valueOf(fixtureTenant).equals(TenantContext.get())
                     ? Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000))
                     : Optional.empty());
+    // 테넌트 거르기는 대기를 보지 않는 hasWorkspaceAssistant 로 한다(WP-2108).
+    when(assistantResolver.hasWorkspaceAssistant())
+        .thenAnswer(inv -> Long.valueOf(fixtureTenant).equals(TenantContext.get()));
   }
 
   @AfterEach

@@ -13,6 +13,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.service.AssistantLimitWaitService;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
@@ -54,7 +58,9 @@ import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.mail.service.MailAnalysisFixtures;
 import com.workplace.support.ExternalClientMockedTestBase;
+import com.workplace.support.LimitWaitFixtures;
 import com.workplace.support.TestFixtures;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -63,10 +69,14 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpServerErrorException;
 
 /** MailAiService 통합 테스트. ai-agent 클라이언트와 비서 해석기는 Mock으로 대체 — 서비스 로직(캐시, gate)만 검증. */
 @Transactional
@@ -79,6 +89,9 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EmailContentRepository contentRepo;
   @Autowired EncryptionService encryption;
+  @Autowired PlatformTransactionManager ptm;
+  @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired AssistantLimitWaitService waitService;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
   @Autowired AiAgentMailClient mailClient;
@@ -98,8 +111,11 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     when(assistantResolver.resolve(anyLong())).thenReturn(spec);
     // summarize 는 resolveWorkspaceOrEmpty / resolvePersonalOrEmpty 경로 사용(2-tier)
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.empty());
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(false);
     when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(spec));
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(true);
   }
 
   /** AI 활성화된 계정 생성 헬퍼. */
@@ -357,6 +373,7 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     stubAssistant();
     AssistantSpec personal = new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(personal));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(false, "• 핵심: 배포 일정", true, null));
 
@@ -375,6 +392,7 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     stubAssistant();
     when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
         .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(false, null, false, null));
 
@@ -420,6 +438,7 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     stubAssistant();
     when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
         .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     // WP-1812: 자동 발송(규칙 차단)이라 첫 요약 조회의 ④ 는 LLM 을 부르지 않는다 — 호출은 강제 생성 1회뿐이다
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(false, "• 강제 개인 요약", true, null));
@@ -482,6 +501,7 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     stubAssistant();
     when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
         .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(false, " ", true, null));
 
@@ -743,6 +763,54 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     verify(mailClient, never()).composeDraft(any());
   }
 
+  /** WP-2108: 직접 요청(초안·코칭)은 비서가 한도 대기 중이면 「비서 미설정」 이 아니라 한도 안내로 바로 답한다. */
+  @Test
+  void 직접_요청은_비서가_대기중이면_한도_안내로_답한다() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "limit-wait@test.local", true);
+    when(assistantResolver.resolve(anyLong()))
+        .thenThrow(new AssistantLimitWaitingException(Instant.now().plusSeconds(3600)));
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.composeDraft(
+                    userId, accountId, new MailComposeDraftRequest("써줘", null, null, null)))
+        .isInstanceOf(AssistantLimitWaitingException.class)
+        .hasMessageStartingWith("사용 한도에 걸렸어요(");
+    assertThatThrownBy(
+            () ->
+                mailAiService.coachDraft(
+                    userId, new MailDraftCoachingRequest(accountId, "<p>x</p>", "x", null)))
+        .isInstanceOf(AssistantLimitWaitingException.class)
+        .hasMessageStartingWith("사용 한도에 걸렸어요(");
+    verify(mailClient, never()).composeDraft(any());
+  }
+
+  /** WP-2108: 「AI 요약」 버튼(강제 요약)도 직접 요청 — 대기 중이면 「요약을 아직 만들 수 없어요」 가 아니라 한도 안내. */
+  @Test
+  void 강제요약은_비서가_대기중이면_한도_안내로_답한다() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-limit-force@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId,
+            folderId,
+            "svc-limit@test.local",
+            "svc-limit-t",
+            MailAnalysisFixtures.LONG_BODY);
+    contentRepo.markAutoGenerated(contentIdOf(msgId));
+    stubAssistant();
+    doReturn(AssistantResolution.waiting(960L, Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .workspaceResolution();
+
+    assertThatThrownBy(() -> mailAiService.forceSummarize(userId, msgId))
+        .isInstanceOf(AssistantLimitWaitingException.class)
+        .hasMessageStartingWith("사용 한도에 걸렸어요(");
+    verify(mailClient, never()).analyzeContent(any());
+  }
+
   /** WP-576: 보내는 사람 이름(사용자 이름)을 요청에 싣는다 — 맺음 인사용, 직함·연락처는 없다. */
   @Test
   void composeDraft_보내는_사람_이름을_싣는다() {
@@ -859,6 +927,40 @@ class MailAiServiceTest extends ExternalClientMockedTestBase {
     ArgumentCaptor<ReplyDraftRequest> cap = ArgumentCaptor.forClass(ReplyDraftRequest.class);
     verify(mailClient).replyDraft(cap.capture());
     assertThat(cap.getValue().memories()).isEqualTo(lines);
+  }
+
+  /**
+   * WP-2108: 직접 요청(답장 초안)이 ai-agent 의 한도 503(PROVIDER_LIMIT)을 받으면 그 비서 자격에 대기가 걸린다 — 다음 요청부터는
+   * resolve() 가 즉답하고 자동 호출은 건너뛴다. 예외는 그대로 던져 이번 요청은 기존처럼 실패한다.
+   */
+  @Test
+  void replyDraft_한도_503_이면_비서_자격에_대기를_건다() {
+    LimitWaitFixtures fixtures = new LimitWaitFixtures(ptm, dsl, credentialRepo);
+    try {
+      LimitWaitFixtures.Fixture f = fixtures.create();
+      when(assistantResolver.resolve(anyLong())).thenReturn(f.spec());
+      long userId = TestFixtures.createHuman(dsl);
+      long accountId = createAccount(userId, "limit1@test.local", true);
+      long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+      long msgId = insertMessage(accountId, folderId, "limit-msg-1@test.local", "limit-thread-1");
+      var limit503 =
+          new HttpServerErrorException(
+              HttpStatus.SERVICE_UNAVAILABLE,
+              "",
+              new HttpHeaders(),
+              "{\"reason\":\"PROVIDER_LIMIT\",\"resetsAt\":\"2099-01-01T00:00:00Z\"}"
+                  .getBytes(StandardCharsets.UTF_8),
+              StandardCharsets.UTF_8);
+      when(mailClient.replyDraft(any()))
+          .thenThrow(new MailAiUnavailableException("AI 비서를 사용할 수 없어요.", limit503));
+
+      assertThatThrownBy(() -> mailAiService.replyDraft(userId, msgId))
+          .isInstanceOf(MailAiUnavailableException.class);
+
+      assertThat(waitService.activeUntil(f.credentialId())).isPresent();
+    } finally {
+      fixtures.cleanup();
+    }
   }
 
   /** WP-386: 메일 답장 초안은 조직 공용 메모리를 싣는다(메일은 공간이 없다). */

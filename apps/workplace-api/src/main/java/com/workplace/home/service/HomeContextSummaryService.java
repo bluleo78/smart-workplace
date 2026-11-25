@@ -1,5 +1,9 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.util.TokenEstimates;
@@ -57,6 +61,7 @@ public class HomeContextSummaryService {
   private final HomeSessionService sessionService;
   private final AiAgentContextSummaryClient summaryClient;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final HomeChatProperties props;
   private final AsyncTaskExecutor executor;
 
@@ -70,11 +75,13 @@ public class HomeContextSummaryService {
       HomeSessionService sessionService,
       AiAgentContextSummaryClient summaryClient,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       HomeChatProperties props,
       @Qualifier("homeContextSummaryExecutor") AsyncTaskExecutor executor) {
     this.sessionService = sessionService;
     this.summaryClient = summaryClient;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.props = props;
     this.executor = executor;
   }
@@ -208,7 +215,19 @@ public class HomeContextSummaryService {
   /** 비동기 요약 본체 — 최신 상태를 다시 읽어 압축한다. */
   private void runAsync(long callerId, UUID sessionId) {
     try {
-      compact(callerId, sessionId, load(callerId, sessionId), assistantResolver.resolve(callerId));
+      // 자동 호출이라 한도 대기 중이면 사용자에게 알릴 것 없이 조용히 건너뛴다(WP-2108) — 실패 쿨다운도 걸지 않아 풀린 뒤 다음 턴에 바로 이어진다.
+      AssistantResolution resolution = assistantResolver.resolution(callerId);
+      var spec =
+          limitGuard.specOrSkip(
+              resolution,
+              AiRunKinds.HOME_CONTEXT_SUMMARY,
+              AiRunContext.auto("USER", String.valueOf(callerId)));
+      if (spec.isEmpty()) {
+        // 대기가 아니라 비서가 없는 경우는 예전처럼 실패로 쿨다운한다.
+        if (!resolution.isWaiting()) recordFailure(sessionId);
+        return;
+      }
+      compact(callerId, sessionId, load(callerId, sessionId), spec.get());
     } catch (RuntimeException e) {
       log.warn("홈 채팅 비동기 요약 실패(쿨다운 후 재시도): session={} {}", sessionId, e.getMessage());
       recordFailure(sessionId);
@@ -233,17 +252,16 @@ public class HomeContextSummaryService {
       if (b == 0) break;
       int end = HomeContextPolicy.chunkEnd(raw, b, target);
       List<Msg> fold = raw.subList(0, end);
-      String summary =
-          summaryClient
-              .summarize(
-                  new ContextSummaryRequest(
-                      spec.agentUserId(),
-                      spec.model(),
-                      SUMMARY_MAX_TURNS,
-                      SUMMARY_TIMEOUT_MS,
-                      cur.summary(),
-                      toContextMessages(fold)))
-              .summary();
+      ContextSummaryRequest req =
+          new ContextSummaryRequest(
+              spec.agentUserId(),
+              spec.model(),
+              SUMMARY_MAX_TURNS,
+              SUMMARY_TIMEOUT_MS,
+              cur.summary(),
+              toContextMessages(fold));
+      // 한도로 실패하면 그 자격을 대기로 건다(WP-2108) — 실패 처리는 그대로(같은 예외가 올라간다).
+      String summary = limitGuard.call(spec, () -> summaryClient.summarize(req)).summary();
       // 요약 호출 성공 — 쿨다운 해제(저장 경합에 져도 ai-agent 는 정상이므로).
       failedUntil.remove(sessionId);
       String capped = TokenEstimates.truncate(summary, props.perMessageCap());

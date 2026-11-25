@@ -187,6 +187,21 @@ public class NotificationRepository {
   }
 
   /**
+   * AI 사용 한도 대기 알림 1건 insert(WP-2108) — 가리킬 이슈·일정이 없다. scope 를 status_name 칸에, 서버가 만든 본문을 message 에
+   * 싣는다(웹이 scope 로 이동 대상을 고른다). 행위자는 한도에 걸린 AI(AI 계정 경로는 null).
+   */
+  public void insertAiLimitWaitNotice(
+      long recipientId, Long actorId, String scope, String message) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.ACTOR_ID, actorId)
+        .set(NOTIFICATION.TYPE, NotificationType.AI_ASSISTANT_LIMIT_WAIT.name())
+        .set(NOTIFICATION.STATUS_NAME, scope)
+        .set(NOTIFICATION.MESSAGE, message)
+        .execute();
+  }
+
+  /**
    * 일정 변경·취소 알림 1건 insert(WP-712) — 그때의 일정 제목·시작 시각을 함께 남긴다. 취소면 eventId 가 null(가리킬 일정이 없다)이고
    * 목록·푸시는 남긴 제목·시각을 보인다.
    */

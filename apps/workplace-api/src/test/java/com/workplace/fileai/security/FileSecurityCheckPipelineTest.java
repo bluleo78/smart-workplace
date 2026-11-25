@@ -1,5 +1,6 @@
 package com.workplace.fileai.security;
 
+import static com.workplace.jooq.Tables.AI_RUN;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.FILE_SECURITY_CHECK;
@@ -8,11 +9,15 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.service.AssistantLimitWaitService;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.chat.service.ChatFixtures;
@@ -30,8 +35,10 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.service.IssueAttachmentService;
 import com.workplace.jooq.tables.records.FileSecurityCheckRecord;
 import com.workplace.support.ExternalClientMockedTestBase;
+import com.workplace.support.LimitWaitFixtures;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -74,16 +81,24 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
   @Autowired AiAgentDriveClient driveClient;
   @Autowired AssistantResolver assistantResolver;
 
+  @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired AssistantLimitWaitService waitService;
+  private LimitWaitFixtures limitFixtures;
+
   private final List<Long> fileIds = new ArrayList<>();
   private final List<Long> userIds = new ArrayList<>();
 
   @BeforeEach
   void setUp() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
   }
 
   @AfterEach
   void cleanup() {
+    if (limitFixtures != null) {
+      limitFixtures.cleanup();
+    }
     if (!fileIds.isEmpty()) {
       cleanupInTenant(
           TENANT,
@@ -178,6 +193,28 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
     assertThat(asTenant(() -> service.view(fileId)).reason()).isEqualTo("ERROR");
   }
 
+  /** 사용 한도 503(WP-2108)은 파일 탓이 아니라 시도를 소진하지 않는다 — 상한을 넘겨 반복돼도 PENDING 이고 그 자격은 대기에 든다. */
+  @Test
+  void check_whenProviderLimit_doesNotConsumeAttempts() {
+    limitFixtures = new LimitWaitFixtures(txManager, dsl, credentialRepo);
+    var f = limitFixtures.create();
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(f.spec()));
+    when(driveClient.securityCheck(any()))
+        .thenThrow(
+            new com.workplace.fileai.exception.FileAiException(
+                "보안 점검 실패", LimitWaitFixtures.providerLimit503()));
+    long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
+    pending(fileId);
+
+    for (int i = 0; i < FileSecurityCheckPipeline.MAX_ATTEMPTS + 1; i++) {
+      assertThat(asTenant(() -> pipeline.check(fileId))).isEqualTo(Outcome.ATTEMPT_FAILED);
+    }
+
+    assertThat(row(fileId).getStatus()).isEqualTo("PENDING");
+    assertThat(row(fileId).getAttempts()).isZero();
+    assertThat(asTenant(() -> waitService.activeUntil(f.credentialId()))).isPresent();
+  }
+
   /** 저장소에 바이너리가 없으면 재시도 없이 바로 FAILED missing-binary. */
   @Test
   void check_whenBinaryMissing_failsImmediately() {
@@ -241,6 +278,7 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
   void check_whenSpecTimeoutExceedsCap_capsAgentTimeoutAt8Minutes() {
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(1L, "m", "NORMAL", 1, 20 * 60_000)));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     stubHigh();
     long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
     pending(fileId);
@@ -317,6 +355,7 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
   @Test
   void view_whenNoAi_returnsNoAiReason() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
 
     SecurityCheckView view = asTenant(() -> service.view(fileId));
@@ -329,6 +368,7 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
   @Test
   void request_whenNoAi_doesNotCreateRow() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
 
     SecurityCheckView view = asTenant(() -> service.request(fileId));
@@ -439,6 +479,27 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
   }
 
   /**
+   * 한도 대기 중에 올린 HTML 도 PENDING 행이 생긴다(WP-2108) — 대기 중엔 resolveWorkspaceOrEmpty 가 빈 값이지만 비서는 있으므로
+   * hasWorkspaceAssistant 가 참이다. 행이 없으면 대기가 끝나도 스케줄러가 줍지 못해 영영 점검되지 않는다.
+   */
+  @Test
+  void upload_whenLimitWaiting_stillCreatesPendingRow() {
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
+    long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
+
+    inTenantCall(
+        () -> {
+          events.publishEvent(
+              FileExtractionRequestedEvent.of(fileId, "text/html", ExtractionProfile.TEXT_ONLY));
+          return null;
+        });
+
+    assertThat(row(fileId)).isNotNull();
+    assertThat(row(fileId).getStatus()).isEqualTo("PENDING");
+  }
+
+  /**
    * 이미 점검 행이 있는 파일에 업로드 이벤트가 다시 오면({@code insertPendingIfAbsent}=false) 커밋 뒤 점검을 걸지 않는다. 행을 PENDING
    * 으로 두고 AI 를 HIGH 로 스텁해, 점검이 걸렸다면 DONE 이 됐을 상황에서 한동안 PENDING·시도 0 이 유지되고 AI 호출이 없는지 본다.
    */
@@ -500,6 +561,51 @@ class FileSecurityCheckPipelineTest extends ExternalClientMockedTestBase {
     List<Long> resumable = inTenantCall(() -> repository.findResumable(1000));
 
     assertThat(resumable).contains(normal, expired).doesNotContain(mail, active);
+  }
+
+  /**
+   * 한도 대기 중에도 스케줄러가 테넌트를 거르지 않아 파이프라인이 SKIPPED(limit_wait)를 남기고(WP-2108), 행은 선점하지 않아 PENDING·시도 0
+   * 그대로다 — 풀리면 다음 회차가 같은 행을 이어 점검한다.
+   */
+  @Test
+  void scheduler_whenLimitWaiting_recordsSkipAndKeepsRowPending() {
+    long credentialId = 970_000_000L + System.nanoTime() % 1_000_000L;
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
+    doReturn(AssistantResolution.waiting(credentialId, Instant.now().plus(Duration.ofHours(1))))
+        .when(assistantResolver)
+        .workspaceResolution();
+    long fileId = seedFile("page.html", "text/html", SCRIPT_HTML.getBytes(StandardCharsets.UTF_8));
+    pending(fileId);
+
+    scheduler.runOnce();
+
+    try {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .until(
+              () ->
+                  inTenantCall(
+                      () ->
+                          dsl.fetchCount(
+                                  AI_RUN,
+                                  AI_RUN
+                                      .KIND
+                                      .eq("DRIVE_SECURITY_CHECK")
+                                      .and(AI_RUN.ERROR_REASON.eq("limit_wait")))
+                              > 0));
+      assertThat(row(fileId).getStatus()).isEqualTo("PENDING");
+      assertThat(row(fileId).getAttempts()).isZero();
+      verify(driveClient, never()).securityCheck(any());
+    } finally {
+      cleanupInTenant(
+          TENANT,
+          () ->
+              dsl.deleteFrom(AI_RUN)
+                  .where(AI_RUN.KIND.eq("DRIVE_SECURITY_CHECK"))
+                  .and(AI_RUN.ERROR_REASON.eq("limit_wait"))
+                  .execute());
+    }
   }
 
   /** 스케줄러가 남은 PENDING 을 주워 실행기에 넘기고, 비동기 점검이 DONE 으로 만든다. */

@@ -475,6 +475,16 @@ export function formatLocalClockTime24(dateStr: string | null | undefined): stri
 }
 
 /**
+ * 로컬 시각을 「오늘이면 HH:mm, 다른 날이면 M월 d일 HH:mm」로(WP-2108 한도 대기 풀림 시각 등). now 는 「오늘」을 고정하려는 테스트용.
+ * null/undefined/무효 입력 → '-'.
+ */
+export function formatTodayOrMonthDayClock(dateStr: string | null | undefined, now: Date = new Date()): string {
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
+  return isSameDay(d, now) ? clock24(d) : `${d.getMonth() + 1}월 ${d.getDate()}일 ${clock24(d)}`;
+}
+
+/**
  * 로컬 시각을 24시간 「HH:mm」로 — 시·분을 항상 2자리로 직접 조립한다(ICU 로케일 비의존).
  * 캘린더 전체가 24시간 표기로 통일돼 있어(WP-1909) 상세·초대·노트 문구가 모두 같은 모양을 쓴다.
  */

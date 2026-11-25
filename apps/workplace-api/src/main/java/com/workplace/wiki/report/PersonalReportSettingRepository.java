@@ -259,6 +259,19 @@ public class PersonalReportSettingRepository {
         .orElse(0);
   }
 
+  /**
+   * 다음 시도 시각만 옮긴다(WP-2108) — 사용 한도 대기로 건너뛴 회차를 대기가 풀리는 시각에 다시 잡게 한다. 실패 수·오류는 건드리지 않는다. 꺼져 있으면 되살리지
+   * 않는다.
+   */
+  public void retryAt(long userId, OffsetDateTime at) {
+    dsl.update(T)
+        .set(NEXT_RUN_AT, at)
+        .set(UPDATED_AT, OffsetDateTime.now())
+        .where(USER_ID.eq(userId))
+        .and(DAILY_ENABLED.isTrue())
+        .execute();
+  }
+
   /** 연속 실패 상한 — 그날을 넘기고 다음 예정으로 옮긴다(실패 수 0, 오류 문구는 남김). */
   public void skipToNext(long userId, OffsetDateTime next, String error) {
     dsl.update(T)

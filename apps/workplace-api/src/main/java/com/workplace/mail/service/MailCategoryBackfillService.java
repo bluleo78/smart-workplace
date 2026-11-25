@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
@@ -73,6 +74,7 @@ public class MailCategoryBackfillService {
   private final EmailAccountRepository accountRepo;
   private final AiAgentMailClient mailClient;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final NeedsReplyFinalizer finalizer;
   private final MailPeopleRepository peopleRepo;
   private final TransactionTemplate txTemplate;
@@ -82,6 +84,7 @@ public class MailCategoryBackfillService {
       EmailAccountRepository accountRepo,
       AiAgentMailClient mailClient,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       NeedsReplyFinalizer finalizer,
       MailPeopleRepository peopleRepo,
       PlatformTransactionManager txManager) {
@@ -90,6 +93,7 @@ public class MailCategoryBackfillService {
     this.accountRepo = accountRepo;
     this.mailClient = mailClient;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.finalizer = finalizer;
     this.txTemplate = new TransactionTemplate(txManager);
   }
@@ -160,6 +164,12 @@ public class MailCategoryBackfillService {
                 AiRunContext.auto(),
                 () -> mailClient.classifyBatch(request(inputs, members, spec)));
       } catch (RuntimeException e) {
+        // 한도로 실패하면 그 자격을 대기로 건다(WP-2108). 대기가 걸렸으면 이 계정의 남은 후보를 더 부르지 않고(호출 낭비) 메일별 실패도
+        // 남기지 않은 채 멈춘다 — 메일 탓이 아니므로 다음 회차에 그대로 다시 고른다.
+        if (limitGuard.onFailure(spec, e)) {
+          log.warn("분류 일괄 중단(사용 한도) accountId={}", accountId);
+          return;
+        }
         int next = onClassifyFailure(accountId, guard, inputs, e);
         if (next == STOP) {
           return;

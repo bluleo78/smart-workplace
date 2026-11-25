@@ -24,6 +24,7 @@ import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.AiMemoryChange.AiMemoryChangePath;
 import com.workplace.jooq.tables.AiMemoryForgotten.AiMemoryForgottenPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
+import com.workplace.jooq.tables.AssistantLimitWait.AssistantLimitWaitPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
 import com.workplace.jooq.tables.CalendarDeletedMeeting.CalendarDeletedMeetingPath;
@@ -697,6 +698,19 @@ public class User extends TableImpl<UserRecord> {
             _assistantConfig = new AssistantConfigPath(this, null, Keys.ASSISTANT_CONFIG__ASSISTANT_CONFIG_AGENT_USER_ID_FKEY.getInverseKey());
 
         return _assistantConfig;
+    }
+
+    private transient AssistantLimitWaitPath _assistantLimitWait;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.assistant_limit_wait</code> table
+     */
+    public AssistantLimitWaitPath assistantLimitWait() {
+        if (_assistantLimitWait == null)
+            _assistantLimitWait = new AssistantLimitWaitPath(this, null, Keys.ASSISTANT_LIMIT_WAIT__ASSISTANT_LIMIT_WAIT_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _assistantLimitWait;
     }
 
     private transient AuditLogPath _auditLog;

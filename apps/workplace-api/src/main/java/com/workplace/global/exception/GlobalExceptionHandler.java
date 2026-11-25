@@ -2296,11 +2296,16 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
   }
 
-  /** #50 — 개인·공용 비서가 모두 미설정 → 503 + 사유 메시지. 캐치올(500)보다 우선 매칭되어 사용자에게 설정 필요를 알린다. */
-  @ExceptionHandler(com.workplace.auth.exception.HomeAssistantNotConfiguredException.class)
-  public ResponseEntity<ErrorResponse> handleHomeAssistantNotConfigured(
-      com.workplace.auth.exception.HomeAssistantNotConfiguredException ex,
-      HttpServletRequest request) {
+  /**
+   * #50 — 개인·공용 비서가 모두 미설정, WP-2108 — 고른 비서 자격이 사용 한도 대기 중. 둘 다 503 + 사유 메시지다(한도 대기는 「사용 한도에
+   * 걸렸어요(…)」 즉답 — ai-agent 를 부르지 않는다). 캐치올(500)보다 우선 매칭되어 사용자에게 설정 필요·한도 안내를 알린다.
+   */
+  @ExceptionHandler({
+    com.workplace.auth.exception.HomeAssistantNotConfiguredException.class,
+    com.workplace.auth.exception.AssistantLimitWaitingException.class
+  })
+  public ResponseEntity<ErrorResponse> handleAssistantUnavailable(
+      RuntimeException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
         .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
   }

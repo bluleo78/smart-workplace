@@ -27,6 +27,7 @@ import com.workplace.jooq.tables.AiMemoryChange;
 import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AiRun;
 import com.workplace.jooq.tables.AssistantConfig;
+import com.workplace.jooq.tables.AssistantLimitWait;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
 import com.workplace.jooq.tables.CalendarDeletedMeeting;
@@ -256,6 +257,7 @@ public class Indexes {
     public static final Index IDX_AGENT_WORK_TENANT = Internal.createIndex(DSL.name("idx_agent_work_tenant"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.TENANT_ID }, false);
     public static final Index IDX_AI_MEMORY_SOURCE_SESSION = Internal.createIndex(DSL.name("idx_ai_memory_source_session"), AiMemory.AI_MEMORY, new OrderField[] { AiMemory.AI_MEMORY.SOURCE_SESSION_ID }, false);
     public static final Index IDX_ASSISTANT_CONFIG_TENANT = Internal.createIndex(DSL.name("idx_assistant_config_tenant"), AssistantConfig.ASSISTANT_CONFIG, new OrderField[] { AssistantConfig.ASSISTANT_CONFIG.TENANT_ID }, false);
+    public static final Index IDX_ASSISTANT_LIMIT_WAIT_AGENT = Internal.createIndex(DSL.name("idx_assistant_limit_wait_agent"), AssistantLimitWait.ASSISTANT_LIMIT_WAIT, new OrderField[] { AssistantLimitWait.ASSISTANT_LIMIT_WAIT.AGENT_USER_ID }, false);
     public static final Index IDX_AUDIT_LOG_ACTION_TIME = Internal.createIndex(DSL.name("idx_audit_log_action_time"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.ACTION_TIME }, false);
     public static final Index IDX_AUDIT_LOG_ACTION_TYPE = Internal.createIndex(DSL.name("idx_audit_log_action_type"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.ACTION_TYPE }, false);
     public static final Index IDX_AUDIT_LOG_RESOURCE = Internal.createIndex(DSL.name("idx_audit_log_resource"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.RESOURCE, AuditLog.AUDIT_LOG.RESOURCE_ID }, false);

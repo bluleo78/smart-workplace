@@ -1,11 +1,15 @@
 package com.workplace.support;
 
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 
 import com.workplace.auth.outbound.AiAgentModelsClient;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.outbound.WorkerRenderClient;
@@ -29,6 +33,7 @@ import com.workplace.notify.push.PushGateway;
 import com.workplace.wiki.outbound.CollabClient;
 import com.workplace.wiki.outbound.WikiAiAgentStreamClient;
 import com.workplace.wiki.outbound.WikiAiAgentSummaryClient;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
@@ -91,5 +96,33 @@ public abstract class ExternalClientMockedTestBase extends IntegrationTestBase {
     doCallRealMethod()
         .when(mockedAssistantResolver)
         .resolveForProject(anyBoolean(), nullable(Long.class));
+  }
+
+  /**
+   * 목 AssistantResolver 의 해석 결과(WP-2108) 메서드는 기본으로 같은 범위의 {@code resolve*OrEmpty} 스텁을 따른다 — 기존 테스트가
+   * 스텁한 비서가 그대로 「준비됨」으로 보이고(스텁이 없으면 없음), 대기 중을 시험하는 테스트만 {@code resolution(...)} 등을 직접 스텁해 덮는다.
+   * 프로젝트 분기는 실제 코드를 탄다. 목은 테스트마다 초기화되므로 매번 다시 건다.
+   */
+  @BeforeEach
+  void resolutionsFollowOrEmptyStubs() {
+    doAnswer(inv -> toResolution(mockedAssistantResolver.resolveOrEmpty(inv.getArgument(0))))
+        .when(mockedAssistantResolver)
+        .resolution(anyLong());
+    doAnswer(
+            inv -> toResolution(mockedAssistantResolver.resolvePersonalOrEmpty(inv.getArgument(0))))
+        .when(mockedAssistantResolver)
+        .personalResolution(anyLong());
+    doAnswer(inv -> toResolution(mockedAssistantResolver.resolveWorkspaceOrEmpty()))
+        .when(mockedAssistantResolver)
+        .workspaceResolution();
+    doCallRealMethod()
+        .when(mockedAssistantResolver)
+        .projectResolution(anyBoolean(), nullable(Long.class));
+  }
+
+  private static AssistantResolution toResolution(Optional<AssistantSpec> spec) {
+    return spec == null || spec.isEmpty()
+        ? AssistantResolution.none()
+        : AssistantResolution.ready(spec.get());
   }
 }

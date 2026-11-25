@@ -49,8 +49,14 @@ public final class AgentOutageGuard {
    * 외(4xx·파싱 실패)는 agent 가 응답한 그 요청만의 실패다. 각 도메인 예외의 원인(cause)을 넘겨 판정한다.
    */
   public static boolean isAgentDown(Throwable clientError) {
-    return clientError instanceof ResourceAccessException
-        || (clientError instanceof HttpStatusCodeException h && h.getStatusCode().value() == 503);
+    if (clientError instanceof ResourceAccessException) return true;
+    if (clientError instanceof HttpStatusCodeException h && h.getStatusCode().value() == 503) {
+      // 본문이 PROVIDER_LIMIT 인 503 은 한 사용자 비서가 사용 한도에 걸린 것이라 agent 장애가 아니다(WP-2108) — 장애로 세면 한 사람의
+      // 한도가
+      // 우선순위 분류·메모리 정리 회차 전체를 멈춘다. 그 사용자의 응답으로 보고 호출부(AssistantLimitGuard.onFailure)가 대기를 건다.
+      return ProviderLimitSignal.fromJson(h.getResponseBodyAsString()).isEmpty();
+    }
+    return false;
   }
 
   /**

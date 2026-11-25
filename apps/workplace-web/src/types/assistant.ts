@@ -24,6 +24,8 @@ export interface AssistantStatus {
   suggestionModelAuto?: string | null;
   /** WP-250: 지금 모델의 이미지 입력 수동 지정 — true/false, null 이면 자동 감지. 구 API 응답·E2E 픽스처 호환을 위해 선택. */
   vision?: boolean | null;
+  /** WP-2108: 사용 한도 대기가 풀리는 시각(ISO) — 대기 중이 아니면 null. 구 API 응답·픽스처 호환을 위해 선택. */
+  limitWaitUntil?: string | null;
 }
 
 // 공통 비서(admin) 상태. agentUserId 가 null 이면 미지정 상태.
@@ -39,6 +41,8 @@ export interface WorkspaceAssistant {
   suggestionModelAuto?: string | null;
   /** WP-250: 지금 모델의 이미지 입력 수동 지정 — true/false, null 이면 자동 감지. 구 API 응답·E2E 픽스처 호환을 위해 선택. */
   vision?: boolean | null;
+  /** WP-2108: 사용 한도 대기가 풀리는 시각(ISO) — 대기 중이 아니면 null. */
+  limitWaitUntil?: string | null;
 }
 
 // 비서 설정 변경 요청 — 개인/공용 공통. 미지정 필드는 변경 없음.

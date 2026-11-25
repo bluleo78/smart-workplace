@@ -16,6 +16,8 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.exception.FileAiException;
@@ -28,6 +30,7 @@ import com.workplace.fileai.service.FileExtractionScheduler;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.ExternalClientMockedTestBase;
+import com.workplace.support.LimitWaitFixtures;
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
 import java.time.OffsetDateTime;
@@ -79,6 +82,10 @@ class ExtractionE2eTest extends ExternalClientMockedTestBase {
   private static final AssistantSpec TEST_SPEC =
       new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1, 60_000);
 
+  @Autowired private AiAgentCredentialRepository credentialRepo;
+  @Autowired private AssistantLimitWaitService waitService;
+  private LimitWaitFixtures limitFixtures;
+
   private final List<Long> createdFileIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();
 
@@ -86,10 +93,14 @@ class ExtractionE2eTest extends ExternalClientMockedTestBase {
   @BeforeEach
   void setupAssistantResolver() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(TEST_SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
   }
 
   @AfterEach
   void cleanup() {
+    if (limitFixtures != null) {
+      limitFixtures.cleanup();
+    }
     if (!createdFileIds.isEmpty()) {
       cleanupInTenant(
           1L,
@@ -364,6 +375,29 @@ class ExtractionE2eTest extends ExternalClientMockedTestBase {
 
     assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
     assertThat(readAttempts(fileId)).isZero();
+  }
+
+  /**
+   * 사용 한도 503(PROVIDER_LIMIT, WP-2108)은 파일 탓이 아니므로 시도 횟수를 소진하지 않는다 — 상한을 넘겨 반복돼도 FAILED 가 되지 않고
+   * TEXT_READY 로 남으며, 그 자격은 대기에 들어간다.
+   */
+  @Test
+  void providerLimit503_doesNotConsumeAttempts_andMarksWait() {
+    limitFixtures = new LimitWaitFixtures(txManager, dsl, credentialRepo);
+    var f = limitFixtures.create();
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(f.spec()));
+    long fileId = createTextReadyFile(1L);
+    doThrow(agentClientError(LimitWaitFixtures.providerLimit503()))
+        .when(aiAgentDriveClient)
+        .summarize(any());
+
+    for (int i = 0; i < MAX_SUMMARY_ATTEMPTS + 1; i++) {
+      assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.SKIPPED);
+    }
+
+    assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
+    assertThat(readAttempts(fileId)).isZero();
+    assertThat(inTenantRead(1L, () -> waitService.activeUntil(f.credentialId()))).isPresent();
   }
 
   /**

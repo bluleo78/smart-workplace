@@ -94,6 +94,7 @@ const ALL_TYPES = Object.keys({
   AI_REVIEW_REQUESTED: true,
   AI_WORK_FAILED: true,
   PERSONAL_ASSISTANT_REVOKED: true,
+  AI_ASSISTANT_LIMIT_WAIT: true,
   OAUTH_APP_CONNECTED: true,
   MAIL_SEND_FAILED: true,
   WORKFLOW_VISIT_LIMIT: true,
@@ -109,6 +110,7 @@ describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
         'AI_QUESTION',
         'AI_REVIEW_REQUESTED',
         'AI_WORK_FAILED',
+        'AI_ASSISTANT_LIMIT_WAIT',
         'ASSIGNED',
         'ISSUE_CHAT_MENTION',
         'ISSUE_COMMENT_MENTION',
@@ -303,6 +305,33 @@ describe('groupNotifications', () => {
     expect(mine[0].target).toBe('/settings/assistant')
     expect(mine[0].deltaSummary).toBe('개인 비서 연결 해제 2건')
     expect(mine[0].repType).toBe('PERSONAL_ASSISTANT_REVOKED')
+  })
+
+  it('AI 사용 한도는 내 차례로 범위·비서마다 한 줄로 묶고, 범위별 이동 주소로 간다 (WP-2108)', () => {
+    const limit = (over: Partial<NotificationResponse>) =>
+      notif({
+        type: 'AI_ASSISTANT_LIMIT_WAIT',
+        statusName: 'PERSONAL_ASSISTANT',
+        actorId: 7,
+        projectKey: '',
+        issueNumber: 0,
+        issueTitle: '',
+        message: '개인 비서가 사용 한도에 걸렸어요',
+        ...over,
+      })
+    const { mine, updates } = groupNotifications([
+      limit({ id: 1, createdAt: '2026-06-16T01:00:00Z' }),
+      limit({ id: 2, createdAt: '2026-06-16T02:00:00Z' }),
+      limit({ id: 3, statusName: 'AGENT_ACCOUNT', actorId: null, createdAt: '2026-06-16T03:00:00Z' }),
+    ])
+    expect(updates).toHaveLength(0)
+    expect(mine).toHaveLength(2)
+    const personal = mine.find((g) => g.target === '/settings/assistant')!
+    expect(personal.title).toBe('AI 사용 한도')
+    expect(personal.deltaSummary).toBe('AI 사용 한도 2건')
+    expect(personal.repType).toBe('AI_ASSISTANT_LIMIT_WAIT')
+    const account = mine.find((g) => g.target === '/settings/agents/accounts')!
+    expect(account.deltaSummary).toBe('AI 사용 한도')
   })
 
   it('새 앱 연결은 내 차례 한 줄로 묶고 토큰 설정으로 간다 (WP-1686)', () => {

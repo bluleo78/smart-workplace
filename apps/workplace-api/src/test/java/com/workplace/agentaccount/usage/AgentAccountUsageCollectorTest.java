@@ -3,8 +3,12 @@ package com.workplace.agentaccount.usage;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.agentaccount.repository.AgentAccountRepository;
+import com.workplace.auth.outbound.AiLimitWaitNoticeEvent;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
+import com.workplace.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -16,6 +20,9 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -27,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 생기므로, 수집 서비스를 가짜 조회기 목록으로 직접 만들어 컨텍스트 캐시를 깨지 않는다.
  */
 @Transactional
+@RecordApplicationEvents
 class AgentAccountUsageCollectorTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
@@ -34,6 +42,9 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
   @Autowired AgentAccountUsageRepository usage;
   @Autowired EncryptionService encryption;
   @Autowired AgentAccountUsageProperties props;
+  @Autowired UserRepository userRepository;
+  @Autowired ApplicationEventPublisher publisher;
+  @Autowired ApplicationEvents events;
 
   /** 원문 → 그 원문으로 조회했을 때의 동작. 등록 안 된 원문은 기본 성공 값을 돌려준다. */
   private final Map<String, Handler> handlers = new HashMap<>();
@@ -76,7 +87,9 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
             encryption,
             List.of(fake("anthropic"), fake("chatgpt")),
             props,
-            txManager);
+            txManager,
+            userRepository,
+            publisher);
   }
 
   private static UsageReading reading(String fivePct) {
@@ -408,7 +421,9 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
         encryption,
         List.of(config.claudeUsageProbe(p), config.chatgptUsageProbe(p)),
         props,
-        txManager);
+        txManager,
+        userRepository,
+        publisher);
   }
 
   @Test
@@ -490,5 +505,179 @@ class AgentAccountUsageCollectorTest extends IntegrationTestBase {
       assertThat(server.requests.get()).isEqualTo(2);
       assertThat(server.connections.get()).isEqualTo(2);
     }
+  }
+
+  // ── WP-2108 한도에 닿으면 관리자에게 한 번 알림 ──
+
+  /** 한도 도달(rejected) 조회 결과 — 5시간 창 100%, 한 시간 뒤 풀린다. */
+  private static UsageReading limited() {
+    Instant now = Instant.now();
+    return new UsageReading(
+        List.of(
+            new UsageSnapshot(
+                UsageWindow.FIVE_HOUR,
+                new BigDecimal("100.00"),
+                now.plusSeconds(3600),
+                "rejected",
+                now)),
+        true);
+  }
+
+  /** 활성 관리자 한 명을 둔다 — 알림 수신자. */
+  private long admin() {
+    long admin = TestFixtures.createHuman(dsl);
+    TestFixtures.ensureActiveMember(dsl, admin, 1L);
+    TestFixtures.grantRole(dsl, admin, "ADMIN");
+    return admin;
+  }
+
+  private List<AiLimitWaitNoticeEvent> notices() {
+    return events.stream(AiLimitWaitNoticeEvent.class).toList();
+  }
+
+  @Test
+  void 한도로_바뀌면_관리자에게_한번() {
+    long admin = admin();
+    long id = account("anthropic", "tok-a", "ACTIVE");
+    assertThat(collector.collectAccount(1L, id)).isTrue();
+    assertThat(notices()).isEmpty();
+
+    handlers.put("tok-a", AgentAccountUsageCollectorTest::limited);
+    ageCheck(id);
+    assertThat(collector.collectAccount(1L, id)).isTrue();
+
+    assertThat(notices()).hasSize(1);
+    AiLimitWaitNoticeEvent e = notices().get(0);
+    assertThat(e.scope()).isEqualTo(AssistantLimitWaitService.SCOPE_ACCOUNT);
+    assertThat(e.recipientIds()).contains(admin);
+    assertThat(e.actorId()).isNull();
+    assertThat(e.message()).contains("anthropic-계정");
+  }
+
+  /** WP-2108: 받을 활성 관리자가 없으면 알림 이벤트를 내지 않는다. */
+  @Test
+  void 활성_관리자가_없으면_이벤트를_내지_않음() {
+    UserRepository noAdmins = org.mockito.Mockito.mock(UserRepository.class);
+    org.mockito.Mockito.when(
+            noAdmins.findWorkspaceActiveAdminIds(org.mockito.ArgumentMatchers.anyLong()))
+        .thenReturn(List.of());
+    var c =
+        new AgentAccountUsageCollector(
+            accounts,
+            usage,
+            encryption,
+            List.of(fake("anthropic"), fake("chatgpt")),
+            props,
+            txManager,
+            noAdmins,
+            publisher);
+    long id = account("anthropic", "tok-noadm", "ACTIVE");
+    assertThat(c.collectAccount(1L, id)).isTrue();
+
+    handlers.put("tok-noadm", AgentAccountUsageCollectorTest::limited);
+    ageCheck(id);
+    assertThat(c.collectAccount(1L, id)).isTrue();
+
+    assertThat(notices()).isEmpty();
+  }
+
+  /** WP-2108: 알림 준비(관리자 조회)가 예외로 실패해도 사용량 저장은 되돌아가지 않는다. */
+  @Test
+  void 관리자_조회가_예외여도_사용량은_저장됨() {
+    UserRepository broken = org.mockito.Mockito.mock(UserRepository.class);
+    org.mockito.Mockito.when(
+            broken.findWorkspaceActiveAdminIds(org.mockito.ArgumentMatchers.anyLong()))
+        .thenThrow(new IllegalStateException("관리자 조회 실패"));
+    var c =
+        new AgentAccountUsageCollector(
+            accounts,
+            usage,
+            encryption,
+            List.of(fake("anthropic"), fake("chatgpt")),
+            props,
+            txManager,
+            broken,
+            publisher);
+    long id = account("anthropic", "tok-brk", "ACTIVE");
+    assertThat(c.collectAccount(1L, id)).isTrue();
+
+    handlers.put("tok-brk", AgentAccountUsageCollectorTest::limited);
+    ageCheck(id);
+    assertThat(c.collectAccount(1L, id)).isTrue();
+
+    assertThat(notices()).isEmpty();
+    assertThat(usage.findChecks(List.of(id)).get(id).limitReached()).isTrue();
+  }
+
+  @Test
+  void 계속_한도면_다시_알리지_않음() {
+    admin();
+    long id = account("anthropic", "tok-b", "ACTIVE");
+    handlers.put("tok-b", AgentAccountUsageCollectorTest::limited);
+    collector.collectAccount(1L, id);
+    assertThat(notices()).hasSize(1);
+
+    ageCheck(id);
+    collector.collectAccount(1L, id);
+    assertThat(notices()).hasSize(1);
+  }
+
+  @Test
+  void 중간_조회실패가_있어도_다시_알리지_않음() {
+    admin();
+    long id = account("anthropic", "tok-c", "ACTIVE");
+    handlers.put("tok-c", AgentAccountUsageCollectorTest::limited);
+    collector.collectAccount(1L, id);
+    assertThat(notices()).hasSize(1);
+
+    handlers.put(
+        "tok-c",
+        () -> {
+          throw new UsageProbeException("NETWORK", "연결 실패");
+        });
+    ageCheck(id);
+    collector.collectAccount(1L, id);
+
+    handlers.put("tok-c", AgentAccountUsageCollectorTest::limited);
+    ageCheck(id);
+    collector.collectAccount(1L, id);
+    assertThat(notices()).hasSize(1);
+  }
+
+  @Test
+  void 창이_풀린뒤_다시_걸리면_새로() {
+    admin();
+    long id = account("anthropic", "tok-d", "ACTIVE");
+    Instant now = Instant.now();
+    // 이전 한도 창은 이미 풀렸다(resetsAt 이 과거).
+    usage.saveSuccess(
+        id,
+        List.of(
+            new UsageSnapshot(
+                UsageWindow.FIVE_HOUR,
+                new BigDecimal("100.00"),
+                now.minusSeconds(60),
+                "rejected",
+                now.minusSeconds(3600))),
+        true);
+    ageCheck(id);
+    handlers.put("tok-d", AgentAccountUsageCollectorTest::limited);
+    collector.collectAccount(1L, id);
+    assertThat(notices()).hasSize(1);
+  }
+
+  @Test
+  void limitResetsAt_지나지않은_한도창의_가장_늦은_시각() {
+    Instant now = Instant.parse("2026-11-25T00:00:00Z");
+    Instant t1 = now.plusSeconds(3600);
+    Instant t2 = now.plusSeconds(86400);
+    List<UsageSnapshot> two =
+        List.of(
+            new UsageSnapshot(UsageWindow.FIVE_HOUR, new BigDecimal("100"), t1, null, now),
+            new UsageSnapshot(UsageWindow.WEEKLY, new BigDecimal("40"), t2, null, now));
+    assertThat(UsageStatusCalculator.limitResetsAt(two, now)).isEqualTo(t1);
+    List<UsageSnapshot> none =
+        List.of(new UsageSnapshot(UsageWindow.FIVE_HOUR, new BigDecimal("50"), t1, null, now));
+    assertThat(UsageStatusCalculator.limitResetsAt(none, now)).isNull();
   }
 }

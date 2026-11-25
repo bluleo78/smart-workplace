@@ -62,20 +62,48 @@ public final class UsageStatusCalculator {
     // 실패하면 error_* 가 남고 성공하면 비워지므로 errorCode 가 있으면 마지막 시도가 실패다
     if (check.errorCode() != null) return CHECK_FAILED;
     if (check.succeededAt() == null) return UNKNOWN;
+    if (limitReached(snapshots, check.limitReached(), now)) return LIMIT_REACHED;
     BigDecimal max = BigDecimal.ZERO;
-    // 확인 단위의 limitReached 도 창 초기화 필터를 탄다 — 모든 창이 이미 초기화됐으면 지난 한도 도달이라 무시.
-    boolean allReset =
-        !snapshots.isEmpty()
-            && snapshots.stream().allMatch(s -> s.resetsAt() != null && s.resetsAt().isBefore(now));
-    boolean rejected = check.limitReached() && !allReset;
     for (UsageSnapshot s : snapshots) {
       // 이미 초기화된 창 — 지금 사용률이 아니므로 판정에 넣지 않는다.
       if (s.resetsAt() != null && s.resetsAt().isBefore(now)) continue;
       if (s.usedPercent() != null && s.usedPercent().compareTo(max) > 0) max = s.usedPercent();
-      if (CLAUDE_REJECTED.equalsIgnoreCase(s.limitStatus())) rejected = true;
     }
-    if (rejected || max.compareTo(FULL) >= 0) return LIMIT_REACHED;
     if (max.compareTo(nearLimitPercent) >= 0) return NEAR_LIMIT;
     return OK;
+  }
+
+  /**
+   * 지금 사용 한도에 걸려 있는가 — 지난 창은 빼고, 남은 창 중 provider 가 rejected 로 알리거나 100% 이상이면 true. 확인 단위의
+   * limitReached 도 모든 창이 이미 초기화됐으면 지난 한도 도달이라 무시한다. {@link #status} 의 한도 판정을 뽑아낸 것이다(WP-2108 — 한도
+   * 전환 알림도 같은 규칙을 쓴다).
+   */
+  public static boolean limitReached(
+      List<UsageSnapshot> snapshots, boolean checkLimitReached, Instant now) {
+    boolean allReset =
+        !snapshots.isEmpty()
+            && snapshots.stream().allMatch(s -> s.resetsAt() != null && s.resetsAt().isBefore(now));
+    if (checkLimitReached && !allReset) return true;
+    for (UsageSnapshot s : snapshots) {
+      if (s.resetsAt() != null && s.resetsAt().isBefore(now)) continue;
+      if (windowFull(s)) return true;
+    }
+    return false;
+  }
+
+  /** 한도에 걸린 창(지나지 않은 rejected 이거나 100% 이상) 중 가장 늦은 초기화 시각. 없으면 null — 알림 문구가 시각을 생략한다. */
+  public static Instant limitResetsAt(List<UsageSnapshot> snapshots, Instant now) {
+    Instant latest = null;
+    for (UsageSnapshot s : snapshots) {
+      if (s.resetsAt() == null || s.resetsAt().isBefore(now)) continue;
+      if (windowFull(s) && (latest == null || s.resetsAt().isAfter(latest))) latest = s.resetsAt();
+    }
+    return latest;
+  }
+
+  /** 창이 가득 찼는가 — provider 가 rejected 로 알리거나 사용률이 100% 이상. 지난 창 제외는 호출부가 한다. */
+  private static boolean windowFull(UsageSnapshot s) {
+    return CLAUDE_REJECTED.equalsIgnoreCase(s.limitStatus())
+        || (s.usedPercent() != null && s.usedPercent().compareTo(FULL) >= 0);
   }
 }

@@ -105,7 +105,7 @@ public class FileSecurityCheckService {
 
   /** 워크스페이스에 AI(비서)가 있는지 — 메일처럼 원본을 받기 전에 먼저 걸러야 하는 호출부가 쓴다. */
   public boolean aiAvailable() {
-    return assistantResolver.resolveWorkspaceOrEmpty().isPresent();
+    return assistantResolver.hasWorkspaceAssistant();
   }
 
   /** FAILED·SKIPPED·지난 기준의 DONE·행 없음을 PENDING 으로 만든 뒤 현재 행을 읽는다. */
