@@ -61,4 +61,16 @@ describe('useUpdateIssue 성공(WP-1652)', () => {
     expect(qc.getQueryState(['projectOverview', 'WP'])?.isInvalidated).toBe(true);
     expect(qc.getQueryState(['projectOverview', 'OTHER'])?.isInvalidated).toBe(false);
   });
+
+  it('수정이 성공하면 끝난 이슈 키 링크 상태 캐시(WP-2102)도 무효화한다', async () => {
+    vi.mocked(issuesApi.update).mockResolvedValueOnce({ data: { summary: { version: 2 } } } as never);
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    qc.setQueryData(['issue-key-status', 'WP-1'], { issueKey: 'WP-1' });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useUpdateIssue('WP', 1), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ title: 't' });
+    });
+    expect(qc.getQueryState(['issue-key-status', 'WP-1'])?.isInvalidated).toBe(true);
+  });
 });

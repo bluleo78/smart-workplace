@@ -14,14 +14,19 @@ import com.workplace.global.util.CapabilityTokens;
 import com.workplace.global.util.PublicAppHost;
 import com.workplace.home.dto.AppLinkCard;
 import com.workplace.home.dto.AppLinkConfig;
+import com.workplace.home.dto.IssueKeyStatusRequest;
+import com.workplace.home.dto.IssueKeyStatusesResponse;
 import com.workplace.issue.service.IssueService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.wiki.service.WikiPageService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -95,6 +100,17 @@ public class AppLinkController {
         c.status(),
         c.assignees(),
         c.priority());
+  }
+
+  /**
+   * 이슈 키 상태 일괄 조회(WP-2102) — 본문의 이슈 키 링크가 완료·취소인지 그리려고 웹이 한꺼번에 묻는다. 이슈 카드와 같은 권한(project:read +
+   * 프로젝트 읽기 가드)이고, 볼 수 없거나 없는 키는 응답에서 빠진다(오류 아님). 최대 100개.
+   */
+  @PostMapping("/issue-statuses")
+  @RequirePermission("project:read")
+  public IssueKeyStatusesResponse issueStatuses(
+      @AuthenticationPrincipal Long callerId, @Valid @RequestBody IssueKeyStatusRequest request) {
+    return new IssueKeyStatusesResponse(issueService.keyStatuses(callerId, request.keys()));
   }
 
   /** 노트 링크(/wiki/spaces/{spaceId}/pages/{id}·/wiki/open/{id}) — 노트를 열 때와 같은 VIEWER 판정. */

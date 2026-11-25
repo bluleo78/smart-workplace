@@ -78,6 +78,8 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
+      // 본문 이슈 키 링크의 상태(삭선) 캐시도 새로 받는다(WP-2102).
+      qc.invalidateQueries({ queryKey: ['issue-key-status'] });
       // 상태 변경이 개요의 열린 이슈 수·활동을 바꾸므로 개요도 무효화한다(WP-1652).
       qc.invalidateQueries({ queryKey: projectOverviewKey(projectKey) });
     },

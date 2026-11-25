@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,10 +44,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -703,6 +706,132 @@ class AppLinkControllerTest extends IntegrationTestBase {
     TenantContext.set(1L);
     mvc.perform(get("/api/v1/app-links/shares/sl_abc")).andExpect(status().isUnauthorized());
     TenantContext.set(1L);
+  }
+
+  // --- 이슈 키 상태 일괄 조회(WP-2102) ---
+
+  private ResultActions postStatuses(List<String> keys, long userId) throws Exception {
+    TenantContext.set(1L);
+    String json =
+        "{\"keys\":[" + String.join(",", keys.stream().map(k -> "\"" + k + "\"").toList()) + "]}";
+    ResultActions r =
+        mvc.perform(
+            post("/api/v1/app-links/issue-statuses")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json)
+                .header(
+                    "Authorization",
+                    "Bearer " + jwt.generateAccessToken(userId, "u-" + userId, 1L)));
+    TenantContext.set(1L);
+    return r;
+  }
+
+  /** 프로젝트 projectKey 의 이슈 number 를 지정 상태 범주로 바꾼다(이슈는 seed 의 1번 + 여기서 만든 번호). */
+  private void seedIssueWithStatus(int number, String category) {
+    long projectId = projectService.get(ownerId, projectKey).id();
+    TenantContext.set(1L);
+    var row =
+        IssueSeeds.insert(
+            issueRepository,
+            baseDsl,
+            projectId,
+            number,
+            "상태용 " + number,
+            null,
+            "MID",
+            null,
+            ownerId);
+    TenantContext.set(1L);
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
+        row.id(),
+        "상태용 " + number,
+        null,
+        category,
+        "MID",
+        null,
+        null,
+        null,
+        null);
+    TenantContext.set(1L);
+  }
+
+  @Test
+  void 이슈_키_상태_일괄_조회는_완료_취소_진행_이슈의_상태를_준다() throws Exception {
+    seedIssueWithStatus(2, "DONE");
+    seedIssueWithStatus(3, "CANCELED");
+    postStatuses(List.of(projectKey + "-1", projectKey + "-2", projectKey + "-3"), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(3)))
+        .andExpect(
+            jsonPath("$.items[?(@.issueKey=='" + projectKey + "-1')].statusCategory").value("TODO"))
+        .andExpect(
+            jsonPath("$.items[?(@.issueKey=='" + projectKey + "-2')].statusCategory").value("DONE"))
+        .andExpect(
+            jsonPath("$.items[?(@.issueKey=='" + projectKey + "-3')].statusCategory")
+                .value("CANCELED"))
+        .andExpect(
+            jsonPath("$.items[?(@.issueKey=='" + projectKey + "-2')].statusName").isNotEmpty());
+  }
+
+  @Test
+  void 이슈_키_상태_일괄_조회는_볼_수_없거나_없거나_형식이_틀린_키를_뺀다() throws Exception {
+    // TEAM 프로젝트의 비멤버 — 볼 수 있는 키가 하나도 없다.
+    postStatuses(List.of(projectKey + "-1"), strangerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(0)));
+    // 볼 수 있는 것만 남는다: 없는 번호·없는 프로젝트·형식 틀린 키는 빠진다.
+    postStatuses(
+            List.of(
+                projectKey + "-1",
+                projectKey + "-999",
+                "ZZNOPE9-1",
+                "bad-key",
+                projectKey + "-0",
+                projectKey + "-01"),
+            ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.items[0].issueKey").value(projectKey + "-1"));
+  }
+
+  @Test
+  void 이슈_키_상태_일괄_조회는_100개까지만_받고_빈_목록은_빈_결과() throws Exception {
+    postStatuses(
+            IntStream.rangeClosed(1, 100).mapToObj(i -> projectKey + "-" + i).toList(), ownerId)
+        .andExpect(status().isOk());
+    postStatuses(
+            IntStream.rangeClosed(1, 101).mapToObj(i -> projectKey + "-" + i).toList(), ownerId)
+        .andExpect(status().isBadRequest());
+    postStatuses(List.of(), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(0)));
+  }
+
+  @Test
+  void 이슈_키_상태_일괄_조회는_멤버가_아닌_TEAM_프로젝트_키가_섞여도_볼_수_있는_키만_준다() throws Exception {
+    // stranger 가 주인인 TEAM 프로젝트 — owner 는 멤버가 아니라 볼 수 없다. 이슈는 실제로 있다.
+    String hiddenKey =
+        "HD" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+    var hidden =
+        projectService.create(strangerId, new CreateProjectRequest(hiddenKey, "숨김", "x", "TEAM"));
+    TenantContext.set(1L);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, hidden.id(), 1, "숨은 이슈", null, "MID", null, strangerId);
+    TenantContext.set(1L);
+
+    postStatuses(List.of(hiddenKey + "-1", projectKey + "-1"), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.items[0].issueKey").value(projectKey + "-1"));
+  }
+
+  @Test
+  void 이슈_키_상태_일괄_조회는_같은_키를_한_번만_준다() throws Exception {
+    postStatuses(List.of(projectKey + "-1", projectKey + "-1"), ownerId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(1)));
   }
 
   /** 사용자 표시 이름 — 카드의 보낸 사람·DM 이름과 견준다. */

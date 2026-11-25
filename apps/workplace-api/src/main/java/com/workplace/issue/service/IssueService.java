@@ -15,6 +15,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.SingleLineTitles;
+import com.workplace.issue.domain.IssueKeys;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueCardRef;
@@ -81,12 +82,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -888,6 +891,47 @@ public class IssueService {
         row.statusName(),
         row.priority(),
         assigneeRepository.findByIssue(row.id()));
+  }
+
+  /**
+   * 이슈 키 목록의 상태 일괄 조회(WP-2102) — 본문의 이슈 키 링크를 완료·취소로 표시하기 위한 가벼운 조회. 키를 프로젝트별로 묶어 프로젝트마다 읽기
+   * 판정(canRead) 한 번, 이슈 조회 한 번만 한다. 볼 수 없거나 없는 프로젝트·없는 번호·형식 밖 키·중복은 조용히 뺀다 — 존재 여부가 새지 않고, 한 키 때문에
+   * 나머지가 실패하지 않게.
+   */
+  @Transactional(readOnly = true)
+  public List<IssueKeyStatus> keyStatuses(Long callerId, List<String> keys) {
+    // 프로젝트 키 → 번호 집합(입력 순서·중복 제거)
+    Map<String, Set<Integer>> byProject = new LinkedHashMap<>();
+    for (String key : keys == null ? List.<String>of() : keys) {
+      // IssueKeys.parse 는 소문자·앞자리 0 도 받으므로, 정규형(대문자·양의 정수·0 없음)으로 되돌려 같을 때만 받는다.
+      var parsed = IssueKeys.parse(key);
+      if (parsed.isEmpty()
+          || parsed.get().number() < 1
+          || !IssueKeys.format(parsed.get().projectKey(), parsed.get().number()).equals(key)) {
+        continue;
+      }
+      byProject
+          .computeIfAbsent(parsed.get().projectKey(), k -> new LinkedHashSet<>())
+          .add(parsed.get().number());
+    }
+    List<IssueKeyStatus> result = new ArrayList<>();
+    for (var entry : byProject.entrySet()) {
+      // 없거나 볼 수 없는 프로젝트는 예외 없이 건너뛴다 — 그 키들은 뺀다
+      ProjectRow project = projectRepository.findByKey(entry.getKey()).orElse(null);
+      if (project == null || !accessGuard.canRead(project, callerId)) {
+        continue;
+      }
+      Map<Integer, IssueRow> rows =
+          issueRepository.findByProjectAndNumbers(project.id(), entry.getValue());
+      for (int number : entry.getValue()) {
+        IssueRow row = rows.get(number);
+        if (row != null) {
+          result.add(
+              new IssueKeyStatus(project.key() + "-" + number, row.statusName(), row.status()));
+        }
+      }
+    }
+    return result;
   }
 
   /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자 + 유형). */
