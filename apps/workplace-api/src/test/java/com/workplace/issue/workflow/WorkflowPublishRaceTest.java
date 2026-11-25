@@ -258,7 +258,7 @@ class WorkflowPublishRaceTest extends IntegrationTestBase {
 
   /** 자기 TenantContext·트랜잭션으로 게시한다 — 어떤 예외도 잡지 않는다. */
   private int publish(long id) {
-    return callInTenant(1L, () -> service.publish(id, null, ownerId).versionNo());
+    return callInTenant(1L, () -> service.publish(id, null, false, ownerId).versionNo());
   }
 
   /** 초안 저장의 결과를 글로 — 충돌 외 예외는 그대로 던진다. */

@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
-import { apiErrorResponse, apiErrorStatus, extractApiError, isConflictError } from '@/lib/api-error'
+import { apiErrorResponse, apiErrorStatus, extractApiError, extractApiErrorCode, isConflictError } from '@/lib/api-error'
 import type { WorkflowDraftSession } from '@/lib/workflowDraftSessions'
 import {
   getWorkflowDraftGeneration, getWorkflowDraftSessions, subscribeWorkflowDraftSessions,
@@ -29,6 +29,7 @@ import { useProjectTabs } from '../tabs/ProjectTabsContext'
 import type { ProjectWorkflowContext } from '../tabs/ProjectTabsLayout'
 import { addAskPath } from './graphYaml'
 import { PublishDialog } from './PublishDialog'
+import { WorkflowEnableSwitch } from './WorkflowEnableSwitch'
 import { WorkflowGraphEditor } from './WorkflowGraphEditor'
 import { WorkflowGraphView } from './WorkflowGraphView'
 import { WorkflowProblemsBadge } from './WorkflowProblemsBadge'
@@ -51,6 +52,11 @@ const NO_CHANGES_REASON = '바꾼 내용이 없어 게시할 것이 없습니다
 /** 워크플로우 탭 머리 한 줄 — 선택기만 있는 빈 상태와 전체 머리가 같은 모양을 쓰게 한다. 좁으면 줄바꿈. */
 function WorkflowHeader({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">{children}</div>
+}
+
+/** 켜기·게시가 다른 워크플로우와 시작 조건이 겹쳐 거절됐는지(409, errors.code) — 초안 충돌(같은 409)과 구분한다. */
+function isStartOverlapError(error: unknown): boolean {
+  return extractApiErrorCode(error) === 'WORKFLOW_START_CONDITION_OVERLAP'
 }
 
 /** 신원이 바뀐 뒤 도착한 초안 응답은 새 사용자·테넌트 화면에 이어 쓰지 않는다. */
@@ -255,7 +261,7 @@ interface PublishConfirmation {
 type WorkflowAction =
   | { type: 'save' }
   | { type: 'reload' }
-  | { type: 'publish'; confirmation: PublishConfirmation }
+  | { type: 'publish'; confirmation: PublishConfirmation; enable?: boolean }
   | { type: 'restore'; versionNo: number; expectedDraftUpdatedAt: string }
 
 /** 입력을 시작할 때 본 초안 시각을 고정해, 백그라운드 조회가 다른 사람의 변경을 덮게 하지 않는다. */
@@ -283,6 +289,8 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
   }, [setSearchParams])
   const [publishConfirmation, setPublishConfirmation] = useState<PublishConfirmation | null>(null)
   const [workError, setWorkError] = useState<string | null>(null)
+  // 첫 게시 대화상자의 「게시하고 바로 사용」 — 열 때마다 기본 켜짐으로 시작한다.
+  const [enableOnPublish, setEnableOnPublish] = useState(true)
   const [publishedHere, setPublishedHere] = useState<{ versionNo: number; yaml: string } | null>(null)
   const editor = useRef<HTMLTextAreaElement | null>(null)
   // 검사 배지의 「YAML 오류 확인」으로 YAML 보기를 열면, 편집기가 그려지는 순간(콜백 ref) 초점을 옮긴다 — 보기 전환은 주소 갱신이라 바로 그려지지 않는다.
@@ -395,7 +403,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
         }
         // 로그아웃·로그인·테넌트 전환이 저장 도중 끝났다면 이전 화면의 게시 요청을 새 토큰으로 보내지 않는다.
         assertWorkflowDraftGeneration(generation)
-        const result = await workflowApi.publish(id, publishTime)
+        const result = await workflowApi.publish(id, publishTime, action.enable)
         assertWorkflowDraftGeneration(generation)
         setPublishConfirmation(null)
         setPublishedHere({ versionNo: result.versionNo, yaml: confirmation.yaml })
@@ -410,7 +418,8 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       } catch (error) {
         if (generation !== getWorkflowDraftGeneration()) throw error
         setPublishConfirmation(null)
-        if (isConflictError(error) && action.type !== 'reload') {
+        // 켜기 겹침 409 는 초안 충돌이 아니다 — 서버 메시지(겹친 다른 워크플로우 이름 포함)를 그대로 보인다.
+        if (isConflictError(error) && action.type !== 'reload' && !isStartOverlapError(error)) {
           updateDraft(id, { edit: unsavedEdit, conflict: true }, generation)
           throw error
         }
@@ -424,6 +433,27 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
           }
         }
         setWorkError(extractApiError(error, '워크플로우 작업을 완료하지 못했습니다.'))
+        throw error
+      }
+    },
+  })
+
+  // 사용 켜기·끄기 — 쓰기와 같은 키라 진행 중에는 다른 쓰기·스위치가 잠긴다. 실패하면 스위치는 서버 값(detail.enabled)에 그대로 둔다.
+  const toggleEnabled = useMutation({
+    mutationKey: workflowKeys.detail(id),
+    mutationFn: async (next: boolean) => {
+      if (isLoggingOut) throw new Error('로그아웃 중에는 워크플로우를 변경할 수 없습니다.')
+      const generation = getWorkflowDraftGeneration()
+      setWorkError(null)
+      try {
+        const updated = await workflowApi.update(id, { enabled: next })
+        assertWorkflowDraftGeneration(generation)
+        queryClient.setQueryData<WorkflowDetail>(workflowKeys.detail(id), (current) => current && { ...current, enabled: updated.enabled })
+        void queryClient.invalidateQueries({ queryKey: workflowKeys.detail(id) })
+        void queryClient.invalidateQueries({ queryKey: workflowKeys.list(projectId) })
+      } catch (error) {
+        if (generation !== getWorkflowDraftGeneration()) throw error
+        setWorkError(extractApiError(error, '사용 여부를 바꾸지 못했습니다.'))
         throw error
       }
     },
@@ -458,6 +488,22 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
     setView('yaml')
   }
 
+  // 사용 스위치(WP-2119) — 시안대로 머리 오른쪽 묶음의 게시 단추 옆에 둔다(권한이 없으면 같은 자리에 읽기 전용 배지).
+  // 끄기 확인의 실행 수는 수를 아직 모를 때(버전 목록을 받은 적 없음)만 null — 창을 연 채 다시 불러와도 「끄기」가 잠기지 않게.
+  // 켜고 끄기는 초안과 따로라 초안 충돌 배너 중에도 잠그지 않는다(쓰기 진행 중 busy 만).
+  const enableSwitch = (
+    <WorkflowEnableSwitch
+      enabled={detail.enabled}
+      canManage={canManage && !isLoggingOut}
+      hasPublishedVersion={activeVersionNo !== null}
+      activeRuns={running}
+      runsLoadError={versions.isError && !versions.isFetching}
+      onRetryRuns={() => void versions.refetch()}
+      busy={busy}
+      onChange={(next) => toggleEnabled.mutate(next)}
+    />
+  )
+
   // 복원 뒤 다이얼로그가 이전 위치에 포커스를 돌려줘도 선택한 보기를 유지한다.
   return (
     <Tabs value={view} onValueChange={setView} activationMode="manual" className="min-h-0 flex-1 gap-0">
@@ -465,7 +511,6 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       <WorkflowHeader>
         {picker}
         <span className={STATUS_PILL}>{activeVersionNo !== null ? `게시 버전 ${activeVersionNo}` : '게시 전'}</span>
-        {!detail.enabled && <span className={STATUS_PILL}>사용 안 함</span>}
         {canManage && draftChanged && <span className={STATUS_PILL}>초안 있음</span>}
         <TabsList aria-label="워크플로우 보기">
           <TabsTrigger value="graph">그래프</TabsTrigger>
@@ -497,10 +542,13 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
               size="sm"
               disabled={!canPublish}
               aria-describedby={noChanges ? noChangesReasonId : undefined}
-              onClick={() => setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected })}
+              onClick={() => { setEnableOnPublish(true); setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected }) }}
             >게시</Button>
+            {enableSwitch}
           </div>
         )}
+        {/* 읽기 전용 배지도 관리자 스위치와 같은 자리(머리 오른쪽 끝)에 둔다 */}
+        {!canManage && <div className="ml-auto flex items-center">{enableSwitch}</div>}
       </WorkflowHeader>
       {(conflict || workError) && (
         <div className="space-y-2 px-4 pt-3">
@@ -586,7 +634,12 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
           running={checkingRunCount ? null : running}
           runningLoadError={versions.isError && !versions.isFetching}
           onRetryRunning={() => void versions.refetch()}
-          onPublish={() => { if (publishConfirmation) write.mutate({ type: 'publish', confirmation: publishConfirmation }) }}
+          onPublish={() => {
+            if (publishConfirmation) write.mutate({ type: 'publish', confirmation: publishConfirmation, enable: activeVersionNo === null ? enableOnPublish : undefined })
+          }}
+          firstPublish={activeVersionNo === null}
+          enableOnPublish={enableOnPublish}
+          onEnableOnPublishChange={setEnableOnPublish}
         />
       )}
     </Tabs>

@@ -311,6 +311,8 @@ it('publishDialog_mentionsRunningRuns', async () => {
   fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
   expect(await screen.findByText('게시 버전 3')).toBeVisible()
   expect(publishedBody).toEqual({ expectedDraftUpdatedAt: draftTime })
+  // 꺼진 채 게시해도 꺼진 채 — 스위치는 꺼짐, 글자는 「사용 안 함」(첫 게시가 아니므로 enable 은 보내지 않는다).
+  expect(screen.getByRole('switch', { name: '워크플로우 사용' })).not.toBeChecked()
   expect(screen.getByText('사용 안 함')).toBeVisible()
 })
 
@@ -396,6 +398,8 @@ it('publish_confirmationUsesOpenedDraftTimestamp', async () => {
   expect(screen.getByText('사용 안 함')).toBeVisible()
   await act(refreshWorkflow)
   await waitFor(() => expect(screen.queryByText('사용 안 함')).not.toBeInTheDocument())
+  // 게시 대화상자가 열려 있어 스위치는 접근성 트리 밖 — 글자로 확인한다.
+  expect(screen.getByText('사용 중')).toBeInTheDocument()
   fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
   expect(await screen.findByRole('button', { name: '최신 초안 불러오기' })).toBeVisible()
   expect(publishBody).toEqual({ expectedDraftUpdatedAt: draftTime })
@@ -932,4 +936,200 @@ it('상세 불러오기 실패 뒤 다시 불러와 선택 화면이 그려져�
   await userEvent.click(retry)
   await screen.findByRole('tab', { name: 'YAML' })
   expect(document.activeElement).not.toBe(screen.getByRole('combobox', { name: '워크플로우 선택' }))
+})
+
+// ---- WP-2119 사용 스위치·첫 게시 바로 사용·끄기 확인 ----
+
+/** 켜진 워크플로우로 상세를 덮고 PATCH 본문을 모은다. */
+function enabledWorkflow(patch: (body: unknown) => Response | Promise<Response> = () => HttpResponse.json({ ...workflowDetail, enabled: true })) {
+  const bodies: unknown[] = []
+  let current: boolean = true
+  server.use(
+    http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, enabled: current })),
+    http.patch('/api/v1/workflows/42', async ({ request }) => {
+      const body = await request.json() as { enabled: boolean }
+      bodies.push(body)
+      const res = await patch(body)
+      if (res.ok) current = body.enabled
+      return res
+    }),
+  )
+  return bodies
+}
+
+it('enableSwitch_manager_on_showsInUseAndConfirmsBeforeTurningOffWithRuns', async () => {
+  renderWorkflow()
+  const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  expect(screen.getByText('사용 중')).toBeVisible()
+  // 게시 버전 목록의 진행 중 실행 합(기본 목 응답 3+1)을 안내한다.
+  await userEvent.click(toggle)
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('진행 중 실행 4 건은 계속됩니다. 새로 시작만 막습니다')).toBeVisible()
+  expect(bodies).toEqual([])
+  await userEvent.click(within(dialog).getByRole('button', { name: '끄기' }))
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+  await waitFor(() => expect(screen.getByRole('switch', { name: '워크플로우 사용' })).not.toBeChecked())
+  expect(screen.getByText('사용 안 함')).toBeVisible()
+})
+
+it('enableSwitch_sitsNextToPublishButtonInRightGroup', async () => {
+  renderWorkflow()
+  enabledWorkflow()
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  // 시안: 스위치는 머리 오른쪽 묶음(검사·초안 저장·게시)의 게시 단추 옆이다.
+  const publish = screen.getByRole('button', { name: '게시' })
+  expect(publish.parentElement).toContainElement(toggle)
+})
+
+it('enableSwitch_cancelDialog_sendsNothing', async () => {
+  renderWorkflow()
+  const bodies = enabledWorkflow()
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  await userEvent.click(toggle)
+  const dialog = await screen.findByRole('dialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(bodies).toEqual([])
+  expect(screen.getByRole('switch', { name: '워크플로우 사용' })).toBeChecked()
+})
+
+it('enableSwitch_runCountLoadFails_dialogStillAllowsTurningOff', async () => {
+  renderWorkflow()
+  const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
+  server.use(http.get('/api/v1/workflows/42/versions', () => new HttpResponse(null, { status: 500 })))
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  await userEvent.click(toggle)
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('진행 중 실행 수를 불러오지 못했습니다.')).toBeVisible()
+  expect(within(dialog).getByRole('button', { name: '실행 수 다시 불러오기' })).toBeVisible()
+  await userEvent.click(within(dialog).getByRole('button', { name: '끄기' }))
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+})
+
+it('enableSwitch_noActiveRuns_turnsOffWithoutDialog', async () => {
+  renderWorkflow()
+  const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
+  server.use(http.get('/api/v1/workflows/42/versions', () => HttpResponse.json([
+    { versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 0 },
+  ])))
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  await waitFor(() => expect(screen.getByRole('tab', { name: '실행 0' })).toBeVisible())
+  await userEvent.click(toggle)
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('enableSwitch_off_turnsOnAndShowsOverlapMessageKeepingSwitchOff', async () => {
+  renderWorkflow()
+  const bodies: unknown[] = []
+  server.use(http.patch('/api/v1/workflows/42', async ({ request }) => {
+    bodies.push(await request.json())
+    return HttpResponse.json({
+      message: "시작 조건이 '다른 흐름' 과 겹쳐 켤 수 없습니다.", errors: { code: 'WORKFLOW_START_CONDITION_OVERLAP' },
+    }, { status: 409 })
+  }))
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  expect(toggle).not.toBeChecked()
+  await userEvent.click(toggle)
+  expect(await screen.findByRole('alert')).toHaveTextContent("시작 조건이 '다른 흐름' 과 겹쳐 켤 수 없습니다.")
+  expect(bodies).toEqual([{ enabled: true }])
+  expect(screen.getByRole('switch', { name: '워크플로우 사용' })).not.toBeChecked()
+  // 초안 충돌 배너로 오인하지 않는다.
+  expect(screen.queryByRole('button', { name: '최신 초안 불러오기' })).not.toBeInTheDocument()
+})
+
+it('enableSwitch_noPublishedVersion_disabledWithHint', async () => {
+  renderWorkflow({ multiple: true, search: '?workflow=43&view=yaml' })
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  expect(toggle).toBeDisabled()
+  expect(screen.getByText('게시하면 켤 수 있어요')).toBeVisible()
+})
+
+it('enableSwitch_nonManager_readOnlyBadgeWithoutSwitch', async () => {
+  renderWorkflow({ manager: false })
+  expect(await screen.findByText('사용 안 함')).toBeVisible()
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+})
+
+it('enableSwitch_nonManager_enabledShowsInUse', async () => {
+  renderWorkflow({ manager: false })
+  server.use(http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, enabled: true })))
+  expect(await screen.findByText('사용 중')).toBeVisible()
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+})
+
+/** 첫 게시 — 게시 버전 없는 43 번을 열고 게시 대화상자까지 간다. 게시 뒤 다시 읽는 버전 조회도 목으로 준다. */
+async function openFirstPublishDialog() {
+  renderWorkflow({ multiple: true, search: '?workflow=43&view=yaml' })
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.get('/api/v1/workflows/43/versions', () => HttpResponse.json([])),
+    http.get('/api/v1/workflows/43/versions/1', () => HttpResponse.json({ versionNo: 1, sourceYaml: 'name: 다른 초안', model: { nodes: [] } })),
+  )
+  await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  const open = screen.getByRole('button', { name: '게시' })
+  await waitFor(() => expect(open).toBeEnabled())
+  fireEvent.click(open)
+  return screen.getByRole('dialog')
+}
+
+it('publishDialog_firstPublish_checkboxDefaultsOnAndSendsEnableTrue', async () => {
+  const bodies: unknown[] = []
+  server.use(http.post('/api/v1/workflows/43/publish', async ({ request }) => {
+    bodies.push(await request.json())
+    return HttpResponse.json({ versionNo: 1, runningRunsOnOlderVersions: 0 })
+  }))
+  const dialog = await openFirstPublishDialog()
+  expect(within(dialog).getByRole('checkbox', { name: '게시하고 바로 사용' })).toBeChecked()
+  fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
+  await waitFor(() => expect(bodies).toEqual([{ expectedDraftUpdatedAt: draftTime, enable: true }]))
+})
+
+it('publishDialog_firstPublish_uncheckedDoesNotEnable', async () => {
+  const bodies: unknown[] = []
+  server.use(http.post('/api/v1/workflows/43/publish', async ({ request }) => {
+    bodies.push(await request.json())
+    return HttpResponse.json({ versionNo: 1, runningRunsOnOlderVersions: 0 })
+  }))
+  const dialog = await openFirstPublishDialog()
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: '게시하고 바로 사용' }))
+  fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
+  await waitFor(() => expect(bodies).toHaveLength(1))
+  // 체크를 풀면 enable:false 를 명시해 보낸다(첫 게시의 선택을 서버에 그대로 전한다).
+  expect(bodies).toEqual([{ expectedDraftUpdatedAt: draftTime, enable: false }])
+})
+
+it('publishDialog_firstPublish_overlapShowsMessageNotDraftConflict', async () => {
+  server.use(http.post('/api/v1/workflows/43/publish', () => HttpResponse.json({
+    message: "시작 조건이 '다른 흐름' 과 겹칩니다.", errors: { code: 'WORKFLOW_START_CONDITION_OVERLAP' },
+  }, { status: 409 })))
+  const dialog = await openFirstPublishDialog()
+  fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
+  expect(await screen.findByText("시작 조건이 '다른 흐름' 과 겹칩니다.")).toBeVisible()
+  expect(screen.queryByRole('button', { name: '최신 초안 불러오기' })).not.toBeInTheDocument()
+})
+
+it('publishDialog_withPublishedVersion_noCheckboxAndNoEnableInBody', async () => {
+  renderWorkflow()
+  const bodies: unknown[] = []
+  server.use(
+    http.get('/api/v1/workflows/42/versions/2', () => HttpResponse.json({ versionNo: 2, sourceYaml: 'name: 게시본과 다른 원문', model: { nodes: [] } })),
+    http.post('/api/v1/workflows/42/publish', async ({ request }) => {
+      bodies.push(await request.json())
+      return HttpResponse.json({ versionNo: 3, runningRunsOnOlderVersions: 0 })
+    }),
+  )
+  const open = await screen.findByRole('button', { name: '게시' })
+  await waitFor(() => expect(open).toBeEnabled())
+  fireEvent.click(open)
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
+  await waitFor(() => expect(within(dialog).getByRole('button', { name: '게시' })).toBeEnabled())
+  fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
+  await waitFor(() => expect(bodies).toEqual([{ expectedDraftUpdatedAt: draftTime }]))
 })

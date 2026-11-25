@@ -156,8 +156,12 @@ export const workflowApi = {
     client.post<WorkflowValidationResult>('/workflows/validate', { projectId, yaml }, { signal }).then((r) => r.data),
   saveDraft: (id: number, yaml: string, expectedDraftUpdatedAt: string) =>
     client.put<SaveDraftResult>(`/workflows/${id}/draft`, { yaml, expectedDraftUpdatedAt }).then((r) => r.data),
-  publish: (id: number, expectedDraftUpdatedAt: string) =>
-    client.post<PublishResult>(`/workflows/${id}/publish`, { expectedDraftUpdatedAt }).then((r) => r.data),
+  /** 게시 — enable 은 첫 게시에서만 보낸다(undefined 면 JSON 에서 빠져 서버가 켜기를 건드리지 않는다). */
+  publish: (id: number, expectedDraftUpdatedAt: string, enable?: boolean) =>
+    client.post<PublishResult>(`/workflows/${id}/publish`, { expectedDraftUpdatedAt, enable }).then((r) => r.data),
+  /** 사용 켜기·끄기(과 이름 바꾸기) — 켤 때 다른 워크플로우와 시작 조건이 겹치면 409 WORKFLOW_START_CONDITION_OVERLAP. */
+  update: (id: number, body: { enabled?: boolean; name?: string }) =>
+    client.patch<WorkflowDetail>(`/workflows/${id}`, body).then((r) => r.data),
   restoreDraft: (id: number, no: number, expectedDraftUpdatedAt: string) =>
     client.post<WorkflowDetail>(`/workflows/${id}/versions/${no}/restore-draft`, { expectedDraftUpdatedAt }).then((r) => r.data),
 }

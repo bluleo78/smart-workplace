@@ -2,7 +2,9 @@ package com.workplace.issue.workflow;
 
 import static com.workplace.jooq.Tables.NODE_RUN;
 import static com.workplace.jooq.Tables.NOTIFICATION;
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.WORKFLOW;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -531,16 +533,17 @@ class WorkflowTimerTest extends IntegrationTestBase {
             201);
     long id = created.get("id").asLong();
     ok(post(API + "/workflows/" + id + "/publish"), pm, 200);
+    // 이 시험은 한 프로젝트에서 정의를 여러 번 게시해 id 로 시작한다 — 시작 조건이 겹쳐 켜기가 막히지 않게 앞 정의는 꺼 둔다(WP-2119).
+    dsl.update(WORKFLOW)
+        .set(WORKFLOW.ENABLED, false)
+        .where(WORKFLOW.PROJECT_ID.eq(projectId()))
+        .execute();
     ok(patch(API + "/workflows/" + id).content(json("enabled", true)), pm, 200);
     return id;
   }
 
   private long projectId() {
-    return dsl.select(com.workplace.jooq.Tables.PROJECT.ID)
-        .from(com.workplace.jooq.Tables.PROJECT)
-        .where(com.workplace.jooq.Tables.PROJECT.KEY.eq(key))
-        .fetchSingle()
-        .value1();
+    return dsl.select(PROJECT.ID).from(PROJECT).where(PROJECT.KEY.eq(key)).fetchSingle().value1();
   }
 
   private long issue(long assignee) {
