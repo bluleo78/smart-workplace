@@ -33,6 +33,15 @@ export function nodeSize(node: GraphNode): { width: number; height: number } {
 }
 
 /**
+ * 「+ 노드」가 놓을 빈 자리 — 주어진 모든 노드 자리(저장 좌표와 자동 배치 좌표가 섞인 것)의 맨 아래 밑, 가장 왼쪽 x.
+ * 왜: 노드 높이는 카드(CARD_HEIGHT)가 가장 크므로 바닥을 그 높이로 잡으면 어떤 모양과도 겹치지 않는다. 자리가 없으면 원점.
+ */
+export function findFreeSpot(points: Array<{ x: number; y: number }>): { x: number; y: number } {
+  if (points.length === 0) return { x: 0, y: 0 }
+  return { x: Math.min(...points.map((p) => p.x)), y: Math.max(...points.map((p) => p.y)) + CARD_HEIGHT + 64 }
+}
+
+/**
  * 거의 모든 노드가 같은 곳으로 오류를 보낼 때 그 목적지(공통 오류 처리 노드). 선을 다 그리면 한 곳으로 모여 지저분하므로 숨기는 기준이다.
  * 최빈 목적지가 2개 이상이고 onError 간선 수의 절반 이상일 때만 인정하며, 동률이면 먼저 나온 것을 고른다.
  */

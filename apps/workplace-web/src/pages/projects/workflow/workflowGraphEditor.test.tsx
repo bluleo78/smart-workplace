@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { type Connection, ConnectionMode, type Edge } from '@xyflow/react'
 import { useState } from 'react'
-import { beforeAll, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 
 import type { WorkflowProblem } from '@/lib/workflows'
@@ -77,6 +77,11 @@ vi.mock('@xyflow/react', async (importOriginal) => {
       return <actual.ReactFlow {...props} />
     },
   }
+})
+
+// 테스트 사이에 이전 렌더의 props 가 새어 들어가 단언이 우연히 통과하지 않도록 매번 비운다
+beforeEach(() => {
+  captured.props = null
 })
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -750,18 +755,26 @@ it('backEdge_savedTargetAboveSource_isBack', async () => {
 
 // 손잡이는 자리마다 s-* 하나뿐이다 — 같은 자리에 t-* 를 겹치면 느슨한 모드가 연결 불가 쪽을 잡는다(WP-2089)
 it('handles_onlyOneSourceHandlePerSide_onEveryShape', () => {
-  const { container } = render(<Harness initial={FIXTURE} />)
+  // 카드·마름모(decision)·원(start/end)이 모두 들어 있는 그래프 — RECOVERY 는 decision(pick)을 가진다
+  const { container } = render(<Harness initial={RECOVERY} />)
   for (const shape of ['card', 'diamond', 'circle']) {
     const node = container.querySelector(`[data-shape="${shape}"]`)
-    if (!node) continue
-    const ids = [...node.closest('.react-flow__node')!.querySelectorAll('.react-flow__handle')].map((h) => h.getAttribute('data-handleid'))
+    // 모양이 없어 검사가 건너뛰어지지 않게 한다
+    expect(node, `${shape} 모양 노드`).not.toBeNull()
+    const ids = [...node!.closest('.react-flow__node')!.querySelectorAll('.react-flow__handle')].map((h) => h.getAttribute('data-handleid'))
     expect(ids.sort()).toEqual(['s-bottom', 's-left', 's-right', 's-top'])
   }
-  // 세 모양이 모두 이 고정 그래프에 있어야 위 검사가 건너뛰어지지 않는다
-  expect(container.querySelectorAll('[data-shape]').length).toBeGreaterThan(2)
+  // 마름모·원의 위·아래 손잡이는 상자 가운데가 아니라 도형 가운데 x(SHAPE_SIZE / 2), 오른쪽은 도형 오른쪽 변(SHAPE_SIZE)에 놓인다
+  for (const shape of ['diamond', 'circle']) {
+    const wrap = container.querySelector(`[data-shape="${shape}"]`)!.closest('.react-flow__node')!
+    const left = (id: string) => wrap.querySelector<HTMLElement>(`[data-handleid="${id}"]`)!.style.left
+    expect(left('s-top'), `${shape} 위`).toBe(`${SHAPE_SIZE / 2}px`)
+    expect(left('s-bottom'), `${shape} 아래`).toBe(`${SHAPE_SIZE / 2}px`)
+    expect(left('s-right'), `${shape} 오른쪽`).toBe(`${SHAPE_SIZE}px`)
+  }
 })
 
-// 느슨한 연결 모드의 대체 동작 고정 — 선은 s-* 손잡이(나감 형)에서 끝난다. 들어옴 형 손잡이를 다시 더하면 선 끝이 사라진다
+// 느슨한 연결 모드의 대체 동작 고정 — 모든 선의 출발·도착 손잡이 id 가 그려진 노드에 실제로 있어야 한다(선 끝이 사라지지 않는다). 손잡이가 s-* 하나뿐이라는 것은 위 테스트가 확인한다
 it('edges_endpointHandleIdsExistOnRenderedNodes', () => {
   const { container } = render(<Harness initial={FIXTURE} />)
   const edges = captured.props!.edges!

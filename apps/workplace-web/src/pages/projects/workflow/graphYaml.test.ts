@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { nodeSize } from './graphLayout'
 import {
   addAskPath,
   addNode,
+  addNodeAtFreeSpot,
   autoLayout,
   computeLayout,
   connectFromFlow,
@@ -23,6 +25,7 @@ import {
   REFUSE_SELF,
   removeNode,
   updateNode,
+  type WorkflowGraph,
 } from './graphYaml'
 
 /** 설계 §6 축약(정렬용 여분 공백은 yaml 직렬화가 정리하므로 처음부터 두지 않는다) — 주석·흐름 스타일·start 배열을 포함하고 layout 은 없다. */
@@ -92,6 +95,29 @@ describe('graphYaml', () => {
     const d = doc(r.yaml)
     expect(d.nodes.task_1).toEqual({ type: 'agent_task', name: '새 AI 작업' })
     expect(d.layout.task_1).toEqual({ x: 10, y: 20 })
+  })
+
+  // 좌표가 일부 노드에만 저장된 초안 — 저장 안 된 노드는 자동 배치 자리를 쓴다. 새 노드는 어느 노드와도 겹치면 안 된다
+  it('addNodeAtFreeSpot_partialSavedLayout_noOverlapWithAnyNode', () => {
+    const partial = FIXTURE + 'layout:\n  start: { x: 500, y: 10 }\n  dev: { x: 20, y: 300 }\n'
+    for (const type of ['agent_task', 'decision', 'end'] as const) {
+      const r = addNodeAtFreeSpot(partial, type)
+      expect(r.key).not.toBe('')
+      const g = (parseWorkflowGraph(r.yaml) as { graph: WorkflowGraph }).graph
+      const { positions, view } = placeNodes(g)
+      const rect = (key: string) => {
+        const n = view.nodes.find((v) => v.key === key)!
+        const { width, height } = nodeSize(n)
+        const p = positions.get(key)!
+        return { x1: p.x, y1: p.y, x2: p.x + width, y2: p.y + height }
+      }
+      const added = rect(r.key)
+      for (const n of view.nodes.filter((v) => v.key !== r.key)) {
+        const o = rect(n.key)
+        const overlap = added.x1 < o.x2 && o.x1 < added.x2 && added.y1 < o.y2 && o.y1 < added.y2
+        expect(overlap, `${type} 가 ${n.key} 와 겹침`).toBe(false)
+      }
+    }
   })
 
   it('addNode_picksFreeKey', () => {

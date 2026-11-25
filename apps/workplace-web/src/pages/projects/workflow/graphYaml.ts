@@ -7,7 +7,7 @@
  */
 import { Document, isMap, isScalar, isSeq, type Pair, parseDocument, Scalar, YAMLMap, type YAMLSeq } from 'yaml'
 
-import { computeGraphLayout, type GraphLayoutResult, type VisibleGraph, visibleGraph } from './graphLayout'
+import { computeGraphLayout, findFreeSpot, type GraphLayoutResult, type VisibleGraph, visibleGraph } from './graphLayout'
 
 export type GraphNodeType = 'start' | 'agent_task' | 'human_task' | 'decision' | 'end' | string
 
@@ -320,6 +320,25 @@ export function addNode(yaml: string, type: NewNodeType, at?: { x: number; y: nu
   }
   nodes.set(key, doc.createNode(spec.name ? { type, name: spec.name } : { type }))
   return { yaml: dump(doc), key }
+}
+
+/**
+ * 「+ 노드」 — 겹치지 않는 빈 자리에 노드를 더한다. 좌표가 일부 노드에만 저장된 초안은 나머지가 자동 배치 자리를 쓰는데,
+ * 새 노드가 더해지면 자동 배치(dagre)가 다시 계산되어 저장 안 된 노드의 자리가 달라질 수 있다. 그래서 더한 뒤의 자리까지 합쳐 다시 고른다.
+ * 질문 경로 보기의 좌표는 보기 전용이라 늘 접은 배치로 정한다.
+ */
+export function addNodeAtFreeSpot(yaml: string, type: NewNodeType): { yaml: string; key: string } {
+  const parsed = parseWorkflowGraph(yaml)
+  if ('error' in parsed) return { yaml, key: '' }
+  const before = [...placeNodes(parsed.graph).positions.values()]
+  const first = addNode(yaml, type, findFreeSpot(before))
+  if (!first.key) return first
+  const after = parseWorkflowGraph(first.yaml)
+  if ('error' in after) return first
+  // 새 노드를 뺀 나머지의 더한 뒤 자리 + 더하기 전 자리를 모두 피한다
+  const others = [...placeNodes(after.graph).positions].filter(([k]) => k !== first.key).map(([, p]) => p)
+  const at = findFreeSpot([...before, ...others])
+  return at.x === findFreeSpot(before).x && at.y === findFreeSpot(before).y ? first : addNode(yaml, type, at)
 }
 
 /** 결과를 to 로 잇는다. 이미 있는 결과면 to 만 바꿔 assignTo 등은 둔다. */
