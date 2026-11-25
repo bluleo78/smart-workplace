@@ -281,6 +281,21 @@ class WorkflowAskChatTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("질문 대기 중 멘션 토큰뿐인 사람 글(「@담당자」만)은 답이 아니다 — 실행 그대로, 글은 저장")
+  void mentionOnlyReply_doesNotMove() {
+    long bot = agent();
+    long issue = startedIssue(bot);
+    expectAsAgent(move(issue, "work", "ask", QUESTION, 0, "k-ask"), bot);
+    // 멘션 둘과 공백·폭 없는 공백만 — 토큰을 빼면 보이는 글자가 없다.
+    String body = "<@" + pm + "> <@" + lead + ">\u200B ";
+
+    chat(issue, lead, body);
+
+    assertAsking(issue);
+    assertThat(chatBodies(issue)).contains(body);
+  }
+
+  @Test
   @DisplayName("멈춘(SUSPENDED) 실행에 단 사람 글은 이동하지 않고 글만 저장한다")
   void suspendedRun_reply_savesMessage_noMove() {
     long bot = agent();
