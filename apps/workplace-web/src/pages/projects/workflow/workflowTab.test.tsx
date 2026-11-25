@@ -9,6 +9,9 @@ import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProbl
 import { gate } from '@/test/loadErrorRetry'
 import { server } from '@/test/msw/server'
 
+// 변경이 없어 막힌 게시 — 공용 DisabledReasonTooltip 이 붙이는 접근 이름(`<라벨> — <사유>`)
+const BLOCKED_PUBLISH = '게시 — 바꾼 내용이 없어 게시할 것이 없습니다.'
+
 // 프로젝트 탭과 본문의 권한이 같아야 직접 주소로 들어와도 쓰기 단추가 생기지 않는다.
 vi.mock('../components/IssueCreateDialog', () => ({ IssueCreateDialog: () => null }))
 
@@ -453,45 +456,130 @@ it('unpostedChangeCount_survivesDraftSave_andResetsAfterPublish', async () => {
     }),
   )
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
-  expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
+  await waitFor(() => expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true'))
+  expect(screen.queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
   fireEvent.change(yaml, { target: { value: changed } })
-  expect(screen.getByText('게시 안 한 변경 3')).toBeVisible()
+  expect(screen.getByText('변경 3')).toBeVisible()
   const save = screen.getByRole('button', { name: '초안 저장' })
   fireEvent.click(save)
   const publish = screen.getByRole('button', { name: '게시' })
   await waitFor(() => expect(publish).toBeEnabled())
-  expect(save).toBeDisabled()
-  expect(screen.getByText('게시 안 한 변경 3')).toBeVisible()
+  // 저장되어 로컬 편집이 없으면 되돌리기·초안 저장은 그리지 않고 배지·게시만 남는다
+  expect(save).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument()
+  expect(screen.getByText('변경 3')).toBeVisible()
   fireEvent.click(publish)
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '게시' }))
   expect(await screen.findByText('게시 버전 3')).toBeVisible()
-  expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
-  expect(screen.getByRole('button', { name: '게시' })).toBeDisabled()
+  await waitFor(() => expect(screen.queryByText(/^변경 \d+$/)).not.toBeInTheDocument())
+  expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true')
+})
+
+it('workflowTab_changeStatus_regionStaysMounted', async () => {
+  renderWorkflow()
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  await waitFor(() => expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true'))
+  // 변경 0 — 알림 영역은 이미 있고 비어 있다. 그 같은 요소가 변경 뒤 내용을 담는다(함께 마운트되면 읽히지 않을 수 있다).
+  const region = screen.getByTestId('workflow-change-status')
+  expect(region).toHaveAttribute('role', 'status')
+  expect(region).toBeEmptyDOMElement()
+  fireEvent.change(yaml, { target: { value: 'name: 변경 있음' } })
+  await waitFor(() => expect(region).toHaveTextContent(/^변경 \d+$/))
+  expect(screen.getByTestId('workflow-change-status')).toBe(region)
 })
 
 it('publish_disabledWhenNoUnpostedChanges_withReason', async () => {
   renderWorkflow()
   const changed = 'name: 변경 있음'
+  const reason = '바꾼 내용이 없어 게시할 것이 없습니다.'
   server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
-  const original = (yaml as HTMLTextAreaElement).value
-  expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
-  const publish = screen.getByRole('button', { name: '게시' })
-  expect(publish).toBeDisabled()
-  expect(publish).toHaveAccessibleDescription('바꾼 내용이 없어 게시할 것이 없습니다.')
+  // 공용 DisabledReasonTooltip — 막히면 감싸개가 「게시 — 사유」 이름의 막힌 단추 하나로 노출되고 안의 진짜 단추는 inert 로 숨는다
+  const publish = await screen.findByRole('button', { name: BLOCKED_PUBLISH })
+  const inner = publish.querySelector('button') as HTMLElement
+  expect(publish).toHaveAttribute('aria-disabled', 'true')
+  // 변경 0 — 배지·되돌리기·초안 저장이 없고 보이는 안내 문장도 없다(사유는 툴팁 + sr-only 글자)
+  expect(screen.queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '초안 저장' })).not.toBeInTheDocument()
+  expect(screen.queryByText(reason, { ignore: '.sr-only' })).not.toBeInTheDocument()
+  // 감싸개가 Tab 정지라 진짜 disabled 단추와 달리 키보드 초점으로 사유가 보인다
+  expect(publish).toHaveAttribute('tabindex', '0')
+  // 켜진 단추처럼 보이지 않게 채운 primary 가 아니라 outline
+  expect(inner).not.toHaveClass('bg-primary')
+  expect(inner).toHaveClass('border')
   expect(publish).not.toHaveAttribute('title')
-  // 꺼진 단추는 툴팁이 안 뜨므로 이유가 눈에 보이는 글자로 있어야 한다.
-  expect(await screen.findByText('바꾼 내용이 없어 게시할 것이 없습니다.')).toBeVisible()
+  act(() => publish.focus())
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(reason)
 
   fireEvent.change(yaml, { target: { value: changed } })
   await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
-  expect(screen.getByRole('button', { name: '게시' })).not.toHaveAttribute('title')
-  expect(screen.getByRole('button', { name: '게시' })).toHaveAccessibleDescription('')
-  expect(screen.queryByText('바꾼 내용이 없어 게시할 것이 없습니다.')).not.toBeInTheDocument()
+  const enabled = screen.getByRole('button', { name: '게시' })
+  expect(enabled).not.toHaveAttribute('aria-disabled')
+  expect(enabled).toHaveClass('bg-primary')
+  expect(enabled).not.toHaveAttribute('title')
+  expect(screen.queryByRole('button', { name: BLOCKED_PUBLISH })).not.toBeInTheDocument()
+  expect(screen.getByText(/^변경 \d+$/)).toBeVisible()
+  expect(screen.getByRole('button', { name: '되돌리기' })).toBeVisible()
+  expect(screen.getByRole('button', { name: '초안 저장' })).toBeVisible()
+  expect(screen.queryByText(reason)).not.toBeInTheDocument()
 
-  fireEvent.change(yaml, { target: { value: original } })
-  expect(await screen.findByText('게시 안 한 변경 0')).toBeVisible()
-  expect(screen.getByRole('button', { name: '게시' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: '초안 저장' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true')
+})
+
+it('workflowTab_draftActions_focusMovesToPublishWhenTheyVanish', async () => {
+  renderWorkflow()
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', () => HttpResponse.json({ draftUpdatedAt: nextDraftTime, problems: [] })),
+  )
+  const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  await waitFor(() => expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true'))
+  // 되돌리기 — 누른 단추가 사라져도 포커스가 body 로 떨어지지 않고 게시 단추로 간다
+  fireEvent.change(yaml, { target: { value: 'name: 변경 있음' } })
+  await userEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument())
+  expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveFocus()
+  // 초안 저장 — 저장이 끝나 편집이 지워질 때도 같다
+  fireEvent.change(yaml, { target: { value: 'name: 또 변경' } })
+  await userEvent.click(await screen.findByRole('button', { name: '초안 저장' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: '초안 저장' })).not.toBeInTheDocument())
+  // 저장하면 바꾼 내용이 게시 안 한 변경으로 남아 게시가 열려 있으므로 막힌 감싸개가 아닌 게시 단추 자체로 간다
+  await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toHaveFocus())
+})
+
+it('workflowTab_changeStatus_threeStatesAreExclusive', async () => {
+  const hold = gate()
+  renderWorkflow()
+  server.use(http.get('/api/v1/workflows/42/versions/2', async () => {
+    await hold.promise
+    return new HttpResponse(null, { status: 500 })
+  }))
+  const region = await screen.findByTestId('workflow-change-status')
+  // 확인 중 — 그 글자만
+  expect(await within(region).findByText('변경 확인 중')).toBeVisible()
+  expect(within(region).queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
+  expect(within(region).queryByText('변경 수 불러오기 실패')).not.toBeInTheDocument()
+  // 실패 — 그 글자만(배지·확인 중이 함께 남지 않는다)
+  hold.release()
+  expect(await within(region).findByText('변경 수 불러오기 실패')).toBeVisible()
+  expect(within(region).queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
+  expect(within(region).queryByText('변경 확인 중')).not.toBeInTheDocument()
+})
+
+it('publish_noChanges_ariaDisabledDoesNotOpenConfirm', async () => {
+  renderWorkflow()
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  const publish = await screen.findByRole('button', { name: BLOCKED_PUBLISH })
+  expect(publish).toHaveAttribute('aria-disabled', 'true')
+  fireEvent.click(publish)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
 
 it('publish_enabledForFirstPublish_whenNoActiveVersion', async () => {
@@ -508,7 +596,7 @@ it('publish_notBlockedWhenPublishedSourceFails', async () => {
     http.get('/api/v1/workflows/42/versions/2', () => new HttpResponse(null, { status: 500 })),
     http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
   )
-  expect(await screen.findByText('게시 안 한 변경 수를 불러오지 못했습니다.')).toBeVisible()
+  expect(await screen.findByText('변경 수 불러오기 실패')).toBeVisible()
   await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
 })
 
@@ -659,7 +747,7 @@ it('publish_disabledWhileCheckingChangeCount_withoutReason', async () => {
     http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
   )
   await screen.findByRole('textbox', { name: '워크플로우 YAML' })
-  expect(await screen.findByText('게시 안 한 변경 수 확인 중')).toBeVisible()
+  expect(await screen.findByText('변경 확인 중')).toBeVisible()
   const publish = screen.getByRole('button', { name: '게시' })
   expect(publish).toBeDisabled()
   expect(publish).not.toHaveAttribute('aria-describedby')
@@ -1014,7 +1102,7 @@ it('enableSwitch_sitsNextToPublishButtonInRightGroup', async () => {
   const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
   // 시안: 스위치는 머리 오른쪽 묶음(검사·초안 저장·게시)의 게시 단추 옆이다.
   const publish = screen.getByRole('button', { name: '게시' })
-  expect(publish.parentElement).toContainElement(toggle)
+  expect(publish.closest('div')).toContainElement(toggle)
 })
 
 it('enableSwitch_cancelDialog_sendsNothing', async () => {
