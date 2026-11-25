@@ -50,11 +50,11 @@ export function edgeAriaLabel(edge: GraphEdge, names: Map<string, string>): stri
   return edge.label ? `${base} (${edge.label})` : base
 }
 
-/** 키 입력이 편집 패널에 미치는 동작 — 열기(노드 키) / 닫기 / 기본 동작만 막기(패널 그대로) / 없음(null) */
+/** 키 입력이 노드 설정 서랍에 미치는 동작 — 열기(노드 키) / 닫기 / 기본 동작만 막기(서랍 그대로) / 없음(null) */
 export type PanelAction = { open: string } | { close: true } | { swallow: true } | null
 
 /**
- * 키 입력으로 편집 패널을 열거나 닫을지 판정한다. nodeId 는 키가 눌린 곳의 노드.
+ * 키 입력으로 노드 설정 서랍을 열거나 닫을지 판정한다. nodeId 는 키가 눌린 곳의 노드.
  * Enter·Space 는 실제(가상 아닌) 노드일 때만 그 노드를 연다. Escape 는 노드 위에서만 닫는다 — React Flow 가 Esc 로 선택을 풀므로
  * 패널도 함께 닫아 선택과 패널 상태가 어긋나지 않게 한다. 선택 변경이 아니라 키 입력으로 보는 까닭: 마우스 드래그도
  * 노드를 선택하므로 선택 변경을 패널 열기로 오인하지 않게 하려는 것이다.
@@ -84,7 +84,7 @@ const DIRECTION_LABEL: Record<string, string> = {
 export const GRAPH_ARIA_LABEL_CONFIG: Partial<AriaLabelConfig> = {
   'node.a11yDescription.default': '워크플로우 노드입니다.',
   'node.a11yDescription.keyboardDisabled':
-    'Enter·Space 로 노드를 골라 편집 패널을 엽니다. 고른 뒤 화살표로 노드를 옮기고, Esc 로 선택을 풀고 편집 패널을 닫습니다.',
+    'Enter·Space 로 노드를 골라 노드 설정 서랍을 엽니다. 고른 뒤 화살표로 노드를 옮기고, Esc 로 선택을 풀고 열린 서랍을 닫습니다.',
   'node.a11yDescription.ariaLiveMessage': ({ direction, x, y }) =>
     `고른 노드를 ${DIRECTION_LABEL[direction] ?? direction} 옮겼습니다. 새 위치 x ${x}, y ${y}`,
   'edge.a11yDescription.default': 'Enter·Space 로 선을 고르고 Esc 로 선택을 풉니다.',
@@ -94,5 +94,5 @@ export const GRAPH_ARIA_LABEL_CONFIG: Partial<AriaLabelConfig> = {
 export const GRAPH_ARIA_LABEL_CONFIG_READONLY: Partial<AriaLabelConfig> = {
   ...GRAPH_ARIA_LABEL_CONFIG,
   'node.a11yDescription.keyboardDisabled':
-    'Enter·Space 로 노드를 골라 편집 패널을 열고, Esc 로 닫습니다.',
+    'Enter·Space 로 노드를 골라 노드 설정 서랍을 열고, Esc 로 열린 서랍을 닫습니다.',
 }

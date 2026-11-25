@@ -198,3 +198,13 @@ it('problemsList_onSelect_rowsAreButtons', () => {
   fireEvent.click(screen.getByRole('button', { name: /틀렸습니다\./ }))
   expect(onSelect).toHaveBeenCalledWith(p)
 })
+
+// 리뷰 — 알 수 없는 심각도는 던지지 않고 경고로 그린다(헤더 주석의 「나머지는 경고」)
+it('problemsList_unknownSeverity_rendersAsWarning', () => {
+  const odd = { ...warn('이상한 등급'), severity: 'INFO' } as unknown as WorkflowProblem
+  renderWithProviders(
+    <WorkflowProblemsList problems={[odd]} checking={false} failed={false} stale={false} readOnly={false} onRetry={vi.fn()} onAddAskPath={vi.fn()} onOpenYaml={vi.fn()} />,
+  )
+  expect(screen.getByText('경고')).toBeInTheDocument()
+  expect(screen.getByText('이상한 등급')).toBeInTheDocument()
+})

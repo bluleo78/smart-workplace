@@ -349,9 +349,9 @@ const PATH_SECTIONS = ['결과 → 다음 노드', '내놓을 값', '되돌림 �
 it.each([
   ['dev', ['담당 역할', '필요 환경', '사람에게 묻기', '막혔을 때', '공통 지시', '지시'], PATH_SECTIONS, true],
   ['plan_ok', ['담당 역할', '막혔을 때', '공통 지시', '지시'], PATH_SECTIONS, true],
-  ['pick', [], [], true],
+  ['pick', ['YAML 에서 고치는 칸'], [], true],
   ['done', [], [], true],
-  ['start', [], [], false],
+  ['start', ['YAML 에서 고치는 칸'], [], false],
 ])('nodeDrawer_%s_showsAllowedSectionsOnly', async (key, settings, paths, deletable) => {
   const y = FIXTURE.replace('  done: { type: end }', '  done: { type: end }\n  pick: { type: decision, name: 고르기 }')
   renderWithProviders(<Harness initial={y} />)
@@ -916,7 +916,7 @@ it('nodeDrawer_header_showsNameKeyAndTabs', async () => {
   // 이름 없는 노드는 키로 제목을 단다. 서랍 안에서 Esc 를 누르면 닫힌다
   clickNode('done')
   expect(await screen.findByRole('heading', { level: 3, name: 'done 노드 설정' })).toBeInTheDocument()
-  fireEvent.keyDown(screen.getByLabelText('노드 이름'), { key: 'Escape' })
+  fireEvent.keyDown(screen.getByRole('heading', { level: 3, name: 'done 노드 설정' }), { key: 'Escape' })
   await waitFor(() => expect(screen.queryByRole('complementary', { name: '노드 설정' })).toBeNull())
 })
 
@@ -1184,13 +1184,19 @@ it('graphNode_problemBadge_inAccessibleName', () => {
   expect(flowNode('triage')!.querySelector('[data-problem-badge]')).toBeNull()
 })
 
-// WP-2091 — 서랍 안 입력 칸에서 Esc 를 누르면 서랍이 닫히고, 포커스는 그 노드 카드로 돌아간다
-it('drawer_escapeInField_closes', async () => {
+// WP-2091 리뷰 — 서랍 안 입력 칸의 Esc 는 서랍을 닫지 않고 칸의 포커스만 푼다(쓰던 글을 잃지 않게). 포커스가 칸 밖으로 나온 뒤의 Esc 가 닫는다
+it('drawer_escapeInField_blursOnly_thenSecondEscCloses', async () => {
   renderWithProviders(<Harness initial={FIXTURE} />)
   clickNode('dev')
-  fireEvent.keyDown(await screen.findByLabelText('노드 이름'), { key: 'Escape' })
+  const input = await screen.findByLabelText('노드 이름')
+  input.focus()
+  fireEvent.keyDown(input, { key: 'Escape' })
+  expect(screen.getByRole('complementary', { name: '노드 설정' })).toBeInTheDocument()
+  expect(input).not.toHaveFocus()
+  // 포커스는 body 가 아니라 서랍으로 옮겨져야 한다(body 면 두 번째 Esc 가 AI 패널을 닫는다) — 실제 포커스 요소로 보낸 Esc 가 서랍을 닫는다
+  expect(screen.getByRole('complementary', { name: '노드 설정' })).toHaveFocus()
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   await waitFor(() => expect(screen.queryByRole('complementary', { name: '노드 설정' })).toBeNull())
-  await waitFor(() => expect(flowNode('dev')).toHaveFocus())
 })
 
 // WP-2091 — 한글 조합 중의 Esc 는 조합을 끝낼 뿐 서랍을 닫지 않는다
@@ -1266,9 +1272,12 @@ it('drawer_escape_preventsDefaultOnlyWhenClosingDrawer', async () => {
   expect(await screen.findByRole('complementary', { name: '노드 설정' })).toBeInTheDocument()
   expect(fireEvent.keyDown(flowNode('dev')!, { key: 'Escape' })).toBe(false)
   await waitFor(() => expect(screen.queryByRole('complementary', { name: '노드 설정' })).toBeNull())
-  // 서랍 안 입력 칸의 Esc(DrawerShell)
+  // 서랍 안 입력 칸의 Esc(DrawerShell) — 칸의 포커스만 풀고 서랍은 그대로, 앱 전역 Esc 는 막는다. 칸 밖의 Esc 가 서랍을 닫는다
   clickNode('dev')
   expect(fireEvent.keyDown(await screen.findByLabelText('노드 이름'), { key: 'Escape' })).toBe(false)
+  expect(screen.getByRole('complementary', { name: '노드 설정' })).toBeInTheDocument()
+  expect(fireEvent.keyDown(screen.getByRole('button', { name: '서랍 닫기' }), { key: 'Escape' })).toBe(false)
+  await waitFor(() => expect(screen.queryByRole('complementary', { name: '노드 설정' })).toBeNull())
 })
 
 // WP-2091 — 연 노드가 문서에서 사라지면(YAML 쪽 편집 등) 서랍을 닫는다
@@ -1306,4 +1315,43 @@ it('overview_problemsReadOnlyFromParent_disablesQuickFix', async () => {
   expect(within(drawer).getByRole('button', { name: '질문 경로 추가' })).toBeEnabled()
   rerender(<Harness initial={RECOVERY} problems={{ ...graphProblems([ask]), readOnly: true }} />)
   expect(within(screen.getByRole('complementary', { name: '워크플로우 개요' })).getByRole('button', { name: '질문 경로 추가' })).toBeDisabled()
+})
+
+// 리뷰 — human_task 의 「YAML 에서 고치는 칸」은 returnTo 가 있는 노드에만 보인다
+it('nodeDrawer_settings_humanTask_yamlNoteOnlyWithReturnTo', async () => {
+  const y = FIXTURE.replace('  done: { type: end }\n', '  done: { type: end }\n  answer:\n    type: human_task\n    name: 답변\n    role: owner\n    returnTo: dev\n')
+  renderWithProviders(<Harness initial={y} />)
+  clickNode('answer')
+  const drawer = await screen.findByRole('complementary', { name: '노드 설정' })
+  expect(within(drawer).getByRole('region', { name: 'YAML 에서 고치는 칸' })).toBeInTheDocument()
+})
+
+// returnTo 가 없는 human_task 에는 안내가 없다
+it('nodeDrawer_settings_humanTask_noYamlNoteWithoutReturnTo', async () => {
+  const y = FIXTURE.replace('  done: { type: end }\n', '  done: { type: end }\n  answer:\n    type: human_task\n    name: 답변\n    role: owner\n')
+  renderWithProviders(<Harness initial={y} />)
+  clickNode('answer')
+  const drawer = await screen.findByRole('complementary', { name: '노드 설정' })
+  expect(within(drawer).queryByRole('region', { name: 'YAML 에서 고치는 칸' })).toBeNull()
+})
+
+// 리뷰 — 시작 노드에 걸린 검사 결과(START_INCOMING 등)가 「설정」 탭으로 열려도 YAML 로 갈 길이 있다
+it('nodeDrawer_settings_start_offersFixInYaml', async () => {
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={FIXTURE} onOpenYaml={onYaml} />)
+  clickNode('start')
+  const drawer = await screen.findByRole('complementary', { name: '노드 설정' })
+  fireEvent.click(within(drawer).getByRole('button', { name: 'YAML 에서 고치기' }))
+  expect(onYaml).toHaveBeenCalledTimes(1)
+})
+
+// 리뷰 — 서랍에 컨트롤이 없는 칸(decision 조건·default)을 가리키는 검사 결과가 「설정」 탭으로 열려도 YAML 에서 고칠 길이 있다
+it('nodeDrawer_settings_decision_offersFixInYaml', async () => {
+  const onYaml = vi.fn()
+  const y = FIXTURE.replace('  done: { type: end }\n', '  done: { type: end }\n  pick:\n    type: decision\n    conditions:\n      - { when: { context: dev.ok, equals: true }, to: done }\n    default: done\n')
+  renderWithProviders(<Harness initial={y} onOpenYaml={onYaml} />)
+  clickNode('pick')
+  const drawer = await screen.findByRole('complementary', { name: '노드 설정' })
+  fireEvent.click(within(drawer).getByRole('button', { name: 'YAML 에서 고치기' }))
+  expect(onYaml).toHaveBeenCalledTimes(1)
 })

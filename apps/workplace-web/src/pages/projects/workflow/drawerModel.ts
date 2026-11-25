@@ -121,38 +121,47 @@ const PATHS_TAB_CODES: ReadonlySet<string> = new Set(['TASK_OUTCOME_MISSING', 'L
 
 /**
  * 도착 노드(to) 검사 코드 — WorkflowValidator.checkEdges 가 모든 선(outcomes·conditions·onError)에 같은 코드로 낸다.
- * REF_NODE_UNKNOWN(정의 안 된 노드로 이동) · START_INCOMING(start 로 들어오는 연결). 문제에 경로가 없어 어느 선인지는 줄(line)의 YAML 로 가른다.
+ * REF_NODE_UNKNOWN(정의 안 된 노드로 이동) · START_INCOMING(start 로 들어오는 연결). returnTo 도 REF_NODE_UNKNOWN 을 낸다. 문제에 경로가 없어 어느 선인지는 줄(line)의 YAML 로 가른다.
  */
 const EDGE_TARGET_CODES: ReadonlySet<string> = new Set(['REF_NODE_UNKNOWN', 'START_INCOMING'])
 
 /**
- * 문제 줄이 onError 블록 안의 `to` 인지 — 그 줄이나 위로 올라가며 들여쓰기가 더 얕은 첫 줄이 `onError:` 면 그렇다.
- * 같은 줄에 흐름 표기(`onError: { to: x }`)로 쓴 경우도 잡는다. 줄을 못 읽으면 false.
+ * 문제 줄이 outcomes 블록 안인지 — 그 줄이나 위로 올라가며 들여쓰기가 더 얕은 조상 줄 중에 `outcomes:` 가 있으면 그렇다.
+ * 같은 줄에 흐름 표기(`outcomes: { ok: { to: x } }`)로 쓴 경우도 잡는다. 줄 번호가 문서 밖이라 줄을 못 읽으면 undefined(호출자가 기본값을 정한다).
+ * 결과 도착만 「결과·경로」 탭의 컨트롤이 고친다 — decision 의 conditions·default, human_task 의 returnTo, onError, 시작 조건의 to 는 같은 코드여도 여기 걸리지 않는다.
  */
-function isOnErrorLine(yaml: string, line: number): boolean {
+function isOutcomeLine(yaml: string, line: number): boolean | undefined {
   const lines = yaml.split('\n')
   const at = lines[line - 1]
-  if (at === undefined) return false
-  if (/\bonError\s*:/.test(at)) return true
+  if (at === undefined) return undefined
+  if (/\boutcomes\s*:/.test(at)) return true
   const indent = (l: string) => l.length - l.trimStart().length
-  const base = indent(at)
-  for (let i = line - 2; i >= 0; i -= 1) {
+  let base = indent(at)
+  for (let i = line - 2; i >= 0 && base > 0; i -= 1) {
     const l = lines[i]
     if (l.trim() === '' || l.trim().startsWith('#')) continue
-    if (indent(l) < base) return /^\s*onError\s*:/.test(l)
+    if (indent(l) < base) {
+      if (/^\s*(-\s+)?outcomes\s*:/.test(l)) return true
+      base = indent(l)
+    }
   }
   return false
 }
 
 /**
  * 검사 문제를 실제로 고칠 컨트롤이 있는 서랍 탭으로 잇는다.
- * 결과·경로 탭: 결과 도착이 비었거나 정의 안 된 노드(REF_NODE_UNKNOWN·START_INCOMING, 결과·조건의 to)·되돌림 제한.
- * 그 코드가 onError 의 to 에 걸렸으면(줄로 판정) 막혔을 때 도착을 고치는 「설정」 탭. 나머지는 모두 「설정」.
- * yaml 을 안 주면(줄을 못 읽으면) 더 흔한 쪽인 결과·조건의 to, 곧 「결과·경로」로 본다.
+ * 결과·경로 탭: 결과 도착이 비었거나(TASK_OUTCOME_MISSING)·되돌림 제한(LOOP_WITHOUT_MAX_VISITS), 그리고 outcomes 의 to 가 가리키는 노드 문제(REF_NODE_UNKNOWN·START_INCOMING, 줄의 YAML 로 판정).
+ * 나머지는 모두 「설정」 — onError·decision 조건·default·returnTo·시작 조건의 to 가 같은 코드를 내도 결과 컨트롤로는 못 고친다.
+ * 설정 탭에 컨트롤이 없는 것(decision 조건·returnTo)은 설정 탭의 「YAML 에서 고치기」 안내가 맡는다.
+ * yaml 을 안 주면(줄을 못 읽으면) 더 흔한 쪽인 결과의 to, 곧 「결과·경로」로 본다.
  */
 export function problemTab(problem: Pick<WorkflowProblem, 'code' | 'line'>, yaml?: string): NodeDrawerTab {
   if (PATHS_TAB_CODES.has(problem.code)) return 'paths'
-  if (EDGE_TARGET_CODES.has(problem.code)) return yaml !== undefined && isOnErrorLine(yaml, problem.line) ? 'settings' : 'paths'
+  if (EDGE_TARGET_CODES.has(problem.code)) {
+    // 줄을 못 읽으면(yaml 없음·줄 번호가 문서 밖 → undefined) 더 흔한 결과의 to 로 본다 — 못 읽은 것과 outcomes 밖(false)을 구분한다
+    const outcome = yaml === undefined ? undefined : isOutcomeLine(yaml, problem.line)
+    return outcome === false ? 'settings' : 'paths'
+  }
   return 'settings'
 }
 

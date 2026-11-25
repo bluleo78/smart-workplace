@@ -94,6 +94,35 @@ describe('drawerModel', () => {
     }
   })
 
+  // 리뷰 — 「결과·경로」는 outcomes 의 to 만. decision 조건·default, human_task returnTo, start 의 to 는 같은 코드여도 「설정」
+  it('problemTab_edgeTargetCodes_onlyOutcomeLinksGoToPaths', () => {
+    const yaml = [
+      'nodes:', // 1
+      '  a:', // 2
+      '    type: agent_task', // 3
+      '    outcomes:', // 4
+      '      ok:', // 5
+      '        to: nowhere', // 6
+      '      bad: { to: nowhere }', // 7
+      '  b:', // 8
+      '    type: decision', // 9
+      '    conditions:', // 10
+      '      - when: x', // 11
+      '        to: nowhere', // 12
+      '    default: nowhere', // 13
+      '  c:', // 14
+      '    type: human_task', // 15
+      '    returnTo: nowhere', // 16
+      '    outcomes: { ok: { to: nowhere } }', // 17
+      'start:', // 18
+      '  - to: nowhere', // 19
+    ].join('\n')
+    for (const code of ['REF_NODE_UNKNOWN', 'START_INCOMING']) {
+      for (const line of [6, 7, 17]) expect(problemTab({ code, line }, yaml)).toBe('paths')
+      for (const line of [12, 13, 16, 19]) expect(problemTab({ code, line }, yaml)).toBe('settings')
+    }
+  })
+
   it('problemTargetNode_showAsk_keepsRealQuestionNode_movesVirtualOnly', () => {
     const real = graphOf(`nodes:
   start: { type: start }

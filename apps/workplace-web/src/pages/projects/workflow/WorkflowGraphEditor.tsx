@@ -11,6 +11,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
+import { isEditableTarget } from '@/lib/escapeOverlay'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { WorkflowProblem } from '@/lib/workflows'
@@ -19,6 +20,7 @@ import { applyConnection } from './applyConnection'
 import {
   type DrawerState, type GraphProblems, type NodeDrawerTab, nodeProblemLevels, problemTab, problemTargetNode,
 } from './drawerModel'
+import { YamlFixButton } from './DrawerShell'
 import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
 import { drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './graphLayout'
 import {
@@ -325,7 +327,9 @@ function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, probl
     // Esc 는 캔버스 어디에서 눌렀든(노드 위·빈 곳) 열린 서랍을 닫는다(WP-2091) — React Flow 가 노드 위 Esc 로 선택을 풀므로 서랍도 닫아 둘이 어긋나지 않게 한다.
     // 포털로 뜬 메뉴(+ 노드)의 Esc 는 React 트리로는 여기까지 올라오지만 DOM 으로는 캔버스 밖이라 거른다 — 메뉴만 닫히고 서랍은 남게.
     // 서랍을 실제로 닫을 때만 막는다 — 안 막으면 앱 전역 Esc 가 AI 패널까지 함께 닫는다(서랍이 없으면 그대로 두어 AI 패널이 닫히게)
-    if (e.key === 'Escape' && drawer !== null && !e.defaultPrevented && canvasRef.current?.contains(target)) {
+    // 입력 칸(편집기 포함) 안의 Esc 는 그 칸의 몫이라 서랍을 닫지 않는다(DrawerShell 과 같은 규칙).
+    // 서랍은 캔버스 밖 형제라 서랍 안 입력은 이미 contains 로 걸러진다 — 이 가드는 캔버스 안(ReactFlow 아래)의 편집 요소용이라 둔다.
+    if (e.key === 'Escape' && drawer !== null && !e.defaultPrevented && !isEditableTarget(target) && canvasRef.current?.contains(target)) {
       e.preventDefault()
       closeDrawer()
       return
@@ -474,6 +478,7 @@ function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, probl
             readOnly={readOnly}
             onChange={onChange}
             onClose={closeDrawer}
+            onOpenYaml={onOpenYaml}
             workflowId={workflowId}
           />
         )}
@@ -520,7 +525,7 @@ export function WorkflowGraphEditor({ yaml, parsed, readOnly, onChange, onOpenYa
     return (
       <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
         <p>YAML 에 문법 오류가 있어 그래프로 볼 수 없습니다.</p>
-        <Button type="button" variant="outline" size="sm" onClick={onOpenYaml}>YAML 에서 고치기</Button>
+        <YamlFixButton onClick={onOpenYaml} />
       </div>
     )
   }

@@ -2,12 +2,12 @@ import { X } from 'lucide-react'
 import { type ReactNode, useEffect, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { isPlainEscape } from '@/lib/escapeOverlay'
+import { isEditableTarget, isPlainEscape } from '@/lib/escapeOverlay'
 
 /**
  * 서랍 껍데기(WP-2091) — 노드 설정·워크플로우 개요 서랍이 함께 쓰는 틀. 머리 줄(제목 + 「서랍 닫기」)과 본문을 그린다.
  * 화면 고정(Sheet)이 아니라 캔버스의 flex 형제라 캔버스를 밀어내고 앱 옆 패널(AI·도움말)을 덮지 않는다.
- * 서랍 안에서 Esc 를 누르면 닫는다 — 안쪽 컨트롤이 이미 Esc 를 썼으면(defaultPrevented) 그 컨트롤의 일로 두고 닫지 않는다.
+ * 서랍 안에서 Esc 를 누르면 닫는다 — 안쪽 컨트롤이 이미 Esc 를 썼거나(defaultPrevented) 입력 칸 안의 Esc 면 그 칸의 일로 두고 닫지 않는다(칸의 포커스만 푼다).
  */
 export function DrawerShell({ label, heading, onClose, children }: {
   label: '노드 설정' | '워크플로우 개요'
@@ -53,6 +53,14 @@ export function DrawerShell({ label, heading, onClose, children }: {
       onKeyDown={(event) => {
         // 안쪽 컨트롤(메뉴·입력 조합 등)이 Esc 를 먼저 썼거나 한글 조합 중이면 서랍은 닫지 않는다(hooks/useIssueOrigin 과 같은 가드, WP-2091)
         if (!isPlainEscape(event.nativeEvent)) return
+        // 입력 칸·선택 칸·편집기 안의 Esc 는 서랍이 아니라 그 칸의 몫이다 — 쓰던 글(출력 키 초안 등)을 잃지 않게 칸의 포커스만 풀고 서랍은 남긴다.
+        // 한 번 더 누르면(포커스가 칸 밖) 닫힌다. 전역 Esc(AI 패널 닫기)가 함께 닫히지 않게 처리했음은 알린다.
+        if (isEditableTarget(event.target)) {
+          event.preventDefault()
+          // blur() 는 포커스를 body 로 보내 두 번째 Esc 가 서랍 밖(window)에서 시작해 AI 패널을 닫는다 — 서랍 자신(tabIndex=-1)으로 옮겨 두 번째 Esc 가 서랍 안에서 닫게 한다
+          asideRef.current?.focus()
+          return
+        }
         // 앱 전역 Esc(AI 패널 닫기 등)까지 함께 닫히지 않게 처리했음을 알린다 — 한 번에 하나만 닫힌다
         event.preventDefault()
         onClose()
@@ -65,6 +73,11 @@ export function DrawerShell({ label, heading, onClose, children }: {
       {children}
     </aside>
   )
+}
+
+/** 「YAML 에서 고치기」 단추 — 서랍·그래프 오류 카드가 같은 이름·모양으로 YAML 보기에 넘긴다(WP-2091). */
+export function YamlFixButton({ onClick }: { onClick: () => void }) {
+  return <Button type="button" variant="outline" size="sm" onClick={onClick}>YAML 에서 고치기</Button>
 }
 
 /** 서랍 안 절 하나 — 34px 소제목 줄과 본문. 서랍 제목이 h3 라 절 제목은 h4(제목 단계 건너뛰기 없음 — WP-2054). */

@@ -16,7 +16,7 @@ import { NodeSettingsTab } from './NodeSettingsTab'
  * 부모는 key={노드 키} 로 그려 노드를 바꾸면 줄의 지역 상태(입력 중인 값 키·지시 펼침 등)가 새로 시작되게 한다.
  * 탭은 부모가 든다(tab·onTabChange) — 검사 결과에서 노드의 특정 탭을 열 수 있게.
  */
-export function NodeDrawer({ yaml, graph, nodeKey, tab, onTabChange, readOnly, onChange, onClose, workflowId }: {
+export function NodeDrawer({ yaml, graph, nodeKey, tab, onTabChange, readOnly, onChange, onClose, onOpenYaml, workflowId }: {
   yaml: string
   /** 부모가 이미 파싱한 그래프 — 서랍이 YAML 을 다시 파싱하지 않게 역할·공용 지시·노드 목록을 여기서 읽는다 */
   graph: WorkflowGraph
@@ -26,6 +26,8 @@ export function NodeDrawer({ yaml, graph, nodeKey, tab, onTabChange, readOnly, o
   readOnly: boolean
   onChange: (yaml: string) => void
   onClose: () => void
+  /** YAML 보기로 넘어간다 — 설정 탭의 「YAML 에서 고치기」 안내가 쓴다 */
+  onOpenYaml: () => void
   /** 「최근 실행」 탭이 실행을 조회하는 정의 id — 탭을 열었을 때만 묻는다 */
   workflowId: number
 }) {
@@ -53,7 +55,7 @@ export function NodeDrawer({ yaml, graph, nodeKey, tab, onTabChange, readOnly, o
           <TabsTrigger value="paths">결과·경로</TabsTrigger>
           <TabsTrigger value="runs">최근 실행</TabsTrigger>
         </TabsList>
-        <TabsContent value="settings"><NodeSettingsTab {...tabProps} /></TabsContent>
+        <TabsContent value="settings"><NodeSettingsTab {...tabProps} onOpenYaml={onOpenYaml} /></TabsContent>
         <TabsContent value="paths"><NodePathsTab {...tabProps} onClose={onClose} /></TabsContent>
         <TabsContent value="runs"><NodeRecentRuns workflowId={workflowId} nodeKey={nodeKey} enabled={tab === 'runs'} /></TabsContent>
       </Tabs>
