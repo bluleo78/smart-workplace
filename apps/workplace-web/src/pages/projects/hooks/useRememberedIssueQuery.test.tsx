@@ -17,6 +17,7 @@ import { memoryStorage } from '@/test/memoryStorage'
 import { testAuthValue } from '@/test/renderWithProviders'
 
 import { IGNORED_CLEARED_STATE, rememberedIssueQuery, useRememberedIssueQuery } from './useRememberedIssueQuery'
+import { withIssueFiltersReset } from './useResetIssueFilters'
 
 // AI 대화 링크가 기대는 패널·대화 세션 — 패널 열기는 끊고, 대화 열기(openSession)는 불렸는지만 본다(대화 링크 처리가 덮이지 않았는지).
 const openSession = vi.hoisted(() => vi.fn((id: string) => Promise.resolve(id ? 'ok' : 'not-found')))
@@ -102,6 +103,24 @@ describe('useRememberedIssueQuery', () => {
     act(() => result.current.setParams(new URLSearchParams(), { replace: true }))
     expect(localStorage.getItem(keyOf('WP'))).toBeNull()
     expect(result.current.location.search).toBe('')
+  })
+
+  // WP-2125: 개요 링크(fromOverview)로 들어온 뒤 「필터 지우기」(리셋 신호 state)를 해도 기억을 지운다 — 표지가 남으면 옛 필터가 다음 진입에 되살아난다.
+  it('개요 링크로 들어온 뒤 「필터 지우기」를 하면 기억도 지운다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    const { result } = renderAt({ pathname: '/projects/WP', search: '?priority=HIGH', state: { fromOverview: true } })
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: withIssueFiltersReset({ fromOverview: true }) }))
+    expect(localStorage.getItem(keyOf('WP'))).toBeNull()
+  })
+
+  it('withIssueFiltersReset — 개요·지우기 표지는 빼고 열림 마크는 살리며, 신호값은 호출마다 달라진다', () => {
+    const a = withIssueFiltersReset({ fromOverview: true, ignoredCleared: true, sheet: '1' }) as Record<string, unknown>
+    const b = withIssueFiltersReset(a) as Record<string, unknown>
+    expect(a.fromOverview).toBeUndefined()
+    expect(a.ignoredCleared).toBeUndefined()
+    expect(a.sheet).toBe('1')
+    expect(b.issueFiltersReset).not.toBe(a.issueFiltersReset)
   })
 
   it('프로젝트를 불러오기 전(또는 볼 수 없는 프로젝트)에는 되살리지도 기억하지도 않는다', () => {

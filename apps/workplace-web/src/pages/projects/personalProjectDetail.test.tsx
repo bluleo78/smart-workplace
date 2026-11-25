@@ -1246,6 +1246,18 @@ describe('빈 상태(#252·WP-918)', () => {
     expect(paramsOf(location()).get('group')).toBe('priority')
   })
 
+  // WP-2125: 검색어를 치고 300ms 안에 「필터 지우기」를 눌러도 대기 중이던 q 쓰기가 지운 뒤 되살아나지 않는다.
+  test('검색어를 치자마자 필터 지우기를 눌러도 300ms 뒤 q 가 되살아나지 않는다', async () => {
+    const api = personalApi([])
+    const { user, location } = await open(`/projects/${KEY}?status=CANCELED&group=priority`, api, 'personal-empty-filter')
+    await user.click(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('결제')
+    await user.click(screen.getByTestId('personal-empty-reset'))
+    await waitFor(() => expect(paramsOf(location()).get('status')).toBeNull())
+    await new Promise((r) => setTimeout(r, 500))
+    expect(paramsOf(location()).get('q')).toBeNull()
+  })
+
   // 서버는 취소 이슈를 주지만 체크리스트는 CANCELED 를 섹션에 넣지 않는다 — 그릴 행 0개도 「필터 0건」이다(WP-918).
   test('상태 「취소」로 거른 결과가 섹션에 안 보이면 필터 0건 빈 상태, 필터 지우기는 status 만 지운다', async () => {
     const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '취소된 작업', status: 'CANCELED' })])

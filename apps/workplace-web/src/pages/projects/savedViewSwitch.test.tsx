@@ -108,6 +108,19 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
     expect(scrollTo).toHaveBeenCalledWith({ top: 0 })
   })
 
+  // WP-2125: 검색어를 치고 300ms 안에 「전체」 칩·저장 보기를 골라도 대기 중이던 q 쓰기가 되살아나지 않는다.
+  test('검색어를 치자마자 「전체」 칩·저장 보기를 골라도 300ms 뒤 q 가 되살아나지 않는다', async () => {
+    const { user, location } = await open()
+    const box = () => screen.getByRole('textbox', { name: '이슈 필터: 제목·키' })
+    for (const chip of ['view-chip-all', 'view-chip-1']) {
+      await user.click(box())
+      await user.paste('결제')
+      fireEvent.click(screen.getByTestId(chip))
+      await new Promise((r) => setTimeout(r, 500))
+      expect(new URL(location(), 'http://x').searchParams.has('q')).toBe(false)
+    }
+  })
+
   test('칩을 오가도 화면에 칩 둘이 켜지거나 「수정됨」·뷰 업데이트가 비치는 순간이 없다', async () => {
     await open()
     // 커밋마다 칩 줄의 모양을 적는다 — 한 커밋의 DOM 변경은 같은 마이크로태스크에서 한 번에 보인다.
