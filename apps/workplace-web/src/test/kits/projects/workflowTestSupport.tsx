@@ -111,6 +111,8 @@ export function renderWorkflow({ manager = true, empty = false, enterTab = true,
     setSummaries: (next: typeof summaries) => { currentSummaries = next },
     setManager: (next: boolean) => { canManage = next },
     refreshWorkflow: () => queryClient.invalidateQueries({ queryKey: workflowKeys.detail(42), exact: true }),
+    /** 게시 버전 목록(진행 중 실행 수)을 다시 읽게 한다 */
+    refreshVersions: () => queryClient.invalidateQueries({ queryKey: workflowKeys.versions(42), exact: true }),
     refreshSummaries: () => queryClient.invalidateQueries({ queryKey: workflowKeys.list(7), exact: true }),
     refreshProject: () => queryClient.invalidateQueries({ queryKey: projectKeys.detail('WP'), exact: true }),
   }

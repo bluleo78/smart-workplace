@@ -1010,6 +1010,83 @@ it('enableSwitch_runCountLoadFails_dialogStillAllowsTurningOff', async () => {
   await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
 })
 
+// 반려 고침 ②(WP-2119 리뷰 후속) — 끄기 확인 창을 연 채 실행 수를 다시 불러오는 중에도 지난 수를 두고 「끄기」를 잠그지 않는다.
+it('enableSwitch_dialogOpen_versionsRefetching_keepsCountAndTurnOff', async () => {
+  const view = renderWorkflow()
+  const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
+  let calls = 0
+  let release!: () => void
+  const refetchStarted = new Promise<void>((resolve) => {
+    server.use(http.get('/api/v1/workflows/42/versions', async () => {
+      if (++calls > 1) {
+        resolve()
+        await new Promise<void>((done) => { release = done })
+      }
+      return HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 4 }])
+    }))
+  })
+  onTestFinished(() => release?.())
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  await userEvent.click(toggle)
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('진행 중 실행 4 건은 계속됩니다. 새로 시작만 막습니다')).toBeVisible()
+  void view.refreshVersions()
+  await refetchStarted
+  // 다시 불러오는 동안에도 지난 수를 보이고 「끄기」는 열려 있다.
+  expect(within(dialog).getByText('진행 중 실행 4 건은 계속됩니다. 새로 시작만 막습니다')).toBeVisible()
+  const turnOff = within(dialog).getByRole('button', { name: '끄기' })
+  expect(turnOff).toBeEnabled()
+  await userEvent.click(turnOff)
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+})
+
+// 리뷰 후속 ① — 실행 수를 받은 뒤 다시 불러오기가 실패하면 낡은 수 대신 실패와 다시 불러오기를 보인다(끄기는 막지 않는다).
+it('enableSwitch_versionsRefetchFails_dialogShowsLoadErrorInsteadOfStaleCount', async () => {
+  const view = renderWorkflow()
+  const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
+  let fail = false
+  server.use(http.get('/api/v1/workflows/42/versions', () => fail
+    ? new HttpResponse(null, { status: 500 })
+    : HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 4 }])))
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  await waitFor(() => expect(screen.getByRole('tab', { name: '실행 4' })).toBeVisible())
+  fail = true
+  await act(async () => { await view.refreshVersions() })
+  await userEvent.click(toggle)
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('진행 중 실행 수를 불러오지 못했습니다.')).toBeVisible()
+  expect(within(dialog).queryByText(/진행 중 실행 4 건/)).not.toBeInTheDocument()
+  expect(within(dialog).getByRole('button', { name: '실행 수 다시 불러오기' })).toBeVisible()
+  await userEvent.click(within(dialog).getByRole('button', { name: '끄기' }))
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+})
+
+// 반려 고침 ③(WP-2119 리뷰 후속) — 켜고 끄기는 초안과 따로라 초안 충돌 배너 중에도 스위치를 잠그지 않는다.
+it('enableSwitch_notLockedDuringDraftConflict', async () => {
+  renderWorkflow()
+  const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
+  server.use(
+    http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
+    http.put('/api/v1/workflows/42/draft', () => HttpResponse.json({ errors: { code: 'WORKFLOW_DRAFT_CONFLICT' } }, { status: 409 })),
+    http.get('/api/v1/workflows/42/versions', () => HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 0 }])),
+  )
+  await userEvent.click(await screen.findByRole('tab', { name: 'YAML' }))
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 충돌\nnodes:\n  review: {}' } })
+  const save = screen.getByRole('button', { name: '초안 저장' })
+  await waitFor(() => expect(save).toBeEnabled())
+  fireEvent.click(save)
+  expect(await screen.findByRole('button', { name: '최신 초안 불러오기' })).toBeVisible()
+  // 충돌 중 초안 쓰기 단추는 잠기지만 사용 스위치는 그대로 쓸 수 있다.
+  expect(screen.getByRole('button', { name: '초안 저장' })).toBeDisabled()
+  const toggle = screen.getByRole('switch', { name: '워크플로우 사용' })
+  expect(toggle).toBeEnabled()
+  await waitFor(() => expect(screen.getByRole('tab', { name: '실행 0' })).toBeVisible())
+  await userEvent.click(toggle)
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+})
+
 it('enableSwitch_noActiveRuns_turnsOffWithoutDialog', async () => {
   renderWorkflow()
   const bodies = enabledWorkflow(() => HttpResponse.json({ ...workflowDetail, enabled: false }))
