@@ -7,9 +7,10 @@ import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
 import { buildIssueDetailContext } from '@/lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '@/lib/api-error';
 
-export function usePersonalTask(projectKey: string, number: number) {
+/** options.quietConflict — 409 토스트를 끈다(useVersionedPatch 가 충돌을 안내하는 화면용, WP-2095). */
+export function usePersonalTask(projectKey: string, number: number, options?: { quietConflict?: boolean }) {
   const q = useIssue(projectKey, number);
-  const update = useUpdateIssue(projectKey, number);
+  const update = useUpdateIssue(projectKey, number, options);
   // 원격 삭제 후 재조회 404 — stale q.data 가 남아도 필드/제목을 숨기고 not-found 만 보여준다.
   const gone = isNotFoundError(q.error);
   const data = gone ? undefined : q.data;

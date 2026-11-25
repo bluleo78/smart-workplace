@@ -172,3 +172,11 @@ export function isNotFoundError(error: unknown): boolean {
 export function isConflictError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 409;
 }
+
+/**
+ * 낙관적 잠금(이슈 version) 충돌인 409 인가 — 오류 코드가 없는 409 만이다(WP-2095).
+ * 왜: STATUS_DELETED 같은 코드가 붙은 409 는 버전 충돌이 아니므로 필드 충돌 판정·최신 재조회로 보내지 않고 서버 문구 토스트를 그대로 띄운다.
+ */
+export function isVersionConflictError(error: unknown): boolean {
+  return isConflictError(error) && extractApiErrorCode(error) == null;
+}

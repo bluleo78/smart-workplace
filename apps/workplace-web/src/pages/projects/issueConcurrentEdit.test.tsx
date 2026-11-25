@@ -90,24 +90,43 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 제목', () => {
     expect(screen.queryByText(CONFLICT, { exact: false })).not.toBeInTheDocument()
   })
 
-  test('다른 곳에서 먼저 수정됐으면 409 안내 후 입력을 유지한 채 최신 이슈를 다시 불러오고, 다시 저장하면 성공한다', async () => {
+  test('다른 사람이 제목을 먼저 바꿨으면 충돌 안내를 띄우고 다시 저장해도 덮어쓰지 않으며, 덮어쓰기를 확인하면 최신 version 으로 성공한다', async () => {
     const { user, server } = await open()
-    // 다른 탭이 먼저 저장한 상황 — 서버만 앞서간다.
+    // 다른 탭이 먼저 제목을 저장한 상황 — 서버만 앞서간다.
     server.title = '다른 탭 제목'
     server.version = 2
-    const getsBefore = server.gets
 
     await editTitle(user, '내 제목')
-    expect(await screen.findByText(CONFLICT, { exact: false })).toBeInTheDocument()
+    const banner = await screen.findByTestId('issue-edit-conflict-title')
+    expect(banner).toHaveTextContent('다른 사람이 방금 제목을 먼저 저장했습니다. 내 글은 아직 저장되지 않았습니다.')
     expect(server.patches[0].version).toBe(1)
-    // 입력한 제목은 버리지 않고 편집을 다시 열어 두고, 최신 이슈를 다시 불러온다.
+    // 입력한 제목은 버리지 않고 편집을 열어 둔다. 409 토스트는 뜨지 않는다.
     expect(await screen.findByTestId('issue-title-input')).toHaveValue('내 제목')
-    await waitFor(() => expect(server.gets).toBeGreaterThan(getsBefore))
+    expect(screen.queryByText(CONFLICT, { exact: false })).not.toBeInTheDocument()
 
+    // 충돌 중에는 다시 저장해도 요청을 보내지 않는다(덮어쓰지 않는다).
     fireEvent.keyDown(screen.getByTestId('issue-title-input'), { key: 'Enter' })
+    expect(server.patches).toHaveLength(1)
+    expect(server.title).toBe('다른 탭 제목')
+
+    // 덮어쓰기는 확인 대화상자를 거친 뒤에만 최신 version 으로 간다.
+    await user.click(await within(await screen.findByTestId('issue-edit-conflict-title')).findByRole('button', { name: '내 글로 덮어쓰기…' }))
+    expect(await screen.findByText('다른 사람의 제목을 덮어쓸까요?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '덮어쓰기' }))
     await waitFor(() => expect(server.patches).toHaveLength(2))
     expect(server.patches[1].version).toBe(2)
-    expect(await within(screen.getByTestId('issue-title-heading')).findByText('내 제목')).toBeInTheDocument()
+    expect(server.title).toBe('내 제목')
+  })
+
+  test('충돌 안내에서 최신 제목으로 다시 쓰면 입력이 최신 값으로 바뀌고 충돌이 사라진다', async () => {
+    const { user, server } = await open()
+    server.title = '다른 탭 제목'
+    server.version = 2
+    await editTitle(user, '내 제목')
+    await user.click(await within(await screen.findByTestId('issue-edit-conflict-title')).findByRole('button', { name: '최신 제목으로 다시 쓰기' }))
+    expect(await screen.findByTestId('issue-title-input')).toHaveValue('다른 탭 제목')
+    expect(screen.queryByTestId('issue-edit-conflict-title')).not.toBeInTheDocument()
+    expect(server.title).toBe('다른 탭 제목')
   })
 
   test('편집하는 사이 SSE 로 캐시가 새로 받아져도 편집 시작 시점의 version 으로 저장해 충돌을 놓치지 않는다', async () => {
@@ -145,7 +164,7 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 제목', () => {
     fireEvent.keyDown(screen.getByTestId('issue-title-input'), { key: 'Enter' })
     await waitFor(() => expect(server.patches).toHaveLength(1))
     expect(server.patches[0].version).toBe(1)
-    expect(await screen.findByText(CONFLICT, { exact: false })).toBeInTheDocument()
+    expect(await screen.findByTestId('issue-edit-conflict-title')).toBeInTheDocument()
     expect(server.title).toBe('다른 탭 제목')
   })
 })
@@ -178,20 +197,118 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 본문', () => {
     expect(screen.queryByText(CONFLICT, { exact: false })).not.toBeInTheDocument()
   })
 
-  test('본문 저장이 409 로 실패하면 입력을 잃지 않고 편집을 다시 열며, 다시 저장하면 최신 version 으로 성공한다', async () => {
+  test('다른 필드만 바뀐 409 는 안내 없이 최신 version 으로 자동 재저장해 성공한다', async () => {
     const { user, server } = await open()
     await editBody(user, '공들여 쓴 본문')
+    // 다른 탭이 제목만 바꿨다 — 본문은 그대로.
     server.title = '다른 탭 제목'
     server.version = 2
     saveShortcut()
 
-    expect(await screen.findByText(CONFLICT, { exact: false })).toBeInTheDocument()
-    expect(screen.getByTestId('issue-body-textarea')).toHaveTextContent(/^공들여 쓴 본문$/)
-    // 최신 이슈가 다시 불러와진 뒤 다시 저장 → 최신 version 으로 성공.
-    expect(await within(screen.getByTestId('issue-title-heading')).findByText('다른 탭 제목')).toBeInTheDocument()
+    await waitFor(() => expect(server.patches).toHaveLength(2))
+    expect(server.patches[0].version).toBe(1)
+    expect(server.patches[1]).toMatchObject({ body: '공들여 쓴 본문', version: 2 })
+    await waitFor(() => expect(server.body).toBe('공들여 쓴 본문'))
+    expect(screen.queryByText(CONFLICT, { exact: false })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('issue-edit-conflict-body')).not.toBeInTheDocument()
+  })
+
+  test('다른 사람이 본문을 먼저 바꿨으면 안내를 띄우고 입력을 지키며, 다시 저장해도 덮어쓰지 않고 덮어쓰기를 확인하면 성공한다', async () => {
+    const { user, server } = await open()
+    await editBody(user, '공들여 쓴 본문')
+    server.body = '다른 사람 본문'
+    server.version = 2
     saveShortcut()
+
+    const banner = await screen.findByTestId('issue-edit-conflict-body')
+    expect(banner).toHaveTextContent('다른 사람이 방금 본문을 먼저 저장했습니다. 내 글은 아직 저장되지 않았습니다.')
+    expect(screen.getByTestId('issue-body-textarea')).toHaveTextContent(/^공들여 쓴 본문$/)
+
+    // 충돌 중에는 다시 저장해도 요청을 보내지 않는다.
+    saveShortcut()
+    expect(server.patches).toHaveLength(1)
+    expect(server.body).toBe('다른 사람 본문')
+
+    await user.click(await within(await screen.findByTestId('issue-edit-conflict-body')).findByRole('button', { name: '내 글로 덮어쓰기…' }))
+    expect(await screen.findByText('다른 사람의 본문을 덮어쓸까요?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '덮어쓰기' }))
     await waitFor(() => expect(server.patches).toHaveLength(2))
     expect(server.patches[1]).toMatchObject({ body: '공들여 쓴 본문', version: 2 })
     expect(server.body).toBe('공들여 쓴 본문')
+  })
+
+  test('최신으로 다시 쓰고 내 글을 불러와 저장해도 요청이 가지 않고 충돌 안내가 다시 뜨며, 덮어쓰기를 확인해야 내 글이 최신 version 으로 저장된다', async () => {
+    const { user, server } = await open()
+    await editBody(user, '공들여 쓴 본문')
+    server.body = '다른 사람 본문'
+    server.version = 2
+    saveShortcut()
+    await within(await screen.findByTestId('issue-edit-conflict-body')).findByRole('button', { name: '최신 본문으로 다시 쓰기' }).then((b) => user.click(b))
+    await waitFor(() => expect(screen.queryByTestId('issue-edit-conflict-body')).not.toBeInTheDocument())
+    await user.click(await screen.findByTestId('issue-body-draft-restore'))
+    // 되살린 내 글 — 충돌 안내가 다시 뜬다.
+    const banner = await screen.findByTestId('issue-edit-conflict-body')
+    expect(screen.getByTestId('issue-body-textarea')).toHaveTextContent(/^공들여 쓴 본문$/)
+
+    saveShortcut()
+    await user.click(screen.getByTestId('issue-body-save'))
+    expect(server.patches).toHaveLength(1)
+    expect(server.body).toBe('다른 사람 본문')
+
+    await user.click(within(banner).getByRole('button', { name: '내 글로 덮어쓰기…' }))
+    await user.click(await screen.findByRole('button', { name: '덮어쓰기' }))
+    await waitFor(() => expect(server.patches).toHaveLength(2))
+    expect(server.patches[1]).toMatchObject({ body: '공들여 쓴 본문', version: 2 })
+    expect(server.body).toBe('공들여 쓴 본문')
+  })
+})
+
+describe('이슈 동시 편집 — 앞서 저장한 사람 알림 (WP-2095)', () => {
+  /** 통합 SSE 스트림 — push 로 코멘트 이벤트를 흘려 상세 캐시를 다시 받게 한다. */
+  function sse() {
+    let push: (chunk: string) => void = () => {}
+    const handler = http.get('/api/v1/events', ({ request }) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const enc = new TextEncoder()
+          push = (chunk) => controller.enqueue(enc.encode(chunk))
+          controller.enqueue(enc.encode(': connected\n\n'))
+          request.signal.addEventListener('abort', () => {
+            try {
+              controller.close()
+            } catch {
+              // 이미 닫혔으면 무시
+            }
+          })
+        },
+      })
+      return new HttpResponse(stream, { headers: { 'Content-Type': 'text/event-stream' } })
+    })
+    const refetch = () => act(() => push(`event: issue.commented\ndata: ${JSON.stringify({ projectKey: KEY, issueNumber: ISSUE_NUMBER })}\n\n`))
+    return { handler, refetch }
+  }
+
+  test('다른 사람이 제목을 바꿔 상세가 새로 받아지면 토스트로 알리고, 바뀌기 전 보기로 이전 제목을 읽기 전용으로 보여 준다', async () => {
+    const { handler, refetch } = sse()
+    const { user, server } = await open(0, { handlers: [handler], extra: appEventStream() })
+    server.title = '다른 사람 제목'
+    server.version = 2
+    const getsBefore = server.gets
+    refetch()
+    await waitFor(() => expect(server.gets).toBeGreaterThan(getsBefore))
+
+    expect(await screen.findByText('다른 사람이 제목을 바꿨습니다')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '바뀌기 전 보기' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('바뀌기 전 제목')).toBeInTheDocument()
+    expect(within(dialog).getByTestId('issue-edit-before-value')).toHaveTextContent('원본 제목')
+  })
+
+  test('내 저장으로 version 이 올라 상세가 새로 받아져도 토스트를 띄우지 않는다', async () => {
+    const { user, server } = await open()
+    await editTitle(user, '내 제목')
+    await waitFor(() => expect(server.patches).toHaveLength(1))
+    expect(await within(screen.getByTestId('issue-title-heading')).findByText('내 제목')).toBeInTheDocument()
+    expect(screen.queryByText('다른 사람이 제목을 바꿨습니다')).not.toBeInTheDocument()
   })
 })
