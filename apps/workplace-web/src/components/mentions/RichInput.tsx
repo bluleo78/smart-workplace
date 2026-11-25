@@ -260,8 +260,8 @@ export function RichInput({
   // 멘션 후보 팝업 aria(WP-2061): 목록 id 는 RichInput 마다 달라야 하고, 활성 후보 순번(null=팝업 없음)은 MentionList 가 알려 준다.
   const mentionListId = useId();
   const [mentionActive, setMentionActive] = useState<number | null>(null);
-  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음 — 본문 모드 키 위임·Esc(handleBodyEscape),
-  // 코멘트·채팅 수정 중 Esc 양보(WP-2082)가 읽음. 코멘트·채팅 키 가드는 아래 mentionCandidatesVisible), dismissed: 이번 자동완성에서
+  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음 — 본문 모드 Esc(handleBodyEscape),
+  // 코멘트·채팅 수정 중 Esc 양보(WP-2082)가 읽음 — Esc 는 아직 이 값을 본다. Enter·방향키 가드는 아래 mentionCandidatesVisible, WP-2124), dismissed: 이번 자동완성에서
   // Esc 로 닫았는가(닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
   // 맞는 멤버가 없는 @단어(@Override·@media·@zzzz)에도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음) 후보가 보일 때만 키를 팝업에 넘긴다.
   // query: 목록(live)이 마지막으로 따라온 검색어(onStart·onUpdate 의 props.query — 팝업이 없으면 null). 지금 플러그인 상태의 검색어와 다르면
@@ -463,6 +463,8 @@ export function RichInput({
           render: () => {
             let component: ReactRenderer<MentionListHandle> | null = null;
             let popup: TippyInstance | null = null;
+            // 목록이 마지막으로 그려진 검색어(onStart·onUpdate 의 props.query) — 문서의 지금 검색어와 비교해 목록이 낡았는지 안다(WP-2124).
+            let listQuery: string | null = null;
             // 후보 목록 props — suggestion props 에 목록 id·활성 알림을 붙인다(updateProps 는 통째로 바꾸므로 매번 같이 넘긴다).
             const listProps = (props: SuggestionProps<MentionCandidate>) => ({
               ...props,
@@ -471,6 +473,7 @@ export function RichInput({
             });
             return {
               onStart: (props: SuggestionProps<MentionCandidate>) => {
+                listQuery = props.query;
                 bodyPopupRef.current = {
                   live: props.items.length > 0,
                   dismissed: false,
@@ -502,6 +505,7 @@ export function RichInput({
                 });
               },
               onUpdate: (props: SuggestionProps<MentionCandidate>) => {
+                listQuery = props.query;
                 const bodyPopup = bodyPopupRef.current;
                 bodyPopup.live = !bodyPopup.dismissed && props.items.length > 0;
                 bodyPopup.query = props.query;
@@ -510,8 +514,10 @@ export function RichInput({
               },
               onKeyDown: (props: SuggestionKeyDownProps) => {
                 // 본문 모드: 고를 후보가 보이지 않으면(맞는 멤버 없음·Esc 로 닫음) 키를 넘긴다 — Enter 는 줄바꿈.
+                // 비동기 live 가 아니라 플러그인 상태의 검색어로 판정해, 조합 확정 Enter 가 막 후보가 생기는 값이 된 직후여도 놓치지 않는다(WP-2124).
                 // (본문 모드 Esc·Cmd/Ctrl+Enter 는 이보다 먼저 불리는 handleBodyKeyDown 이 받아 여기 오지 않는다.)
-                if (bodyModeEnabled && !bodyPopupRef.current.live) return false;
+                const candidatesVisible = mentionCandidatesVisible(props.view.state);
+                if (bodyModeEnabled && !candidatesVisible) return false;
                 if (props.event.key === 'Escape') {
                   // 팝업을 숨기고 aria 속성을 걷는다(suggestion 은 onExit 까지 살아 있을 수 있다 — hide 가 dismissed 를 세운다).
                   bodyPopupRef.current.hide?.();
@@ -521,10 +527,15 @@ export function RichInput({
                 // 보이지 않는 후보가 선택되지 않게 한다(WP-2062). Escape 는 위에서 팝업 쪽이 먼저 먹는다.
                 // (onCancel 이 있으면 숨긴 팝업은 양보하지 않으므로 두 번째 Esc 는 handleKeyDown 이 먼저 받아 수정을 취소한다 — onCancel 이 없을 때만 팝업 쪽이 삼킨다, WP-2082.)
                 // 코멘트·채팅도 보이는 후보가 없으면(맞는 멤버 없음) 방향키·Enter 를 넘기지 않는다 — Enter 가 전송으로 가게(WP-2107).
-                if (!mentionCandidatesVisible(props.view.state)) return false;
+                if (!candidatesVisible) return false;
+                // 검색어가 바뀐 직후엔 목록(onUpdate, items 를 await)이 아직 앞 검색어의 항목을 들고 있다 — 그 Enter 가 낡은 항목을
+                // 멘션으로 넣지 않게 삼킨다(전송·줄 나누기도 아님). 목록이 따라오면 다음 Enter 가 새 후보를 고른다. 방향키는 그대로 목록에 넘긴다(WP-2124).
+                if (props.event.key === 'Enter' && mentionPluginKey.getState(props.view.state)?.query !== listQuery) return true;
                 // 후보가 보이는데 목록(onUpdate)이 아직 못 따라와 비어 있으면(한글 조합을 끝내는 Enter) 목록은 키를 넘긴다 —
                 // 그 Enter 는 handleKeyDown 이 이미 멘션에 양보했으니 줄 나누기가 되지 않게 삼키고, 곧 뜨는 목록에서 고르게 한다(WP-2107).
-                return (component?.ref?.onKeyDown(props) ?? false) || isSubmitEnter(props.event);
+                // 본문 모드는 삼키지 않는다 — 검색어가 같은데 목록이 비어 있으면(멤버가 목록을 그린 뒤에 옴) 따라올 목록이 없어
+                // 삼키면 Enter 가 아무 일도 하지 않는다. 줄바꿈으로 넘긴다(WP-2124 리뷰). 검색어가 다른 조합 확정 Enter 는 위에서 삼켰다.
+                return (component?.ref?.onKeyDown(props) ?? false) || (!bodyModeEnabled && isSubmitEnter(props.event));
               },
               onExit: () => {
                 setMentionActive(null);

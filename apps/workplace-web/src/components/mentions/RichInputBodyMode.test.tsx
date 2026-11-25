@@ -331,6 +331,56 @@ describe('RichInput 본문 모드 — @단어와 멘션 팝업', () => {
     expect(lastArg(onBodyChange)).toContain('<@7>')
   })
 
+  it('조합 확정 Enter(검색어가 막 후보가 생기는 값이 된 직후)는 줄바꿈하지 않고, 목록이 따라오면 Enter 로 후보를 고른다 (WP-2124)', async () => {
+    const { el, onBodyChange } = renderBody({ initialBody: '첫 줄', members: [MEMBER] })
+    const editor = editorOf(el)
+    // 조합 중 글자 'ㄱ' — 맞는 멤버가 없어 후보가 안 보인다(live=false).
+    await typeAtEnd(editor, ' @ㄱ')
+    expect(screen.queryByTestId('chat-mention-popover')).toBeNull()
+    // 조합 확정 Enter 흉내: 글자 바꾸기와 Enter 를 await 없이 한 act 안에서 보내 onUpdate(live 갱신) 전에 Enter 가 닿게 한다.
+    await act(async () => {
+      const to = editor.state.selection.from
+      editor.chain().insertContentAt({ from: to - 1, to }, '김').run()
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(editor.getJSON().content).toHaveLength(1) // 줄바꿈이 아니다
+    // 목록이 따라오면 다음 Enter 가 그 후보를 고른다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(editor.getJSON().content).toHaveLength(1)
+    expect(JSON.stringify(editor.getJSON())).toContain('mention')
+    expect(lastArg(onBodyChange)).toContain('<@7>')
+  })
+
+  it('멤버가 목록을 그린 뒤에 와도(같은 검색어, 빈 목록) Enter 는 삼켜지지 않고 줄바꿈한다 (WP-2124 리뷰)', async () => {
+    // 멤버 조회가 끝나기 전에 본문을 열어 @ki 를 친다 — 목록은 빈 채로 그려진다.
+    const props = {
+      members: [],
+      ariaLabel: '이슈 본문',
+      inputTestId: INPUT,
+      submitTestId: 'body-submit',
+      bodyMode: { projectKey: 'WP' },
+      onSubmit: vi.fn(),
+      initialBody: '첫 줄',
+    }
+    const view = renderWithProviders(<RichInput {...props} />)
+    const el = screen.getByTestId(INPUT)
+    const editor = editorOf(el)
+    await typeAtEnd(editor, ' @ki')
+    expect(screen.queryByTestId('chat-mention-popover')).toBeNull()
+    // 멤버가 도착한다(검색어는 그대로라 목록은 다시 그려지지 않는다).
+    view.rerender(<RichInput {...props} members={[MEMBER]} />)
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    // 삼키면 아무 일도 없다 — 본문 모드 Enter 는 줄바꿈이어야 한다.
+    expect(editor.getJSON().content).toHaveLength(2)
+  })
+
   it('맞는 멤버 후보가 보여도 Ctrl/⌘+Enter 는 멘션을 고르지 않고 지금 원문으로 저장한다', async () => {
     const { el, onSubmit, onBodyChange } = renderBody({ initialBody: '첫 줄', members: [MEMBER] })
     await typeAtEnd(editorOf(el), ' @ki')
