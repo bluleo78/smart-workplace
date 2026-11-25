@@ -5,6 +5,9 @@
 //   이 화면에 조건이 있었어도 링크·뒤로 가기(PUSH·POP)로 조건 없이 다시 들어오면(사이드바의 같은 프로젝트 링크) 되살린다.
 // - 알 수 없는 필터 값만 든 주소(?status=BOGUS, WP-2083)는 조건이 있는 주소로 보아 되살리지 않고, 기억도 쓰지도 지우지도 않는다 — 오타 주소가 기억을 덮거나 지우지 않게.
 //   그 값을 「주소에서 지우기」로 치운 이동(state IGNORED_CLEARED_STATE)은 기억을 되살리지도 cleared 로 지우지도 않는다(남은 조건이 있으면 평소처럼 기억).
+//   「지운 뒤」 동작(WP-2083 리뷰): 지워 조건 없는 목록이 된 화면은, 같은 화면에 머무는 동안 오는 조건 없는 replace(AI 대화 링크의 aiChat 지우기 등)로
+//   보이는 목록 조건을 바꾸지 않는다(되살리지도, 기억을 지우지도 않는다). 링크·뒤로/앞으로·새로고침(PUSH·POP)이나 목록 화면이 새로 붙는 진입(모바일 뒤로 가기)은
+//   평소처럼 조건 없는 주소로 들어온 것이라 기억을 되살리고, 화면에 조건이 다시 생기면 이 유지도 끝난다.
 // - 들어온 주소에 조건이 없을 때만 되살린다 — 공유 링크·에픽 링크·저장된 뷰처럼 주소에 조건이 있으면 그것을 따르고 기억을 바꾼다.
 // - 개요 탭(WP-1478)의 링크는 조건을 단 주소로 이슈 탭을 열지만 기억은 바꾸지 않는다(state FROM_OVERVIEW_STATE) — 「오래 멈춤」·
 //   고정 날짜(마감 ~11/10) 같은 그때그때의 조건이 사용자가 고른 기억을 덮지 않게. 화면 안에서 조건을 바꾸면(replace, state 없음) 다시 기억한다.
@@ -81,9 +84,20 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   const [hadConditionsFor, setHadConditionsFor] = useState<string | null>(null)
   if (recordable && storageKey && hadConditionsFor !== storageKey) setHadConditionsFor(storageKey)
   const hadConditions = storageKey !== null && hadConditionsFor === storageKey
+  // 알 수 없는 값을 지워 조건 없는 목록이 된 화면(이 프로젝트의 기억) — 이 화면에 머무는 동안의 조건 없는 replace 는 보이는 조건을 그대로 둔다.
+  // 조건이 다시 생기거나 replace 가 아닌 이동(PUSH·POP)이 오면 끝난다. 렌더 중 갱신이라 같은 렌더에서는 아래 keepCleared 가 바로 계산한다.
+  const [keepClearedFor, setKeepClearedFor] = useState<string | null>(null)
+  const stillReplacing = !recordable && navigationType === 'REPLACE'
+  if (!stillReplacing) {
+    if (keepClearedFor !== null) setKeepClearedFor(null)
+  } else if (ignoredCleared && storageKey && keepClearedFor !== storageKey) {
+    setKeepClearedFor(storageKey)
+  }
+  // 지우기 이동 그 자체이거나, 지운 뒤 같은 화면에 온 조건 없는 replace.
+  const keepCleared = stillReplacing && (ignoredCleared || (storageKey !== null && keepClearedFor === storageKey))
   // 화면 안에서 조건을 모두 지웠다 — 조건이 있던 이 화면이 replace 로 조건 없는 주소가 됐다.
-  const cleared = !explicit && hadConditions && navigationType === 'REPLACE' && !ignoredCleared
-  const stored = storageKey && !explicit && !cleared && !ignoredCleared
+  const cleared = !explicit && hadConditions && navigationType === 'REPLACE' && !keepCleared
+  const stored = storageKey && !explicit && !cleared && !keepCleared
     ? rememberedIssueQuery(new URLSearchParams(readStored(storageKey) ?? '')).toString()
     : ''
 
@@ -98,12 +112,12 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
       }, { replace: true })
       return
     }
-    // 알 수 없는 값 지우기(ignoredCleared)는 cleared·stored 가 이미 막혀 있어, 남은 조건이 있을 때만 기억을 쓴다.
+    // 알 수 없는 값 지우기와 그 뒤 같은 화면의 조건 없는 replace(keepCleared)는 cleared·stored 가 이미 막혀 있어, 남은 조건이 있을 때만 기억을 쓴다.
     // 조건이 있으면 기억하고, 화면 안에서 지웠으면 기억도 지운다. 그 밖(기억이 없는 조건 없는 진입·개요 링크로 온 이동)은 건드리지 않는다.
     if (fromOverview) return
     if (recordable) writeStored(storageKey, query || null)
     else if (cleared) writeStored(storageKey, null)
-  }, [storageKey, stored, recordable, cleared, query, setParams, locationKey, fromOverview, ignoredCleared])
+  }, [storageKey, stored, recordable, cleared, query, setParams, locationKey, fromOverview])
 
   return stored !== ''
 }

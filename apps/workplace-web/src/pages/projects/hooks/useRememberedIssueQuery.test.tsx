@@ -177,13 +177,45 @@ describe('useRememberedIssueQuery', () => {
       expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
     })
 
-    it('기억할 조건 없이 알 수 없는 값만 있던 화면은 지운 뒤 상태 없는 replace 가 와도 기억을 지우지 않는다', () => {
+    it('지운 뒤 같은 화면에 상관없는 상태 없는 replace 가 와도 보이는 조건을 바꾸지 않고 기억도 지우지 않는다', () => {
       localStorage.setItem(keyOf('WP'), 'status=TODO')
       const { result } = renderAt('/projects/WP?status=BOGUS')
       act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
       act(() => result.current.setParams((prev) => { prev.set('aiChat', '1'); return prev }, { replace: true }))
+      expect(searchOf(result)).toEqual(new URLSearchParams('aiChat=1'))
+      act(() => result.current.setParams((prev) => { prev.delete('aiChat'); return prev }, { replace: true }))
+      expect(result.current.location.search).toBe('')
+      expect(result.current.restoring).toBe(false)
       expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
-      expect(searchOf(result)).toEqual(new URLSearchParams('aiChat=1&status=TODO'))
+    })
+
+    it('지운 뒤 AI 대화 링크(aiChat 을 replace 로 지움)가 와도 보이는 조건을 바꾸지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS', 'WP', true, true)
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      // AI 답 안의 대화 링크가 같은 화면 주소에 aiChat 을 replace 로 단다 → 처리기가 다시 replace 로 지운다.
+      act(() => result.current.setParams(new URLSearchParams('aiChat=bad'), { replace: true }))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지운 뒤에도 같은 프로젝트 링크(PUSH)로 조건 없이 다시 들어오면 평소처럼 되살린다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      act(() => result.current.navigate('/projects/WP'))
+      expect(result.current.location.search).toBe('?status=TODO')
+    })
+
+    it('지운 뒤 화면에서 조건을 골랐다가 모두 지우면 평소처럼 기억도 지운다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      act(() => result.current.setParams(new URLSearchParams('priority=HIGH'), { replace: true }))
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true }))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBeNull()
     })
 
     it('표지가 history.state 에 남은 채 새로고침(POP 진입)하면 평소처럼 기억을 되살린다', () => {
