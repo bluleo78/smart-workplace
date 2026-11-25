@@ -88,6 +88,23 @@ const lineDiff = (a: string, b: string): string[][] => {
     .filter((x): x is string[] => x !== null)
 }
 
+/** ③ 자리 교체의 변형(블록형 ask·ask 위 빈 줄·CRLF)을 함께 쓰는 짧은 픽스처 — roles 줄은 정렬 공백 캐니어다. */
+const ASK_FIXTURE = `schema: genia/workflow@1
+roles:
+  lead:      { name: 팀장,   members: [teamleader@iacloud.kr] }
+
+nodes:
+  a:
+    type: agent_task
+    name: 작업
+    role: owner
+    ask: { role: owner }   # 줄임 표기
+  b: { type: end }
+
+layout:
+  a: { x: 0, y: 0 }
+`
+
 describe('graphYaml', () => {
   it('graphYaml_roundTrip_preservesUntouchedComments', () => {
     const out = updateNode(FIXTURE, 'dev', { instructions: '새 지시' })
@@ -1113,5 +1130,94 @@ layout: { b: { x: 3, y: 4 } }      # 그래프 편집기 좌표(선택)
     ])
     expect(readShared('shared: [')).toEqual([])
     expect(readShared('shared: 3')).toEqual([])
+  })
+
+  // 리뷰 후속 ① — 표시자 뒤에 단 줄 끝 주석(`instructions: |   # 설명`)이 값만 바꾸면 함께 사라졌다
+  it('graphYaml_updateNode_블록스칼라머리줄주석은값을바꿔도남는다', () => {
+    const y =
+      'schema: genia/workflow@1\nnodes:\n  a:\n    type: agent_task\n    name: 작업\n    instructions: |   # 설명\n      원래 줄\n    outcomes:\n      done: { to: b }\n  b: { type: end }\n'
+    const out = updateNode(y, 'a', { instructions: '바뀐 줄\n' })
+    expect(out).toContain('instructions: |   # 설명') // 머리 줄 표시자 뒤 주석이 그대로다
+    expect(out).not.toContain('원래 줄')
+    expect(lineDiff(y, out)).toEqual([['      원래 줄', '      바뀐 줄']]) // 바뀐 값 줄 하나뿐이다
+    expect(doc(out).nodes.a.instructions).toBe('바뀐 줄\n')
+    // 표시자가 사라지는 자리(한 줄짜리 값)에서도 주석은 잃지 않는다
+    const one = updateNode(y, 'a', { instructions: '한 줄' })
+    expect(one).toContain('instructions: 한 줄   # 설명')
+    expect(doc(one).nodes.a.instructions).toBe('한 줄')
+  })
+
+  // 리뷰 후속 ② — 결과 하나의 키만 바꾸면 자리 대응이 없어(설명 안 된 추가·삭제 1:1) 병합이 거부되고
+  // 전문 정규화 dump 로 떨어져 손대지 않은 줄의 정렬 공백까지 다시 써졌다
+  it('graphYaml_updateNode_결과키를바꾸면바꾼줄하나만바뀐다', () => {
+    const out = updateNode(SPEC, 'plan', { outcomes: [{ key: 'done2', to: 'plan_ok', assignTo: 'owner', requireComment: false }] })
+    expect(lineDiff(SPEC, out)).toEqual([['      done: { to: plan_ok, assignTo: owner }', '      done2: { to: plan_ok, assignTo: owner }']])
+    expect(out).toContain(CANARY) // dump 대체면 정렬 공백이 지워진다
+    expect(out.split('\n')).toHaveLength(SPEC.split('\n').length)
+    expect(doc(out).nodes.plan.outcomes).toEqual({ done2: { to: 'plan_ok', assignTo: 'owner' } })
+  })
+
+  // 리뷰 후속 ③ — outcomes 없는 노드의 `ask:` 줄임 표기에 질문 경로를 더하면 노드 맵에서 키 하나가
+  // 없어지고 하나가 생겨 같은 이유로 전문 dump 로 떨어졌다 — ask 자리에 outcomes 를 갈아 끼운다
+  it('graphYaml_addAskPath_outcomes없는줄임표기ask는자리에서outcomes로바뀐다', () => {
+    const y = `schema: genia/workflow@1
+roles:
+  lead:      { name: 팀장,   members: [teamleader@iacloud.kr] }
+
+nodes:
+  a:
+    type: agent_task
+    name: 작업
+    role: owner
+    ask: { role: owner }   # 줄임 표기
+  b: { type: end }
+
+layout:
+  a: { x: 0, y: 0 }
+`
+    const out = addAskPath(y, 'a')
+    expect(out).toContain(CANARY) // 손대지 않은 roles 줄의 정렬 공백이 그대로다
+    expect(out).toContain('      ask: { to: a_ask, assignTo: owner, requireComment: true }   # 줄임 표기')
+    expect(out).not.toContain('    ask: { role: owner }')
+    const d = doc(out)
+    expect(d.nodes.a.ask).toBeUndefined()
+    expect(d.nodes.a.outcomes.ask).toEqual({ to: 'a_ask', assignTo: 'owner', requireComment: true })
+    expect(d.nodes.a_ask).toEqual({
+      type: 'human_task',
+      name: '작업 질문 답변',
+      role: 'owner',
+      returnTo: 'a',
+      outcomes: { answered: { to: 'a', assignTo: 'keep', requireComment: true } },
+    })
+  })
+
+  // 리뷰 후속 ③-2 — 위 자리 교체가 개행·들여쓰기 구조를 따라야 한다:
+  // CRLF 원문에 끼우는 줄이 bare LF 면 편집기·diff 가 갈라 읽고, ask 자리 위 빈 줄·주석 줄을
+  // 들여쓰기 기준으로 삼으면 본문이 0칸에 서 깨진다. 둘 다 전문 dump 로 떨어졌었다.
+  it('graphYaml_addAskPath_CRLF원문에서ask를펼쳐도개행이섞이지않는다', () => {
+    const y = ASK_FIXTURE.replace(/\n/g, '\r\n')
+    const out = addAskPath(y, 'a')
+    const bare = out.replace(/\r\n/g, '') // CRLF 를 빼고 남는 개행 = 섞인 개행
+    expect(bare).not.toContain('\n')
+    expect(bare).not.toContain('\r')
+    expect(out).toContain(CANARY)
+    expect(doc(out).nodes.a.outcomes.ask).toEqual({ to: 'a_ask', assignTo: 'owner', requireComment: true })
+  })
+
+  it('graphYaml_addAskPath_블록형ask와_ask위빈줄도자리에서만바뀐다', () => {
+    // 블록 값 range 는 개행까지 삼킨다 — 새 항목이 줄 끝으로 마감하지 않으면 `}  b:` 가 한 줄로 붙는다
+    const block = ASK_FIXTURE.replace('    ask: { role: owner }   # 줄임 표기', '    ask:\n      role: owner')
+    const blockOut = addAskPath(block, 'a')
+    expect(blockOut).toContain(CANARY)
+    expect(blockOut).toContain('    outcomes:\n      ask: { to: a_ask, assignTo: owner, requireComment: true }\n  b: { type: end }')
+    expect(doc(blockOut).nodes.a.outcomes.ask).toEqual({ to: 'a_ask', assignTo: 'owner', requireComment: true })
+
+    // ask 줄 위 빈 줄은 항목 구역에 딸리고, 본문은 키가 선 칸 아래로만 받는다
+    const blank = ASK_FIXTURE.replace('    ask:', '\n    ask:')
+    const blankOut = addAskPath(blank, 'a')
+    expect(blankOut).toContain(CANARY)
+    expect(blankOut).toContain('    role: owner\n\n    outcomes:\n      ask: { to: a_ask')
+    expect(blankOut).not.toContain('\n\n  b: { type: end }')
+    expect(doc(blankOut).nodes.a.outcomes.ask).toEqual({ to: 'a_ask', assignTo: 'owner', requireComment: true })
   })
 })

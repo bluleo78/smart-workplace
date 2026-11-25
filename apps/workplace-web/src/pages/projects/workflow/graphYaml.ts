@@ -393,7 +393,7 @@ export function nextOutcomeKey(yaml: string, from: string): string {
 export function addAskPath(yaml: string, nodeKey: string): string {
   // 역할·새 키를 읽는 단계도 편집 틀 안에서 — 밖에서 미리 파싱하면 같은 문서를 두 번 읽는다.
   // 거절(노드 없음·맵이 아닌 자리)·파싱 오류는 null 이라 입력을 그대로 둔다.
-  const out = applyEdit(yaml, (d) => {
+  const out = applyEdit(yaml, (d, hints) => {
     const nodes: Record<string, Json> = js(d).nodes ?? {}
     const node = nodes[nodeKey]
     if (!isPlain(node)) return false
@@ -403,8 +403,14 @@ export function addAskPath(yaml: string, nodeKey: string): string {
     const askTo = isPlain(existingAsk) ? existingAsk.to : undefined
     if (typeof askTo === 'string' && isPlain(nodes[askTo]) && nodes[askTo].type === 'human_task') return false
     const nodeMap = mapAt(d, ['nodes', nodeKey])
+    if (!nodeMap) return false
+    // outcomes 칸이 없으면 아래 mapAt 이 새로 만든다 — ask 줄임 표기가 사라지고 outcomes 가 생겨 노드 맵에
+    // 추가·삭제가 하나씩 생기고, 병합 층은 설명 안 된 키 차이로 보고 전문 정규화 출력으로 넘긴다
+    // (손대지 않은 줄이 통째로 다시 써진다 — WP-2040 리뷰 후속 ③). 그 자리를 힌트로 남겨 갈아 끼우게 한다.
+    const hadOutcomes = nodeMap.has('outcomes')
+    const hadAskIdx = nodeMap.items.findIndex((p) => pairKey(p) === 'ask')
     const outcomes = mapAt(d, ['nodes', nodeKey, 'outcomes'])
-    if (!nodeMap || !outcomes) return false
+    if (!outcomes) return false
     const human = Object.values(nodes).find((n) => isPlain(n) && n.type === 'human_task' && str(n.role))
     // ask 줄임 표기에 역할이 적혀 있으면 사람이 정한 그 역할이 먼저다
     const role = (isPlain(node.ask) ? str(node.ask.role) : undefined) ?? (human ? str(human.role) : undefined) ?? str(node.role)
@@ -426,6 +432,11 @@ export function addAskPath(yaml: string, nodeKey: string): string {
     const pos = js(d).layout?.[nodeKey]
     if (isMap(layout) && isPlain(pos) && typeof pos.x === 'number' && typeof pos.y === 'number') {
       layout.set(newKey, flowMap(d, { x: pos.x, y: pos.y + 140 }))
+    }
+    // 힌트는 편집을 다 마친 뒤에 — 병합 층은 after 자리(index)로 힌트를 맞춘다
+    if (hadAskIdx >= 0 && !hadOutcomes) {
+      const idx = nodeMap.items.findIndex((p) => pairKey(p) === 'outcomes')
+      if (idx >= 0) hints.push({ path: ['nodes', nodeKey], index: idx, from: 'ask', to: 'outcomes' })
     }
   })
   return out ?? yaml
@@ -472,7 +483,7 @@ function applyPatch(doc: Document, key: string, patch: NodePatch, hints: RenameH
   if (patch.maxVisits !== undefined) setOrDelete(doc, p('maxVisits'), patch.maxVisits, patch.maxVisits === null)
   if (patch.onError !== undefined && !applyOnError(doc, key, patch.onError)) return false
   if (patch.outputs !== undefined && !applyOutputs(doc, key, patch.outputs, hints)) return false
-  if (patch.outcomes !== undefined && !applyOutcomes(doc, key, patch.outcomes)) return false
+  if (patch.outcomes !== undefined && !applyOutcomes(doc, key, patch.outcomes, hints)) return false
   return true
 }
 
@@ -618,8 +629,13 @@ export function countContextRefs(yaml: string, nodeKey: string, outputKey: strin
 /**
  * outcomes 를 제자리 갱신 — 있던 결과는 순서·주석을 두고 필드만, 빠진 결과는 지우고, 새 결과는 뒤에 붙인다.
  * outcomes 가 맵이 아니면(목록 등) false — 호출자가 입력을 그대로 돌려준다.
+ * 이름만 바뀐 결과는 짝 항목을 그대로 두고 키만 고친다(applyOutputs 와 같은 자리 대응) —
+ * 지우고 새로 더하면 병합 층이 설명 안 된 키 차이로 보아 병합을 포기하고 전문 정규화 출력으로
+ * 넘겨, 손대지 않은 줄의 정렬 공백까지 다시 써진다(WP-2040 리뷰 후속 ②). 그 자리를 hints 로 남긴다.
+ * 결과 키는 짝(Pair)으로 찾는다 — `1:`·`true:` 처럼 문자열이 아닌 키는 `cur.get('1')` 로 찾을 수 없어
+ * 문자열로 찾으면 있던 결과를 지우거나 같은 키를 하나 더 붙이게 된다(readNodeDetail 은 키를 문자열로 넘긴다).
  */
-function applyOutcomes(doc: Document, key: string, outcomes: NodeDetail['outcomes']): boolean {
+function applyOutcomes(doc: Document, key: string, outcomes: NodeDetail['outcomes'], hints: RenameHint[]): boolean {
   const base = ['nodes', key, 'outcomes']
   if (outcomes.length === 0) {
     doc.deleteIn(base)
@@ -627,27 +643,43 @@ function applyOutcomes(doc: Document, key: string, outcomes: NodeDetail['outcome
   }
   const cur = mapAt(doc, base)
   if (!cur) return false
-  const keep = new Set(outcomes.map((o) => o.key))
-  // 결과 키를 쌍(Pair)으로 찾는다 — `1:`·`true:` 처럼 문자열이 아닌 키는 cur.get('1') 로 찾을 수 없어,
-  // 문자열로 찾으면 있던 결과를 지우거나 같은 키를 하나 더 붙이게 된다. readNodeDetail 은 키를 문자열로 넘긴다.
-  cur.items = (cur.items as Pair[]).filter((pair) => keep.has(pairKey(pair)))
-  for (const o of outcomes) {
-    const pair = (cur.items as Pair[]).find((x) => pairKey(x) === o.key)
-    const existing = pair?.value
-    if (!pair || !isMap(existing)) {
-      const value = flowMap(doc, { to: o.to, ...(o.assignTo ? { assignTo: o.assignTo } : {}), ...(o.requireComment ? { requireComment: true } : {}) })
-      // 맵이 아닌 값(`done: ~` 등)이 있던 결과는 그 쌍의 값만 바꿔 자리·키를 지킨다
-      if (pair) pair.value = value
-      else cur.items.push(doc.createPair(o.key, value))
-      continue
+  const old = [...cur.items] as Pair[]
+  const wanted = new Set(outcomes.map((o) => o.key))
+  cur.items = outcomes.map((o, i) => {
+    let pair = old.find((x) => pairKey(x) === o.key)
+    // 자리에 있던 결과가 이름만 바뀐 것 — 키 글자만 갈아 끼우고 병합 측에 자리 대응 힌트를 남긴다
+    const renamed = old[i]
+    if (!pair && renamed && !wanted.has(pairKey(renamed))) {
+      const from = pairKey(renamed)
+      pair = renamed
+      hints.push({ path: base, index: i, from, to: o.key })
+      if (isScalar(pair.key)) pair.key.value = o.key
+      else pair.key = doc.createNode(o.key)
     }
+    // 맵이 아닌 값(`done: ~` 등)이 있던 결과는 그 쌍의 값만 바꿔 자리·키를 지킨다
+    if (!pair) return doc.createPair(o.key, outcomeValue(doc, o))
+    if (!isMap(pair.value)) {
+      pair.value = outcomeValue(doc, o)
+      return pair
+    }
+    const existing = pair.value
     existing.set('to', o.to)
     if (o.assignTo) existing.set('assignTo', o.assignTo)
     else existing.delete('assignTo')
     if (o.requireComment) existing.set('requireComment', true)
     else existing.delete('requireComment')
-  }
+    return pair
+  })
   return true
+}
+
+/** 결과 하나의 값 한 줄(흐름 표기) — 새로 만드는 자리·값이 맵이 아닌 자리를 갈아 끼운다. */
+function outcomeValue(doc: Document, o: NodeDetail['outcomes'][number]): YAMLMap {
+  return flowMap(doc, {
+    to: o.to,
+    ...(o.assignTo ? { assignTo: o.assignTo } : {}),
+    ...(o.requireComment ? { requireComment: true } : {}),
+  })
 }
 
 /**
