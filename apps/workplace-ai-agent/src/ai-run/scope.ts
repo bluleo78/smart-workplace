@@ -144,6 +144,7 @@ export class AiRunScope {
    * 러너 시작. 첫 호출에서만 RUNNING 기록을 넣는다. 모델은 마지막 값을 쓴다.
    * 돌려주는 순번을 같은 호출의 runnerFinished 에 넘기면, 그 호출이 성공할 때 시작 전에 끝난 실패만 우회로 표시한다(WP-2106).
    * call 을 넘기면 그 객체와 순번을 묶어 둔다 — 나중에 forgiveRunnerFailure(call) 이 그 호출의 실패만 지우게 한다(WP-2122).
+   * RUNNING 기록을 만들다 실패해도 순번은 돌려준다 — 못 돌려주면 그 호출의 실패가 순번 없이 남아 용서(call)가 맞추지 못한다(WP-2122 리뷰 후속).
    */
   runnerStarted(model: string, credentialLabel: string, call?: object): number {
     const startSeq = ++this.seq;
@@ -153,7 +154,7 @@ export class AiRunScope {
     this.credentialLabel = credentialLabel;
     if (this.started) return startSeq;
     this.started = true;
-    this.emit(this.build('RUNNING', null, null, null));
+    swallowRecording('RUNNING 기록', () => this.emit(this.build('RUNNING', null, null, null)));
     return startSeq;
   }
 

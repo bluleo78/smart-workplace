@@ -15,7 +15,7 @@ function reportResult(scope: AiRunScope, result: ResultSummary | undefined, star
   else safe(() => scope.runnerFinished({ ok: false, usage: null, error: new Error('no_result'), startSeq }));
 }
 
-/** 범위에 러너 시작을 알리고 그 순번을 돌려준다(call=input 을 넘겨 용서가 이 호출의 실패만 지우게 한다, WP-2122) — 기록이 실패하면 undefined(WP-2106: 성공이 어느 실패를 우회했는지 가르는 데 쓴다). */
+/** 범위에 러너 시작을 알리고 그 순번을 돌려준다(call=input 을 넘겨 용서가 이 호출의 실패만 지우게 한다, WP-2122) — runnerStarted 자체가 던질 때만 undefined(RUNNING 기록 실패는 범위가 삼키고 순번을 돌려준다, WP-2122 리뷰 후속)(WP-2106: 성공이 어느 실패를 우회했는지 가르는 데 쓴다). */
 function start(scope: AiRunScope, model: string, credentialLabel: string, call: object): number | undefined {
   let startSeq: number | undefined;
   safe(() => {
