@@ -59,10 +59,10 @@ describe('graphA11y', () => {
     for (const k of ['node.a11yDescription.default', 'node.a11yDescription.keyboardDisabled', 'edge.a11yDescription.default'] as const) {
       expect(c[k]).toMatch(/[가-힣]/)
     }
-    expect(c['node.a11yDescription.keyboardDisabled']).toContain('편집 패널')
+    expect(c['node.a11yDescription.keyboardDisabled']).toContain('노드 설정 서랍')
     expect(c['node.a11yDescription.ariaLiveMessage']!({ direction: 'left', x: 10, y: 20 })).toBe('고른 노드를 왼쪽으로 옮겼습니다. 새 위치 x 10, y 20')
-    expect(c['node.a11yDescription.keyboardDisabled']).toBe('Enter·Space 로 노드를 골라 편집 패널을 엽니다. 고른 뒤 화살표로 노드를 옮기고, Esc 로 선택을 풀고 편집 패널을 닫습니다.')
-    expect(GRAPH_ARIA_LABEL_CONFIG_READONLY['node.a11yDescription.keyboardDisabled']).toBe('Enter·Space 로 노드를 골라 편집 패널을 열고, Esc 로 닫습니다.')
+    expect(c['node.a11yDescription.keyboardDisabled']).toBe('Enter·Space 로 노드를 골라 노드 설정 서랍을 엽니다. 고른 뒤 화살표로 노드를 옮기고, Esc 로 선택을 풀고 열린 서랍을 닫습니다.')
+    expect(GRAPH_ARIA_LABEL_CONFIG_READONLY['node.a11yDescription.keyboardDisabled']).toBe('Enter·Space 로 노드를 골라 노드 설정 서랍을 열고, Esc 로 열린 서랍을 닫습니다.')
     expect(GRAPH_ARIA_LABEL_CONFIG_READONLY['node.a11yDescription.keyboardDisabled']).not.toContain('화살표')
     expect(GRAPH_EDITOR_ARIA_LABEL).toBe('워크플로우 그래프 편집')
   })

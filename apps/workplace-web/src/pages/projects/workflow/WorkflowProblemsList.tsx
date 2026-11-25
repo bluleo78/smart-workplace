@@ -10,6 +10,11 @@ const SEVERITY_TONE = {
   WARNING: { label: '경고', text: 'text-warning-text' },
 } as const
 
+/** 알 수 없는 심각도는 경고로 본다 — 표에 없는 값으로 렌더가 던지지 않게. */
+function severityTone(severity: string) {
+  return SEVERITY_TONE[severity === 'ERROR' ? 'ERROR' : 'WARNING']
+}
+
 /**
  * 검사 결과 목록 + 빠른 고침(「질문 경로 추가」「YAML 오류 확인」) — 배지 팝오버와 개요 서랍이 같이 쓴다(WP-2091).
  * onSelect 가 있으면 각 행이 단추(접근 이름 = 행 글자)로 그려져 해당 노드로 이동할 수 있고, 없으면 글자만 보인다.
@@ -38,7 +43,7 @@ export function WorkflowProblemsList({ problems, checking, failed, stale, readOn
     <div className="space-y-2 text-sm">
       <ul className="space-y-1">
         {problems.map((problem, index) => {
-          const tone = SEVERITY_TONE[problem.severity]
+          const tone = severityTone(problem.severity)
           const row = (
             <>
               <span className={cn('shrink-0 font-medium', tone.text)}>{tone.label}</span>

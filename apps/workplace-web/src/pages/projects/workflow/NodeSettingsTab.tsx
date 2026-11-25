@@ -8,11 +8,30 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 
 import { askTarget, instructionPreview, instructionStats, moveTargets, type NodeTabProps } from './drawerModel'
-import { DrawerSection } from './DrawerShell'
+import { DrawerSection, YamlFixButton } from './DrawerShell'
 import { commonErrorTarget } from './graphLayout'
 import { addAskPath, type NodeDetail, type NodePatch, type WorkflowGraph } from './graphYaml'
 import { NODE_FIELDS, type PanelField } from './nodeFields'
 import { workflowSelectClass } from './WorkflowVersions'
+
+/**
+ * 서랍에 컨트롤이 없어 YAML 에서만 고치는 칸의 안내 — 노드 종류별. 검사 결과(REF_NODE_UNKNOWN 등)가 이 칸을 가리켜도 「설정」 탭으로 열리므로
+ * 여기서 YAML 보기로 넘어갈 길을 둔다(개요 서랍의 「YAML 에서 고치기」와 같은 이름).
+ */
+const YAML_ONLY_FIELDS: Record<string, string> = {
+  start: '시작 조건과 시작 노드로 들어오는 연결, 정의되지 않은 노드로 가는 연결은 그래프에서 고치지 않습니다.',
+  decision: '분기 조건(conditions)과 기본 도착(default)은 그래프에서 고치지 않습니다.',
+  human_task: '일을 되돌려 보낼 노드(returnTo)는 그래프에서 고치지 않습니다.',
+}
+
+/**
+ * 이 노드에 보일 「YAML 에서 고치는 칸」 안내 — 없으면 undefined.
+ * human_task 는 returnTo 선이 실제로 있을 때만(없으면 YAML 에서 고칠 칸이 없다), start·decision 은 늘 보인다.
+ */
+function yamlNoteFor(type: string, graph: WorkflowGraph, nodeKey: string): string | undefined {
+  if (type === 'human_task' && !graph.edges.some((e) => e.kind === 'returnTo' && e.from === nodeKey)) return undefined
+  return YAML_ONLY_FIELDS[type]
+}
 
 /** 목록에서 item 을 on 이면 더하고 아니면 뺀 새 목록. */
 function toggle(list: string[], item: string, on: boolean): string[] {
@@ -142,9 +161,13 @@ function InstructionSummary({ text, readOnly, onEdit }: { text: string; readOnly
  * 노드 서랍의 「설정」 탭(WP-2091) — 이름·담당 역할·필요 환경·사람에게 묻기·막혔을 때·공통 지시·지시 요약 순.
  * 칸마다 NODE_FIELDS 의 종류별 허용 칸만 그린다(서버가 막는 칸을 쓰지 않게). start·end·decision 은 이름만.
  */
-export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChange, patch }: NodeTabProps) {
+export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChange, patch, onOpenYaml }: NodeTabProps & {
+  /** YAML 보기로 넘어간다 — 서랍에 컨트롤이 없는 칸(decision 조건·returnTo)의 「YAML 에서 고치기」 */
+  onOpenYaml: () => void
+}) {
   const fields = NODE_FIELDS[detail.type] ?? new Set<PanelField>()
   const asked = fields.has('ask') ? askTarget(graph, nodeKey) : null
+  const yamlNote = yamlNoteFor(detail.type, graph, nodeKey)
   return (
     <>
       <div className="px-3 pb-3">
@@ -215,6 +238,12 @@ export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChan
       )}
       {fields.has('instructions') && (
         <InstructionSummary text={detail.instructions ?? ''} readOnly={readOnly} onEdit={(instructions) => patch({ instructions })} />
+      )}
+      {yamlNote && (
+        <DrawerSection title="YAML 에서 고치는 칸">
+          <p className="text-xs text-muted-foreground">{yamlNote}</p>
+          <YamlFixButton onClick={onOpenYaml} />
+        </DrawerSection>
       )}
     </>
   )

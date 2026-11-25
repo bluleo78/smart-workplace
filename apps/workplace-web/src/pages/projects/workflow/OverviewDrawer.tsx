@@ -1,11 +1,10 @@
 import { type ReactNode, useMemo } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { WorkflowProblem } from '@/lib/workflows'
 
 import { type GraphProblems, instructionPreview, type OverviewTab } from './drawerModel'
-import { DrawerShell } from './DrawerShell'
+import { DrawerShell, YamlFixButton } from './DrawerShell'
 import { readShared, type WorkflowGraph } from './graphYaml'
 import { WorkflowProblemsList } from './WorkflowProblemsList'
 
@@ -33,7 +32,7 @@ export function OverviewDrawer({ yaml, graph, tab, onTabChange, problems, readOn
   const nodeNames = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n.name ?? n.key])), [graph.nodes])
   // 시작 조건은 시작 노드에서 나가는 start 선(라벨 = 「담당=역할」 등)
   const triggers = graph.edges.filter((e) => e.kind === 'start')
-  const fixInYaml = <Button type="button" variant="outline" size="sm" onClick={onOpenYaml}>YAML 에서 고치기</Button>
+  const fixInYaml = <YamlFixButton onClick={onOpenYaml} />
 
   return (
     <DrawerShell label="워크플로우 개요" heading={<h3 className="min-w-0 truncate text-sm font-semibold">워크플로우 개요</h3>} onClose={onClose}>
