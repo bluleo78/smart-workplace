@@ -22,6 +22,23 @@ describe('selectRoutePreloads', () => {
     expect(selectRoutePreloads('/projects/WP/versions/3')).toEqual([])
     expect(selectRoutePreloads('/projects/WP/settings')).toEqual([])
   })
+  it('관리 화면 목록 주소는 설정 레이아웃과 그 페이지 청크를 받는다(WP-2080)', () => {
+    expect(selectRoutePreloads('/settings/users')).toEqual(['settingsLayout', 'adminUsers'])
+    expect(selectRoutePreloads('/settings/users/')).toEqual(['settingsLayout', 'adminUsers'])
+    expect(selectRoutePreloads('/settings/audit-logs')).toEqual(['settingsLayout', 'adminAuditLogs'])
+    expect(selectRoutePreloads('/settings/roles')).toEqual(['settingsLayout', 'adminRoles'])
+    expect(selectRoutePreloads('/settings/agents')).toEqual(['settingsLayout', 'adminAgents'])
+    expect(selectRoutePreloads('/settings/agents/locations')).toEqual(['settingsLayout', 'adminAgents'])
+    expect(selectRoutePreloads('/settings/agents/accounts')).toEqual(['settingsLayout', 'adminAgents'])
+  })
+  it('관리 화면 상세·이름이 다른 주소는 받지 않는다(WP-2080)', () => {
+    expect(selectRoutePreloads('/settings/users/5')).toEqual([])
+    expect(selectRoutePreloads('/settings/roles/2')).toEqual([])
+    expect(selectRoutePreloads('/settings/agents/7')).toEqual([])
+    expect(selectRoutePreloads('/settings/usersx')).toEqual([])
+    expect(selectRoutePreloads('/settings/roles-old')).toEqual([])
+    expect(selectRoutePreloads('/settings/profile')).toEqual([])
+  })
   it('셸 밖 화면은 아무것도 미리 받지 않는다', () => {
     expect(selectRoutePreloads('/mail/compose')).toEqual([])
     expect(selectRoutePreloads('/wiki/share/abc')).toEqual([])

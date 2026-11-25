@@ -14,6 +14,7 @@ import { useAuth } from './hooks/useAuth'
 import { useRouteDocumentTitle } from './hooks/useDocumentTitle'
 import { useIsMobile } from './hooks/useIsMobile'
 import { AUTH_FLAG_KEY } from './lib/auth/sessionFlag'
+import { preloadableLazy } from './lib/preloadableLazy'
 import { type Preload, type RoutePreloadKey, startInitialRoutePreloads } from './lib/routePreloads'
 import { safeLocalStorage } from './lib/safeLocalStorage'
 
@@ -24,16 +25,16 @@ const SsoCompletePage = lazy(() => import('./pages/SsoCompletePage'))
 const loadHomePage = () => import('./pages/HomePage')
 const HomePage = lazy(loadHomePage)
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
-const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
+const [UserListPage, loadUserListPage] = preloadableLazy(() => import('./pages/admin/UserListPage'))
 const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
-const RoleListPage = lazy(() => import('./pages/admin/RoleListPage'))
+const [RoleListPage, loadRoleListPage] = preloadableLazy(() => import('./pages/admin/RoleListPage'))
 const SsoSettingsPage = lazy(() => import('./pages/admin/SsoSettingsPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
-const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
+const [AuditLogListPage, loadAuditLogListPage] = preloadableLazy(() => import('./pages/admin/AuditLogListPage'))
 const HelpMetricsPage = lazy(() => import('./pages/admin/HelpMetricsPage'))
 const AiStatusOverviewPage = lazy(() => import('./pages/admin/aiStatus/AiStatusOverviewPage'))
 const AiStatusHistoryPage = lazy(() => import('./pages/admin/aiStatus/AiStatusHistoryPage'))
-const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
+const [AgentManagementPage, loadAgentManagementPage] = preloadableLazy(() => import('./pages/admin/AgentManagementPage'))
 const AgentDetailPage = lazy(() => import('./pages/admin/AgentDetailPage'))
 const loadProjectListPage = () => import('./pages/projects/ProjectListPage')
 const ProjectListPage = lazy(loadProjectListPage)
@@ -161,8 +162,9 @@ const TokenSettingsPage = lazy(() => import('./pages/settings/TokenSettingsPage'
 const MySharesPage = lazy(() => import('./pages/settings/MySharesPage'))
 const WikiSharingPage = lazy(() => import('./pages/admin/WikiSharingPage'))
 const WorkAppSettingsPage = lazy(() => import('./pages/settings/apps/WorkAppSettingsPage'))
-const SettingsModuleLayout = lazy(() =>
-  import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
+const [SettingsModuleLayout, loadSettingsLayout] = preloadableLazy(
+  () => import('./components/layout/SettingsModuleLayout'),
+  'SettingsModuleLayout',
 )
 
 // 모바일(<lg)에선 모듈 루트가 "사이드바 목록" 화면이므로 인덱스 리다이렉트를 건너뛴다(WP-124).
@@ -210,6 +212,7 @@ function hasSessionHint(): boolean {
 /**
  * WP-2021: 첫 주소의 페이지 청크를 인증을 기다리지 않고 미리 받는다 — App 이 그려진 뒤 부르지만, 실제로 받기는 문서당 한 번뿐이다(startInitialRoutePreloads).
  * 위 lazy 선언과 같은 import 함수를 불러 모듈이 한 번만 내려받아진다. 로그인 흔적이 없으면 아무것도 하지 않는다.
+ * 관리자가 아닌 사용자가 관리 주소로 들어오면 청크만 받고 버린다 — 화면은 AdminRoute 가 막는다(WP-2080).
  */
 function preloadInitialRoute(): void {
   if (!hasSessionHint()) return
@@ -226,6 +229,11 @@ function preloadInitialRoute(): void {
     wikiIndex: loadWikiIndex,
     driveLayout: loadDriveLayout,
     driveIndex: loadDriveIndex,
+    settingsLayout: loadSettingsLayout,
+    adminUsers: loadUserListPage,
+    adminAuditLogs: loadAuditLogListPage,
+    adminRoles: loadRoleListPage,
+    adminAgents: loadAgentManagementPage,
   }
   startInitialRoutePreloads(window.location.pathname, loaders)
 }
