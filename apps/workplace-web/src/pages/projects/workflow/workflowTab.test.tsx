@@ -101,6 +101,7 @@ it('탭을 떠난 사이 저장이 끝나면 세션 초안을 지우고 저장�
   expect(await screen.findByText('개요 본문')).toBeVisible()
   await userEvent.click(screen.getByRole('link', { name: '워크플로우로 돌아가기' }))
   await userEvent.selectOptions(await screen.findByRole('combobox', { name: '워크플로우 선택' }), '43')
+  await userEvent.click(await screen.findByRole('tab', { name: 'YAML' }))
   const otherYaml = 'name: 별도 초안\nnodes:\n  check: {}'
   fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: otherYaml } })
   await waitFor(() => expect(window.sessionStorage.getItem(storageKey)).not.toBeNull())
@@ -326,7 +327,7 @@ it('게시 전 초안 저장에서 오류를 받으면 편집기로 돌아가 �
   )
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
   fireEvent.change(yaml, { target: { value: changedYaml } })
-  fireEvent.click(screen.getByRole('button', { name: '그래프' }))
+  await userEvent.click(screen.getByRole('tab', { name: '그래프' }))
   const publish = screen.getByRole('button', { name: '게시' })
   await waitFor(() => expect(publish).toBeEnabled())
   fireEvent.click(publish)
@@ -349,9 +350,9 @@ it('nonManager_readOnly', async () => {
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
   expect(yaml).toHaveAttribute('readonly')
   expect(yaml).toHaveValue('name: 정리\nnodes:\n  review: {}')
-  fireEvent.click(screen.getByRole('button', { name: '그래프' }))
+  await userEvent.click(screen.getByRole('tab', { name: '그래프' }))
   expect(await screen.findByText('살펴보기')).toBeVisible()
-  await userEvent.click(screen.getByRole('tab', { name: '버전' }))
+  await userEvent.click(screen.getByRole('tab', { name: '게시 이력' }))
   expect(await screen.findByText('실행 3개')).toBeVisible()
   for (const name of ['워크플로우 만들기', '초안 저장', '되돌리기', '게시', '초안으로 복원']) {
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
@@ -392,8 +393,9 @@ it('publish_confirmationUsesOpenedDraftTimestamp', async () => {
   const dialog = screen.getByRole('dialog')
   expect(await within(dialog).findByText('진행 중 실행 4은 시작한 버전으로 계속')).toBeVisible()
   latest = { ...workflowDetail, draftYaml: 'name: 다른 곳에서 수정', draftUpdatedAt: nextDraftTime, enabled: true }
+  expect(screen.getByText('사용 안 함')).toBeVisible()
   await act(refreshWorkflow)
-  await screen.findByText('사용 중')
+  await waitFor(() => expect(screen.queryByText('사용 안 함')).not.toBeInTheDocument())
   fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
   expect(await screen.findByRole('button', { name: '최신 초안 불러오기' })).toBeVisible()
   expect(publishBody).toEqual({ expectedDraftUpdatedAt: draftTime })
@@ -489,7 +491,7 @@ it('publish_disabledWhenNoUnpostedChanges_withReason', async () => {
 })
 
 it('publish_enabledForFirstPublish_whenNoActiveVersion', async () => {
-  renderWorkflow({ multiple: true, search: '?workflow=43' })
+  renderWorkflow({ multiple: true, search: '?workflow=43&view=yaml' })
   server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
   await screen.findByRole('textbox', { name: '워크플로우 YAML' })
   await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeEnabled())
@@ -540,7 +542,8 @@ it('tab_workflowParamOpensThatDefinition_changeClearsRun', async () => {
   const select = await screen.findByRole('combobox', { name: '워크플로우 선택' })
   await waitFor(() => expect(select).toHaveValue('43'))
   expect(await screen.findByText('실행을 찾을 수 없습니다')).toBeVisible()
-  await userEvent.selectOptions(select, '42')
+  // 정의 상세가 도착하면 머리가 SelectedWorkflow 안에서 다시 그려지므로 선택 상자를 다시 찾는다.
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: '워크플로우 선택' }), '42')
   await waitFor(() => expect(screen.getByRole('combobox', { name: '워크플로우 선택' })).toHaveValue('42'))
   // 정의를 바꾸면 하위 보기(view)도 지워져 편집기가 열린다 — 실행 탭이 남지 않는다.
   expect(await screen.findByRole('tab', { name: /^실행/, selected: false })).toBeVisible()
@@ -597,7 +600,7 @@ it('tab_runsPanel_recover_refreshesActiveRunCount', async () => {
 })
 
 it('workflowTab_managerGraphEditsDraft', async () => {
-  renderWorkflow()
+  renderWorkflow({ search: '?workflow=42' })
   let saved: { yaml?: string } = {}
   server.use(
     http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })),
@@ -606,7 +609,6 @@ it('workflowTab_managerGraphEditsDraft', async () => {
       return HttpResponse.json({ draftUpdatedAt: nextDraftTime, problems: [] })
     }),
   )
-  fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
   await userEvent.click(await screen.findByRole('button', { name: '+ 노드' }))
   await userEvent.click(await screen.findByRole('menuitem', { name: 'AI 작업' }))
   const save = screen.getByRole('button', { name: '초안 저장' })
@@ -622,9 +624,8 @@ function headingSkips() {
 }
 
 it('tab_graphNodePanel_noHeadingLevelSkip', async () => {
-  renderWorkflow()
+  renderWorkflow({ search: '?workflow=42' })
   server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
-  fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
   // 노드를 더하면 그 노드가 선택되어 노드 패널이 열린다 — 패널 절 제목이 h2 다음 h4 로 건너뛰지 않아야 한다(WP-2054)
   await userEvent.click(await screen.findByRole('button', { name: '+ 노드' }))
   await userEvent.click(await screen.findByRole('menuitem', { name: 'AI 작업' }))
@@ -634,8 +635,7 @@ it('tab_graphNodePanel_noHeadingLevelSkip', async () => {
 })
 
 it('workflowTab_viewerSeesReadOnlyGraph', async () => {
-  renderWorkflow({ manager: false })
-  fireEvent.click(await screen.findByRole('button', { name: '그래프' }))
+  renderWorkflow({ manager: false, search: '?workflow=42' })
   expect(await screen.findByText('살펴보기')).toBeVisible()
   expect(screen.queryByRole('button', { name: '+ 노드' })).not.toBeInTheDocument()
 })
@@ -662,7 +662,7 @@ it('publish_disabledWhileCheckingChangeCount_withoutReason', async () => {
 })
 
 it('publish_noReasonForFirstPublish_withEmptyDraft', async () => {
-  renderWorkflow({ multiple: true, search: '?workflow=43' })
+  renderWorkflow({ multiple: true, search: '?workflow=43&view=yaml' })
   server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
   fireEvent.change(yaml, { target: { value: '' } })
@@ -679,50 +679,257 @@ it('tab_panelsStartWithH2_noHeadingLevelSkip', async () => {
     http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
   )
   // 탭 패널 제목 — 페이지 h1 다음 h3 로 건너뛰지 않게 패널마다 h2 가 먼저 온다(WP-2054)
-  await screen.findByRole('textbox', { name: '워크플로우 YAML' })
-  for (const name of ['편집', '실행', '버전']) {
+  await screen.findByRole('tab', { name: '그래프' })
+  for (const name of ['그래프', 'YAML', '실행', '게시 이력']) {
     await userEvent.click(screen.getByRole('tab', { name: new RegExp('^' + name) }))
     const first = within(screen.getByRole('tabpanel')).getAllByRole('heading')[0]
     expect(first.tagName).toBe('H2')
     expect(first).toHaveTextContent(name)
     expect(headingSkips()).toEqual([])
   }
-  await userEvent.click(screen.getByRole('tab', { name: /^편집/ }))
-  await userEvent.click(screen.getByRole('button', { name: 'YAML' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'YAML' }))
   expect(await screen.findByRole('heading', { level: 3, name: '검증 결과' })).toBeInTheDocument()
   expect(headingSkips()).toEqual([])
 })
 
-it('뷰 전환 단추는 디자인 시스템 ghost 토글 표시를 쓴다', async () => {
+it('view_defaultsToGraph_andSwitchWritesUrl', async () => {
+  const { search } = renderWorkflow({ search: '?workflow=42' })
+  expect(await screen.findByRole('tab', { name: '그래프', selected: true })).toBeVisible()
+  server.use(
+    http.get('/api/v1/workflows/42/runs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
+  )
+  await userEvent.click(screen.getByRole('tab', { name: 'YAML' }))
+  expect(search()).toContain('view=yaml')
+  expect(await screen.findByRole('textbox', { name: '워크플로우 YAML' })).toBeVisible()
+  await userEvent.click(screen.getByRole('tab', { name: '게시 이력' }))
+  expect(search()).toContain('view=versions')
+  await userEvent.click(screen.getByRole('tab', { name: /^실행/ }))
+  expect(search()).toContain('view=runs')
+})
+
+it('legacyEditorView_opensGraph', async () => {
+  renderWorkflow({ search: '?view=editor' })
+  expect(await screen.findByRole('tab', { name: '그래프', selected: true })).toBeVisible()
+})
+
+it('header_tabsAreOneLevel', async () => {
   renderWorkflow()
-  const group = await screen.findByRole('group', { name: '워크플로우 표시 방식' })
-  const graph = within(group).getByRole('button', { name: '그래프' })
-  const yaml = within(group).getByRole('button', { name: 'YAML' })
-  // 클래스를 공백 토큰으로 나눠 정확 일치 검사에 쓴다 — 부분문자열 검사는
-  // border-transparent 에도 border 가 통과되는 등 오탐으로 공허해진다.
-  const tokens = (el: HTMLElement) => el.className.split(/\s+/)
+  const list = await screen.findByRole('tablist', { name: '워크플로우 보기' })
+  const tabs = within(list).getAllByRole('tab')
+  expect(tabs).toHaveLength(4)
+  expect(tabs.map((tab) => tab.textContent?.replace(/ \d+$/, ''))).toEqual(['그래프', 'YAML', '실행', '게시 이력'])
+  expect(screen.queryByRole('group', { name: '워크플로우 표시 방식' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: '편집' })).not.toBeInTheDocument()
+})
 
-  // 처음에는 YAML 가 켜져 있다(모드 초기값 'yaml').
-  expect(graph).toHaveAttribute('aria-pressed', 'false')
-  expect(yaml).toHaveAttribute('aria-pressed', 'true')
+it('tab_pickWorkflow_focusLandsOnNewSelectEvenWhileDetailLoads', async () => {
+  // 고른 정의의 상세가 늦게 와도(임시 머리의 선택 상자가 먼저 그려져도) 초점은 새 SelectedWorkflow 의 선택 상자에 남는다
+  renderWorkflow({ multiple: true, search: '?workflow=42' })
+  server.use(http.get('/api/v1/workflows/43', async () => {
+    await delay(150)
+    return HttpResponse.json({ ...workflowDetail, id: 43, name: '두번째', activeVersionNo: null })
+  }), http.get('/api/v1/workflows/43/versions', () => HttpResponse.json([])), http.get('/api/v1/workflows/43/versions/2', () => HttpResponse.json({ versionNo: 2, sourceYaml: 'name: x', model: { nodes: [] } })))
+  await waitFor(() => expect(screen.getByRole('tab', { name: '그래프' })).toBeVisible())
+  const first = screen.getByRole('combobox', { name: '워크플로우 선택' })
+  first.focus()
+  await userEvent.selectOptions(first, '43')
+  await waitFor(() => expect(screen.getByRole('combobox', { name: '워크플로우 선택' })).toHaveValue('43'))
+  await waitFor(() => expect(screen.getByRole('tab', { name: '그래프' })).toBeVisible())
+  await waitFor(() => expect(screen.getByRole('combobox', { name: '워크플로우 선택' })).toHaveFocus())
+})
 
-  // 켜진 쪽: ghost 토글 채움(primary 테두리·배경·글자)과, 안 밀리기 위한 border 를 가진다.
-  expect(yaml.className).toContain('bg-primary/10')
-  expect(yaml.className).toContain('text-primary')
-  expect(yaml.className).toContain('border-primary/50')
-  expect(tokens(yaml)).toContain('border')
+it('problemsBadge_hiddenAtZero_showsCounts', async () => {
+  // 검사 결과가 없으면 배지가 없다
+  renderWorkflow({ search: '?workflow=42' })
+  expect(await screen.findByRole('tab', { name: '그래프' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: /검사 결과/ })).not.toBeInTheDocument()
+})
 
-  // 꺼진 쪽: 토글 켜짐 클래스가 없고 테두리는 투명하다.
-  expect(graph.className).not.toContain('bg-primary/10')
-  expect(graph.className).not.toContain('text-primary')
-  expect(tokens(graph)).toContain('border-transparent')
+it('problemsBadge_showsCounts_andOpensYamlDiagnostics', async () => {
+  renderWorkflow({ search: '?workflow=42' })
+  server.use(http.get('/api/v1/workflows/42', () => HttpResponse.json({
+    ...workflowDetail,
+    draftProblems: [workflowProblem, { ...workflowProblem, severity: 'WARNING', code: 'W', message: '주의' }],
+  })))
+  await userEvent.click(await screen.findByRole('button', { name: '검사 결과 오류 1 · 경고 1' }))
+  await userEvent.click(screen.getByRole('button', { name: 'YAML 오류 확인' }))
+  const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  await waitFor(() => expect(yaml).toHaveFocus())
+})
 
-  await userEvent.click(graph)
+it('readOnlyHeader_hasNoSaveButtons', async () => {
+  renderWorkflow({ manager: false, search: '?workflow=42' })
+  const list = await screen.findByRole('tablist', { name: '워크플로우 보기' })
+  expect(within(list).getAllByRole('tab')).toHaveLength(4)
+  for (const name of ['초안 저장', '게시', '되돌리기']) {
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+  }
+  expect(screen.queryByRole('button', { name: /검사 결과/ })).not.toBeInTheDocument()
+  expect(screen.getByText('게시 버전 2')).toBeVisible()
+})
 
-  // 한쪽을 켜면 다른 쪽은 꺼진다.
-  expect(graph).toHaveAttribute('aria-pressed', 'true')
-  expect(yaml).toHaveAttribute('aria-pressed', 'false')
-  expect(graph.className).toContain('bg-primary/10')
-  expect(yaml.className).not.toContain('bg-primary/10')
-  expect(tokens(yaml)).toContain('border-transparent')
+it('draftBadge_shownForManagerWithDraft', async () => {
+  const { setSummaries } = renderWorkflow()
+  setSummaries([{ id: 42, name: '작업 정리', enabled: false, activeVersionNo: 2, draftChanged: true }])
+  expect(await screen.findByText('초안 있음')).toBeVisible()
+})
+
+// 검사 배지가 지난 결과·서버 초안 진단으로 낡은 목록을 보이거나 그 목록으로 고치지 않게 한다(WP-2090 반려 고침)
+const askWarning = { ...workflowProblem, severity: 'WARNING' as const, code: 'ASK_PATH_MISSING', message: '질문 경로 없음', nodeKey: 'review' }
+
+it('검사 중에는 지난 결과로 질문 경로를 더할 수 없다', async () => {
+  renderWorkflow({ search: '?workflow=42' })
+  const hold = gate()
+  let calls = 0
+  server.use(http.post('/api/v1/workflows/validate', async () => {
+    calls += 1
+    if (calls > 1) await hold.promise
+    return HttpResponse.json({ problems: [askWarning] })
+  }))
+  await userEvent.click(await screen.findByRole('tab', { name: 'YAML' }))
+  const box = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  fireEvent.change(box, { target: { value: 'name: 첫 고침\nnodes:\n  review: {}' } })
+  expect(await screen.findByRole('button', { name: '검사 결과 경고 1' })).toBeVisible()
+  await waitFor(() => expect(screen.queryAllByText('검증 중…')).toHaveLength(0))
+  fireEvent.change(box, { target: { value: 'name: 둘째 고침\nnodes:\n  review: {}' } })
+  expect((await screen.findAllByText('검증 중…')).length).toBeGreaterThan(0)
+  await userEvent.click(screen.getByRole('button', { name: '검사 결과 경고 1 (지난 결과)' }))
+  expect(screen.getByRole('button', { name: '질문 경로 추가' })).toBeDisabled()
+  hold.release()
+})
+
+it('검사 실패·다시 확인 뒤에도 배지는 마지막 성공 결과다', async () => {
+  renderWorkflow({ search: '?workflow=42' })
+  const hold = gate()
+  let calls = 0
+  server.use(
+    http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, draftProblems: [workflowProblem, { ...workflowProblem }] })),
+    http.post('/api/v1/workflows/validate', async () => {
+      calls += 1
+      if (calls === 1) return HttpResponse.json({ problems: [askWarning] })
+      if (calls === 2) return HttpResponse.json({ message: 'x' }, { status: 500 })
+      await hold.promise
+      return HttpResponse.json({ problems: [askWarning] })
+    }),
+  )
+  await userEvent.click(await screen.findByRole('tab', { name: 'YAML' }))
+  const box = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  fireEvent.change(box, { target: { value: 'name: 하나\nnodes:\n  review: {}' } })
+  expect(await screen.findByRole('button', { name: '검사 결과 경고 1' })).toBeVisible()
+  fireEvent.change(box, { target: { value: 'name: 둘\nnodes:\n  review: {}' } })
+  await userEvent.click((await screen.findAllByRole('button', { name: '다시 확인' }))[0])
+  expect((await screen.findAllByText('검증 중…')).length).toBeGreaterThan(0)
+  expect(screen.getByRole('button', { name: '검사 결과 경고 1 (지난 결과)' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: /오류 2/ })).not.toBeInTheDocument()
+  hold.release()
+  await waitFor(() => expect(screen.queryAllByText('검증 중…')).toHaveLength(0))
+})
+
+it('이 세션 성공 결과가 없으면 검사 중 배지는 서버 초안 진단을 지난 결과로 둔다', async () => {
+  renderWorkflow({ search: '?workflow=42' })
+  const hold = gate()
+  server.use(
+    http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, draftProblems: [workflowProblem, { ...workflowProblem }] })),
+    http.post('/api/v1/workflows/validate', async () => {
+      await hold.promise
+      return HttpResponse.json({ problems: [] })
+    }),
+  )
+  expect(await screen.findByRole('button', { name: '검사 결과 오류 2' })).toBeVisible()
+  await userEvent.click(await screen.findByRole('tab', { name: 'YAML' }))
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 고침\nnodes:\n  review: {}' } })
+  expect((await screen.findAllByText('검증 중…')).length).toBeGreaterThan(0)
+  // 첫 검사가 끝나기 전에도 서버 초안의 오류가 사라졌다 돌아오지 않는다(지난 결과 표시)
+  expect(screen.getByRole('button', { name: '검사 결과 오류 2 (지난 결과)' })).toBeVisible()
+  hold.release()
+  await waitFor(() => expect(screen.queryAllByText('검증 중…')).toHaveLength(0))
+})
+
+it('되돌린 뒤 다시 편집하면 검사 중 배지가 버린 편집의 결과를 보이지 않는다', async () => {
+  renderWorkflow({ search: '?workflow=42&view=yaml' })
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [workflowProblem] })))
+  const box = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  fireEvent.change(box, { target: { value: 'name: 하나\nnodes:\n  review: {}' } })
+  expect(await screen.findByRole('button', { name: '검사 결과 오류 1' })).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+  const hold = gate()
+  server.use(http.post('/api/v1/workflows/validate', async () => {
+    await hold.promise
+    return HttpResponse.json({ problems: [] })
+  }))
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 둘\nnodes:\n  review: {}' } })
+  expect((await screen.findAllByText('검증 중…')).length).toBeGreaterThan(0)
+  expect(screen.queryByRole('button', { name: /오류 1/ })).not.toBeInTheDocument()
+  hold.release()
+  await waitFor(() => expect(screen.queryAllByText('검증 중…')).toHaveLength(0))
+})
+
+// 선택 지적 ③⑤⑥ — 검증 안내 중복·그래프 보기 스크린리더 알림·선택 상자 초점 복귀 범위(WP-2090 반려 고침)
+it('YAML 보기에서 검증 중 안내는 하나만 알린다', async () => {
+  renderWorkflow({ search: '?workflow=42&view=yaml' })
+  const hold = gate()
+  server.use(http.post('/api/v1/workflows/validate', async () => {
+    await hold.promise
+    return HttpResponse.json({ problems: [] })
+  }))
+  const box = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  fireEvent.change(box, { target: { value: 'name: 고침\nnodes:\n  review: {}' } })
+  await screen.findAllByText('검증 중…')
+  expect(screen.getAllByRole('status').filter((el) => el.textContent?.includes('검증 중'))).toHaveLength(1)
+  hold.release()
+})
+
+it('그래프 보기는 새 오류 수를 숨긴 상태 영역으로 알린다', async () => {
+  renderWorkflow({ search: '?workflow=42&view=graph' })
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [workflowProblem] })))
+  await userEvent.click(await screen.findByRole('tab', { name: 'YAML' }))
+  fireEvent.change(await screen.findByRole('textbox', { name: '워크플로우 YAML' }), { target: { value: 'name: 고침\nnodes:\n  review: {}' } })
+  await userEvent.click(screen.getByRole('tab', { name: '그래프' }))
+  const live = await waitFor(() => {
+    const found = screen.getAllByRole('status').find((el) => el.textContent === '오류 1')
+    expect(found).toBeDefined()
+    return found!
+  })
+  expect(live).toHaveClass('sr-only')
+})
+
+it('상세 불러오기 실패 뒤 워크플로우를 만들면 드롭다운으로 초점을 옮기지 않는다', async () => {
+  renderWorkflow({ multiple: true, search: '?workflow=42' })
+  server.use(
+    http.get('/api/v1/workflows/43', () => HttpResponse.json({ message: 'x' }, { status: 500 })),
+    http.get('/api/v1/projects/7/workflows', () => HttpResponse.json([
+      { id: 42, name: '작업 정리', enabled: false, activeVersionNo: 2, draftChanged: false },
+      { id: 43, name: '다른 워크플로우', enabled: false, activeVersionNo: null, draftChanged: false },
+      { id: 44, name: '새 정의', enabled: false, activeVersionNo: null, draftChanged: true },
+    ])),
+    http.post('/api/v1/projects/7/workflows', () => HttpResponse.json({ ...workflowDetail, id: 44, name: '새 정의' })),
+    http.get('/api/v1/workflows/44', () => HttpResponse.json({ ...workflowDetail, id: 44, name: '새 정의' })),
+    http.get('/api/v1/workflows/44/versions', () => HttpResponse.json([{ versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 0 }])),
+    http.get('/api/v1/workflows/44/versions/2', () => HttpResponse.json({ versionNo: 2, sourceYaml: 'name: 새 정의', model: { nodes: [] } })),
+  )
+  const select = await screen.findByRole('combobox', { name: '워크플로우 선택' })
+  fireEvent.change(select, { target: { value: '43' } })
+  // 43 상세가 실제로 실패한 뒤(재시도 끝)에 만든다 — 로딩·재시도 중 요청이 테스트 끝에 남아 워커가 죽지 않게
+  await screen.findByRole('button', { name: '다시 불러오기' }, { timeout: 15000 })
+  await userEvent.click(await screen.findByRole('button', { name: '워크플로우 만들기' }))
+  const dialog = await screen.findByRole('dialog')
+  fireEvent.change(within(dialog).getByLabelText('이름'), { target: { value: '새 정의' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.getByRole('combobox', { name: '워크플로우 선택' })).toHaveValue('44'))
+  expect(document.activeElement).not.toBe(screen.getByRole('combobox', { name: '워크플로우 선택' }))
+  // 만들기 뒤 새 정의 상세 재조회가 그려질 때까지 기다린다 — 열린 요청을 남기지 않는다
+  await screen.findByRole('tab', { name: 'YAML' })
+})
+
+it('상세 불러오기 실패 뒤 다시 불러와 선택 화면이 그려져도 드롭다운으로 초점을 옮기지 않는다', async () => {
+  renderWorkflow({ multiple: true, search: '?workflow=42' })
+  server.use(http.get('/api/v1/workflows/43', () => HttpResponse.json({ message: 'x' }, { status: 500 })))
+  fireEvent.change(await screen.findByRole('combobox', { name: '워크플로우 선택' }), { target: { value: '43' } })
+  const retry = await screen.findByRole('button', { name: '다시 불러오기' }, { timeout: 15000 })
+  server.use(http.get('/api/v1/workflows/43', () => HttpResponse.json({ ...workflowDetail, id: 43, name: '다른 워크플로우', activeVersion: null, draftYaml: 'name: 다른 초안' })))
+  await userEvent.click(retry)
+  await screen.findByRole('tab', { name: 'YAML' })
+  expect(document.activeElement).not.toBe(screen.getByRole('combobox', { name: '워크플로우 선택' }))
 })

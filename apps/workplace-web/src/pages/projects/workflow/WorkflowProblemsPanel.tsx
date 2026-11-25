@@ -3,11 +3,14 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { WorkflowProblem } from '@/lib/workflows'
 
-/** YAML과 그래프에서 같은 검증 실패 안내를 제공하고 검증을 다시 요청한다. */
-export function WorkflowValidationFailure({ onRetry }: { onRetry: () => void }) {
+/**
+ * YAML과 탭 머리 배지에서 같은 검증 실패 안내를 제공하고 검증을 다시 요청한다.
+ * announce 면 안내 문구만 role=status 로 감싼다(다시 확인 단추는 밖) — 이미 status 영역 안에서 쓰는 쪽은 켜지 않는다.
+ */
+export function WorkflowValidationFailure({ onRetry, announce = false }: { onRetry: () => void; announce?: boolean }) {
   return (
     <>
-      검증 결과를 불러오지 못했습니다.{' '}
+      {announce ? <span role="status">검증 결과를 불러오지 못했습니다.</span> : '검증 결과를 불러오지 못했습니다.'}{' '}
       <button type="button" className="underline" onClick={onRetry}>다시 확인</button>
     </>
   )

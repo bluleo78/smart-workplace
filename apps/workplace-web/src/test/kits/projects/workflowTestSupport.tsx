@@ -1,7 +1,7 @@
 import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { type ReactNode, useEffect } from 'react'
-import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, vi } from 'vitest'
 
 import { AIAssistantProvider, useAssistant } from '@/components/ai/AIAssistantContext'
@@ -75,31 +75,39 @@ export function renderWorkflow({ manager = true, empty = false, enterTab = true,
       model: { nodes: [{ key: 'check', type: 'agent_task', name: '확인' }] },
     })),
   )
-  const target = enterTab ? '/projects/WP/workflow' + search : '/projects/WP/overview'
+  // 기본 보기는 그래프(WP-2090) — 대부분의 테스트가 YAML 편집기를 바로 쓰므로 주소를 지정하지 않으면 ?view=yaml 로 연다.
+  const target = enterTab ? '/projects/WP/workflow' + (search || '?view=yaml') : '/projects/WP/overview'
   /** 어시스턴트가 실제로 받은 작성 대기 문구를 검증한다. */
   function PromptProbe() {
     const { promptSeed } = useAssistant()
     return <output hidden data-testid="assistant-prompt">{promptSeed?.text}</output>
   }
 
+  /** 현재 주소의 검색 문자열 — 보기 전환이 `?view=` 를 쓰는지 본다. */
+  function LocationProbe() {
+    return <output hidden data-testid="location-search">{useLocation().search}</output>
+  }
+
   let queryClient: QueryClient
   function TestShell({ children }: { children: ReactNode }) {
     const client = useQueryClient()
     useEffect(() => { queryClient = client }, [client])
-    return <AIAssistantProvider hotkeysEnabled={false}>{children}<PromptProbe /></AIAssistantProvider>
+    return <AIAssistantProvider hotkeysEnabled={false}>{children}<PromptProbe /><LocationProbe /></AIAssistantProvider>
   }
 
   renderWithProviders(
     <TestShell><Routes>
       <Route path="/" element={<Navigate to={target} replace />} />
       <Route path="/projects/:key" element={<ProjectTabsLayout />}>
-        <Route path="overview" element={<p>개요 본문 <Link to="/projects/WP/workflow">워크플로우로 돌아가기</Link></p>} />
+        <Route path="overview" element={<p>개요 본문 <Link to="/projects/WP/workflow?view=yaml">워크플로우로 돌아가기</Link></p>} />
         <Route path="workflow" element={<WorkflowTab />} />
       </Route>
     </Routes></TestShell>,
   )
   return {
     getSummaries,
+    /** 현재 주소의 검색 문자열 */
+    search: () => document.querySelector('[data-testid="location-search"]')?.textContent ?? '',
     setSummaries: (next: typeof summaries) => { currentSummaries = next },
     setManager: (next: boolean) => { canManage = next },
     refreshWorkflow: () => queryClient.invalidateQueries({ queryKey: workflowKeys.detail(42), exact: true }),

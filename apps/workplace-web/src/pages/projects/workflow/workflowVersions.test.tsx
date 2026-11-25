@@ -10,7 +10,7 @@ vi.mock('../components/IssueCreateDialog', () => ({ IssueCreateDialog: () => nul
 
 it('versionsDiff_showsChangedNodes', async () => {
   renderWorkflow()
-  await userEvent.click(await screen.findByRole('tab', { name: '버전' }))
+  await userEvent.click(await screen.findByRole('tab', { name: '게시 이력' }))
   expect(await screen.findByText('실행 3개')).toBeVisible()
   fireEvent.change(screen.getByRole('combobox', { name: '기준 버전' }), { target: { value: '1' } })
   fireEvent.change(screen.getByRole('combobox', { name: '비교 버전' }), { target: { value: '2' } })
@@ -28,7 +28,7 @@ it('restoreVersion_loadsIntoDraft_notPublished', async () => {
     restoredBody = await request.json()
     return HttpResponse.json({ ...workflowDetail, draftYaml: olderYaml, draftUpdatedAt: nextDraftTime })
   }))
-  await userEvent.click(await screen.findByRole('tab', { name: '버전' }))
+  await userEvent.click(await screen.findByRole('tab', { name: '게시 이력' }))
   const oldVersion = await screen.findByRole('row', { name: /버전 1/ })
   fireEvent.click(within(oldVersion).getByRole('button', { name: '초안으로 복원' }))
   const dialog = screen.getByRole('dialog')
@@ -50,7 +50,7 @@ it('시작 규칙만 바뀐 경우에도 시작 노드를 변경으로 표시한
       model: { nodes, start: [{ assigneeRole: 'reviewer', to: 'done' }] },
     })),
   )
-  await userEvent.click(await screen.findByRole('tab', { name: '버전' }))
+  await userEvent.click(await screen.findByRole('tab', { name: '게시 이력' }))
   fireEvent.change(await screen.findByRole('combobox', { name: '기준 버전' }), { target: { value: '1' } })
   fireEvent.change(screen.getByRole('combobox', { name: '비교 버전' }), { target: { value: '2' } })
   const changed = await screen.findByRole('list', { name: '변경된 노드' })
@@ -69,12 +69,13 @@ it('restore_confirmationUsesOpenedDraftTimestamp', async () => {
       return HttpResponse.json({ errors: { code: 'WORKFLOW_DRAFT_CONFLICT' } }, { status: 409 })
     }),
   )
-  await userEvent.click(await screen.findByRole('tab', { name: '버전' }))
+  await userEvent.click(await screen.findByRole('tab', { name: '게시 이력' }))
   const row = await screen.findByRole('row', { name: /버전 1/ })
   fireEvent.click(within(row).getByRole('button', { name: '초안으로 복원' }))
   latest = { ...workflowDetail, draftYaml: 'name: 외부 변경', draftUpdatedAt: nextDraftTime, enabled: true }
+  expect(screen.getByText('사용 안 함')).toBeVisible()
   await act(refreshWorkflow)
-  await screen.findByText('사용 중')
+  await waitFor(() => expect(screen.queryByText('사용 안 함')).not.toBeInTheDocument())
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '초안으로 복원' }))
   expect(await screen.findByRole('button', { name: '최신 초안 불러오기' })).toBeVisible()
   expect(restoredBody).toEqual({ expectedDraftUpdatedAt: draftTime })

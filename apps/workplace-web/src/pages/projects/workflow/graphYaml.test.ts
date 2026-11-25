@@ -133,8 +133,27 @@ describe('graphYaml', () => {
     const d = doc(addAskPath(y, 'triage'))
     expect(d.nodes.triage.ask).toBeUndefined()
     expect(d.nodes.triage_ask.returnTo).toBe('triage')
-    const d2 = doc(addAskPath(addAskPath(FIXTURE, 'dev'), 'dev'))
-    expect(d2.nodes.dev_ask_2.returnTo).toBe('dev')
+    // 키 충돌 — dev_ask 가 다른 노드로 이미 있으면 dev_ask_2 를 쓴다
+    const clash = FIXTURE.replace('nodes:\n', 'nodes:\n  dev_ask: { type: end }\n')
+    expect(doc(addAskPath(clash, 'dev')).nodes.dev_ask_2.returnTo).toBe('dev')
+  })
+
+  it('addAskPath_keepsYamlWhenAskExists', () => {
+    const once = addAskPath(FIXTURE, 'dev')
+    expect(addAskPath(once, 'dev')).toBe(once)
+  })
+
+  // 서버 checkAskPath 와 같은 규칙 — ask.to 가 있는 human_task 를 가리킬 때만 그대로 두고, 깨진 ask 는 다시 채운다
+  it.each([
+    ['ask.to 가 null', '{ to: null }'],
+    ['없는 노드를 가리킴', '{ to: missing_node }'],
+    ['human_task 가 아닌 노드를 가리킴', '{ to: triage }'],
+  ])('addAskPath_repairsBrokenAsk_%s', (_name, ask) => {
+    const y = FIXTURE.replace('      submitted: { to: plan_ok, assignTo: owner }\n', `      submitted: { to: plan_ok, assignTo: owner }\n      ask: ${ask}\n`)
+    expect(y).not.toBe(FIXTURE)
+    const d = doc(addAskPath(y, 'dev'))
+    expect(d.nodes.dev_ask.type).toBe('human_task')
+    expect(d.nodes.dev.outcomes.ask.to).toBe('dev_ask')
   })
 
   it('movingNode_updatesLayoutOnly', () => {
