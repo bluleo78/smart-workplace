@@ -70,6 +70,7 @@ export function AppLayout() {
   // 이슈 상세의 "이전 화면으로 돌아가기"가 출발 화면을 찾도록 히스토리 위치를 기록(#885).
   useIssueOriginTracker()
   // 첫 주소가 이슈 상세면 상세 데이터를 미리 요청(WP-2074) — 인증 뒤 셸이 먼저 그려지는 자리라(WP-2021 Suspense 경계) 페이지 청크를 기다리지 않는다.
+  // 아래 대기 푸시 목적지 effect 보다 위에 둔다 — 그 effect 가 take 하는 목적지를 여기서는 peek 만 하기 때문(WP-2116).
   useInitialIssuePrefetch()
   // 채팅·노트의 앱 링크 판정에 쓸 공개 웹 주소 호스트(WP-1165) — 내부 주소로 접속해도 공개 주소 링크가 카드로 나오게.
   useAppLinkConfig()

@@ -4,7 +4,9 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
+import { useAuth } from '@/hooks/useAuth';
 import { matchIssueDetailPath } from '@/lib/issueDetailPath';
+import { navigatesInPlace, peekPendingPushTarget } from '@/lib/push/openTarget';
 
 import { issueDetailQuery } from './queries/useIssue';
 
@@ -23,9 +25,9 @@ export function resetInitialIssuePrefetchForTest(): void {
  * AuthContext 가 토큰을 받은 직후(users/me 와 병렬)에 먼저 부르고, 그때 못 불린 경로는 AppLayout 훅이 첫 커밋 뒤에 부른다.
  * 어느 쪽이 먼저든 `done` 을 공유해 한 번만 나간다.
  */
-export function startInitialIssuePrefetch(queryClient: QueryClient): void {
+export function startInitialIssuePrefetch(queryClient: QueryClient, pathname: string = window.location.pathname): void {
   if (done) return;
-  const target = matchIssueDetailPath(window.location.pathname);
+  const target = matchIssueDetailPath(pathname);
   // 상세 주소가 아니면 done 을 세우지 않는다 — /login 에서 시작해 상세로 이동하는 경우처럼 나중 호출(셸 훅)이 요청할 수 있어야 한다.
   if (!target) return;
   done = true;
@@ -46,9 +48,23 @@ export function startInitialIssuePrefetch(queryClient: QueryClient): void {
 /** AppLayout 첫 커밋 뒤 미리 요청 — 토큰 직후 경로가 이미 돌았으면 아무것도 하지 않는다. */
 export function useInitialIssuePrefetch(): void {
   const queryClient = useQueryClient();
+  const { activeTenant } = useAuth();
+  const activeTenantId = activeTenant?.tenantId ?? null;
   useEffect(() => {
-    startInitialIssuePrefetch(queryClient);
+    // WP-2116: 알림을 탭해 로그인한 경우 로그인 뒤 셸이 `/` 에서 먼저 떠 「첫 기회」를 소비해 버린다 — 상세는 이 직후 대기 목적지로 이동한다.
+    // 그래서 대기 목적지를 엿보아(지우지 않는다 — 이동은 AppLayout 이 한다) 같은 테넌트의 상세면 그 주소로 미리 요청한다.
+    // 다른 테넌트면 전환·리로드가 일어나므로 요청하지 않는다.
+    // 이미 돌았으면(토큰 직후 경로·앞선 셸 마운트) 대기 목적지도 읽지 않는다.
+    if (done) return;
+    const pending = peekPendingPushTarget();
+    if (!pending) startInitialIssuePrefetch(queryClient);
+    else if (navigatesInPlace(pending, activeTenantId)) {
+      // safeTarget 을 거친 같은 origin 상대 경로라 new URL 이 던지지 않는다 — 쿼리·해시를 떼고 경로만 본다.
+      startInitialIssuePrefetch(queryClient, new URL(pending.url, window.location.origin).pathname);
+    }
     // 셸의 첫 호출은 상세 주소였든 아니든 소비한다 — 이후 앱 안 이동·셸 재마운트에서 「첫 진입 미리 요청」이 다시 돌지 않게 한다.
     done = true;
+    // 첫 커밋 뒤 한 번만 — 테넌트 변경으로 다시 돌지 않게 activeTenantId 는 의존성에서 뺀다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryClient]);
 }

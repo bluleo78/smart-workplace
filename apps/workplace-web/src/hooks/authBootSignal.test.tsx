@@ -6,6 +6,7 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { authApi } from '@/api/auth'
@@ -16,6 +17,7 @@ import { AUTH_FLAG_KEY } from '@/lib/auth/sessionFlag'
 import { afterInitialRefresh, resetAuthBootForTest } from '@/lib/authBoot'
 
 import { AuthProvider } from './AuthContext'
+import { useAuth } from './useAuth'
 import { resetInitialIssuePrefetchForTest } from './useInitialIssuePrefetch'
 
 vi.mock('@/api/auth', () => ({
@@ -55,11 +57,11 @@ function watchSignal() {
   return cb
 }
 
-function mount() {
+function mount(children: ReactNode = <div />) {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <AuthProvider>
-        <div />
+        {children}
       </AuthProvider>
     </QueryClientProvider>,
   )
@@ -99,23 +101,101 @@ function setup({ token, stored }: { token: string; stored?: number }) {
 
 describe('initAuth 첫 refresh 끝남 신호 (WP-2087)', () => {
   test.each([
-    ['initAuth_signalsWithoutSessionHint', () => {}, false],
+    ['initAuth_signalsWithoutSessionHint', () => {}, false, 1],
     [
-      'initAuth_signalsAfterRefreshFailure',
+      // WP-2116: 거절(401)도 미리 받기를 건너뛴다 — 로그인 화면으로 갈 세션이라 이슈 청크가 필요 없다.
+      'initAuth_skipsPreloadAfterRefreshRejection',
       () => {
         localStorage.setItem(AUTH_FLAG_KEY, 'true')
         vi.mocked(authApi.refresh).mockRejectedValue(Object.assign(new Error('401'), { response: { status: 401 } }))
       },
       true,
+      0,
     ],
-  ])('%s', async (_name, arrange, refreshes) => {
+  ])('%s', async (_name, arrange, refreshes, calls) => {
     arrange()
     const cb = watchSignal()
     mount()
     await flush()
     await nextTask()
     expect(vi.mocked(authApi.refresh).mock.calls.length > 0).toBe(refreshes)
+    expect(cb).toHaveBeenCalledTimes(calls)
+  })
+
+  test('initAuth_skipsPreloadAfterTransientRefreshError', async () => {
+    // WP-2116: refresh 일시 오류(503)면 안전망 3초를 지나도 미리 받기 콜백이 돌지 않는다.
+    localStorage.setItem(AUTH_FLAG_KEY, 'true')
+    vi.mocked(authApi.refresh).mockRejectedValue(Object.assign(new Error('503'), { isAxiosError: true, response: { status: 503 } }))
+    const cb = vi.fn()
+    // 안전망 타이머가 가짜 시계에 걸리도록 콜백 등록 전에 켠다.
+    vi.useFakeTimers()
+    try {
+      cancels.push(afterInitialRefresh(cb))
+      mount()
+      await flush()
+      await vi.advanceTimersByTimeAsync(4000)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(cb).not.toHaveBeenCalled()
+  })
+
+  test('initAuth_preloadsAfterRetrySucceedsFollowingTransientError', async () => {
+    // WP-2116 리뷰: 일시 오류로 건너뛴 미리 받기는 「다시 시도」가 성공해 앱에 들어가면 그 refresh 뒤에 돈다.
+    setup({ token: `h.${btoa(JSON.stringify({ tenant: 5 }))}.s`, stored: 5 })
+    vi.mocked(authApi.refresh).mockRejectedValueOnce(Object.assign(new Error('503'), { isAxiosError: true, response: { status: 503 } }))
+    const cb = watchSignal()
+    let retry: (() => void) | undefined
+    function RetryProbe() {
+      retry = useAuth().retryAuth
+      return null
+    }
+    mount(<RetryProbe />)
+    await flush()
+    await nextTask()
+    expect(cb).not.toHaveBeenCalled()
+    expect(retry).toBeTypeOf('function')
+    await act(async () => {
+      retry?.()
+    })
+    await flush()
+    await nextTask()
+    expect(authApi.refresh).toHaveBeenCalledTimes(2)
     expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  test('initAuth_skipsPreloadWhenTenantLessGoesToSelection', async () => {
+    // WP-2116: tenant-less 토큰 + 소속 2개 → 워크스페이스 선택으로 가므로 미리 받기를 건너뛴다.
+    setup({ token: `h.${btoa(JSON.stringify({ tenant: null }))}.s`, stored: 5 })
+    vi.mocked(authApi.memberships).mockResolvedValue({
+      data: [
+        { tenantId: 1, name: 'a', slug: 'a' },
+        { tenantId: 2, name: 'b', slug: 'b' },
+      ],
+    } as never)
+    const cb = watchSignal()
+    mount()
+    await flush()
+    await nextTask()
+    expect(authApi.memberships).toHaveBeenCalled()
+    expect(cb).not.toHaveBeenCalled()
+  })
+
+  test('initAuth_signalsAfterMembershipsWhenContinuingOnOtherTenant', async () => {
+    // WP-2116: 보관 테넌트 5, 토큰 테넌트 9, 목록에 9 가 있음 → 이어 가므로 memberships 뒤에 1회 신호.
+    setup({ token: jwtWithTenant(9), stored: 5 })
+    const order: string[] = []
+    vi.mocked(authApi.memberships).mockImplementation((() => {
+      order.push('memberships')
+      return Promise.resolve({ data: [{ tenantId: 9, name: 'n', slug: 'n' }] })
+    }) as never)
+    const cb = vi.fn(() => order.push('preload'))
+    cancels.push(afterInitialRefresh(cb, 60_000))
+    mount()
+    await flush()
+    await nextTask()
+    expect(cb).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['memberships', 'preload'])
   })
 
   test('initAuth_signalsAfterRefreshSuccess', async () => {
@@ -134,7 +214,7 @@ describe('initAuth 첫 refresh 끝남 신호 (WP-2087)', () => {
     const order: string[] = []
     vi.mocked(authApi.memberships).mockImplementation((() => {
       order.push('memberships')
-      return new Promise(() => {})
+      return Promise.resolve({ data: [{ tenantId: 9, name: 'n', slug: 'n' }] })
     }) as never)
     cancels.push(afterInitialRefresh(() => order.push('preload'), 60_000))
     mount()
