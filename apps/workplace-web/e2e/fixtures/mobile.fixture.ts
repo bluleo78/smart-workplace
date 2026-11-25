@@ -5,7 +5,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import { createChannel, createDm } from '../factories/messaging.factory'
 import type { ChannelResponse, DmResponse } from '../../src/types/messaging'
 
-export { expect, test } from './auth.fixture'
+export { dropToastPassthrough, expect, test } from './auth.fixture'
 
 /** 채널·DM 목록과 채널 상세를 모킹한다. 채널·DM 배열을 주입할 수 있다(WP-135). 반환값은 첫 채널. */
 export async function stubChat(
@@ -62,20 +62,32 @@ export async function expectBodyNoHorizontalOverflow(page: Page) {
  * containerSelector — 대상 중심점의 최상단 요소가 이 선택자 안에 있어야 통과.
  */
 export async function expectOnTop(page: Page, target: Locator, containerSelector: string) {
+  expect(await isOnTop(page, target, containerSelector)).toBe(true)
+}
+
+/**
+ * expectOnTop 의 판정만 — 대상 중심점의 최상단 요소가 containerSelector 안이면 true(poll 로 재시도할 때 쓴다).
+ * WP-2084: 앱 CSS 는 보이는 알림 몸통을 포인터 통과(none)로 두므로, 쌓임 순서만 보려고 판정 순간만 몸통도 받게 한다.
+ * 숨은 알림(data-visible=false)은 그대로 통과라 판정에서 빠진다.
+ */
+export async function isOnTop(page: Page, target: Locator, containerSelector: string) {
   const b = (await target.boundingBox())!
-  const onTop = await page.evaluate(
+  return page.evaluate(
     ([x, y, sel]) => {
       const prev = document.body.style.pointerEvents
       document.body.style.pointerEvents = 'auto'
+      const probe = document.createElement('style')
+      probe.textContent = "[data-sonner-toast]:not([data-visible='false']) { pointer-events: auto !important; }"
+      document.head.appendChild(probe)
       try {
         return document.elementFromPoint(x, y)?.closest(sel) != null
       } finally {
+        probe.remove()
         document.body.style.pointerEvents = prev
       }
     },
     [b.x + b.width / 2, b.y + b.height / 2, containerSelector] as const,
   )
-  expect(onTop).toBe(true)
 }
 
 /** 지금 history 항목의 router state(usr) 직렬화 — state 모드 히스토리 표식(예: issueCreate) 존재 단언용. */
