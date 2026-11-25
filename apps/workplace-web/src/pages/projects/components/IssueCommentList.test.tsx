@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { setRichText } from '@/test/kits/projects/issueDetailRef'
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
@@ -304,12 +305,22 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
   it('「더 보기」를 누르면 30건씩 늘어난다', async () => {
     renderList(manyComments(100))
 
+    // 눌러 보고 실제로 얼마나 늘어나는지(30건)와 그 뒤에도 남는 수를 문구가 그대로 말해야 한다(리뷰 후속 ④).
+    expect(screen.getByTestId('issue-comment-more')).toHaveTextContent('이전 댓글 30개 더 보기(남은 40개)')
+
     await userEvent.setup().click(screen.getByTestId('issue-comment-more'))
     // 100개가 되면 한꺼번에 전부 펼친 것 — 한 번에 30건씩만 늘어야 한다.
     expect(countRows()).toBe(60)
-    // 남은 40건이 있어 버튼이 그대로 남아 있고, 남은 수를 문구로 알려 준다.
+    // 남은 40건이 있어 버튼이 그대로 남아 있고, 남은 수가 문구에서 줄어 있다.
     expect(screen.getByTestId('issue-comment-more')).toBeInTheDocument()
-    expect(screen.getByTestId('issue-comment-more')).toHaveTextContent('댓글 40개 더 보기')
+    expect(screen.getByTestId('issue-comment-more')).toHaveTextContent('이전 댓글 30개 더 보기(남은 10개)')
+  })
+
+  it('남은 개수가 한 번에 늘리는 30건보다 적으면 남은 만큼만 적는다', () => {
+    renderList(manyComments(40))
+
+    // 숨은 것은 10건뿐이라 30건이라고 쓰면 눌러 보고 틀린 수를 본다(리뷰 후속 ④).
+    expect(screen.getByTestId('issue-comment-more')).toHaveTextContent('이전 댓글 10개 더 보기(남은 0개)')
   })
 
   it('이슈가 바뀌면 늘려 둔 창이 다음 이슈로 새지 않고 30건으로 돌아간다', async () => {
@@ -450,15 +461,106 @@ describe('IssueCommentList — 렌더 윈도우 (WP-2073)', () => {
     expect(countRows()).toBe(5)
     expect(screen.queryByTestId('issue-comment-more')).toBeNull()
   })
+
+  // 리뷰 후속 ①~③ — 창의 **오래된 쪽 경계**(숨은 코멘트)를 고정한다. 목록이 바뀔 때마다 창을 최신 쪽에서
+  // 다시 세면 경계가 밀려, ① 오래된 쪽 행 편집 중 그 행이 창 밖으로 나가 언마운트되고
+  // ② 삭제 뒤 숨은 코멘트가 경계 위로 끼어들어 초점이 한 칸 위로 가고(WP-832 회귀) ③ 읽던 맨 위 행이 사라진다.
+  const buildList = (comments: ReturnType<typeof createComment>[], order?: 'oldest' | 'newest') => (
+    <IssueCommentList
+      projectKey="WP"
+      issueNumber={1}
+      issueId={100}
+      comments={comments}
+      canReact={false}
+      hideComposer
+      order={order}
+    />
+  )
+
+  it('새 코멘트가 와도 오래된 쪽 경계는 그대로다 — 창은 새 코멘트만큼만 늘어난다', () => {
+    const view = renderWithProviders(buildList(manyComments(40)))
+    // 초기 창은 11~40 — 오래된 쪽 경계(1~10)는 숨어 있다.
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+
+    view.rerender(buildList([...manyComments(40), createComment({ id: 41 })]))
+
+    // 41번이 창에 더해지고(31행) 경계는 그대로 10 — 새 코멘트 때문에 11번이 밀려나지 않는다(리뷰 후속 ①·③).
+    expect(countRows()).toBe(31)
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
+    expect(screen.getByTestId('issue-comment-header-41')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+  })
+
+  it('최신순에서도 새 코멘트가 와도 오래된 쪽 경계가 그대로다', () => {
+    const view = renderWithProviders(buildList(manyComments(40), 'newest'))
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+
+    view.rerender(buildList([...manyComments(40), createComment({ id: 41 })], 'newest'))
+
+    expect(countRows()).toBe(31)
+    expect(screen.getByTestId('issue-comment-header-41')).toBeInTheDocument()
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+  })
+
+  it('오래된 쪽 행을 편집하는 중 새 코멘트가 와도 그 행이 사라지지 않는다 — 편집 중 내용이 남는다', async () => {
+    const view = renderWithProviders(buildList(manyComments(40)))
+    const user = userEvent.setup()
+    // 오래된 순의 창(11~40) 맨 위 행을 연다 — 경계가 밀리면 이 행이 창 밖으로 나가 로컬 상태(작성 중 내용)를 잃는다.
+    const topRow = document.getElementById('comment-11')
+    expect(topRow).not.toBeNull()
+    await user.click(within(topRow as HTMLElement).getByRole('button', { name: '코멘트 수정' }))
+    const edit = screen.getByTestId('issue-comment-edit-input')
+    // 편집기에는 내가 아직 저장하지 않은 내용이 들어 있다 — 행이 언마운트되면 이 내용까지 사라진다.
+    setRichText(edit, '작성 중이던 내용')
+    expect(edit).toHaveTextContent('작성 중이던 내용')
+
+    view.rerender(buildList([...manyComments(40), createComment({ id: 41 })]))
+
+    // 같은 행이 그대로 있고 편집기(로컬 상태)와 작성 중인 내용도 살아 있다(리뷰 후속 ①).
+    expect(document.getElementById('comment-11')).not.toBeNull()
+    expect(screen.getByTestId('issue-comment-edit-input')).toHaveTextContent('작성 중이던 내용')
+  })
+
+  it('삭제 뒤 숨은 코멘트가 경계 위로 끼어들지 않는다 — 초점은 지운 자리 아래 행으로 간다', () => {
+    const view = renderWithProviders(buildList(manyComments(40)))
+    // 창의 맨 위(오래된 쪽) 행 11번 안의 컨트롤에 초점을 둔다 — 이 행을 지우면 초점이 갈 곳을 잃는다.
+    const topRow = document.getElementById('comment-11') as HTMLElement
+    const copyButton = within(topRow).getByRole('button', { name: '코멘트 링크 복사' })
+    copyButton.focus()
+    expect(document.activeElement).toBe(copyButton)
+
+    view.rerender(buildList(manyComments(40).filter((c) => c.id !== 11)))
+
+    // 경계가 움직이면 숨어 있던 10번이 맨 위로 끼어들고 초점이 한 칸 위 행으로 간다(WP-832 회귀 — 리뷰 후속 ②).
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+    expect(document.getElementById('comment-11')).toBeNull()
+    expect(document.getElementById('comment-12')).toHaveFocus()
+  })
+
+  it('숨어 있던 코멘트가 남에게 지워져도 오래된 쪽 경계는 그대로다 — 읽던 행이 밀리지 않는다', () => {
+    const view = renderWithProviders(buildList(manyComments(40)))
+    // 창은 11~40, 숨은 것은 1~10이다.
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
+
+    // 보이지 않던 5번이 지워져도 경계가 밀리면 배열이 앞에서 밀려 11번이 창 밖으로 나간다
+    // — 길이(숨은 개수)가 아니라 경계 id 로 창을 맞춰야 막힌다(리뷰 후속 ①·③).
+    view.rerender(buildList(manyComments(40).filter((c) => c.id !== 5)))
+
+    expect(countRows()).toBe(30)
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
+  })
 })
 
-// ─── 윈도우 밖 대상은 먼저 전부 펼친다(WP-2073) ──────────────────────────
+// ─── 윈도우 밖 대상은 대상까지만 늘린다(WP-2073 리뷰 후속 ⑤) ─────────────
 // 렌더 윈도우(최신 30건) 바깥의 대상 — 링크로 온 코멘트는 아직 안 그려진 행이라
 // 그대로 두면 「찾을 수 없습니다」 토스트·아무 일도 없는 스크롤로 끝난다.
-// 방금 쓴 코멘트는 윈도우가 최신 쪽을 잡으므로 늘 창 안이다(리뷰 ②) — 창 밖이면 그때만 펼친다.
-// 목록에는 있는데 아직 안 그려졌으면 ALL_VISIBLE_COMMENTS 로 전부 펼친 뒤 다시 찾는다.
+// 예전에는 그때 목록 전체(MAX_SAFE_INTEGER)를 펼쳐 200행을 한 번에 다시 그렸고, 이 이슈가 없애려던
+// 성능 문제(일괄 렌더)로 되돌아갔다 — 이제는 대상이 보이도록 필요한 크기만 30단위로 올린다.
+// 방금 쓴 코멘트는 윈도우가 늘 최신 쪽을 잡고 경계도 고정이라(리뷰 후속 ①) 창 밖에 남지 않는다.
 
-describe('IssueCommentList — 윈도우 밖 대상은 전부 펼친다 (WP-2073)', () => {
+describe('IssueCommentList — 윈도우 밖 대상은 대상까지만 늘린다 (WP-2073)', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.restoreAllMocks())
 
@@ -512,6 +614,76 @@ describe('IssueCommentList — 윈도우 밖 대상은 전부 펼친다 (WP-2073
     // 가운데로 옮긴 대상이 1번째 코멘트 행이다.
     expect(scroll.mock.contexts.map((el) => (el as HTMLElement).dataset.messageId)).toEqual(['1'])
     expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+  })
+
+  it('200건 목록에서 링크 대상까지만(30단위 올림) 늘어난다 — 200행을 한 번에 펼치지 않는다', async () => {
+    const handled = vi.fn()
+    renderWithProviders(
+      <IssueCommentList
+        projectKey="WP"
+        issueNumber={1}
+        issueId={100}
+        comments={manyComments(200)}
+        canReact={false}
+        hideComposer
+        linkedCommentId={170}
+        onLinkedCommentHandled={handled}
+      />,
+    )
+
+    // 대상 170번이 보이려면 오래된 순 기준 31건이면 충분하고, 30단위로 올려 60행까지만 그린다(리뷰 후속 ⑤).
+    await waitFor(() => expect(countRows()).toBe(60))
+    expect(screen.getByTestId('issue-comment-header-170')).toBeInTheDocument()
+    // 창은 141~200 — 대상보다 오래된 140번은 아직 안 그려져 있다(전부 펼치지 않았다는 뜻).
+    expect(screen.queryByTestId('issue-comment-header-140')).toBeNull()
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(handled).toHaveBeenCalledTimes(1)
+  })
+
+  it('200건 목록에서 스크롤 대상도 대상까지만 늘리고 가운데로 간다', async () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+    const onScrolled = vi.fn()
+    renderWithProviders(
+      <IssueCommentList
+        projectKey="WP"
+        issueNumber={1}
+        issueId={100}
+        comments={manyComments(200)}
+        canReact={false}
+        hideComposer
+        scrollToCommentId={170}
+        onScrolledToComment={onScrolled}
+      />,
+    )
+
+    await waitFor(() => expect(countRows()).toBe(60))
+    expect(screen.getByTestId('issue-comment-header-170')).toBeInTheDocument()
+    expect(onScrolled).toHaveBeenCalledTimes(1)
+    expect(scroll.mock.contexts.map((el) => (el as HTMLElement).dataset.messageId)).toEqual(['170'])
+  })
+
+  it('최신순에서도 링크 대상까지만 늘린다 — 두 정렬 모두 같은 창이 나온다', async () => {
+    const handled = vi.fn()
+    renderWithProviders(
+      <IssueCommentList
+        projectKey="WP"
+        issueNumber={1}
+        issueId={100}
+        comments={manyComments(200)}
+        canReact={false}
+        hideComposer
+        order="newest"
+        linkedCommentId={170}
+        onLinkedCommentHandled={handled}
+      />,
+    )
+
+    // 최신순은 앞쪽(최신)이 창이라 필요한 크기를 구하는 방향이 반대다 — 그래도 결과 창은 오래된 순과 같다(리뷰 후속 ⑤).
+    await waitFor(() => expect(countRows()).toBe(60))
+    expect(screen.getByTestId('issue-comment-header-170')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-140')).toBeNull()
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(handled).toHaveBeenCalledTimes(1)
   })
 })
 
