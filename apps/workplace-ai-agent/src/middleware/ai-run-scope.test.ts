@@ -126,6 +126,19 @@ describe('aiRunScopeMiddleware', () => {
     expect(records[1]).toMatchObject({ errorReason: 'model_output_invalid', errorDetail: 'detail' });
   });
 
+  it('라우트가 stream_error 를 표시하고 500 을 내도 기록 사유는 stream_error — 강제 사유가 http_<코드> 보다 우선 (WP-2105)', async () => {
+    const { records, sink } = sinkOf();
+    const app = express();
+    app.use(aiRunScopeMiddleware(sink));
+    app.post('/ai/chat', (_req, res) => {
+      fakeRun();
+      markScopeFailed('stream_error', 'sse broke');
+      res.status(500).json({});
+    });
+    await request(app).post('/ai/chat').send({});
+    expect(records[1]).toMatchObject({ status: 'FAILED', errorReason: 'stream_error', errorDetail: 'sse broke' });
+  });
+
   it('강제 실패 없이 502 면 http_502 그대로 (WP-2105)', async () => {
     const { records, sink } = sinkOf();
     const app = express();

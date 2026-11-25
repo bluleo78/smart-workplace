@@ -28,7 +28,8 @@ export function aiRunScopeMiddleware(sink: AiRunSink): RequestHandler {
     res.on('finish', () => {
       finished = true;
       const code = res.statusCode;
-      // 라우트가 강제 실패 사유(model_output_invalid 등)를 정했으면 http_<코드> 로 덮지 않는다(WP-2105).
+      // 라우트가 markFailed 로 강제 실패를 정했으면 http_<코드> 를 넘기지 않는다(WP-2105) — 강제 사유가 더 구체적이기 때문이다.
+      // 그러면 close 가 러너 실패(runner_error)가 있으면 그것을, 없으면 강제 사유(model_output_invalid·stream_error)를 고른다.
       safeClose(scope, code >= 400 ? (scope.hasForcedFailure ? { ok: false } : { ok: false, reason: `http_${code}` }) : { ok: true });
     });
     res.on('close', () => {

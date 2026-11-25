@@ -129,6 +129,7 @@ export class AiRunScope {
     const runnerErrorDetail = runnerFailed ? this.runnerFailures[this.runnerFailures.length - 1] : null;
     const ok = o.ok && !runnerFailed && !forced;
     // 실패 사유 우선순위: 미들웨어가 정한 o.reason(http_<코드>·client_closed) > 러너 실패(runner_error) > markFailed 사유 > 'failed'.
+    // 강제 실패(markFailed)가 있으면 미들웨어가 http_<코드> 를 넘기지 않아(o.reason 비움) 뒤 순위가 적용된다.
     // 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다 — 러너는 성공했는데 스트림만 실패한 경우에만 stream_error 가 남는다.
     const reason = ok
       ? null
