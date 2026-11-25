@@ -180,28 +180,54 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
         .hasMessage("첨부 파일은 최대 25MB까지 업로드할 수 있습니다: big.bin");
   }
 
+  /** 헬퍼 — 이름이 다른 n 개의 작은 파일. */
+  private List<MultipartFile> files(String prefix, int n) {
+    return java.util.stream.IntStream.range(0, n)
+        .mapToObj(i -> mockFile(prefix + i + ".txt", new byte[] {1}))
+        .toList();
+  }
+
+  /** WP-2118: 한도가 20 이라 15개를 한 번에 올릴 수 있다. */
   @Test
-  void over_10_per_issue_throws_409() throws IOException {
+  void fifteen_files_at_once_succeed() throws IOException {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
-    // 1차로 9개 업로드 → OK
-    List<MultipartFile> nine =
-        java.util.stream.IntStream.range(0, 9)
-            .mapToObj(i -> mockFile("f" + i + ".txt", new byte[] {1}))
-            .toList();
-    service.upload(owner, p.key(), 1, nine);
+    assertThat(service.upload(owner, p.key(), 1, files("f", 15))).hasSize(15);
+  }
 
-    // 2개 추가 시도 → 누적 11 → 409
-    assertThatThrownBy(
-            () ->
-                service.upload(
-                    owner,
-                    p.key(),
-                    1,
-                    List.of(mockFile("x.txt", new byte[] {1}), mockFile("y.txt", new byte[] {1}))))
-        .isInstanceOf(AttachmentLimitExceededException.class);
+  /** 17개가 붙은 이슈에 5개를 더하면 409 이고 메시지가 남은 자리(3개)를 알린다. */
+  @Test
+  void over_20_per_issue_throws_409_with_remaining_slots() throws IOException {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "AT");
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    service.upload(owner, p.key(), 1, files("a", 17));
+
+    assertThatThrownBy(() -> service.upload(owner, p.key(), 1, files("b", 5)))
+        .isInstanceOf(AttachmentLimitExceededException.class)
+        .hasMessageContaining("현재 17 + 신규 5 — 3개 더 붙일 수 있습니다");
+  }
+
+  /** 20개가 다 찬 이슈에는 1개도 더 못 붙이고 메시지가 그렇게 말한다. */
+  @Test
+  void full_issue_says_no_more_room() throws IOException {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "AT");
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
+    service.upload(owner, p.key(), 1, files("a", 20));
+
+    assertThatThrownBy(() -> service.upload(owner, p.key(), 1, files("b", 1)))
+        .isInstanceOf(AttachmentLimitExceededException.class)
+        .hasMessageContaining("현재 20 + 신규 1 — 더 붙일 수 없습니다");
+  }
+
+  /** 이미 한도를 넘긴 값(current=22)도 음수 없이 「더 붙일 수 없습니다」. */
+  @Test
+  void exception_message_clamps_remaining_to_zero() {
+    assertThat(new AttachmentLimitExceededException(22, 1, 20))
+        .hasMessage("이슈당 첨부 한도(20개)를 초과합니다: 현재 22 + 신규 1 — 더 붙일 수 없습니다");
   }
 
   @Test

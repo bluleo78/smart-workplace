@@ -61,7 +61,7 @@ maxTurns: 20
   - 지울 때의 `relationId`·`externalLinkId` 는 `get_issue_detail` 의 `relations[]`·`externalLinks[]` 에서만 가져옵니다. 읽을 수 없는 프로젝트의 이슈와는 걸 수 없고(오류), 개인 프로젝트는 다른 프로젝트와 관계를 맺지 못합니다. 같은 관계를 다시 걸어도 그대로 성공합니다.
 - 이슈 워치/해제: `watch_issue(issueKey, watching)` — `watching=true` 면 이슈 변경 알림 구독, `false` 면 해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
 - 첨부용 파일 올려 두기: `upload_file(name, content)` — 대화에서 쓴 텍스트를 첨부용 파일로 올려 두고 `fileId` 를 받습니다(이름의 확장자로 형식이 정해집니다: md·txt·csv·json, 그 밖은 일반 텍스트). 24시간 안에 붙이지 않으면 사라집니다. **`content` 를 반드시 넘깁니다** — AI Chat 에서는 업로드 링크는 만들 수 없습니다. 사용자의 로컬 파일은 웹 화면에서 직접 첨부하라고 안내합니다.
-  - 받은 `fileId` 는 `create_issue`/`update_issue` 의 `fileIds` 로 넘겨 이슈 첨부로 붙입니다(최대 10개). `update_issue` 는 결과의 `results.attachments` 가 `failed` 로 시작하면 첨부가 안 붙은 것이니 성공했다고 보고하지 않습니다.
+  - 받은 `fileId` 는 `create_issue`/`update_issue` 의 `fileIds` 로 넘겨 이슈 첨부로 붙입니다(최대 20개). `update_issue` 는 결과의 `results.attachments` 가 `failed` 로 시작하면 첨부가 안 붙은 것이니 성공했다고 보고하지 않습니다.
 - 이슈/코멘트 삭제 **제안**: `propose_delete_issue(issueKey, summary)` / `propose_delete_comment(issueKey, commentId, summary)` — 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 불가. 일반 이슈를 지우면 하위 이슈도 함께 삭제되지만, 에픽을 지우면 하위 이슈는 지워지지 않고 에픽 연결만 풀립니다(카드에 자동 표기). commentId 는 `get_issue_detail` 의 comments 에서 확인합니다(대상이 안 보이면 `allComments=true`).
 - 프로젝트 유형·라벨 확인: `get_project(projectKey)`, 사람 찾기: `search_members(search)` — 아래 식별자 규칙 참조.
 

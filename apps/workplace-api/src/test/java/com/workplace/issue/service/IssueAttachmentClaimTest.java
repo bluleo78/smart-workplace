@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -191,8 +192,8 @@ class IssueAttachmentClaimTest extends IntegrationTestBase {
   }
 
   @Test
-  void 빈_목록과_11개_요청은_400() throws Exception {
-    for (List<Long> ids : List.of(List.<Long>of(), stageMany(11))) {
+  void 빈_목록과_21개_요청은_400() throws Exception {
+    for (List<Long> ids : List.of(List.<Long>of(), stageMany(21))) {
       mvc.perform(
               post("/api/v1/projects/"
                       + projectKey
@@ -206,12 +207,12 @@ class IssueAttachmentClaimTest extends IntegrationTestBase {
     }
   }
 
-  /** 이슈 생성 요청의 fileIds 도 한 요청 10개까지 — 11개면 검증(400)에서 막혀 이슈가 생기지 않는다. */
+  /** 이슈 생성 요청의 fileIds 도 한 요청 20개까지 — 21개면 검증(400)에서 막혀 이슈가 생기지 않는다. */
   @Test
-  void 생성_요청의_fileIds_11개는_400_이슈도_생기지_않음() throws Exception {
-    List<Long> eleven = new ArrayList<>();
-    for (long i = 1; i <= 11; i++) {
-      eleven.add(i);
+  void 생성_요청의_fileIds_21개는_400_이슈도_생기지_않음() throws Exception {
+    List<Long> tooMany = new ArrayList<>();
+    for (long i = 1; i <= 21; i++) {
+      tooMany.add(i);
     }
     int before = dsl.fetchCount(ISSUE, ISSUE.PROJECT_ID.eq(projectId));
     mvc.perform(
@@ -219,23 +220,59 @@ class IssueAttachmentClaimTest extends IntegrationTestBase {
                 .header("Authorization", tokenFor(ownerId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    objectMapper.writeValueAsString(Map.of("title", "많은 첨부", "fileIds", eleven))))
+                    objectMapper.writeValueAsString(Map.of("title", "많은 첨부", "fileIds", tooMany))))
         .andExpect(status().isBadRequest());
     TenantContext.set(TEST_TENANT_ID);
     assertThat(dsl.fetchCount(ISSUE, ISSUE.PROJECT_ID.eq(projectId))).isEqualTo(before);
   }
 
   @Test
-  void 열한_번째는_409_아무것도_묶이지_않음() throws Exception {
-    service.claim(ownerId, projectKey, issueNumber, stageMany(9));
+  void 스물한_번째는_409_아무것도_묶이지_않음() throws Exception {
+    service.claim(ownerId, projectKey, issueNumber, stageMany(19));
     List<Long> two = stageMany(2);
 
     assertThatThrownBy(() -> service.claim(ownerId, projectKey, issueNumber, two))
         .isInstanceOf(AttachmentLimitExceededException.class);
 
-    assertThat(attachmentCount()).isEqualTo(9);
+    assertThat(attachmentCount()).isEqualTo(19);
     // 거절된 파일은 여전히 임시(만료 있음)로 남아 다시 쓸 수 있다.
     assertThat(dsl.fetchCount(FILE, FILE.ID.in(two).and(FILE.EXPIRES_AT.isNotNull()))).isEqualTo(2);
+  }
+
+  /** WP-2118: 17개가 붙은 이슈에 5개를 클레임하면 409 이고 메시지에 남은 자리가 있다. */
+  @Test
+  void 클레임_409_메시지에_남은_자리() throws Exception {
+    service.claim(ownerId, projectKey, issueNumber, stageMany(17));
+    List<Long> five = stageMany(5);
+
+    assertThatThrownBy(() -> service.claim(ownerId, projectKey, issueNumber, five))
+        .isInstanceOf(AttachmentLimitExceededException.class)
+        .hasMessageContaining("현재 17 + 신규 5 — 3개 더 붙일 수 있습니다");
+  }
+
+  /** 이슈 수정 요청의 fileIds 도 20개까지 — 21개는 400, 20개는 검증을 통과해 붙는다. */
+  @Test
+  void 수정_요청의_fileIds_21개는_400_20개는_통과() throws Exception {
+    List<Long> tooMany = new ArrayList<>();
+    for (long i = 1; i <= 21; i++) {
+      tooMany.add(i);
+    }
+    mvc.perform(
+            patch("/api/v1/projects/" + projectKey + "/issues/" + issueNumber)
+                .header("Authorization", tokenFor(ownerId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("fileIds", tooMany))))
+        .andExpect(status().isBadRequest());
+
+    List<Long> twenty = stageMany(20);
+    mvc.perform(
+            patch("/api/v1/projects/" + projectKey + "/issues/" + issueNumber)
+                .header("Authorization", tokenFor(ownerId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("fileIds", twenty))))
+        .andExpect(status().isOk());
+    TenantContext.set(TEST_TENANT_ID);
+    assertThat(attachmentCount()).isEqualTo(20);
   }
 
   @Test
@@ -313,11 +350,11 @@ class IssueAttachmentClaimTest extends IntegrationTestBase {
   /** 업로드 경로와 클레임 경로가 같은 이슈 안에서 섞여도 한도를 함께 센다. */
   @Test
   void 업로드와_클레임이_섞여도_한도는_합산() throws Exception {
-    List<MultipartFile> nine = new ArrayList<>();
-    for (int i = 0; i < 9; i++) {
-      nine.add(new MockMultipartFile("files", "u" + i + ".txt", "text/plain", new byte[] {1}));
+    List<MultipartFile> nineteen = new ArrayList<>();
+    for (int i = 0; i < 19; i++) {
+      nineteen.add(new MockMultipartFile("files", "u" + i + ".txt", "text/plain", new byte[] {1}));
     }
-    service.upload(ownerId, projectKey, issueNumber, nine);
+    service.upload(ownerId, projectKey, issueNumber, nineteen);
     List<Long> two = stageMany(2);
 
     assertThatThrownBy(() -> service.claim(ownerId, projectKey, issueNumber, two))

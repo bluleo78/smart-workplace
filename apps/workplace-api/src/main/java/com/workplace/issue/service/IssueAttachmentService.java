@@ -58,7 +58,7 @@ public class IssueAttachmentService {
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
-  @Value("${workplace.storage.attachment.max-per-issue:10}")
+  @Value("${workplace.storage.attachment.max-per-issue:20}")
   private int maxPerIssue;
 
   /**
@@ -87,7 +87,7 @@ public class IssueAttachmentService {
       }
     }
 
-    // 2) 누적 한도 — 현재 + 신규 > 10 이면 409.
+    // 2) 누적 한도 — 현재 + 신규 > 20 이면 409.
     // 동시 업로드 TOCTOU 레이스(#625) 방지 — 카운트 조회 전에 이슈 단위 advisory lock 으로 직렬화.
     // 트랜잭션 종료 시 자동 해제되므로 별도 unlock 불필요.
     repo.advisoryLockIssue(issue.id());
@@ -172,7 +172,7 @@ public class IssueAttachmentService {
 
   /**
    * 가져오기용 첨부 — {@link #attachStaged} 와 같은 잠금·스테이징 클레임(호출자 소유·만료·중복 바인딩 검사)·파일 크기 상한·텍스트 추출 요청을 거치되,
-   * 첨부자·시각을 원본 값으로 기록하고 <b>이력·알림은 남기지 않는다</b>(원래 이력은 가져오기가 따로 옮긴다). 개수 상한은 일반 경로(10)가 아니라 호출자가 넘기는
+   * 첨부자·시각을 원본 값으로 기록하고 <b>이력·알림은 남기지 않는다</b>(원래 이력은 가져오기가 따로 옮긴다). 개수 상한은 일반 경로(20)가 아니라 호출자가 넘기는
    * 가져오기 상한(maxCount, 요청 DTO 의 상한)이다 — 다른 트래커의 이슈에는 첨부가 더 많을 수 있다. 호출자의 쓰기 트랜잭션 안에서 불러야 하며, 권한 판정은
    * 호출자 몫이다.
    *

@@ -112,3 +112,49 @@ describe('IssueAttachmentList — 첨부 삭제 확인창', () => {
     expect(deleteMutate).not.toHaveBeenCalled()
   })
 })
+
+describe('IssueAttachmentList — strip 접기(WP-2118)', () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => makeAttachment(100 + i, `file-${i}.txt`))
+  const chips = () => screen.getByTestId('attachment-list').querySelectorAll('li').length
+  const renderStrip = () =>
+    renderWithProviders(
+      <IssueAttachmentList projectKey="LNK" number={1} currentUserId={1} isOwner={false} layout="strip" onPreview={vi.fn()} />,
+    )
+
+  it('13개면 칩 12개 + 「1개 더 보기」, 누르면 13개 + 「접기」, 다시 누르면 12개', async () => {
+    attachmentsData.current = many(13)
+    const user = userEvent.setup()
+    renderStrip()
+    expect(chips()).toBe(12)
+    expect(screen.getByRole('button', { name: '1개 더 보기' })).toHaveAttribute('aria-expanded', 'false')
+    await user.click(screen.getByRole('button', { name: '1개 더 보기' }))
+    expect(chips()).toBe(13)
+    const fold = screen.getByRole('button', { name: '접기' })
+    expect(fold).toHaveAttribute('aria-expanded', 'true')
+    expect(fold).toHaveAttribute('aria-controls', screen.getByTestId('attachment-list').id)
+    await user.click(fold)
+    expect(chips()).toBe(12)
+  })
+
+  it('펼친 뒤 11개로 줄었다가 14개가 되면 접힌 상태로 12개 + 「2개 더 보기」', async () => {
+    attachmentsData.current = many(13)
+    const user = userEvent.setup()
+    const { rerender } = renderStrip()
+    await user.click(screen.getByRole('button', { name: '1개 더 보기' }))
+    expect(chips()).toBe(13)
+    attachmentsData.current = many(11)
+    rerender(<IssueAttachmentList projectKey="LNK" number={1} currentUserId={1} isOwner={false} layout="strip" onPreview={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /더 보기|접기/ })).not.toBeInTheDocument()
+    attachmentsData.current = many(14)
+    rerender(<IssueAttachmentList projectKey="LNK" number={1} currentUserId={1} isOwner={false} layout="strip" onPreview={vi.fn()} />)
+    expect(chips()).toBe(12)
+    expect(screen.getByRole('button', { name: '2개 더 보기' })).toBeInTheDocument()
+  })
+
+  it('12개면 단추가 없다', () => {
+    attachmentsData.current = many(12)
+    renderStrip()
+    expect(chips()).toBe(12)
+    expect(screen.queryByRole('button', { name: /더 보기|접기/ })).not.toBeInTheDocument()
+  })
+})

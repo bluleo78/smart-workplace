@@ -95,7 +95,7 @@ class IssueAttachmentConcurrentUploadTest extends IntegrationTestBase {
 
   @Test
   void concurrent_uploads_never_exceed_per_issue_limit() throws Exception {
-    // given: 신규 이슈(첨부 0개), 두 스레드가 각각 6개씩(합 12개) 동시 업로드 시도 — 한도(10) 초과 조합.
+    // given: 신규 이슈(첨부 0개), 두 스레드가 각각 11개씩(합 22개) 동시 업로드 시도 — 한도(20) 초과 조합.
     Long owner = createUser("owner");
     ProjectResponse project =
         projectService.create(owner, new CreateProjectRequest(uniqueKey("CC"), "P-CC", "x"));
@@ -113,7 +113,7 @@ class IssueAttachmentConcurrentUploadTest extends IntegrationTestBase {
           try {
             ready.countDown();
             start.await(5, TimeUnit.SECONDS);
-            service.upload(owner, project.key(), 1, files("f", 6));
+            service.upload(owner, project.key(), 1, files("f", 11));
             successCount.incrementAndGet();
           } catch (AttachmentLimitExceededException e) {
             rejectedCount.incrementAndGet();
@@ -131,11 +131,11 @@ class IssueAttachmentConcurrentUploadTest extends IntegrationTestBase {
     pool.shutdown();
     assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
 
-    // then: 최종 첨부 개수는 한도(10)를 절대 넘지 않아야 하고, 두 요청 중 최소 하나는 거부돼야 한다.
+    // then: 최종 첨부 개수는 한도(20)를 절대 넘지 않아야 하고, 두 요청 중 최소 하나는 거부돼야 한다.
     Long issueId = issueRepository.findByProjectAndNumber(project.id(), 1).orElseThrow().id();
     int finalCount = repo.countByIssue(issueId);
 
-    assertThat(finalCount).isLessThanOrEqualTo(10);
+    assertThat(finalCount).isLessThanOrEqualTo(20);
     assertThat(rejectedCount.get()).isGreaterThanOrEqualTo(1);
     assertThat(successCount.get() + rejectedCount.get()).isEqualTo(2);
 

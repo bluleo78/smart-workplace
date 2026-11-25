@@ -7,6 +7,7 @@
 
 import { Cloud, Paperclip, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { ATTACHMENT_MAX_PER_ISSUE } from '../../../api/issueAttachments';
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
@@ -15,6 +16,7 @@ import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
 import { useAddIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
 import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { attachmentLimitLabel, blockedUploadMessage } from '../../../lib/issueAttachmentUpload';
 import { IssueAttachmentDropzone } from './IssueAttachmentDropzone';
 import { IssueAttachmentList } from './IssueAttachmentList';
 import { useIssueAttachmentViewer } from './useIssueAttachmentViewer';
@@ -73,10 +75,13 @@ export function IssueAttachmentStrip({
   // 드라이브 링크는 개인 스페이스가 확인돼야 남는다. 둘 다 없으면 「＋ 첨부」 버튼을 렌더하지 않는다.
   const canPickFile = attachmentCount < ATTACHMENT_MAX_PER_ISSUE;
   const canPickDrive = spacesResolved && personalSpaceId != null;
+  // 모바일 한도 안내 문구 — 한 번만 계산(한도 도달이면 canPickFile 이 false 이고 문구가 「한도 도달」).
+  const limitLabel = attachmentLimitLabel(attachmentCount, ATTACHMENT_MAX_PER_ISSUE);
 
   return (
     <section aria-label="첨부" data-testid="issue-attachment-strip" className="space-y-2">
-      {attachmentCount > 0 && (
+      {/* 편집 가능하면 0개여도 「첨부 0/20」 로 한도를 미리 알리고, 열람자는 첨부가 있을 때만 보인다. */}
+      {(attachmentCount > 0 || canEditContent) && (
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <span>첨부</span>
           <span>{attachmentCount}/{ATTACHMENT_MAX_PER_ISSUE}</span>
@@ -91,6 +96,13 @@ export function IssueAttachmentStrip({
         layout="strip"
         onPreview={attachmentViewer.onPreview}
       />
+      {/* 모바일(WP-2118): 드롭존이 없으므로 같은 남은 개수 힌트(1~5)·한도 도달 문구를 첨부 단추 위에 보인다.
+          한도 도달 때는 단추가 사라질 수 있어(드라이브 불가) 단추 조건과 따로 둔다. */}
+      {canEditContent && isMobile && limitLabel && (
+        <p data-testid="mobile-attach-limit" className="text-xs text-muted-foreground">
+          {limitLabel}
+        </p>
+      )}
       {canEditContent && isMobile && (canPickFile || canPickDrive) && (
         // 모바일(WP-196): 드롭존·링크 두 버튼 대신 「＋ 첨부」 하나 → 액션 시트(파일 · 드라이브에서 링크).
         // 파일 입력은 시트 밖에 숨겨 두고, 액션 onSelect(시트 닫기와 같은 클릭 핸들러 안 동기 실행)에서 click() —
@@ -114,7 +126,14 @@ export function IssueAttachmentStrip({
               const files = Array.from(e.target.files ?? []);
               // 같은 파일을 다시 고를 수 있게 값 리셋.
               e.target.value = '';
-              if (files.length > 0) upload.mutate({ files, currentCount: attachmentCount });
+              // 업로드 중에는 막는다 — 낡은 개수로 두 번째 묶음이 잘리지 않게(데스크톱 드롭존과 같은 가드).
+              if (files.length === 0) return;
+              // 업로드 중에 고른 파일은 말없이 버리지 않고 안내한다(WP-2118).
+              if (upload.isPending) {
+                toast.info(blockedUploadMessage('uploading', ATTACHMENT_MAX_PER_ISSUE, '선택'));
+                return;
+              }
+              upload.mutate({ files, currentCount: attachmentCount });
             }}
           />
           <MobileActionSheet
@@ -123,7 +142,8 @@ export function IssueAttachmentStrip({
             onClose={() => setAttachSheetOpen(false)}
             title="첨부"
             actions={[
-              ...(canPickFile
+              // 업로드 중에는 「파일」을 빼 고른 뒤 버려지지 않게 한다(WP-2118).
+              ...(canPickFile && !upload.isPending
                 ? [{ key: 'file', label: '파일', icon: <Paperclip />, onSelect: pickFile }]
                 : []),
               ...(canPickDrive
