@@ -28,7 +28,7 @@ public record UpdateIssueRequest(
     String statusName,
     // WP-1780 먼저 올려 둔 스테이징 파일(WP-421)을 이슈 첨부로 묶는다 — 만들기(CreateIssueRequest.fileIds)와 같은 규칙. 본문
     // 자리표시에 쓴 번호는 서버가 빼므로 클라이언트가 가려내지 않아도 된다.
-    @Size(max = 10) List<Long> fileIds) {
+    @Size(max = 20) List<Long> fileIds) {
 
   /** WP-1780 이전의 13-인자 호환 생성자 — 첨부(fileIds) 없이 만든다. 기존 호출부가 그대로 쓴다. */
   public UpdateIssueRequest(

@@ -769,6 +769,28 @@ describe('buildSharedIssueTools', () => {
     expect(out).toEqual({ ok: true, results: { content: 'ok', attachments: 'ok' } });
   });
 
+  // WP-2118: 이슈 쓰기 도구의 fileIds 는 20개까지(이슈 첨부 한도), 챗 글·보고는 그대로 10개.
+  it.each(['create_issue', 'update_issue'])('WP-2118: %s 입력 fileIds 는 15·20개 통과, 21개 거절', (name) => {
+    const t = buildSharedIssueTools(mockClient()).find((x) => x.name === name)!;
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+    const base = name === 'create_issue' ? { projectKey: 'WP', title: 't' } : { issueKey: 'WP-12' };
+    expect(t.inputSchema.safeParse({ ...base, fileIds: ids(15) }).success).toBe(true);
+    expect(t.inputSchema.safeParse({ ...base, fileIds: ids(20) }).success).toBe(true);
+    expect(t.inputSchema.safeParse({ ...base, fileIds: ids(21) }).success).toBe(false);
+  });
+
+  it('WP-2118: add_issue_chat 입력 fileIds 11개는 거절(챗 글은 10개 그대로)', () => {
+    const t = buildSharedIssueTools(mockClient()).find((x) => x.name === 'add_issue_chat')!;
+    const ids = Array.from({ length: 11 }, (_, i) => i + 1);
+    expect(t.inputSchema.safeParse({ issueKey: 'WP-12', body: 'b', fileIds: ids }).success).toBe(false);
+  });
+
+  it('WP-2118: report_agent_work 입력 fileIds 11개는 거절(보고 글은 10개 그대로)', () => {
+    const t = buildSharedIssueTools(mockClient()).find((x) => x.name === 'report_agent_work')!;
+    const ids = Array.from({ length: 11 }, (_, i) => i + 1);
+    expect(t.inputSchema.safeParse({ issueKey: 'WP-12', state: 'WORKING', fileIds: ids }).success).toBe(false);
+  });
+
   it('WP-1780: update_issue: fileIds 만 주어도 내용 PATCH 한 번으로 보낸다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

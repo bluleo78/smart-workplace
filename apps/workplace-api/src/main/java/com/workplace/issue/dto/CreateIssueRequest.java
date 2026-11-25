@@ -15,8 +15,8 @@ import java.util.List;
  * 이슈만 남는다(비원자적). 모두 같은 프로젝트 소속이어야 하고, 프로젝트 멤버(또는 ADMIN)만 지정할 수 있다(수정 경로와 같은 규칙).
  *
  * <p>WP-422: fileIds 는 먼저 올려 둔 스테이징 파일(WP-421) — 이슈를 만드는 같은 트랜잭션에서 첨부로 묶는다(잘못된 id 면 이슈도 생기지 않는다).
- * 생성 뒤 따로 클레임하면 그 클레임이 작업 쓰기라 담당 AI 작업을 시작해 버려서 생성 요청 안에 둔다. 한 요청은 10개까지(400), 이슈당 한도(10개)를 넘으면
- * 409.
+ * 생성 뒤 따로 클레임하면 그 클레임이 작업 쓰기라 담당 AI 작업을 시작해 버려서 생성 요청 안에 둔다. 한 요청도 이슈당 한도와 같은 20개까지(400 — @Size 20
+ * 은 max-per-issue 설정과 맞춰 둔 값), 이슈당 한도(20개)를 넘으면 409.
  *
  * <p>WP-464: status 는 처음 상태(미지정이면 할 일) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태로 만든다. 종료 상태면 closed_at 도 함께 채운다. 할
  * 일이 아닌 상태 지정은 멤버 전용(WP-477 — 상태 변경이 멤버 전용이라 생성이 우회로가 되면 안 된다).
@@ -44,7 +44,7 @@ public record CreateIssueRequest(
     Long milestoneId,
     List<@NotNull Long> cycleIds,
     List<String> labelNames,
-    @Size(max = 10) List<Long> fileIds,
+    @Size(max = 20) List<Long> fileIds,
     @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status,
     Long statusId,
     // WP-933 구성요소 — 같은 프로젝트의 사용 중(보관 안 됨) 구성요소만, 구성원만 지정할 수 있다. 담당자 없이 만들면 고른 구성요소 담당자가

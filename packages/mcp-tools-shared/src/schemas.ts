@@ -26,8 +26,14 @@ export const mailCategoryInput = z.enum(MAIL_CATEGORIES);
 /** 메일 분류 한 값(WP-1346 — ai-agent 분석 파서·학습 라우트가 이 정의 하나를 쓴다). */
 export type MailCategory = (typeof MAIL_CATEGORIES)[number];
 
-/** upload_file 로 스테이징한 파일 id 목록(WP-422) — 이슈·메시지 쓰기 도구가 첨부 입력(fileIds)으로 같이 쓴다. 한 요청 10개는 서버 상한과 같다. */
-export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('upload_file ids to attach');
+/** 스테이징 파일 id 배열 스키마 팩토리 — 한 요청 최대 개수만 다르다(설명은 같다). */
+const stagedFileIds = (max: number) => z.array(z.number().int().positive()).max(max).describe('upload_file ids to attach');
+
+/** upload_file 로 스테이징한 파일 id 목록(WP-422) — 메시지·이슈 챗 글·보고 도구가 첨부 입력(fileIds)으로 쓴다(이슈 생성·수정은 아래 issueAttachmentFileIdsInput). 한 요청 10개는 서버 상한과 같다. */
+export const stagedFileIdsInput = stagedFileIds(10);
+
+/** 이슈 첨부용 fileIds(WP-2118) — 이슈당 첨부 한도 20개와 같이 한 요청 20개까지. 메시지·챗 글용(stagedFileIdsInput, 10개)과 한도가 달라 따로 둔다. */
+export const issueAttachmentFileIdsInput = stagedFileIds(20);
 
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
@@ -80,7 +86,7 @@ export const createIssueInput = z.object({
   affectsVersions: z.array(z.string()).optional(), // WP-888: 영향 버전 이름[]
   milestone: z.string().min(1).optional(),
   cycles: z.array(z.string()).optional(),
-  fileIds: stagedFileIdsInput.optional(), // WP-422·WP-1780: 생성·수정 모두 서버가 같은 트랜잭션에서 붙인다(수정은 내용 PATCH 의 fileIds — 실패하면 내용과 함께 되돌린다)
+  fileIds: issueAttachmentFileIdsInput.optional(), // WP-422·WP-1780: 생성·수정 모두 서버가 같은 트랜잭션에서 붙인다(수정은 내용 PATCH 의 fileIds — 실패하면 내용과 함께 되돌린다)
 });
 
 /** 이슈 부분 수정 입력 — 전달 필드만 변경. */
@@ -113,7 +119,7 @@ export const updateIssueInput = z.object({
     .optional(),
   // WP-356: 드라이브 파일 연결(POST .../drive-links). 이미 연결돼 있으면 서버가 무시한다.
   driveFileId: z.number().int().positive().describe('Drive file to link').optional(),
-  fileIds: stagedFileIdsInput.optional(), // WP-422·WP-1780: 생성·수정 모두 서버가 같은 트랜잭션에서 붙인다(수정은 내용 PATCH 의 fileIds — 실패하면 내용과 함께 되돌린다)
+  fileIds: issueAttachmentFileIdsInput.optional(), // WP-422·WP-1780: 생성·수정 모두 서버가 같은 트랜잭션에서 붙인다(수정은 내용 PATCH 의 fileIds — 실패하면 내용과 함께 되돌린다)
 });
 
 /** 코멘트 작성 입력. */

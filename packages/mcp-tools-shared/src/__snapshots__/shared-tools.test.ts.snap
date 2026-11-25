@@ -778,7 +778,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "maximum": 9007199254740991,
             "type": "integer",
           },
-          "maxItems": 10,
+          "maxItems": 20,
           "type": "array",
         },
         "fixVersions": {
@@ -3714,7 +3714,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "maximum": 9007199254740991,
             "type": "integer",
           },
-          "maxItems": 10,
+          "maxItems": 20,
           "type": "array",
         },
         "fixVersions": {

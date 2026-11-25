@@ -226,7 +226,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
-      // WP-1510: 정의 크기 상한 — fileIds 안내는 입력 스키마 설명(stagedFileIdsInput)과 같은 말이라 설명에서 뺐다(update_issue·report_agent_work 도 같음).
+      // WP-1510: 정의 크기 상한 — fileIds 안내는 입력 스키마 설명(issueAttachmentFileIdsInput)과 같은 말이라 설명에서 뺐다(update_issue·report_agent_work 도 같음).
       description:
         'Creates an issue (이슈) in projectKey. type, milestone, cycles, components, assignees (usernames, "me" = caller): names ' +
         'from get_project; unknown fail before creating, listing allowed values. labels too, but unknown labels are ' +

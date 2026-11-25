@@ -6,7 +6,7 @@
 // WP-277: 첨부·드라이브 링크 이름 클릭은 onPreview(묶음 키)로 부모(IssueAttachmentStrip)에 알린다 —
 //         URL ?preview·묶음·뷰어는 부모의 useIssueAttachmentViewer 하나가 업로드·링크 목록 모두를 맡는다.
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import {
   AlertDialog,
@@ -26,6 +26,9 @@ import type { IssueAttachment } from '../../../types/attachment';
 import type { DriveLink } from '../../../types/drive';
 import { IssueAttachmentItem } from './IssueAttachmentItem';
 import { IssueDriveLinkItem } from './IssueDriveLinkItem';
+
+// strip 접기 기준 — 이 개수를 넘으면(> 12) 앞 12개만 보이고 「n개 더 보기」 로 펼친다(WP-2118).
+const STRIP_COLLAPSED_COUNT = 12;
 
 export function IssueAttachmentList({
   projectKey,
@@ -61,6 +64,17 @@ export function IssueAttachmentList({
   // 대상을 닫을 때 비우지 않는 까닭: 닫히는 애니메이션 동안이나 목록이 다시 불려 링크가 빠져도 확인창 글이 다른 파일·빈 이름으로 바뀌지 않게.
   const [removeTarget, setRemoveTarget] = useState<DriveLink | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // strip 칩 접기 상태 — 많을 때 본문을 길게 밀어내지 않도록 기본은 접힘.
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
+  // 접기 대상 판정은 훅 뒤 조기 반환보다 먼저 — 단추가 사라지면(12개 이하) 펼침 상태도 접힘으로 되돌린다.
+  const stripCollapsible = layout === 'strip' && !driveLinksOnly && (q.data?.length ?? 0) > STRIP_COLLAPSED_COUNT;
+  // 렌더 중 이전 값 비교로 상태를 맞춘다(effect 대신) — 13→펼침→11→14 에서 14개가 펼쳐진 채 나오지 않게.
+  const [prevCollapsible, setPrevCollapsible] = useState(stripCollapsible);
+  if (prevCollapsible !== stripCollapsible) {
+    setPrevCollapsible(stripCollapsible);
+    if (!stripCollapsible) setExpanded(false);
+  }
 
   // driveLinksOnly 모드: driveQ 만, 업로드 모드: q 만 기다림 (서로 독립, 파트A #80 Fix).
   if (driveLinksOnly ? driveQ.isLoading : q.isLoading) {
@@ -79,13 +93,16 @@ export function IssueAttachmentList({
   }
 
   // strip 모드: flex 가로 래핑 컨테이너
+  // 접기 판정은 위 stripCollapsible 하나를 쓴다(driveLinksOnly 면 visibleItems 가 비어 같은 결과).
+  const collapsible = stripCollapsible;
+  const shownItems = collapsible && !expanded ? visibleItems.slice(0, STRIP_COLLAPSED_COUNT) : visibleItems;
   const listClass = layout === 'strip' ? 'flex flex-wrap gap-2' : undefined;
 
   return (
     <>
-      <ul data-testid="attachment-list" className={listClass}>
+      <ul id={listId} data-testid="attachment-list" className={listClass}>
         {/* 업로드 첨부 먼저 */}
-        {visibleItems.map((a) => (
+        {shownItems.map((a) => (
           <IssueAttachmentItem
             key={a.fileId}
             projectKey={projectKey}
@@ -117,6 +134,17 @@ export function IssueAttachmentList({
           />
         ))}
       </ul>
+      {collapsible && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={listId}
+          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          {expanded ? '접기' : `${visibleItems.length - STRIP_COLLAPSED_COUNT}개 더 보기`}
+        </button>
+      )}
 
       {/* 첨부 삭제 확인 AlertDialog — window.confirm 대체 (#148) */}
       <AlertDialog

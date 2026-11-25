@@ -1,5 +1,5 @@
 // 이슈 첨부(업로드·삭제·검증·스피너·버튼 이름)와 첨부 뷰어 묶음의 조건부 표시(WP-203·WP-277·WP-431·#782·#783) — 페이지 테스트(WP-980).
-// 파일 선택 → POST·토스트·목록 갱신, 25MB·10개 한도 사전 검증, 업로드 중 스피너, 권한별 삭제 버튼, 문서(HWP) 변환 경로·휴지통·삭제된 링크,
+// 파일 선택 → POST·토스트·목록 갱신, 25MB·20개 한도 사전 검증, 업로드 중 스피너, 권한별 삭제 버튼, 문서(HWP) 변환 경로·휴지통·삭제된 링크,
 // 요약 403·요약 패널·⋯ 메뉴, 드라이브에 저장 POST·위치 토스트, 없는 첨부 딥링크 안내는 브라우저 없이 판정되므로
 // e2e/pages/projects/attachments.spec.ts 에서 옮겼다. 그 spec 에는 다운로드·PDF·이미지 렌더·실시간 재조회(@platform),
 // ‹ › 키보드 넘기기·포커스 복귀(@input), 드라이브 폴더로 여는 흐름(@flow)이 남는다.
@@ -87,11 +87,11 @@ describe('이슈 첨부 업로드·삭제', () => {
     expect(requests.count('POST', ATT)).toBe(0)
   })
 
-  // 첨부 9개인 이슈에 2개 — 첫 번째만 받고 두 번째는 한도 초과. 'test.pdf' 끝 글자 f 는 받침 없음 → 「를」.
-  test('이슈당 첨부 한도(10개)를 넘는 파일은 올바른 조사로 건너뛰고, 앞 파일만 POST 한다', async () => {
+  // 첨부 19개인 이슈에 2개 — 첫 번째만 받고 두 번째는 제외되며 결과 토스트 하나로 알린다.
+  test('이슈당 첨부 한도(20개)를 넘는 파일은 결과 토스트 하나로 알리고, 앞 파일만 POST 한다', async () => {
     const requests = recordRequests()
     const { user } = await openIssueDetail({
-      detail: detail(9),
+      detail: detail(19),
       handlers: [http.post(ATT, () => HttpResponse.json([createAttachment({ fileId: 9999, originalName: 'first.pdf' })]))],
     })
     await screen.findByTestId('attachment-dropzone')
@@ -99,7 +99,7 @@ describe('이슈 첨부 업로드·삭제', () => {
       new File(['a'], 'first.pdf', { type: 'application/pdf' }),
       new File(['b'], 'test.pdf', { type: 'application/pdf' }),
     ])
-    expect(await screen.findByText('이슈당 첨부 한도(10개)를 초과하여 test.pdf를 건너뜁니다')).toBeInTheDocument()
+    expect(await screen.findByText('첨부 1개 · 제외 1개 — 이슈당 최대 20개')).toBeInTheDocument()
     await waitFor(() => expect(requests.count('POST', ATT)).toBe(1))
     await act(() => new Promise((r) => setTimeout(r, 200)))
     expect(requests.count('POST', ATT)).toBe(1)
