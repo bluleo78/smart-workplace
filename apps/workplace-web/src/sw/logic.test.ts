@@ -200,6 +200,18 @@ describe('NAVIGATION_DENYLIST', () => {
     expect(isOutsideSpaPath('/oauth/authorize?x=1')).toBe(true)
   })
 
+  // WP-2112: 같은 도메인 하위 경로에 붙인 별도 앱(/ext/<앱>)은 서버(Ingress)로 보낸다 — 가로채면 Works 404 가 떴다.
+  it('별도 앱 경로(/ext)는 서버로 보낸다 — Works 의 /apps 화면은 그대로 앱 셸', () => {
+    expect(denied('/ext/factory-board/')).toBe(true)
+    expect(denied('/ext/factory-board')).toBe(true)
+    expect(denied('/ext')).toBe(true)
+    expect(isOutsideSpaPath('/ext/factory-board/')).toBe(true)
+    // 접두가 같을 뿐인 경로와 Works 앱 목록 화면은 그대로 앱 셸
+    expect(denied('/extra')).toBe(false)
+    expect(denied('/apps')).toBe(false)
+    expect(denied('/apps/tabs')).toBe(false)
+  })
+
   it('일반 앱 화면은 precache 앱 셸로 연다', () => {
     expect(denied('/')).toBe(false)
     expect(denied('/wiki/spaces/3/pages/12')).toBe(false)

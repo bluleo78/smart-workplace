@@ -132,8 +132,18 @@ export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: st
  * 앱 셸로 가로채면 파일 대신 index.html 이 뜨고, 서버의 "없는 파일은 404" 판정도 건너뛴다.
  * OAuth 동의 화면 `/oauth/authorize`(WP-1686)는 nginx 가 frame-ancestors 'none' 을 붙여 내보낸다 — 가로채 캐시한 index.html('self')로
  * 답하면 그 헤더가 빠진다. `/oauth/m365/callback` 등 다른 /oauth/ 경로는 가로채도 되므로 접두를 authorize 로 좁힌다.
+ *
+ * `/ext` 는 같은 도메인 하위 경로에 붙이는 별도 앱(시연용 데모 앱 등, 다른 네임스페이스의 Ingress)이 쓰는 자리다 — 가로채면
+ * 서버에 닿지 못하고 Works 라우터가 모르는 경로라 404 가 뜬다(WP-2112). Works 의 `/apps`(앱 목록 화면)와 겹치지 않게 따로 둔다.
  */
-export const NAVIGATION_DENYLIST: RegExp[] = [/^\/api\//, /^\/s\//, /^\/wiki\/share\//, /^\/help\//, /^\/oauth\/authorize/]
+export const NAVIGATION_DENYLIST: RegExp[] = [
+  /^\/api\//,
+  /^\/s\//,
+  /^\/wiki\/share\//,
+  /^\/help\//,
+  /^\/oauth\/authorize/,
+  /^\/ext(\/|$)/,
+]
 
 /**
  * 앱 안 이동(SPA)으로 열면 안 되는 경로인가 — 서비스 워커가 서버로 보내는 주소(NAVIGATION_DENYLIST)와 같은 목록으로 판정한다.
