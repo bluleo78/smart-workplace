@@ -9,6 +9,7 @@ import type { Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { tokenColor } from '../../fixtures/contrast';
 import { trackRequests } from '../../fixtures/requests';
 import { dropDnd, expectStays, gate, startKeyboardDrag } from '../../fixtures/wait';
 import {
@@ -716,6 +717,46 @@ test.describe('이슈 보드/검색', () => {
     await failing.waitFor(settled + 1);
   });
 
+});
+
+test('보드의 종료 제목은 흐리고 취소에 삭선이 있으며 카드 hover로 제목 색을 복원한다', { tag: '@input' }, async ({
+  authenticatedPage: page,
+}) => {
+  await stubProjectMeta(page);
+  const issues = [
+    createIssue({ id: 21, number: 21, title: '검수가 끝난 작업', status: 'DONE' }),
+    createIssue({ id: 22, number: 22, title: '취소한 작업', status: 'CANCELED' }),
+  ];
+  await routeIssueSearch(page, (route, url) => {
+    const status = columnStatusOf(url);
+    const items = issues.filter((issue) => !status || issue.status === status);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createIssueSearchResponse(items)),
+    });
+  });
+  await page.goto(`/projects/${PROJECT_KEY}?view=board&closed=all`);
+  await page.mouse.move(0, 0);
+
+  const doneTitle = page.getByTestId('issue-card-21-title');
+  const canceledTitle = page.getByTestId('issue-card-22-title');
+  await expect(doneTitle).toBeVisible();
+  await expect(canceledTitle).toBeVisible();
+
+  const muted = await tokenColor(page, '--muted-foreground');
+  const foreground = await tokenColor(page, '--foreground');
+  await expect(doneTitle).toHaveCSS('color', muted);
+  await expect(doneTitle).toHaveCSS('text-decoration-line', 'none');
+  await expect(canceledTitle).toHaveCSS('color', muted);
+  await expect(canceledTitle).toHaveCSS('text-decoration-line', 'line-through');
+
+  await page.getByTestId('issue-card-21').hover();
+  await expect(doneTitle).toHaveCSS('color', foreground);
+  await page.getByTestId('issue-card-22').hover();
+  await expect(canceledTitle).toHaveCSS('color', foreground);
+  await expect(canceledTitle).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(doneTitle).toHaveCSS('color', muted);
 });
 
 // #876 — 활성 사이클 밖 종료(완료·취소) 이슈 숨김 + 「완료 모두 보기」 토글.

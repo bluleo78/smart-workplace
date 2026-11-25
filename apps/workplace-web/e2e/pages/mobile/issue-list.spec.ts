@@ -54,7 +54,13 @@ const CLOSED_EPICS = [
 async function mock(
   page: Page,
   // activeCycle: 진행 중 사이클에 할당된 에픽 번호(WP-389) — 에픽 조회는 serverEpicFilter 로 서버처럼 거른다.
-  opts: { views?: unknown[]; member?: boolean; closedEpics?: IssueResponse[]; epics?: IssueResponse[]; activeCycle?: number[] } = {},
+  opts: {
+    views?: unknown[];
+    member?: boolean;
+    closedEpics?: IssueResponse[];
+    epics?: IssueResponse[];
+    activeCycle?: number[];
+  } = {},
 ) {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: opts.member ?? true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
@@ -70,7 +76,7 @@ async function mock(
     const body = isEpicList
       ? serverEpicFilter(new URL(r.request().url()), [...(opts.epics ?? EPICS), ...(opts.closedEpics ?? [])], opts.activeCycle)
       : [LONG, PLAIN, SUB];
-    return r.fulfill(json(createIssueSearchResponse(body as never[], null)));
+    return r.fulfill(json(createIssueSearchResponse(body, null)));
   });
 }
 

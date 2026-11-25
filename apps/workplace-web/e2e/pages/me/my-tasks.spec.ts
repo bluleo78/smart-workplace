@@ -6,6 +6,7 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory'
 import { createMeOverview, createUpcomingItem } from '../../factories/meOverview.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { tokenColor } from '../../fixtures/contrast'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 
 // 내 작업 페이지(4탭 — 개요 WP-1484) E2E — 실제 브라우저가 필요한 것만 남긴다.
@@ -39,6 +40,26 @@ test('내 작업 — /me/tasks 는 개요 탭으로 넘어가 개요를 그리�
   const req = await cap.waitForRequest()
   expect(req.searchParams.get('assignee')).toBe('me')
   await expect(page.getByTestId('assigned-row-11')).toContainText('할당된 이슈')
+})
+
+test('내 작업의 취소 제목은 hover 때도 삭선을 유지하면서 밑줄을 더한다', { tag: '@input' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const issue = createIssue({ id: 91, number: 91, title: '취소한 공유 이슈', status: 'CANCELED' })
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([issue]))
+  await page.goto('/me/tasks/assigned')
+
+  const title = page.getByRole('link', { name: issue.title })
+  await expect(title).toBeVisible()
+  const muted = await tokenColor(page, '--muted-foreground')
+  const foreground = await tokenColor(page, '--foreground')
+  await expect(title).toHaveCSS('color', muted)
+  await expect(title).toHaveCSS('text-decoration-line', 'line-through')
+
+  await title.hover()
+  await expect(title).toHaveCSS('color', foreground)
+  await expect(title).toHaveCSS('text-decoration-line', /underline.*line-through|line-through.*underline/)
 })
 
 // 페이지 레이아웃 통합(Page) — 내 작업도 h-14 헤더 바를 갖고, 헤더 제목·탭·필터 바가 같은 시작선에 선다(넓은 화면 포함).
