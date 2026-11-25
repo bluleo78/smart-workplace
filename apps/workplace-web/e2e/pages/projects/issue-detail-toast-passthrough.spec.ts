@@ -61,6 +61,35 @@ test.describe('알림 포인터 통과 (WP-2084)', { tag: ['@layout'] }, () => {
     await expect(page.getByRole('textbox', { name: '이슈 제목' })).toBeVisible();
   });
 
+  // Alt+T 로 펼친 스택은 포커스가 떠나도 Sonner 가 data-expanded 를 유지한다 — 호버·포커스가 없는데도 알림이 클릭을 받으면
+  // 아래 「제목 편집」 단추가 계속 가려진다. 펼침 규칙은 토스터에 호버·포커스가 있을 때만 받아야 한다.
+  test('Alt+T 로 펼친 뒤 포커스가 떠나면 알림이 다시 아래 단추를 통과시킨다', async ({ authenticatedPage: page }) => {
+    await setupIssuePage(page, { onPatch: () => LONG_TITLE })
+    await saveTitle(page, LONG_TITLE)
+    await dropToastPassthrough(page)
+    const toast = page.locator('[data-sonner-toast]').first()
+    const edit = page.getByTestId('issue-title-edit')
+
+    await page.keyboard.press('Alt+T')
+    await expect(toast).toHaveAttribute('data-expanded', 'true')
+    // 포커스가 토스터 안에 있는 동안은 펼친 알림이 클릭을 받는다(:focus-within 갈래가 실제로 맞는지).
+    await expect(page.locator('[data-sonner-toaster]:focus-within')).toHaveCount(1)
+    await expect(toast).toHaveCSS('pointer-events', 'auto')
+    // 포커스를 토스터 밖(제목 편집 단추)으로 옮기고 마우스도 알림 밖에 둔다.
+    await edit.focus()
+    await page.mouse.move(2, 2)
+    await expect(page.locator('[data-sonner-toaster]:focus-within')).toHaveCount(0)
+    // 전제: 펼침 표시가 남아 있어야 이 테스트가 옛 규칙(펼침이면 무조건 받음)을 잡는다.
+    await expect(toast).toHaveAttribute('data-expanded', 'true')
+
+    const t = (await toast.boundingBox())!
+    const b = (await edit.boundingBox())!
+    const overlap = t.x < b.x + b.width && b.x < t.x + t.width && t.y < b.y + b.height && b.y < t.y + t.height
+    expect(overlap, '알림이 단추를 덮어야 의미가 있다').toBe(true)
+    await edit.click({ timeout: 1000 })
+    await expect(page.getByRole('textbox', { name: '이슈 제목' })).toBeVisible()
+  })
+
   // 숨은(4번째 이후)·앞 알림 뒤에 접힌 알림은 단추도 몸통도 클릭을 받지 않는다 — 앞 알림 탭이 뒤의 「실행 취소」로 새거나
   // 뒤 알림이 아래 페이지 클릭을 삼키면 안 된다. 속성 조합별 판정은 토스터(ol)에 Sonner 가 다는 속성 그대로의 알림 li 를 심어
   // 앱 CSS 만으로 본다(진짜 실행 취소 알림 스택은 messaging-phase4.spec 의 WP-2084 테스트). 대조군(펼쳐진 보이는 알림)은 눌려야 한다.
@@ -104,6 +133,8 @@ test.describe('알림 포인터 통과 (WP-2084)', { tag: ['@layout'] }, () => {
       w.__lastClick = ''
       document.addEventListener('mousedown', (e) => (w.__lastClick = (e.target as Element).closest('[data-probe]')?.getAttribute('data-probe') ?? 'page'), true)
     })
+    // 펼침 규칙은 토스터에 포커스(또는 호버)가 있을 때만 받는다(Alt+T 로 펼친 상태) — 대조군이 눌리도록 토스터에 포커스를 준다.
+    await page.evaluate(() => (document.querySelector('[data-sonner-toaster]') as HTMLElement).focus())
     const landed: Record<string, string> = {}
     for (const p of points) {
       await page.evaluate(() => ((window as unknown as { __lastClick: string }).__lastClick = '(없음)'))

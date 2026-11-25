@@ -139,6 +139,8 @@ async function setupUndoBehindErrorToast(page: Page, channelId: number, deleteId
     createMessage({ id: editId, channelId, authorId: ME_ID, authorName: '나', body: '고칠 메시지' }),
   ]
   await stubMessages(page, channelId, messages)
+  // 실제 삭제 요청 수 — 실행 취소가 눌렸으면 실행 취소 창이 지나도 0 이다(눌리지 않았으면 1).
+  const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${deleteId}`)
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/messages/${deleteId}`,
     (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204 }) : route.fallback()),
@@ -170,6 +172,7 @@ async function setupUndoBehindErrorToast(page: Page, channelId: number, deleteId
   const front = page.locator('[data-sonner-toast][data-front="true"]')
   await expect(front).toContainText('수정 서버 오류')
   await expect(page.locator('[data-sonner-toast]')).toHaveCount(2)
+  return { deletes }
 }
 
 test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
@@ -380,7 +383,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
   // WP-2084 — 앞 알림 뒤에 접힌 실행 취소 알림이 아래 페이지 클릭을 삼키지 않는다. 앞 알림 중앙에 놓은 페이지 단추를 실제로 눌러
   // 클릭이 그 단추에 닿고 실행 취소는 눌리지 않았는지(삭제가 취소되지 않음) 본다.
   test('접힌 뒤 실행 취소 알림은 앞 알림 아래 페이지 클릭을 삼키지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
-    await setupUndoBehindErrorToast(page, 221, 863, 864)
+    const { deletes } = await setupUndoBehindErrorToast(page, 221, 863, 864)
     const front = page.locator('[data-sonner-toast][data-front="true"]')
     const back = page.locator('[data-sonner-toast][data-front="false"]')
     await expect(back).toHaveAttribute('data-expanded', 'false')
@@ -400,8 +403,18 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
     await page.mouse.click(cx, cy)
     await expect(page.getByTestId('under-toast')).toHaveAttribute('data-clicked', 'yes')
-    // 실행 취소가 눌렸다면 지우기 알림이 닫힌다 — 아직 그대로여야 한다.
+    // 실행 취소가 눌렸다면 지우기 알림이 닫힌다(Sonner 가 data-removed 를 달고 200ms 뒤 걷는다). 가상 시계라 걷히는 시점이 오지 않아
+    // 「보이는지」만 보면 늘 통과하므로, 시계를 흘려 보낸 뒤에도 알림 2개가 그대로고 닫힘 표시가 없는지 본다.
+    await page.clock.runFor(1000)
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(2)
+    await expect(page.locator('[data-sonner-toast][data-removed="true"]')).toHaveCount(0)
     await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
+    // 실제로 되돌아가지 않았는지 — 실행 취소 창이 지나면 삭제 요청이 한 번 나가야 한다(실행 취소가 눌렸으면 0 이라 실패한다).
+    // 앞 알림이 닫혀 실행 취소 알림이 앞으로 오면 그 자리의 포인터가 호버로 타이머를 멈추므로 먼저 포인터를 치운다.
+    await page.mouse.move(2, 2)
+    await page.clock.runFor(UNDO_DELETE_DELAY_MS * 2)
+    await deletes.waitFor(1)
+    await expectStays(page, deletes.count, 1, { ms: 200 })
   })
 
   // WP-238 — 토스트를 밀어서 닫으면 '취소 안 함'으로 보고 지연 시간을 기다리지 않고 바로 삭제한다.
