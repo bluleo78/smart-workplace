@@ -136,21 +136,25 @@ describe('AiRunScope', () => {
 
   it('러너 실패 뒤 forgiveRunnerFailure 하고 재시도가 성공하면 SUCCEEDED, 토큰은 합쳐 둔다', () => {
     const { sink, scope } = make();
-    scope.runnerStarted('m', 'c');
-    scope.runnerFinished({ ok: false, usage: { inputTokens: 3, outputTokens: 0 }, error: new Error('effort') });
-    scope.forgiveRunnerFailure();
+    const first = {};
+    const s1 = scope.runnerStarted('m', 'c', first);
+    scope.runnerFinished({ ok: false, usage: { inputTokens: 3, outputTokens: 0 }, error: new Error('effort'), startSeq: s1 });
+    scope.forgiveRunnerFailure(first);
     scope.runnerStarted('m', 'c');
     scope.runnerFinished({ ok: true, usage: { inputTokens: 4, outputTokens: 0 } });
     scope.close({ ok: true });
     expect(sink[1]).toMatchObject({ status: 'SUCCEEDED', errorReason: null, errorDetail: null, inputTokens: 7 });
   });
 
-  it('forgive 는 마지막 실패 하나만 지운다 — 앞선 실패가 남으면 FAILED, 사유는 남은 가장 최근 것', () => {
+  it('forgive 는 그 호출의 실패만 지운다 — 다른 호출의 실패가 남으면 FAILED, 사유는 남은 것', () => {
     const { sink, scope } = make();
-    scope.runnerStarted('m', 'c');
-    scope.runnerFinished({ ok: false, usage: null, error: new Error('A') });
-    scope.runnerFinished({ ok: false, usage: null, error: new Error('B') });
-    scope.forgiveRunnerFailure();
+    const a = {};
+    const b = {};
+    const sa = scope.runnerStarted('m', 'c', a);
+    const sb = scope.runnerStarted('m', 'c', b);
+    scope.runnerFinished({ ok: false, usage: null, error: new Error('A'), startSeq: sa });
+    scope.runnerFinished({ ok: false, usage: null, error: new Error('B'), startSeq: sb });
+    scope.forgiveRunnerFailure(b);
     scope.runnerFinished({ ok: true, usage: null });
     scope.close({ ok: true });
     expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'runner_error', errorDetail: 'A' });
