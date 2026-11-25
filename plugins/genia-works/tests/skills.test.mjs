@@ -1977,7 +1977,30 @@ test('끝난 실행으로 PAUSED 된 행은 새 실행의 내 노드면 시작 �
   includesAll(lineWith(wfSec, '- **후보 고르기**'), ['예외: note 「워크플로우 실행이 끝나 멈춤」 PAUSED 행', '③-2', '시작 전 후보', '새 실행의 그 노드를 처음부터 한다', '옛 단계에서 이어 하지 않는다', '시작 절차(선행 확인)'], '후보 고르기');
   includesAll(lineWith(skillBody, '| 멈춤(PAUSED) |'), ['워크플로우 실행이 끝나 멈춤', '다시 고르기를 「후보 고르기」, 새 글을 「대기 댓글」대로 한다'], '상태표 PAUSED');
   const w = lineWith(wfSec, '- **대기 댓글**');
-  includesAll(w, ['WORKING·INPUT_REQUIRED·AUTH_REQUIRED·WAITING·SCHEDULED·BLOCKED — SUBMITTED·REVIEW·PAUSED 는 그대로', '열린 PR <주소> 이 남아 있습니다', '그 경우에만 다시 하라는 글로 이어 할 때 notes 의 옛 `워크플로우:` 줄만 지우고 `마지막 완료 단계` 다음부터', '실행을 시작해 달라고 안내한다', '새 활성 실행의 내 노드면 「후보 고르기」대로 다시 골라', '켜진 워크플로우가 없어진 프로젝트면', '안내 글과 `get_workflow` 조회를 건너뛰고'], '대기 댓글');
+  includesAll(w, ['WORKING·INPUT_REQUIRED·AUTH_REQUIRED·WAITING·SCHEDULED·BLOCKED — SUBMITTED·REVIEW·PAUSED 는 그대로', '열린 PR <주소> 이 남아 있습니다', '「워크플로우를 끈 뒤 이어 하기」', '실행을 시작해 달라고 안내한다', '새 활성 실행의 내 노드면 「후보 고르기」대로 다시 골라', '켜진 워크플로우가 없어진 프로젝트면', '안내 글과 `get_workflow` 조회를 건너뛰고'], '대기 댓글');
   assert.ok(!w.includes('부르지 않고 넘어가고'), '옛 「부르지 않고 넘어가고」 표현이 남아 있다');
   assert.ok(lineWith(skillBody, '- **시작 전 후보**').includes('워크플로우 실행이 끝나 멈춤'), '시작 전 후보');
+});
+
+// WP-2129 워크플로우를 모두 끈 뒤 「워크플로우 실행이 끝나 멈춤」 PAUSED 행 이어 하기 — 늘 읽히는 3번에 한 곳, 나머지는 가리킨다.
+test('워크플로우를 끈 뒤 이어 하기는 3번 상태표 아래 한 곳에 풀어 쓰고 PAUSED 행·대기 댓글·프로젝트 판정은 가리킨다 (WP-2129)', () => {
+  // 문단은 제목 줄부터 「선행 대기 차단」 앞까지 — 상태표 뒤·선행 대기 차단 앞에 있어야 켜진 워크플로우가 없어도 읽힌다.
+  assertBefore(skillBody, '| 멈춤(PAUSED) |', '**워크플로우를 끈 뒤 이어 하기**');
+  const p = section(skillBody, '\n**워크플로우를 끈 뒤 이어 하기**', '\n**선행 대기 차단**');
+  // 갈래를 가르는 토큰만 고정한다(문장 다듬기에 깨지지 않게).
+  includesAll(p, ['`.yaml`', '`처리 파일` 줄을 새로 적는다', 'state/wf-wait/', '「PR 리뷰·머지」(검토자)', '「9. PR」로 적어 10번부터', '`MERGED`', '「11. 검토 대기」', '`CLOSED`', '`bg-job stop`', '2번부터 다시 밟는다', '이미 있는 커밋을 다시 하지 않는다'], '워크플로우를 끈 뒤 이어 하기');
+  for (const [anchor, label] of [[lineWith(skillBody, '| 멈춤(PAUSED) |'), '상태표 PAUSED'], [lineWith(wfSec, '- **대기 댓글**'), '대기 댓글'], [lineWith(wfSec, '- **프로젝트 판정**'), '프로젝트 판정']]) {
+    includesAll(anchor, ['「워크플로우를 끈 뒤 이어 하기」'], label);
+  }
+  assert.ok(!lineWith(wfSec, '- **대기 댓글**').includes('줄만 지우고 `마지막 완료 단계` 다음부터 이어 한다'), '옛 원문이 대기 댓글에 남아 있다');
+  assert.equal(skillBody.split('**워크플로우를 끈 뒤 이어 하기**').length - 1, 1, '원문은 한 곳');
+});
+
+// WP-2129 process-issue.md 1번 「시작」 — 옛 워크플로우 notes 는 「처리 파일을 읽는다」가 덮어쓰기 전에 SKILL.md 3번 문단으로 고친다.
+test('process-issue.md 1번 「시작」은 옛 워크플로우 notes 를 SKILL.md 「워크플로우를 끈 뒤 이어 하기」로 먼저 고치게 한다 (WP-2129)', () => {
+  const start = section(workLoop('process-issue.md'), '\n### 1. 시작\n', '\n### 2. 워크트리\n');
+  const l = lineWith(start, '`워크플로우:` 줄');
+  assert.ok(l.startsWith('- notes 에 `워크플로우:`'), '하위 목록이 아니라 최상위 항목');
+  includesAll(l, ['`SKILL.md` 3번 「워크플로우를 끈 뒤 이어 하기」', '`.yaml`', '덮어쓰기 **전에**'], '1번 시작 갈래');
+  assertBefore(start, '「워크플로우를 끈 뒤 이어 하기」', '- **처리 파일을 읽는다**');
 });
