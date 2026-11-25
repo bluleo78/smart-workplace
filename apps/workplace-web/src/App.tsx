@@ -14,6 +14,7 @@ import { useAuth } from './hooks/useAuth'
 import { useRouteDocumentTitle } from './hooks/useDocumentTitle'
 import { useIsMobile } from './hooks/useIsMobile'
 import { AUTH_FLAG_KEY } from './lib/auth/sessionFlag'
+import { afterInitialRefresh } from './lib/authBoot'
 import { type Preload, type RoutePreloadKey, startInitialRoutePreloads } from './lib/routePreloads'
 import { safeLocalStorage } from './lib/safeLocalStorage'
 
@@ -213,8 +214,8 @@ function hasSessionHint(): boolean {
  * WP-2021: 첫 주소의 페이지 청크를 인증을 기다리지 않고 미리 받는다 — App 이 그려진 뒤 부르지만, 실제로 받기는 문서당 한 번뿐이다(startInitialRoutePreloads).
  * 위 lazy 선언과 같은 import 함수를 불러 모듈이 한 번만 내려받아진다. 로그인 흔적이 없으면 아무것도 하지 않는다.
  */
-function preloadInitialRoute(): void {
-  if (!hasSessionHint()) return
+function preloadInitialRoute(): (() => void) | undefined {
+  if (!hasSessionHint()) return undefined
   const loaders: Record<RoutePreloadKey, Preload> = {
     projectTabs: loadProjectTabsLayout,
     projectIssues: loadProjectIssuesPage,
@@ -230,16 +231,17 @@ function preloadInitialRoute(): void {
     driveLayout: loadDriveLayout,
     driveIndex: loadDriveIndex,
   }
-  startInitialRoutePreloads(window.location.pathname, loaders)
+  // WP-2087: 첫 refresh 가 끝난 뒤에 시작한다(안전망 3초) — 취소 함수를 돌려준다.
+  const pathname = window.location.pathname
+  return afterInitialRefresh(() => startInitialRoutePreloads(pathname, loaders))
 }
 
 export default function App() {
   // 첫 주소 청크 미리 받기는 첫 그리기 뒤로 미룬다 — 그리기 전에 부르면 청크가 먼저 도착해 실행되며 첫 long task 가 길어져
-  // 첫 페인트·인증 요청이 밀렸다(운영 빌드 메일 LCP 360 → 428ms). 효과는 그린 뒤에 돌고, 인증(refresh)이 오가는 동안 청크를 받는다.
-  useEffect(() => {
-    const id = setTimeout(preloadInitialRoute, 0)
-    return () => clearTimeout(id)
-  }, [])
+  // 첫 페인트·인증 요청이 밀렸다(운영 빌드 메일 LCP 360 → 428ms). 효과는 그린 뒤에 돌고, users/me 등이 오가는 동안 청크를 받는다.
+  // WP-2087: 시작 시점은 거기에 더해 「첫 refresh 가 끝나고 그 동기 구간의 요청(상세 미리 요청·users/me)이 나간 다음 작업」이다
+  // (authBoot 가 setTimeout 0 으로 미룬다) — HTTP/1.1 에서 183개 청크가 이 요청들을 줄 세워 상세 요청이 FCP 뒤 803ms 였다.
+  useEffect(() => preloadInitialRoute(), [])
 
   return (
     <RouteErrorBoundary>

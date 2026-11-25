@@ -1,4 +1,5 @@
 // 첫 주소가 이슈 상세일 때 셸이 상세 데이터를 미리 요청하는지(WP-2074).
+import { QueryClient } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { act, lazy, Suspense, useEffect, useState } from 'react'
@@ -9,7 +10,7 @@ import { DriveUploadProvider } from '@/components/drive/upload/DriveUploadProvid
 import { AppLayout } from '@/components/layout/AppLayout'
 import { useIssue } from '@/hooks/queries/useIssue'
 import { issueKeys } from '@/hooks/queries/useIssues'
-import { resetInitialIssuePrefetchForTest } from '@/hooks/useInitialIssuePrefetch'
+import { resetInitialIssuePrefetchForTest, startInitialIssuePrefetch } from '@/hooks/useInitialIssuePrefetch'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -94,6 +95,17 @@ describe('AppLayout 이슈 상세 미리 요청 (WP-2074)', () => {
     const { counter, handlers } = detailApi()
     renderScreen(shell(Never), { path: '/projects/WP/issues/7', handlers })
     await waitFor(() => expect(counter.calls).toBe(1))
+  })
+
+  it('appLayout_skipsPrefetchWhenAlreadyStarted', async () => {
+    // 토큰 직후 경로(AuthContext)가 이미 요청했다면 셸 훅은 다시 요청하지 않는다 — 같은 주소에서 먼저 한 번 부른 뒤 셸을 띄운다.
+    const { counter, handlers } = detailApi()
+    window.history.pushState({}, '', '/projects/WP/issues/7')
+    startInitialIssuePrefetch(new QueryClient())
+    renderScreen(shell(Never), { path: '/projects/WP/issues/7', handlers })
+    expect((await screen.findAllByRole('navigation')).length).toBeGreaterThan(0)
+    await new Promise(r => setTimeout(r, 50))
+    expect(counter.calls).toBe(1)
   })
 
   it('셸이 다시 마운트돼도 다시 요청하지 않는다', async () => {
