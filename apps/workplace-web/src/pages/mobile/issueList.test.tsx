@@ -236,6 +236,28 @@ describe('모바일 이슈 목록 — 툴바', () => {
     expect(screen.queryByTestId('mobile-quick-filter-status')).not.toBeInTheDocument()
   })
 
+  // WP-2086 — 칩 줄 「필터 지우기」는 0건 빈 상태·데스크탑과 같은 범위: 검색어(q)·에픽 범위까지 지우고 그룹·정렬은 남긴다.
+  test('빠른 필터 칩 줄 — 필터 지우기는 검색어·에픽 범위도 지우고 그룹·정렬은 유지한다', async () => {
+    const { user, location } = await open('group=status&sort=priority&direction=asc&q=결제&status=IN_PROGRESS&parent=30')
+    await user.click(await screen.findByTestId('mobile-quick-filter-clear-all'))
+    await waitFor(() => expect(params(location).has('q')).toBe(false))
+    expect(params(location).has('status')).toBe(false)
+    // 에픽 범위도 지운다 — 0건 빈 상태 「필터 지우기」·데스크탑과 같은 결과.
+    expect(params(location).has('parent')).toBe(false)
+    // 보기 설정(그룹·정렬)은 남는다.
+    expect(params(location).get('group')).toBe('status')
+    expect(params(location).get('sort')).toBe('priority')
+    expect(params(location).get('direction')).toBe('asc')
+  })
+
+  // WP-2086 — 검색어만 걸려도 「필터 지우기」가 보인다(빈 상태 「필터 지우기」와 같은 조건).
+  test('빠른 필터 칩 줄 — 검색어만 걸려도 필터 지우기가 보이고 누르면 검색어를 지운다', async () => {
+    const { user, location } = await open('q=결제')
+    await user.click(await screen.findByTestId('mobile-quick-filter-clear-all'))
+    await waitFor(() => expect(params(location).has('q')).toBe(false))
+    expect(screen.queryByTestId('mobile-quick-filter-clear-all')).not.toBeInTheDocument()
+  })
+
   // WP-1020 — 시트 행은 48px 이상(min-h-12), 「더 보기」 시트에서 칩을 고정하면 줄에 바로 생기고, 걸린 칩의 × 는 그 칩만 비운다.
   test('빠른 필터 칩 줄 — 더 보기 시트에서 칩 고정, 값 시트 행은 48px, 걸린 칩 × 로 해제', async () => {
     const { user, location } = await open('')
