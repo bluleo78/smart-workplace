@@ -22,6 +22,8 @@ test('스킬 폴더마다 SKILL.md 의 name 이 폴더 이름과 같고 descript
 // 없는 문구는 indexOf 가 -1 이라 비교가 거짓으로 통과하므로, 먼저 있는지부터 본다.
 const workLoop = (file) => readFileSync(new URL(`work-loop/${file}`, skillsDir), 'utf8');
 const body = (text) => text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+// 자주 쓰는 SKILL.md 본문(앞머리 뺀 것) — 테스트마다 다시 읽지 않는다.
+const skillBody = body(workLoop('SKILL.md'));
 function assertBefore(text, first, second) {
   const a = text.indexOf(first);
   const b = text.indexOf(second);
@@ -32,12 +34,12 @@ function assertBefore(text, first, second) {
 
 test('work-loop SKILL.md 는 신원 확인(get_member)이 후보 고르기(list_issues)보다 먼저 나온다', () => {
   // 내 토큰 세션이면 이슈를 건드리기 전에 멈춰야 한다 — 후보를 먼저 고르면 사람 이름으로 보고가 남는다.
-  assertBefore(body(workLoop('SKILL.md')), '`get_member(', '`list_issues(');
+  assertBefore(skillBody, '`get_member(', '`list_issues(');
 });
 
 test('work-loop SKILL.md 는 상태 보고(gw-status IDLE)가 후보 고르기(list_issues)보다 먼저, 이슈를 집은 뒤 WORKING 을 보고한다', () => {
   // 꺼지는 중이거나 다시 띄워질 차례(DRAIN·RESTART)인 AI 가 새 이슈를 집으면 일이 중간에 끊긴다(WP-1250).
-  const text = body(workLoop('SKILL.md'));
+  const text = skillBody;
   // 후보 고르기(3번) 안에서 본다 — 2-1번 「끝난 이슈 정리」도 끝났는지 가르려 list_issues 를 읽지만 새 이슈를 집지 않는다(WP-1637).
   const pick = section(text, '\n### 3. 후보 고르기\n', '\n### 4. 이슈를 하나씩 처리\n');
   assertBefore(pick, '`"<이 스킬 폴더>/../../scripts/gw-status" IDLE`', '`list_issues(');
@@ -46,7 +48,7 @@ test('work-loop SKILL.md 는 상태 보고(gw-status IDLE)가 후보 고르기(l
 });
 
 test('work-loop SKILL.md 는 HOLD(새 작업 받지 않음)와 claim_issue 의 NEW_WORK_PAUSED 거절을 다룬다 (WP-1514)', () => {
-  const text = body(workLoop('SKILL.md'));
+  const text = skillBody;
   assert.match(text, /^- `HOLD`:[^\n]*새 작업을 받지 않는다/m);
   assert.ok(text.includes('지금 새 작업을 받지 않아 시작하지 않습니다'));
   assert.ok(text.includes('새 작업 받지 않음 — 시작하지 않은 이슈'));
@@ -139,7 +141,7 @@ test('SKILL.md 는 맡길 AI 를 설명으로 고르고 내부 AI 는 피하게 
 
 // WP-1077 — 관리자가 적은 지시는 그 AI 자신이 매번 읽어야 한다. 신원 확인 응답에서 읽고, 저장소 규칙과 부딪히면 저장소가 이긴다.
 test('SKILL.md 는 신원 확인 응답의 지시(instructions)를 이번 부르기의 이슈에 따르게 하고 저장소 규칙을 먼저 둔다', () => {
-  const text = body(workLoop('SKILL.md'));
+  const text = skillBody;
   assertBefore(text, '**내 지시**', '`list_issues(');
   assert.ok(text.includes('응답에 `instructions` 가 있으면'));
   assert.ok(text.includes('`MAIN/.work-loop/project.md` 와 부딪히면 그쪽을 따르고'));
@@ -207,6 +209,8 @@ const section = (text, from, to) => {
 // 3번(후보 고르기) 본문 — 대기열 가져오기 테스트들이 함께 쓴다.
 const workLoopSkill = workLoop('SKILL.md');
 const s3 = section(workLoopSkill, '\n### 3. 후보 고르기\n', '\n### 4. ');
+// 4번(이슈를 하나씩 처리) 본문 — 여러 테스트가 함께 쓴다.
+const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
 // 한 줄을 찾는다 — 없으면 빈 문자열로 넘어가 뒤 단언이 엉뚱하게 실패하지 않게 여기서 바로 알린다.
 function lineWith(text, needle) {
   const line = text.split('\n').find((l) => l.includes(needle));
@@ -215,7 +219,7 @@ function lineWith(text, needle) {
 }
 
 test('SKILL.md 인자에 --queue 가 있다', () => {
-  const text = body(workLoop('SKILL.md'));
+  const text = skillBody;
   assert.ok(text.includes('`<프로젝트 키> [--queue "<라벨>"]`'));
   assert.ok(text.includes('/loop /genia-works:work-loop WP --queue "AI 개발팀"'));
 });
@@ -830,7 +834,7 @@ test('process-issue.md 9번: 게이트를 띄우기 전에 돌릴지부터 판�
 
 // WP-1216 기차 — 저장소가 project.md 「기차」 절로 켜면 이슈마다 PR 대신 통합 브랜치에 쌓아 기차마다 게이트 한 번·PR 하나로 올린다.
 test('기차: 저장소가 켜면 9~11번 대신 쌓기 → 출발 → 통합 PR 이고, 앞 기차가 머지되기 전에는 떠나지 않는다 (WP-1216)', () => {
-  const skill = body(workLoop('SKILL.md'));
+  const skill = skillBody;
   const pi = workLoop('process-issue.md');
   assert.ok(skill.includes('- **기차 흐름** — `MAIN/.work-loop/project.md` 에 「기차」 절이 있으면'));
   assert.ok(pi.includes('- **기차** — `.work-loop/project.md` 에 「기차」 절이 있으면 9~11번 대신 아래 「기차」 절을 따른다'));
@@ -874,7 +878,7 @@ test('기차 출발은 rebase 뒤 train depart 로 표시하고 게이트를 돈
 
 // WP-1810 — 대기 중(PR 리뷰 대기 = 기차 대기)도 자리를 쥔다(WP-1216 을 뒤집음). slots 가 없는 옛 서버의 셈도 같은 기준.
 test('SKILL.md 3번: 대기 중도 동시 진행 자리로 센다 — slots 가 없을 때의 셈도 같다 (WP-1810)', () => {
-  const skill = body(workLoop('SKILL.md'));
+  const skill = skillBody;
   assert.ok(skill.includes('내 행이 작업 중·답변 필요·인증 필요·대기 중이고 `stale` 이 아닌 이슈를 세되'));
   assert.ok(!skill.includes('대기 중은 세지 않는다'));
   assert.ok(skill.includes('PR 을 올려 대기 중인 이슈도 자리를 쥔다'));
@@ -1008,7 +1012,7 @@ test('SKILL.md: 분류 역할 AI 는 project.md 설정이 있을 때만 켜지�
 
 // WP-1564 기획 역할 AI — 기획자가 맡은 이슈는 plan-issue.md 로 가고 구현·PR 로 흐르지 않는다. 설정이 없는 프로젝트는 지금 그대로다.
 test('SKILL.md 4번 「역할별 처리 파일」: 기획 역할 AI 는 plan-issue.md, 그 밖은 process-issue.md (WP-1564)', () => {
-  const text = body(workLoop('SKILL.md'));
+  const text = skillBody;
   const s4 = text.slice(text.indexOf('\n### 4. 이슈를 하나씩 처리\n'), text.indexOf('\n### 5. 다음 확인\n'));
   assert.ok(s4.includes('**역할별 처리 파일**'), '4번에 「역할별 처리 파일」이 없다');
   assert.match(s4, /^\| 기획 역할 AI \| 그 밖의 내 이슈 \| `plan-issue\.md`/m);
@@ -1107,7 +1111,7 @@ test('질문할 때 선택지를 options 로도 보내고 추천을 첫 번째�
 
 // WP-1637 — 워크트리 정리는 머지가 아니라 이슈 DONE·CANCELED 뒤에 한다. 머지 뒤 다시 고를 때만 지우면 사람이 DONE 으로 바꾼 이슈가 후보에서 빠져 영영 남았다.
 test('끝난 이슈 정리: 잠금 뒤 부를 때마다 worktree-sweep 으로 DONE·CANCELED 이슈의 워크트리를 지우고, 머지만으로는 지우지 않는다 — 들어간 기차는 머지 뒤 바로 지운다 (WP-1637)', () => {
-  const skill = body(workLoop('SKILL.md'));
+  const skill = skillBody;
   const pi = workLoop('process-issue.md');
   const sweep = section(skill, '\n### 2-1. 끝난 이슈 정리\n', '\n### 3. 후보 고르기\n');
   // 잠금을 잡은 세션만 정리한다 — 다른 work-loop 가 쓰는 워크트리를 지우지 않게.
@@ -1240,12 +1244,10 @@ test('process-issue.md: 반영 안내 보충은 끝난 이슈에서 구현·새 
   const top = section(pi, '**먼저 갈래를 본다**', '\n**notes 파일**');
   assertBefore(top, '「반영 안내 보충 (끝난 이슈)」 절만 따른다', '나는 그 PR 의 검토자다');
   // 4번 공통 절차의 notes 줄·WORKING 보고는 끝난 이슈에 하지 않는다.
-  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.ok(s4.includes('끝난 이슈의 반영 안내 보충은 notes 를 만들지 않으니 적지 않고'));
   assert.ok(s4.includes('끝난 이슈에 반영 안내 보충 이슈 챗 글을 남김'));
 });
 test('SKILL.md 4번: 고른 처리 파일을 Read 로 읽고 notes 에 처리 파일 줄을 적는다 (WP-1717)', () => {
-  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.ok(s4.includes('`Read` 로 읽는다') && s4.includes('`처리 파일: <파일> (플러그인 <버전>) 읽음 <HH:MM>` 줄'));
 });
 
@@ -1260,7 +1262,6 @@ test('SKILL.md: 멘션 조회의 끝난 이슈 중 [반영 안내 보충] 을 �
   assert.ok(pick.includes('이슈 챗에서 나를 멘션해'), '이슈 챗 기준 문구가 없다');
   assert.ok(pick.includes('`get_issue_detail` 의 `comments`'), '이행 기간 댓글 요청을 찾는 문구가 없다');
   assert.ok(!pick.includes('이슈 챗을 쓸 수 없'), '이슈 관리자는 이슈 챗을 쓸 수 없다는 옛 문구가 남아 있다');
-  const s4 = section(workLoopSkill, '\n### 4. 이슈를 하나씩 처리\n', '\n### 5. 다음 확인\n');
   assert.match(s4, /^\| 누구든 \| [^\n]*「끝난 이슈의 반영 안내 보충」[^\n]*「반영 안내 보충 \(끝난 이슈\)」[^\n]*\|$/m);
   assertBefore(s4, '| 누구든 |', '| 기획 역할 AI |');
   const reviewer = section(pi, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업 (백그라운드)\n');
@@ -1334,7 +1335,7 @@ test('SKILL.md 3번: 조회 셋 — 멘션은 상태 없이 하나로 내고 상
 
 // WP-1714 — 비우기 표시는 다음 확인을 잡은 뒤에만, 끝나지 않은 백그라운드 작업이 없을 때만 남긴다. 비운 뒤 이어 하기 놓침은 miss 로 남긴다.
 test('work-loop SKILL.md 는 다음 확인을 잡은 뒤에 gw-clear-mark set 을 부르고, 끝나지 않은 백그라운드 작업이 있으면 부르지 않는다 (WP-1714)', () => {
-  const text = body(workLoop('SKILL.md'));
+  const text = skillBody;
   assertBefore(text, '`ScheduleWakeup`', 'gw-clear-mark" set');
   assert.match(text, /gw-clear-mark" set <프로젝트 키> <(idle\|timeout\|error|끝난 까닭)>/);
   assert.match(text, /run_in_background/);
@@ -1781,8 +1782,10 @@ test('SKILL.md 3번: 선행 대기 차단은 깨어날 때 선행 풀림을 다�
   assertBefore(q, '**선행 확인**', '**형제 확인**');
   // 하위를 차례로 맡을 때도 (c) 로 풀린 하위를 맡는다
   assert.ok(lineWith(workLoopSkill, '**하위를 차례로 맡는 이슈**').includes('「선행 대기 차단」 (c) 로 풀린 것'));
+  // 「시작 전 후보」는 「동시 진행 상한」에서 한 번 정의하고, HOLD·언제 세나·상한 이상이면 세 줄은 그것을 가리킨다.
+  includesAll(lineWith(workLoopSkill, '- **시작 전 후보**'), ['`마지막 완료 단계` 가 없는', '③-1·③-2 후보', '새 작업(⑤⑥)처럼', '「선행 대기 차단」', '「워크플로우 이슈」'], '시작 전 후보 정의');
   for (const k of ['- **언제 세나**', '- **상한 이상이면**', '- `HOLD`: 새 작업을 받지 않는다']) {
-    includesAll(lineWith(workLoopSkill, k), ['시작 전에 막혔던 ③-1(notes 에 `마지막 완료 단계` 없음)은 새 작업처럼', '「선행 대기 차단」'], k);
+    assert.ok(lineWith(workLoopSkill, k).includes('시작 전 후보(「동시 진행 상한」)는 새 작업처럼'), k);
   }
 });
 
@@ -1819,3 +1822,143 @@ test('process-issue.md·plan-issue.md 1번: 선행 대기는 SKILL.md 「선행 
   }
 });
 
+// WP-1993 워크플로우 이슈 분기 — 활성 실행의 내 노드인 이슈는 노드 지시로 처리하고 md 절차를 읽지 않는다.
+const wfSec = section(skillBody, '\n## 워크플로우 이슈\n', '\n## 한 번 부를 때마다');
+
+test('work-loop SKILL.md 는 워크플로우 이슈를 get_issue_workflow 로 가르고 move_issue_workflow 로 끝낸다', () => {
+  const sec = wfSec;
+  for (const s of ['get_issue_workflow(', 'move_issue_workflow(', 'ask', 'WORKFLOW_STALE', 'RUNNING', 'WAITING', 'SUSPENDED', 'COMPLETED', 'CANCELED']) {
+    assert.ok(sec.includes(s), `절에 「${s}」 가 없다`);
+  }
+});
+
+test('work-loop SKILL.md 3번 순서 줄은 활성 실행의 내 노드가 대기열 가져오기·다음 회차 대기보다 먼저다', () => {
+  // 순서 줄(「순서: ⓪ …」) 안에서만 본다 — 「워크플로우 이슈」 절의 같은 문구가 첫 매치로 잡히면 순서를 검증하지 못한다.
+  const text = skillBody;
+  const line = text.split('\n').find((l) => l.startsWith('순서: ⓪'));
+  assert.ok(line, '3번 「순서: ⓪」 줄이 없다');
+  assertBefore(line, '③-2 활성 실행의 내 노드', '④ `nextRunAt`');
+  assertBefore(line, '③-2 활성 실행의 내 노드', '⑤ 우선순위');
+  assertBefore(text, '순서: ⓪', '**대기열에서 가져오기**');
+});
+
+test('work-loop SKILL.md 4번은 처리 파일을 읽기 전에 get_issue_workflow 로 가르고, 멈출 지점·WORKING 보고 안내가 워크플로우 갈래에도 걸린다', () => {
+  assertBefore(s4, 'get_issue_workflow(', '**역할별 처리 파일**');
+  // 응답 재사용 규칙은 「워크플로우 이슈」 후보 고르기 한 곳이고, 4번은 가리키기만 한다.
+  assert.ok(s4.includes('「워크플로우 이슈」 후보 고르기의 재사용 규칙대로 쓴다'));
+  assert.ok(!s4.includes('3번을 거치지 않은 이슈만'));
+  assert.ok(lineWith(wfSec, '- **후보 고르기**').includes('3번을 거치지 않은 이슈만 4번에서 부른다'));
+  assert.ok(!s4.includes('이번 부르기에 읽은 응답을 다시 쓰고'));
+  // 3번 조회를 할 때마다 새로 읽는다(이슈 하나가 멈춘 뒤 다시 고를 때 포함) — 낡은 응답으로 가르지 않게.
+  assert.ok(skillBody.includes('3번 조회를 할 때마다'));
+  assert.ok(/멈출 지점: 워크플로우 이슈에서 `move_issue_workflow`/.test(s4));
+  assert.ok(s4.includes('워크플로우 이슈도 `gw-status WORKING` 보고는 같고'));
+});
+
+test('process-issue.md·plan-issue.md 는 맨 앞에서 워크플로우 이슈를 SKILL.md 로 돌리고, process-issue.md 는 풀테스트 절을 예외로 둔다', () => {
+  for (const file of ['process-issue.md', 'plan-issue.md']) {
+    const text = workLoop(file);
+    const afterTitle = text.slice(text.indexOf('\n') + 1).trimStart();
+    assert.ok(afterTitle.split(/\n\s*\n/)[0].includes('워크플로우 이슈'), `${file}: 제목 뒤 첫 문단에 「워크플로우 이슈」 가 없다`);
+  }
+  const pi = workLoop('process-issue.md');
+  assert.ok(pi.includes('예외는 검토자가 읽는 「풀테스트·green (검토자)」 절이다'));
+  assert.ok(pi.includes('결과 `merged`·`followup` 이동으로 한다'));
+});
+
+test('워크플로우 이슈 절은 SUSPENDED·BLOCKED 보고·③-2 상태표·HOLD·상한 문구를 고정한다', () => {
+  const text = skillBody;
+  const sec = wfSec;
+  assert.ok(sec.includes('새 글이 있을 때만 고르고'));
+  assert.ok(sec.includes('`WORKING` 보고로도 풀리지 않으며'));
+  assert.ok(sec.includes('위 `SUSPENDED` 참조'));
+  assert.ok(sec.includes('`BLOCKED 선행 대기` 보고는 워크플로우 노드에 쓰지 않는다'));
+  assert.ok(sec.includes('내 행(agent_work) 상태는 3번 상태표'));
+  assert.ok(sec.includes('내 행 상태표를 통과한 이슈에만'));
+  // HOLD·언제 세나·상한 이상이면 세 줄이 「시작 전 후보」(③-1·③-2 후보 — 「동시 진행 상한」 정의)를 새 작업으로 본다고 가리킨다.
+  for (const head of ['- `HOLD`: 새 작업을 받지 않는다', '- **언제 세나**', '- **상한 이상이면**']) {
+    const line = text.split('\n').find((l) => l.startsWith(head));
+    assert.ok(line?.includes('시작 전 후보(「동시 진행 상한」)는 새 작업처럼'), `「${head}」 줄이 시작 전 후보를 가리키지 않는다`);
+  }
+  assert.ok(text.split('\n').some((l) => l.startsWith('- **시작 전 후보**') && l.includes('③-1·③-2 후보')), '「시작 전 후보」 정의가 없다');
+});
+
+test('워크플로우 이슈 가르기는 세 갈래다 — 활성 실행이지만 내 노드가 아니면 답만 (WP-1993 반려 ②)', () => {
+  const g = lineWith(wfSec, '- **가르기**');
+  includesAll(g, ['활성 실행이 없', '현재 노드 담당에 내 username 이 있으면 워크플로우 이슈', '현재 노드 담당에 내가 없으면', '답만', 'process-issue.md', '`gw-status WORKING`', '(1) ', '(2) ', '(3) '], '가르기');
+  assert.ok(s4.includes('내 노드가 아닌 활성 실행'), '4번이 셋째 갈래를 말하지 않는다');
+  assert.ok(/멈출 지점:[^\n]*내 노드가 아닌 활성 실행 이슈에 답함/.test(s4));
+});
+
+test('SUSPENDED 는 고른 순번(③·③-1·③-2)과 무관하게 새 글이 있을 때만 고르고 답만 한다 (WP-1993 반려 ③)', () => {
+  const s = lineWith(wfSec, '- **`SUSPENDED`**');
+  includesAll(s, ['③·③-1·③-2', '새 글이 있을 때만', '가르기 (3)대로', '노드 일은 하지 않는다'], 'SUSPENDED');
+  assert.ok(!s.includes('`add_issue_chat`'), 'add_issue_chat 답만 규칙은 가르기 (3)에만 둔다');
+  assert.ok(!wfSec.includes('- **담당이 내가 아니면**'), '가르기 (3)을 되풀이하는 줄이 남아 있다');
+  assert.ok(!s.includes('그러므로 ③-2 는 새 글이 있을 때만'));
+});
+
+test('질문(ask) 뒤 챗 답은 서버가 노드로 되돌린다 — answered 이동은 내가 하지 않는다 (WP-2093)', () => {
+  includesAll(lineWith(wfSec, '- **사람에게 묻기**'), ['outcome `ask`', '이슈 챗', '서버가', '`answered`', '하지 않는다'], '사람에게 묻기');
+});
+
+// WP-1993 프로젝트에 켜진 워크플로우 판정 — 켜진 워크플로우가 있는 프로젝트는 내 차례 노드만 처리하고, 실행 없는 할당은 대기 댓글을 한 번 남긴다.
+test('워크플로우 이슈 절은 프로젝트의 켜진 워크플로우를 get_workflow 로 판정하고, 없으면 지금 처리 파일대로 한다', () => {
+  includesAll(wfSec, ['get_workflow({ projectKey })', '`enabled`', '`activeVersionNo`', '켜진 워크플로우가 없으면', '처리 파일'], '프로젝트 판정');
+  assertBefore(wfSec, '프로젝트 판정', '- **가르기**');
+});
+
+test('켜진 워크플로우 프로젝트의 실행 없는 할당은 대기 댓글을 한 번만 남기고, 진행 중이던 이슈는 처리 파일로 끝까지 한다', () => {
+  includesAll(wfSec, ['시작 조건에 맞지 않아 대기합니다 — 워크플로우 「', 'state/wf-wait/', '`마지막 완료 단계`', '`워크플로우:` 줄'], '대기 댓글');
+});
+
+test('대기 댓글은 add_comment 로 한 번만 남기고 보고를 보내지 않으며, 게시본·끝난 실행·wf-wait 정리를 정한다', () => {
+  const c = lineWith(wfSec, '- **대기 댓글**');
+  includesAll(c, ['`add_comment`', '**한 번만**', '`waiting`', '`ended <runId>`', '종류나 `runId` 가 다르면', '`gw-status`·`report_agent_work` 는 보내지 않고', '`publishedYaml`', '`draftYaml`', '2-1번 정리',
+    '워크플로우 실행이 끝난 이슈라 새로 처리하지 않습니다', '`COMPLETED`·`CANCELED`'], '대기 댓글');
+  // wf-wait 파일을 먼저 읽고, 새로 남길 때만 get_workflow 로 조회한다.
+  assertBefore(c, '`wf-wait` 파일을 먼저 읽는 것이다', '새로 남길 때만 조회한다');
+  assert.ok(section(skillBody, '\n### 2-1. 끝난 이슈 정리\n', '\n### 3. ').includes('state/wf-wait/<키>'));
+});
+
+test('대기 이슈는 ⑤⑥ 새 작업 후보에서 빠지고 상한·HOLD·요약에 세지 않으며 멈출 지점이다', () => {
+  includesAll(lineWith(wfSec, '- **대기 이슈**'), ['⑤⑥ 새 작업 후보가 아니다', '대기 댓글을 남기고', '후보에서 뺀다', '「시작하지 않은 이슈」 요약에는 넣지 않는다'], '대기 이슈');
+  assert.ok(lineWith(wfSec, '- **후보 고르기**').includes('대기 이슈(위)는 이 후보 가운데서 대기 댓글을 남기고 뺀다'));
+  assert.ok(lineWith(skillBody, '- **시작 전 후보**').includes('⑤⑥ 새 작업에도 넣지 않는다'));
+  assert.ok(lineWith(skillBody, '- **보이기**').includes('대기 이슈는 세지 않는다'));
+  assert.ok(/멈출 지점:[^\n]*대기 댓글을 남긴 대기 이슈/.test(s4));
+});
+
+// WP-1993 재리뷰 반영 — get_workflow 실패 때 진행 중 이슈·wf-wait 종류 구분·대기 이슈의 새 글 답·취소된 실행의 WORKING 행.
+test('대기 이슈에 새 글·멘션이 오면 ①② 로 골라 답만 하고, 대기 댓글은 3번 후보 거르기 한 곳에서만 남긴다', () => {
+  const w = lineWith(wfSec, '- **대기 이슈**');
+  includesAll(w, ['①·②', '답만 한다', '3번 `seen` 파일', '3번 후보 거르기 한 곳'], '대기 이슈 새 글');
+  const g = lineWith(wfSec, '- **가르기**');
+  assert.ok(!g.includes('대기 댓글만 한 번 남기고'), '가르기 (1)에 대기 댓글을 남기는 자리가 겹쳐 있다');
+  assert.ok(g.includes('3번 후보 거르기에서만'));
+});
+
+test('실행이 CANCELED 인데 내 행이 WORKING 인 이슈는 끝난 실행 안내를 남기고 내 행을 PAUSED 로 바꾼다', () => {
+  includesAll(lineWith(wfSec, '- **대기 댓글**'), ['`CANCELED` 인데 내 행이 WORKING', '`PAUSED`', '워크플로우 실행이 취소돼 멈춤'], '취소된 실행');
+});
+
+test('진행 중이던 이슈 판정은 서버에서 보이는 것(내 행·검토자 PR·차례로 맡는 부모)으로 넓고, 워크플로우: 줄이 있거나 끝난 실행은 뺀다', () => {
+  includesAll(lineWith(wfSec, '- **진행 중이던 이슈**'), ['`워크플로우:` 줄이 없고', '시작 전(SUBMITTED)', 'PAUSED·SCHEDULED', '`마지막 완료 단계`', '내가 검토자이고', '`하위 차례로 맡기: 예`', '기획 역할 AI', 'REVIEW 행이 있어도 진행 중이던 이슈가 아니다'], '진행 중이던 이슈');
+});
+
+test('get_workflow 가 실패하면 새 작업은 보류하고 진행 중 이슈만 get_issue_workflow 로 가르며, 4번 첫 문장은 켜진 워크플로우가 있을 때만 get_issue_workflow 를 부른다', () => {
+  includesAll(lineWith(wfSec, '- **프로젝트 판정**'), ['`get_workflow` 가 실패하면', '⑤⑥ 새 작업·대기열 가져가기를 하지 않고', '이미 진행 중인 이슈만', '`get_issue_workflow` 를 불러 활성 실행이면 가르기 (2)(3)대로', '`워크플로우:` 줄이 있는 이슈는 처리 파일로 하지 않는다', 'get_workflow 실패 — 새 작업 보류', '켜진 워크플로우를 모두 끈 뒤 남은 활성 실행', '처리 파일'], 'get_workflow 실패');
+  includesAll(s4, ['켜진 워크플로우가 있을 때만', '없으면 `get_issue_workflow` 를 부르지 않고 바로 처리 파일대로'], '4번 첫 문장');
+});
+
+test('「대기열에서 가져오기」는 켜진 워크플로우 프로젝트면 가져오지 않는다(WP-2120)', () => {
+  const sec = section(skillBody, '**대기열에서 가져오기**', '**할 일 없음**');
+  assert.ok(sec.includes('켜진 워크플로우') && sec.includes('가져오지 않'), '대기열 금지 문장이 없다');
+  assert.ok(sec.includes('WP-2120'));
+});
+
+test('대기 이슈는 동시 진행 상한·HOLD 의 시작 전 후보로 세지 않는다', () => {
+  const line = skillBody.split('\n').find((l) => l.startsWith('- **시작 전 후보**'));
+  assert.ok(line, '「시작 전 후보」 정의가 없다');
+  assert.ok(line.includes('대기') && line.includes('상한·`HOLD` 를 쓰지 않는다'), '대기 이슈 제외 문장이 없다');
+});

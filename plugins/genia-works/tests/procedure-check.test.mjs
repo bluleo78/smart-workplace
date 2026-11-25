@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -636,4 +636,76 @@ test('예외 — 윗줄에 자기 키만 있는 줄은 인용이 아니다', (t)
   const r = run(main);
   ok(r);
   assert.ok(r.stdout.includes('통과(리뷰 후속 수정 — 앞 PR 의 절차를 씀)'));
+});
+
+// WP-1993 처리 파일이 워크플로우 정의(.yaml)면 실패 안내는 5번부터가 아니라 개발 노드의 단계 되돌리기다.
+const YAML_HEAD = '처리 파일: ai-dev-flow.yaml (플러그인 0.1.78) 읽음 10:00\n';
+test('처리 파일이 워크플로우 정의(.yaml)면 실패 안내가 개발 노드 단계 되돌리기다', (t) => {
+  const main = repo(t);
+  notes(main, YAML_HEAD);
+  const r = run(main);
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(r.stdout.includes('단계 되돌리기'), r.stdout);
+  assert.ok(!r.stdout.includes('process-issue.md 5번부터'), r.stdout);
+});
+test('처리 파일이 .yaml 이어도 좋은 절차 줄·원장이면 통과', (t) => {
+  const main = repo(t);
+  plan(main);
+  notes(main, YAML_HEAD + GOOD + '\n' + LEDGER);
+  ok(run(main));
+});
+test('처리 파일이 .yaml 이고 원장 서식만 틀리면 끝줄은 기존 원장 절 안내 그대로', (t) => {
+  const main = repo(t);
+  plan(main);
+  // 절차 줄은 좋고 원장 Task 2 줄이 빠진 경우 — 5번부터·단계 되돌리기가 아니라 원장 절만 고친다.
+  notes(main, YAML_HEAD + GOOD + '\n원장:\nTask 1: complete (commits a..b, review clean)\n최종 리뷰: clean\n');
+  const r = run(main);
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(r.stdout.includes('notes 의 원장 절을 고칩니다(원장 줄이 남아 있으면 옮겨 적기)'), r.stdout);
+  assert.ok(!r.stdout.includes('단계 되돌리기'), r.stdout);
+});
+test('처리 파일이 .yaml 에서 md 로 바뀌면 마지막 줄 기준으로 5번부터 안내', (t) => {
+  const main = repo(t);
+  notes(main, YAML_HEAD + NOTES_HEAD);
+  const r = run(main);
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(r.stdout.includes('process-issue.md 5번부터'), r.stdout);
+  assert.ok(!r.stdout.includes('단계 되돌리기'), r.stdout);
+});
+test('처리 파일 줄이 없어도 절차 줄의 처리 파일이 .yaml 이면 단계 되돌리기 안내', (t) => {
+  const main = repo(t);
+  notes(main, '절차: 처리 파일 ai-dev-flow.yaml (플러그인 0.1.78) → brainstorming(Skill)\n');
+  const r = run(main);
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(r.stdout.includes('단계 되돌리기'), r.stdout);
+});
+test('처리 파일 토큰이 백틱으로 감싸인 .yaml 이어도 워크플로우로 본다', (t) => {
+  const main = repo(t);
+  notes(main, '처리 파일: `ai-dev-flow.yaml` (플러그인 0.1.78) 읽음 10:00\n');
+  const r = run(main);
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(r.stdout.includes('단계 되돌리기'), r.stdout);
+});
+test('처리 파일이 md 인 줄이 설명으로 yaml 을 언급해도 5번부터 안내', (t) => {
+  const main = repo(t);
+  notes(main, '처리 파일: process-issue.md (플러그인 0.1.78) 읽음 10:00 — ai-dev-flow.yaml 아님\n');
+  const r = run(main);
+  assert.equal(r.status, 1, r.stdout);
+  assert.ok(r.stdout.includes('process-issue.md 5번부터'), r.stdout);
+  assert.ok(!r.stdout.includes('단계 되돌리기'), r.stdout);
+});
+
+// WP-1993 simplify — 처리 파일 토큰은 file_of 헬퍼(ver_of 옆)로 한 번만 뽑고 redo_line 은 그 값을 쓸 뿐이다(서브셸 안 반복 계산 없음, local 은 POSIX 아님).
+test('procedure-check: file_of 헬퍼로 flow_token 을 한 번만 구하고 redo_line 은 다시 파싱하지 않는다 (WP-1993 simplify)', () => {
+  const src = readFileSync(script, 'utf8');
+  assert.ok(src.indexOf('ver_of() {') >= 0 && src.indexOf('file_of() {') > src.indexOf('ver_of() {'), 'file_of 가 ver_of 옆에 없다');
+  assert.equal(src.split('flow_token=$(').length - 1, 2, 'flow_token 계산이 처리 파일 줄 있음·없음 두 곳 밖에 있다');
+  const start = src.indexOf('redo_line() {');
+  assert.ok(start >= 0, 'redo_line 함수를 찾지 못함');
+  const end = src.indexOf('\n}\n', start);
+  assert.ok(end > start, 'redo_line 의 닫는 } 를 찾지 못함');
+  const fn = src.slice(start, end);
+  assert.ok(!/\blocal\b/.test(fn), 'POSIX sh 에 local 은 없다');
+  assert.ok(!fn.includes('sed') && !fn.includes('grep'), 'redo_line 이 파일 토큰을 다시 파싱한다');
+  assert.ok(src.indexOf('flow_token=$(') < start, 'flow_token 은 redo_line 앞에서 한 번 구한다');
 });

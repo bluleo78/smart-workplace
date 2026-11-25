@@ -295,6 +295,20 @@ test('worktree-sweep list: 워크트리 없이 남은 notes 는 notes-only — W
   ]);
 });
 
+test('worktree-sweep list·remove: notes 없이 대기 댓글 기록(state/wf-wait/<키>)만 남은 이슈 키도 notes-only 로 내고 remove 가 지운다 (WP-1993)', (t) => {
+  const main = repo(t);
+  // 대기 이슈는 일하지 않아 워크트리·notes 가 없다 — 기록만 남는다. 워크트리가 있는 키(WP-377)와 남의 프로젝트 키는 내지 않는다.
+  put(state(main, 'wf-wait', 'WP-50'), 'waiting\n');
+  put(state(main, 'wf-wait', 'ZZ-5'), 'waiting\n');
+  addWorktree(main, 'WP-377', 'fix/wp-377');
+  put(state(main, 'notes', 'WP-377.md'));
+  put(state(main, 'wf-wait', 'WP-377'), 'waiting\n');
+  assert.deepEqual(rows(main), [['WP-50', '-', '-', 'notes-only'], ['WP-377', 'WP-377', 'fix/wp-377', 'ok']]);
+  const r = sweep(['remove', main, '-', 'WP-50']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(state(main, 'wf-wait', 'WP-50')), false);
+});
+
 test('worktree-sweep list·remove: 검토자가 통합 PR 을 받은 이슈 워크트리(브랜치 integ/…)도 폴더 이름(이슈 키)으로 이슈 줄로 낸다 (WP-1637)', (t) => {
   const main = repo(t);
   // 다른 AI(other)의 기차를 검토자가 첫 이슈 키 폴더로 받았다.
@@ -668,6 +682,7 @@ test('worktree-sweep remove: 워크트리·로컬 브랜치·notes·evidence·jo
     put(state(main, 'jobs', `${k}.exit`), '0\n');
     put(state(main, 'seen', k));
     put(state(main, 'sweep', k), '올리지 않은 커밋\n');
+    put(state(main, 'wf-wait', k), '2026-11-25T00:00:00Z\n');
   }
   // 이 세션이 그 워크트리 안에 있어도(부른 곳이 워크트리) 지운다.
   const r = spawnSync(join(scripts, 'worktree-sweep'), ['remove', main, w, 'WP-1'], { cwd: w, encoding: 'utf8', env: env() });
@@ -676,10 +691,10 @@ test('worktree-sweep remove: 워크트리·로컬 브랜치·notes·evidence·jo
   assert.equal(existsSync(w), false);
   assert.equal(branchExists(main, 'fix/wp-1'), false);
   assert.match(git(main, 'ls-remote', 'origin', 'fix/wp-1'), /refs\/heads\/fix\/wp-1/);
-  for (const p of [['notes', 'WP-1.md'], ['evidence', 'WP-1'], ['jobs', 'WP-1.exit'], ['seen', 'WP-1'], ['sweep', 'WP-1']]) {
+  for (const p of [['notes', 'WP-1.md'], ['evidence', 'WP-1'], ['jobs', 'WP-1.exit'], ['seen', 'WP-1'], ['sweep', 'WP-1'], ['wf-wait', 'WP-1']]) {
     assert.equal(existsSync(state(main, ...p)), false, p.join('/'));
   }
-  for (const p of [['notes', 'WP-11.md'], ['evidence', 'WP-11'], ['jobs', 'WP-11.exit'], ['seen', 'WP-11'], ['sweep', 'WP-11']]) {
+  for (const p of [['notes', 'WP-11.md'], ['evidence', 'WP-11'], ['jobs', 'WP-11.exit'], ['seen', 'WP-11'], ['sweep', 'WP-11'], ['wf-wait', 'WP-11']]) {
     assert.equal(existsSync(state(main, ...p)), true, p.join('/'));
   }
 });
