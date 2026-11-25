@@ -110,16 +110,16 @@ describe('useRememberedIssueQuery', () => {
     localStorage.setItem(keyOf('WP'), 'priority=HIGH')
     const { result } = renderAt({ pathname: '/projects/WP', search: '?priority=HIGH', state: { fromOverview: true } })
     expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
-    act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: withIssueFiltersReset({ fromOverview: true }) }))
+    act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: withIssueFiltersReset() }))
     expect(localStorage.getItem(keyOf('WP'))).toBeNull()
   })
 
-  it('withIssueFiltersReset — 개요·지우기 표지는 빼고 열림 마크는 살리며, 신호값은 호출마다 달라진다', () => {
-    const a = withIssueFiltersReset({ fromOverview: true, ignoredCleared: true, sheet: '1' }) as Record<string, unknown>
-    const b = withIssueFiltersReset(a) as Record<string, unknown>
-    expect(a.fromOverview).toBeUndefined()
-    expect(a.ignoredCleared).toBeUndefined()
-    expect(a.sheet).toBe('1')
+  // 이전 state(고정 보기 savedViewId·projectTab·개요·지우기 표지)는 하나도 따라오지 않는다 — 새 location.key 로 되살아나지 않게.
+  it('withIssueFiltersReset — 지우기 신호 숫자 키 하나만 담고, 신호값은 호출마다 달라진다', () => {
+    const a = withIssueFiltersReset() as Record<string, unknown>
+    const b = withIssueFiltersReset() as Record<string, unknown>
+    expect(Object.keys(a)).toEqual(['issueFiltersReset'])
+    expect(typeof a.issueFiltersReset).toBe('number')
     expect(b.issueFiltersReset).not.toBe(a.issueFiltersReset)
   })
 

@@ -172,7 +172,7 @@ export function useSavedViewState(projectKey: string): SavedViewState {
       setPickedViewId(null)
       setPrevMatchingSignature(null)
       // 지우기 신호 — 대기 중인 검색어 debounce 가 q 를 다시 얹지 않게(WP-2125).
-      setParams(new URLSearchParams(), issueFiltersResetNav(location.state))
+      setParams(new URLSearchParams(), issueFiltersResetNav())
     })
   // 저장 뷰 적용 — group 이 없는 (사이클 그룹 도입 전) 뷰는 group=none 을 명시해 예전처럼 평면 목록으로 연다(#878).
   // 고른 뷰 id 를 먼저 기억해 둔다 — 같은 조건의 다른 뷰가 활성으로 잡히지 않게(WP-473).
@@ -180,7 +180,7 @@ export function useSavedViewState(projectKey: string): SavedViewState {
     startTransition(() => {
       setSelectedViewId(v.id)
       setPickedViewId(v.id)
-      setParams(savedViewQueryToParams(v.query), issueFiltersResetNav(location.state))
+      setParams(savedViewQueryToParams(v.query), issueFiltersResetNav())
     })
 
   // 막 저장한 뷰를 고른 뷰로 — 일치 판정에 맡기면 열만 바꾼 예전 뷰(필터는 같음)가 고른 뷰로 남아 새 뷰가 활성이 되지 않았다.

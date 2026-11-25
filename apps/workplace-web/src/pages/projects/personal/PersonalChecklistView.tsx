@@ -3,7 +3,7 @@
 // 새 페이지는 마지막 섹션(또는 그 아래 새 섹션)에만 붙어 위 섹션이 되돌아가지 않는다.
 import { ChevronRight, ListChecks, SearchX } from 'lucide-react';
 import { useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import { ListEmptyState } from '@/components/issue/ListEmptyState';
 import { LoadErrorState } from '@/components/LoadErrorState';
@@ -45,7 +45,6 @@ export function PersonalChecklistView({
   const items = q.data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
   const [showDone, setShowDone] = useState(false);
   const [, setParams] = useSearchParams();
-  const { state: locationState } = useLocation();
   // 필터 지우기 — 필터 키만 지우고 뷰·그룹·열린 작업(task)은 남긴다. 오른쪽 패널이 열린 채 필터로 0건이 돼도 패널이 닫히지 않게
   // (프로젝트 목록 useResetIssueFilters 는 task 를 모르므로 여기서 따로 둔다).
   // 지우기 신호도 싣는다 — 대기 중인 검색어 debounce 가 지운 뒤 q 를 되살리지 않게(WP-2125).
@@ -57,7 +56,7 @@ export function PersonalChecklistView({
         if (v) next.set(k, v);
       }
       return next;
-    }, issueFiltersResetNav(locationState));
+    }, issueFiltersResetNav());
   // 데이터 없음 — 아이콘·제목·설명·빠른 추가(DS 06 §B 4요소). 섹션이 모두 비는 경우(취소만 남음 등)도 같은 모양.
   const noData = (title: string) => (
     <ListEmptyState

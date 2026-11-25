@@ -189,7 +189,7 @@ export function useIssueFilterControls(
       if (view === 'board') p.set('view', 'board');
       if (groupParam) p.set('group', groupParam);
       return carryViewOptions(carrySort(p, prev), prev);
-    }, issueFiltersResetNav(locationState));
+    }, issueFiltersResetNav());
   }
 
   // 셀렉트에 보일 그룹 옵션 — 사이클 그룹은 사이클을 쓰는 화면의 목록 뷰에서만 고를 수 있다.

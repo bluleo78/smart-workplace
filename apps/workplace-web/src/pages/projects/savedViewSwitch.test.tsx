@@ -76,9 +76,10 @@ const handlers = [
   }),
 ]
 
-async function open() {
-  const view = renderPage(`/projects/${KEY}`, { handlers })
-  await screen.findByText('전체 목록 이슈', {}, { timeout: PAGE_LOAD_TIMEOUT })
+// state·search 는 사이드바 고정 보기 링크처럼 router state 와 보기 쿼리를 붙여 들어오는 진입을 흉내 낼 때만 준다.
+async function open(state?: unknown, search = '') {
+  const view = renderPage(`/projects/${KEY}${search}`, { handlers, state })
+  await screen.findAllByText('전체 목록 이슈', {}, { timeout: PAGE_LOAD_TIMEOUT })
   return view
 }
 
@@ -119,6 +120,34 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
       await new Promise((r) => setTimeout(r, 500))
       expect(new URL(location(), 'http://x').searchParams.has('q')).toBe(false)
     }
+  })
+
+  // WP-2125: 「필터 지우기」 이동의 state 가 이전 state 를 복사하면 고정 보기 링크의 savedViewId 가 남아 그 보기가 다시 골라진다.
+  describe('고정 보기 링크로 들어온 뒤', () => {
+    // 링크 보기(#3 보드)로 열려 칩이 켜진 상태에서 시작한다.
+    const openLinked = async () => {
+      const view = await open({ savedViewId: 3 }, '?view=board&group=none')
+      await waitFor(() => expect(screen.getByTestId('view-chip-3')).toHaveAttribute('aria-pressed', 'true'))
+      return view
+    }
+
+    test('「전체」 칩을 누르면 링크 보기로 되돌아가지 않는다', async () => {
+      await openLinked()
+      fireEvent.click(screen.getByTestId('view-chip-all'))
+      await waitFor(() => expect(screen.getByTestId('view-chip-all')).toHaveAttribute('aria-pressed', 'true'))
+      await new Promise((r) => setTimeout(r, 200))
+      expect(screen.getByTestId('view-chip-all')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByTestId('view-chip-3')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    test('다른 저장 보기를 누르면 그 보기가 켜지고 링크 보기로 되돌아가지 않는다', async () => {
+      await openLinked()
+      fireEvent.click(screen.getByTestId('view-chip-1'))
+      expect(await screen.findByText('높음 이슈')).toBeInTheDocument()
+      await new Promise((r) => setTimeout(r, 200))
+      expect(screen.getByTestId('view-chip-1')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByTestId('view-chip-3')).toHaveAttribute('aria-pressed', 'false')
+    })
   })
 
   test('칩을 오가도 화면에 칩 둘이 켜지거나 「수정됨」·뷰 업데이트가 비치는 순간이 없다', async () => {

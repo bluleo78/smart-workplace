@@ -51,13 +51,15 @@ type RenderPageOptions = {
   handlers?: RequestHandler[]
   /** 렌더 전에 심을 프로젝트 마지막 탭(WP-1478) — renderScreen 의 같은 옵션과 같다(기본 { WP: 'issues' }, {} 면 심지 않음). */
   projectTabs?: RememberedProjectTabs
+  /** 시작 항목의 router location.state — 링크로 들어온 진입(사이드바 고정 보기의 savedViewId 등)을 흉내 낸다. 기본은 state 없음. */
+  state?: unknown
 }
 
 /**
  * path 로 앱을 띄운다. 반환값의 user 는 userEvent 인스턴스, location() 은 지금 주소다.
  * 화면이 다 뜨기를 기다리는 것은 테스트가 findBy* 로 한다.
  */
-export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handlers = [], projectTabs }: RenderPageOptions = {}) {
+export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handlers = [], projectTabs, state }: RenderPageOptions = {}) {
   seedProjectTabs(projectTabs)
   // 컴포넌트 테스트(renderWithProviders)는 RTL 기본값 그대로 두고 페이지 테스트만 늘린다 — 되돌리기는 setup.ts afterEach.
   configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
@@ -67,7 +69,8 @@ export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handl
   // 라우터는 jsdom 의 실제 세션 히스토리(window.history)를 쓴다(WP-995) — MemoryRouter 는 window.history 를 건드리지 않아
   // history.state 로 「앱 안에서 연 항목」을 알아보는 닫기(useHistoryParam·useIssueOrigin)·뒤로 가기·window.location 을 읽는
   // 코드가 jsdom 에서 무동작이었다. 시작 주소는 현재 항목을 바꿔 둔다 — state 가 비어 있어 라우터는 이 항목을 첫 항목(idx 0)으로 본다.
-  window.history.replaceState(null, '', path)
+  // state 를 주면 라우터가 읽는 모양({ usr, key })으로 심는다 — idx 가 없어 여전히 첫 항목으로 본다.
+  window.history.replaceState(state === undefined ? null : { usr: state, key: 'seed' }, '', path)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },
   })

@@ -1,4 +1,4 @@
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import { carrySort, carryViewOptions } from '../../../lib/issueFilters';
 
@@ -16,20 +16,22 @@ export function readIssueFiltersReset(state: unknown): number | undefined {
 let resetSeq = 0;
 
 /**
- * 열림 마크 등은 살리고 지우기 신호만 새 값으로 합친다. 매번 값이 달라야 draft 가 접힌다.
- * 개요 표지(fromOverview)·알 수 없는 값 지우기 표지(ignoredCleared)는 뺀다 — 이 이동은 「필터를 지운 것」이라 조건 기억도 지워야 하는데,
- * 표지가 남으면 useRememberedIssueQuery 가 기억을 건드리지 않고 일찍 돌아가 다음 진입에 옛 필터가 복원된다.
+ * 「필터 지우기」 이동의 state — 지우기 신호만 새 값으로 싣는다(이전 state 는 모두 버린다). 신호값은 호출마다 달라야 draft 가 접힌다.
+ *
+ * 이전 state 에서 살릴 키는 허용 목록 방식으로 고르되 지금 살릴 키는 없다(빈 허용 목록 — 그래서 이전 state 를 인자로 받지 않는다).
+ * 이후 「필터 지우기」 뒤에도 남겨야 하는 키가 생기면 이 함수가 이전 state 를 받아 허용 목록의 키만 골라 담도록 고친다.
+ * 통째로 복사하지 않는 이유: 새 location.key 로 옛 표지가 다시 읽혀 되살아난다 —
+ * 사이드바 고정 보기 링크의 savedViewId 는 그 보기를 다시 고르게 하고(useSavedViewState), projectTab 은 「그 이동 한 번에만」 붙는 표지다.
+ * 개요 표지(fromOverview)·알 수 없는 값 지우기 표지(ignoredCleared)도 결과에 남지 않는다 —
+ * 이 이동은 「필터를 지운 것」이라 useRememberedIssueQuery 가 조건 기억도 지워야 하기 때문이다(기존 의도 유지).
  */
-export function withIssueFiltersReset(state: unknown): object {
-  const rest: Record<string, unknown> = { ...(state && typeof state === 'object' ? (state as Record<string, unknown>) : {}) };
-  delete rest.fromOverview;
-  delete rest.ignoredCleared;
-  return { ...rest, [ISSUE_FILTERS_RESET_KEY]: ++resetSeq };
+export function withIssueFiltersReset(): object {
+  return { [ISSUE_FILTERS_RESET_KEY]: ++resetSeq };
 }
 
 /** 「필터 지우기」 이동의 navigate 옵션 — replace 이동에 지우기 신호 state 를 싣는다. 호출부가 각자 조립하지 않게 모은 헬퍼. */
-export function issueFiltersResetNav(state: unknown): { replace: true; state: object } {
-  return { replace: true, state: withIssueFiltersReset(state) };
+export function issueFiltersResetNav(): { replace: true; state: object } {
+  return { replace: true, state: withIssueFiltersReset() };
 }
 
 /**
@@ -39,7 +41,6 @@ export function issueFiltersResetNav(state: unknown): { replace: true; state: ob
  */
 export function useResetIssueFilters(): () => void {
   const [, setParams] = useSearchParams();
-  const { state } = useLocation();
   return () =>
     setParams((prev) => {
       const p = new URLSearchParams();
@@ -48,5 +49,5 @@ export function useResetIssueFilters(): () => void {
       if (view) p.set('view', view);
       if (group) p.set('group', group);
       return carryViewOptions(carrySort(p, prev), prev);
-    }, issueFiltersResetNav(state));
+    }, issueFiltersResetNav());
 }
