@@ -13,6 +13,13 @@ vi.mock('@/components/ai/AIAssistantContext', async (importOriginal) => ({
   useOptionalAssistant: () => assistant.value,
 }))
 
+// 원문 모드 목차가 낡은 파싱을 쓰는 상황을 만들려고 useDeferredValue 를 얼릴 수 있게 한다(null 이면 평소대로)
+const deferredFreeze = vi.hoisted(() => ({ value: null as string | null }))
+vi.mock('react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react')>()),
+  useDeferredValue: <T,>(v: T): T => (deferredFreeze.value !== null ? (deferredFreeze.value as unknown as T) : v),
+}))
+
 const TEXT = '## 목표\n\n본문 문단\n\n| 항목 | 내용 |\n| --- | --- |\n| a | b |\n'
 
 function setup(over: Partial<{ text: string; shared: SharedInstruction[]; readOnly: boolean }> = {}) {
@@ -51,6 +58,7 @@ describe('InstructionEditorDialog', () => {
   })
   afterEach(() => {
     assistant.value = null
+    deferredFreeze.value = null
     vi.restoreAllMocks()
   })
 
@@ -237,6 +245,73 @@ describe('InstructionEditorDialog', () => {
     await user.click(screen.getByRole('button', { name: '적용' }))
     expect(onApply).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('연_뒤_text가_바뀌고_고친_글이_있으면_적용이_알림만_보이고_onApply가_없다', async () => {
+    const { onApply, onOpenChange, user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender('다른 곳에서 바뀐 지시')
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('창을 연 뒤 다른 곳에서 이 지시가 바뀌었어요.')
+    expect(onApply).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '그래도 적용' }))
+    expect(onApply).toHaveBeenCalledWith(replaceBlock(TEXT, 1, '본문 문단!'))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('새_글_불러오기는_초안을_새_text로_바꾸고_뒤이은_적용은_onApply가_없다', async () => {
+    const { onApply, onOpenChange, user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender('다른 곳에서 바뀐 지시')
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    await user.click(screen.getByRole('button', { name: '새 글 불러오기' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('다른 곳에서 바뀐 지시')).toBeInTheDocument()
+    expect(screen.queryByLabelText('블록 원문')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    expect(onApply).not.toHaveBeenCalled()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('연_뒤_text가_바뀌었어도_초안이_현재_text와_같으면_알림_없이_닫는다', async () => {
+    const { onApply, onOpenChange, user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender(replaceBlock(TEXT, 1, '본문 문단!'))
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(onApply).not.toHaveBeenCalled()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('공통_지시를_보다가_서식_편집을_누르면_지시_보기로_돌아온다', async () => {
+    const { user } = setup({ shared: [{ name: 'rules', text: '규칙 글' }] })
+    await user.click(screen.getByRole('button', { name: /rules/ }))
+    expect(screen.getByText('공통 지시 rules — 읽기 전용')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '서식 편집' }))
+    expect(screen.queryByText('공통 지시 rules — 읽기 전용')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('instruction-block').length).toBeGreaterThan(0)
+  })
+
+  it('원문_모드_목차가_낡은_파싱이어도_현재_초안의_블록으로_스크롤한다', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('button', { name: '마크다운 원문' }))
+    // 목차는 아직 옛 글 기준(목표 = 0번)인데 초안 앞에 문단이 하나 생겼다 — 현재 파싱에선 목표가 1번
+    deferredFreeze.value = TEXT
+    fireEvent.change(screen.getByLabelText('지시 원문'), { target: { value: '앞 문단\n\n' + TEXT } })
+    await user.click(within(screen.getByRole('navigation', { name: '목차' })).getByRole('button', { name: '목표' }))
+    const target = vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0] as HTMLElement
+    expect(target.getAttribute('data-block-index')).toBe('1')
+  })
+
+  it('블록_추가만_눌러도_글자수가_늘지_않는다', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('button', { name: '+ 블록 추가' }))
+    expect(screen.getByLabelText('블록 원문')).toBeInTheDocument()
+    expect(screen.getByText(`analyze · ${TEXT.length}자`)).toBeInTheDocument()
   })
 
   it('AI_패널이_열려_non_modal_일_때_바깥을_눌러도_창이_닫히지_않는다', async () => {

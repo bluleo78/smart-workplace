@@ -86,6 +86,12 @@ function joinEditing(cur: Editing): string {
   return cur.before + cur.value + cur.after
 }
 
+/** 편집 상태(없으면 draft)에서 편집을 끝냈을 때의 글 — 비운 새 칸이면 붙였던 빈 줄을 뺀 원래 글. 머리글 글자수가 렌더 중 쓴다(ref 를 읽지 않게 state 로). */
+function settledOf(cur: Editing | null, draft: string): string {
+  if (!cur) return draft
+  return isBlankNewBlock(cur) ? cur.restore : joinEditing(cur)
+}
+
 /** 편집을 끝낸 뒤 포커스를 둘 곳 — 블록 번호, 새로 생긴 마지막 블록('last'), 「+ 블록 추가」·안내 버튼('add'). */
 type FocusTarget = number | 'last' | 'add'
 
@@ -128,6 +134,8 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
   const [mode, setMode] = useState<'format' | 'raw'>('format')
   const [editing, setEditing] = useState<Editing | null>(null)
   const [sharedView, setSharedView] = useState<SharedInstruction | null>(null)
+  // 창을 연 뒤 다른 곳에서 지시가 바뀐 채 적용을 눌렀을 때 보이는 알림(덮어쓰기 전에 사용자가 고르게 한다)
+  const [conflict, setConflict] = useState(false)
   const editingRef = useRef<Editing | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const centerRef = useRef<HTMLDivElement | null>(null)
@@ -292,19 +300,46 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
 
   const toolsEnabled = !readOnly && !sharedView && (mode === 'raw' || editing !== null)
 
-  const goTo = (index: number) => {
+  /**
+   * 목차 항목(ordinal 번째)으로 이동. 원문 모드의 목차는 한 박자 늦춘 파싱이라 블록 번호가 낡았을 수 있다 —
+   * 서식 모드로 바꿔 그릴 때 쓰는 파싱(현재 draft)과 같은 것에서 같은 순번의 제목 번호를 다시 구해 스크롤한다.
+   */
+  const goTo = (ordinal: number, index: number) => {
     if (mode === 'format' && !sharedView) {
       centerRef.current?.querySelector(`[data-block-index="${index}"]`)?.scrollIntoView({ block: 'start' })
       return
     }
-    pendingScroll.current = index
+    const fresh = mode === 'raw' ? instructionHeadings(splitInstructionBlocks(draft)) : null
+    pendingScroll.current = fresh ? (fresh[ordinal]?.index ?? index) : index
     setSharedView(null)
     setMode('format')
   }
 
-  const apply = () => {
-    if (draft !== openedText.current) onApply(draft.trim() === '' ? null : draft)
+  /** 주어진 글로 적용하고 닫는다 — 비면 null. */
+  const commit = (next: string) => {
+    onApply(next.trim() === '' ? null : next)
     onOpenChange(false)
+  }
+
+  const apply = () => {
+    const next = settledText()
+    if (text !== openedText.current) {
+      // 연 뒤 다른 곳에서 지시가 바뀌었다 — 안 고쳤거나 이미 같은 글이면 잃을 게 없으니 닫기만, 아니면 덮어쓰기 전에 알린다
+      if (next === openedText.current || next === text) onOpenChange(false)
+      else setConflict(true)
+      return
+    }
+    if (next !== openedText.current) onApply(next.trim() === '' ? null : next)
+    onOpenChange(false)
+  }
+
+  /** 새 글 불러오기 — 지금 지시로 초안을 바꾸고(고친 글은 버린다) 기준도 새로 잡는다. */
+  const reload = () => {
+    editingRef.current = null
+    setEditing(null)
+    setDraft(text)
+    openedText.current = text
+    setConflict(false)
   }
 
   /** 편집 칸 한 개(블록 자리·새 칸 공통) */
@@ -350,10 +385,10 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
         <div className="flex items-center gap-3 border-b px-5 py-3">
           <div className="min-w-0 flex-1">
             <DialogTitle className="truncate text-base">✦ {nodeName} — 지시 편집</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">{`${nodeKey} · ${draft.length}자`}</DialogDescription>
+            <DialogDescription className="text-xs text-muted-foreground">{`${nodeKey} · ${settledOf(editing, draft).length}자`}</DialogDescription>
           </div>
           <div className="flex gap-1 rounded-md border p-0.5" role="group" aria-label="편집 방식">
-            <Button type="button" size="sm" variant={mode === 'format' ? 'secondary' : 'ghost'} aria-pressed={mode === 'format'} onClick={() => setMode('format')}>
+            <Button type="button" size="sm" variant={mode === 'format' ? 'secondary' : 'ghost'} aria-pressed={mode === 'format'} onClick={() => { setSharedView(null); setMode('format') }}>
               서식 편집
             </Button>
             <Button type="button" size="sm" variant={mode === 'raw' ? 'secondary' : 'ghost'} aria-pressed={mode === 'raw'} onClick={() => { endEditing(); setSharedView(null); setMode('raw') }}>
@@ -391,13 +426,13 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
                 <p className="text-xs text-muted-foreground">제목(##)이 없어요</p>
               ) : (
                 <ul>
-                  {headings.map((h) => (
+                  {headings.map((h, ord) => (
                     <li key={h.index}>
                       <button
                         type="button"
                         className={cn('w-full truncate rounded px-2 py-1 text-left hover:bg-muted', h.depth === 3 && 'pl-5 text-muted-foreground')}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => goTo(h.index)}
+                        onClick={() => goTo(ord, h.index)}
                       >
                         {h.text}
                       </button>
@@ -518,6 +553,19 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
           </div>
         </div>
 
+        {conflict && (
+          <div role="alert" className="flex items-center justify-between gap-3 border-t bg-muted px-5 py-2 text-sm">
+            <span>창을 연 뒤 다른 곳에서 이 지시가 바뀌었어요.</span>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={reload}>
+                새 글 불러오기
+              </Button>
+              <Button type="button" size="sm" onClick={() => commit(settledText())}>
+                그래도 적용
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
           <p className="text-xs text-muted-foreground">적용하면 초안에 반영돼요 — 게시해야 AI 에게 갑니다</p>
           <div className="flex gap-2">
