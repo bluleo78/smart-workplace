@@ -1,0 +1,59 @@
+# 「Claude Code (배포)」 템플릿(WP-2146) — 배포 담당 AI 가 승인된 배포를 운영에 반영한다(배포 자동화 WP-2134).
+# 이미지는 개발용 claude-code 와 같다(kubectl 포함, WP-2136). 다른 점은 셋이다.
+#  - 사이드카 없음: 특권 dind 를 두지 않는다 — 배포에는 docker 가 필요 없고, 클러스터 토큰을 가진 Pod 에 특권 컨테이너를 두지 않기 위해서다.
+#    (엔트리포인트는 docker 소켓이 없으면 경고만 하고 칸을 띄운다. runner 는 dind 가 없으면 dind-gc 도 붙이지 않는다.)
+#  - 작은 자원: 빌드·테스트를 하지 않는다.
+#  - 대기열 라벨 기본값 없음: 담당자 없는 개발 이슈를 가져가지 않는다.
+# 클러스터 권한은 이 템플릿이 주지 않는다 — 운영자가 deploy-target 차트(WP-2142)로 권한을 만들고 runner 허용 표(WP-2135)에 이 AI 를 적어야 생긴다.
+name: claude-code-deploy
+version: "1"
+kind: WORKSPACE
+card:
+  title: Claude Code (배포)
+  description: 승인된 배포를 운영에 반영합니다
+  skills: [배포, 확인, 되돌리기]
+image: docker.io/iacloudops/genia-works-agent-claude-code:{appVersion}
+requires: [claude, repo]
+config:
+  # 모델·추론 강도는 claude-code.yaml 과 같다(선택지 근거는 그 파일).
+  - key: model
+    label: 모델
+    type: select
+    optionsFrom: account-models
+    options:
+      - { value: opus, label: Opus(최신) }
+      - { value: sonnet, label: Sonnet(최신) }
+    default: opus
+    required: true
+  - key: effort
+    label: 추론 강도
+    type: select
+    options:
+      - { value: low, label: low }
+      - { value: medium, label: medium }
+      - { value: high, label: high }
+      - { value: xhigh, label: xhigh }
+      - { value: max, label: max }
+    default: high
+    required: true
+  # 기본값을 비운다 — 배포 AI 는 맡긴 배포 이슈만 처리하고 대기열의 개발 이슈를 가져가지 않는다.
+  - key: queue
+    label: 대기열 라벨
+    type: text
+    required: false
+# 운영 11-26 실측(kubectl top): 쉬는 claude-code agent 컨테이너 약 270Mi, 빌드·테스트 중인 개발 AI 2.5~5.5Gi.
+# 배포 AI 는 빌드·테스트 없이 Claude Code 와 kubectl 만 돌리므로 requests 를 작게 잡아 runner 쿼터(수용 AI 수)를 적게 쓴다.
+# 저장소는 매니페스트만 보면 되지만 clone 은 전체라 작업 디스크는 10Gi 를 둔다.
+resources:
+  cpuRequest: 500m
+  memoryRequest: 1Gi
+  cpuLimit: "2"
+  memoryLimit: 4Gi
+  workDisk: 10Gi
+# 사이드카 없음(dind 없음) — 위 설명.
+sidecars: []
+# genia-works 만 — 이슈·작업 보고와 배포 스킬(WP-2143)이 여기 있다. 개발용(LSP·frontend-design·feature-dev 등)과 superpowers 는 뺀다.
+plugins:
+  - { marketplace: genia-works, name: genia-works, version: latest }
+# 배포는 한 번에 하나 — 같은 앱에 두 배포가 겹치지 않게 동시 진행 기본을 1 로 둔다(관리 화면에서 덮어쓸 수 있다).
+slotLimit: 1
