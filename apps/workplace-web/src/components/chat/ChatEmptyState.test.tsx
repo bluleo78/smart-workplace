@@ -24,4 +24,13 @@ describe('ChatEmptyState', () => {
     expect(description.className).toContain('text-xs')
     expect(description.className).toContain('text-muted-foreground')
   })
+
+  // WP-2051 — 한국어 설명이 단어 중간(「있 / 어요.」)에서 꺾이지 않게 단어 단위로 줄바꿈한다.
+  // 공백 없는 긴 문자열이 넘치지 않게 접는 wrap-anywhere 는 함께 남는다.
+  it('설명은 한국어 단어 단위로 줄바꿈(break-keep)하고 긴 문자열은 여전히 접는다', () => {
+    render(<ChatEmptyState title="대화를 시작해 보세요" description="왼쪽에서 채널을 선택하거나 새 메시지로 다이렉트 메시지를 시작할 수 있어요." />)
+    const description = screen.getByText('왼쪽에서 채널을 선택하거나 새 메시지로 다이렉트 메시지를 시작할 수 있어요.')
+    expect(description.className).toContain('break-keep')
+    expect(description.className).toContain('wrap-anywhere')
+  })
 })

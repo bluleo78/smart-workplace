@@ -603,7 +603,7 @@ function BoardColumn({
             </div>
           ) : issues.length === 0 ? (
             /* 빈 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
-            // WP-1947: 공용 EmptyState — 보드는 제목이 muted 색이라 titleClassName 으로 덧붙인다. 좁은 열이라 설명은 break-keep.
+            // WP-1947: 공용 EmptyState — 보드는 제목이 muted 색이라 titleClassName 으로 덧붙인다. 설명의 break-keep 은 공용 기본값(WP-2051).
             <EmptyState
               testId={`board-col-empty-${status.id}`}
               className="justify-center py-8 gap-3"
@@ -612,7 +612,7 @@ function BoardColumn({
               title="이슈 없음"
               titleClassName="text-muted-foreground"
               description={onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
-              descriptionClassName="break-keep px-2"
+              descriptionClassName="px-2"
               action={
                 <>
                   {onShowAllClosed && <ShowAllClosedButton testKey={status.id} onClick={onShowAllClosed} />}
@@ -676,7 +676,7 @@ function MobileBoardEmpty({
       title="이슈 없음"
       titleClassName="text-muted-foreground"
       description={onShowAllClosed ? CLOSED_HIDDEN_NOTE : undefined}
-      descriptionClassName="break-keep px-6"
+      descriptionClassName="px-6"
       action={
         <>
           {onShowAllClosed && <ShowAllClosedButton testKey={status} onClick={onShowAllClosed} className="h-11 px-4" />}
