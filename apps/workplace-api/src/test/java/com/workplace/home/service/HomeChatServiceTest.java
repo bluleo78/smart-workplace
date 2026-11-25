@@ -641,7 +641,11 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
       ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
       verify(sseRegistry).fanOut(eq(Set.of(uid)), eq("home.chat.error"), payload.capture());
       java.time.Instant until = waitService.activeUntil(f.credentialId()).orElseThrow();
-      assertThat(until).isEqualTo(resets.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+      // DB(timestamptz)는 µs 로 반올림해 저장하므로 나노초 꼬리에 따라 1µs 차이가 날 수 있다 — 1µs 안이면 같은 시각으로 본다.
+      assertThat(until)
+          .isCloseTo(
+              resets,
+              org.assertj.core.api.Assertions.within(1, java.time.temporal.ChronoUnit.MICROS));
       assertThat(payload.getValue().get("message"))
           .isEqualTo(AssistantLimitWaitService.waitingMessage(until, java.time.Instant.now()));
     } finally {
