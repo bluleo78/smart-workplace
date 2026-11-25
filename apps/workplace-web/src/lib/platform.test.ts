@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { aiShortcutLabel, detectIOS, isAiToggleKey, isKKey } from './platform'
+import { aiShortcutLabel, detectIOS, isAiToggleKey, isKKey, isLetterKey } from './platform'
 
 describe('detectIOS', () => {
   it('iPhone·iPad UA', () => {
@@ -55,5 +55,14 @@ describe('AI 패널 단축키', () => {
     expect(isKKey({ key: 'K', code: 'KeyK' })).toBe(true)
     expect(isKKey({ key: 'ㅏ', code: 'KeyK' })).toBe(true)
     expect(isKKey({ key: 't', code: 'KeyK' })).toBe(false)
+  })
+  it('isLetterKey — 라틴 key 우선, 라틴이 아닐 때만 물리 키(code)로 본다', () => {
+    expect(isLetterKey({ key: 'B', code: 'KeyB' }, 'b')).toBe(true)
+    expect(isLetterKey({ key: 'ㅠ', code: 'KeyB' }, 'b')).toBe(true)
+    expect(isLetterKey({ key: 'i' }, 'i')).toBe(true)
+    // 드보락: 물리 B 자리에 다른 라틴 글자가 오면 가로채지 않는다
+    expect(isLetterKey({ key: 'x', code: 'KeyB' }, 'b')).toBe(false)
+    expect(isLetterKey({ key: 'ㅠ', code: 'KeyI' }, 'b')).toBe(false)
+    expect(isLetterKey({}, 'b')).toBe(false)
   })
 })

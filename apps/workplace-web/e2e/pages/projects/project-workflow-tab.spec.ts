@@ -353,6 +353,59 @@ test('workflowGraph_drawerDoesNotOverlapAiPanel', { tag: '@layout' }, async ({ a
   expect(nodeNoAi.y + nodeNoAi.height).toBeLessThanOrEqual(canvasNoAi.y + canvasNoAi.height)
 })
 
+/**
+ * WP-2092 — 「지시 편집 ⤢」 창은 넓고(표가 실제 표로 보인다), 열린 채로 AI 옆 패널을 열어도 겹치지 않으며
+ * AI 입력칸에 글을 칠 수 있다(창이 모달이 아니다).
+ */
+test('workflowGraph_instructionEditor_wideBesideAiPanel', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page, [
+    'name: 작업 정리',
+    'nodes:',
+    '  review:',
+    '    type: agent_task',
+    '    instructions: |',
+    '      ## 절차',
+    '',
+    '      | 단계 | 내용 |',
+    '      | --- | --- |',
+    '      | 1 | 읽기 |',
+  ].join('\n'))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  await page.locator('.react-flow__node').filter({ hasText: 'review' }).click()
+  await page.getByRole('button', { name: '지시 편집 ⤢' }).click()
+  const dialog = page.getByRole('dialog', { name: /지시 편집/ })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('table')).toBeVisible()
+  // 서랍(약 380px)보다 훨씬 넓다
+  expect((await dialog.boundingBox())!.width).toBeGreaterThan(380 + 200)
+
+  // 제목 블록을 고친다 — 아래에서 AI 패널을 열어도(대화상자가 non-modal 로 다시 마운트) 고친 글이 남아야 한다
+  await dialog.getByRole('button', { name: '블록 편집' }).first().click()
+  await dialog.getByLabel('블록 원문').press('End')
+  await dialog.getByLabel('블록 원문').pressSequentially('!')
+
+  // 창이 열린 채 AI 옆 패널을 열면 창은 패널 왼쪽에 머문다
+  await page.getByTestId('chat-launcher').click()
+  const ai = page.getByTestId('ai-side-panel')
+  await expect(ai).toBeVisible()
+  await expect.poll(async () => {
+    const aiBox = (await ai.boundingBox())!
+    const box = (await dialog.boundingBox())!
+    return aiBox.x + 2 - (box.x + box.width)
+  }).toBeGreaterThanOrEqual(0)
+  // AI 입력칸에 글을 칠 수 있다
+  const input = ai.getByTestId('chat-input')
+  await input.fill('표 열을 하나 더해줘')
+  await expect(input).toHaveValue('표 열을 하나 더해줘')
+
+  // AI 패널을 연 뒤에도 고친 제목이 그대로 — 적용하면 서랍 요약에 반영된다
+  await expect(dialog.getByRole('heading', { name: '절차!' })).toBeVisible()
+  await dialog.getByRole('button', { name: '적용' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('region', { name: '지시' }).getByText(/## 절차!/)).toBeVisible()
+})
+
 // 빈 캔버스를 끌어 화면을 옮기기만 해서는 워크플로우 개요가 열리지 않는다(드래그 끝의 click 이 빈 곳 클릭으로 오인되면 안 된다)
 test('workflowGraph_panCanvas_doesNotOpenOverview', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await mockWorkflow(page)

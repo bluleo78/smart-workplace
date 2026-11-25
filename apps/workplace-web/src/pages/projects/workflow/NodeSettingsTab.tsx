@@ -1,16 +1,16 @@
-import { useId, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Textarea } from '@/components/ui/textarea'
 
 import { askTarget, instructionPreview, instructionStats, moveTargets, type NodeTabProps } from './drawerModel'
 import { DrawerSection, YamlFixButton } from './DrawerShell'
 import { commonErrorTarget } from './graphLayout'
-import { addAskPath, type NodeDetail, type NodePatch, type WorkflowGraph } from './graphYaml'
+import { addAskPath, type NodeDetail, type NodePatch, readShared, type WorkflowGraph } from './graphYaml'
+import { InstructionEditorDialog, type SharedInstruction } from './InstructionEditorDialog'
 import { NODE_FIELDS, type PanelField } from './nodeFields'
 import { workflowSelectClass } from './WorkflowVersions'
 
@@ -119,38 +119,53 @@ function OnErrorField({ graph, nodeKey, onError, readOnly, patch }: {
 
 /**
  * 지시 요약(WP-2091) — 앞 3줄 미리 보기와 「n자 · 표 n · 제목 n」 통계. 긴 지시가 서랍을 다 차지하지 않게 접어 두고,
- * 「지시 편집 ⤢」를 누르면 지금의 지시 입력 칸(「지시 내용」)이 펼쳐진다. 큰 편집 창은 WP-2092 범위.
+ * 「지시 편집 ⤢」(읽기 전용이면 「지시 보기 ⤢」)를 누르면 넓은 편집 창(WP-2092, InstructionEditorDialog)이 열린다.
+ * 창의 「적용」이 onEdit 로 초안 YAML 에 반영된다(게시 전까지 AI 에게 가지 않는다).
  */
-function InstructionSummary({ text, readOnly, onEdit }: { text: string; readOnly: boolean; onEdit: (next: string | null) => void }) {
-  const [editing, setEditing] = useState(false)
-  const textareaId = useId()
+function InstructionSummary({ text, readOnly, nodeName, nodeKey, yaml, useKey, onEdit }: {
+  text: string
+  readOnly: boolean
+  nodeName: string
+  nodeKey: string
+  yaml: string
+  /** 이 노드가 use 하는 공통 지시 이름 목록을 줄바꿈으로 이은 키 */
+  useKey: string
+  onEdit: (next: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  // 편집 창 왼쪽 「함께 받는 공통 지시」 — 창이 열렸을 때만 YAML 에서 읽는다(정의가 없으면 text null)
+  const shared = useMemo((): SharedInstruction[] => {
+    if (!open) return []
+    const defs = readShared(yaml)
+    // 빈 문자열을 나누면 [''] 라 이름 없는 공통 지시가 하나 생기지 않게 빈 목록으로
+    const names = useKey === '' ? [] : useKey.split('\n')
+    return names.map((name): SharedInstruction => ({ name, text: defs.find((s) => s.name === name)?.text ?? null }))
+  }, [open, yaml, useKey])
   const stats = instructionStats(text)
   const preview = instructionPreview(text)
   return (
     <DrawerSection
       title="지시"
       action={
-        <Button
-          type="button" variant="ghost" size="sm"
-          aria-expanded={editing}
-          aria-controls={editing ? textareaId : undefined}
-          onClick={() => setEditing((v) => !v)}
-        >{editing ? '지시 접기' : '지시 편집 ⤢'}</Button>
+        <Button type="button" variant="ghost" size="sm" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+          {readOnly ? '지시 보기 ⤢' : '지시 편집 ⤢'}
+        </Button>
       }
     >
-      {/* 펼친 동안에는 입력 칸이 전문을 보이므로 미리 보기를 숨긴다 */}
-      {!editing && (preview
+      {preview
         ? <p className="line-clamp-3 whitespace-pre-line text-xs">{preview}</p>
-        : <p className="text-xs text-muted-foreground">지시가 없습니다</p>)}
+        : <p className="text-xs text-muted-foreground">지시가 없습니다</p>}
       <p className="text-xs text-muted-foreground">{`${stats.chars}자 · 표 ${stats.tables} · 제목 ${stats.headings}`}</p>
-      {editing && (
-        <Textarea
-          id={textareaId}
-          aria-label="지시 내용"
-          rows={8}
-          value={text}
-          disabled={readOnly}
-          onChange={(event) => onEdit(event.target.value || null)}
+      {open && (
+        <InstructionEditorDialog
+          open={open}
+          onOpenChange={setOpen}
+          nodeName={nodeName}
+          nodeKey={nodeKey}
+          text={text}
+          shared={shared}
+          readOnly={readOnly}
+          onApply={onEdit}
         />
       )}
     </DrawerSection>
@@ -168,6 +183,8 @@ export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChan
   const fields = NODE_FIELDS[detail.type] ?? new Set<PanelField>()
   const asked = fields.has('ask') ? askTarget(graph, nodeKey) : null
   const yamlNote = yamlNoteFor(detail.type, graph, nodeKey)
+  // 키는 이름 목록을 이은 문자열 — detail 은 YAML 을 다시 읽을 때마다 새 배열이라 배열 자체를 키로 두면 매번 다시 계산된다
+  const useKey = detail.use.join('\n')
   return (
     <>
       <div className="px-3 pb-3">
@@ -237,7 +254,15 @@ export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChan
         </DrawerSection>
       )}
       {fields.has('instructions') && (
-        <InstructionSummary text={detail.instructions ?? ''} readOnly={readOnly} onEdit={(instructions) => patch({ instructions })} />
+        <InstructionSummary
+          text={detail.instructions ?? ''}
+          readOnly={readOnly}
+          nodeName={detail.name ?? nodeKey}
+          nodeKey={nodeKey}
+          yaml={yaml}
+          useKey={useKey}
+          onEdit={(instructions) => patch({ instructions })}
+        />
       )}
       {yamlNote && (
         <DrawerSection title="YAML 에서 고치는 칸">
