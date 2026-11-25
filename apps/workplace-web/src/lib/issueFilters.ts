@@ -93,9 +93,10 @@ export function withoutSort(f: IssueFilters): IssueFilters {
 export function withoutViewOrder(f: IssueFilters): IssueFilters {
   const base = withoutSort(f);
   if (base.closedLastOff === undefined && base.closedLast === undefined) return base;
-  // 구조 분해로 두 필드를 한 번에 뺀다(쓰지 않는 값은 _ 접두).
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 뺄 값을 버리려는 구조 분해
-  const { closedLastOff: _off, closedLast: _on, ...rest } = base;
+  // withoutSort 와 같게 복사한 뒤 지운다.
+  const rest = { ...base };
+  delete rest.closedLastOff;
+  delete rest.closedLast;
   return rest;
 }
 

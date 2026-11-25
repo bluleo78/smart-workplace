@@ -31,6 +31,7 @@ import {
   overridesClosedHiding,
   parseFilters,
   parseView,
+  withoutViewOrder,
 } from '../../../lib/issueFilters';
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { type ClosedLastToggle, type IssueSortValue, sortOf } from '../../../lib/issueSort';
@@ -126,7 +127,7 @@ export function useIssueFilterControls(
   const view = parseView(params);
   // groupParam = URL 원값(부재/none/값) — 필터를 다시 쓸 때 그대로 보존해야 명시한 「없음」이 기본값으로 되돌지 않는다.
   // groupBy = 실제 적용 중인 그룹(사이클 기본값 반영) — 셀렉트 표시용.
-  const { raw: groupParam, groupBy } = useIssueGroupBy(projectKey, showCycle);
+  const { raw: groupParam, groupBy, pending: groupPending } = useIssueGroupBy(projectKey, showCycle);
   const labels = useLabels(projectKey);
   // 구성요소(WP-933) — 사용 중인 것이 있을 때만 facet 이 생긴다. 개인 화면(showType=false)은 구성요소가 없어 요청하지 않는다.
   const components = useComponents(projectKey, { enabled: showType });
@@ -182,9 +183,16 @@ export function useIssueFilterControls(
     else next.closedLastOff = true;
     writeFilters(next, view, groupParam);
   }
+  // 「기본으로」(WP-2103 리뷰 후속) — 정렬과 끔 설정을 한 번의 쓰기로 함께 지운다(필터·보기·그룹은 그대로).
+  function resetOrder() {
+    writeFilters(withoutViewOrder(filters), view, groupParam);
+  }
   // 쓸 수 있는 자리(그룹 없는 목록)에서만 토글을 만든다 — 소비처가 삼항식 없이 그대로 넘긴다. 필터·보기·그룹·정렬은 두고 이 설정만 바꾼다.
+  // 기본 그룹 판정을 기다리는 동안(사이클 목록 로딩 — 기본 그룹이 cycle 일 수 있다)은 groupBy 가 null 이라도 만들지 않는다 — 항목이 잠깐 보였다 사라지지 않게.
   const closedLast: ClosedLastToggle | undefined =
-    view === 'list' && groupBy == null ? { on: !filters.closedLastOff, onChange: setClosedLast } : undefined;
+    view === 'list' && groupBy == null && !groupPending
+      ? { on: !filters.closedLastOff, onChange: setClosedLast, resetOrder }
+      : undefined;
 
   // 필터 지우기는 view·group·정렬(WP-1238)(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
   function reset() {

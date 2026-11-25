@@ -511,7 +511,7 @@ export interface IssueFilters {
   // 「기다리는 중」(WP-1478) — AI 가 답을 기다리거나(INPUT_REQUIRED) 닫히지 않은 선행 이슈에 막힌 열린 이슈만. URL·서버 키 waiting=true.
   waiting?: boolean;
   // 정렬 기준(WP-1238) — URL sort. 없으면(기본) 서버 기본 정렬(수정일 내림차순)이라 키를 보내지 않는다. 화면은 한 기준만 고른다.
-  // 필터가 아니라 표시 옵션이다 — 「필터 있음」 판정(빈 상태·「전체」 칩)은 withoutSort 로 뺀 뒤 본다.
+  // 필터가 아니라 표시 옵션이다 — 「필터 있음」 판정(빈 상태·「전체」 칩)은 withoutViewOrder 로 뺀 뒤 본다.
   // 선택 필드라 손으로 만드는 필터 객체(에픽 범위·하위 목록 등)는 건드리지 않아도 기존처럼 정렬 없이 보낸다.
   sort?: IssueSortKey;
   // 정렬 방향 — URL direction. sort 가 있을 때만 의미가 있다(parseFilters 가 sort 없이 온 값은 버린다).

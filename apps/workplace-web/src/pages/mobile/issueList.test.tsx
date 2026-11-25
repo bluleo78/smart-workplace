@@ -227,6 +227,20 @@ describe('모바일 이슈 목록 — 툴바', () => {
     await waitFor(() => expect(params(location).has('closedLast')).toBe(false))
   })
 
+  // WP-2103 리뷰 후속 — 끈 상태는 기본 순서가 아니라 칩이 활성 문구로 알리고, 시트의 「기본으로」가 다시 켠다.
+  test('정렬 시트 — 끝난 이슈 아래로를 끄면 칩에 「끝난 이슈 섞음」, 「기본으로」로 다시 켠다', async () => {
+    const { user, location } = await open('group=none&closedLast=off')
+    const chip = screen.getByTestId('mobile-chip-sort')
+    expect(chip).toHaveTextContent('⇅ 정렬 · 끝난 이슈 섞음')
+    await user.click(chip)
+    const sheet = await screen.findByTestId('mobile-sort-sheet')
+    const reset = within(sheet).getByTestId('mobile-sort-reset')
+    expect(reset).toBeEnabled()
+    await user.click(reset)
+    await waitFor(() => expect(params(location).has('closedLast')).toBe(false))
+    expect(screen.getByTestId('mobile-chip-sort')).toHaveTextContent(/^⇅ 정렬$/)
+  })
+
   test('정렬 시트 — 그룹을 묶은 목록에는 끝난 이슈 아래로 스위치가 없다', async () => {
     const { user } = await open('group=status')
     await user.click(screen.getByTestId('mobile-chip-sort'))

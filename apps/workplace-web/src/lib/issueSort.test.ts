@@ -51,6 +51,9 @@ describe('메뉴 — 기준·방향 고르기', () => {
     expect(displayedSort(null)).toEqual({ key: 'updatedAt', direction: 'desc' });
     expect(sortChipLabel(null)).toBe('정렬');
     expect(sortChipLabel({ key: 'dueDate', direction: 'asc' })).toBe('정렬: 마감일 ↑');
+    // 끝난 이슈 아래로를 끄면(WP-2103 리뷰 후속) 기본 순서가 아님을 칩 문구로도 알린다.
+    expect(sortChipLabel(null, true)).toBe('정렬 · 끝난 이슈 섞음');
+    expect(sortChipLabel({ key: 'dueDate', direction: 'asc' }, true)).toBe('정렬: 마감일 ↑ · 끝난 이슈 섞음');
   });
 
   it('normalizeSort 는 수정일 내림차순만 null 로 바꾼다', () => {
