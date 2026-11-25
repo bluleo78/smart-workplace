@@ -49,7 +49,7 @@ src/
 - **Server State**: TanStack Query 훅 (`src/hooks/queries/`). `useQuery` 읽기, `useMutation` + `invalidateQueries()` 쓰기
 - **Form Validation**: Zod (`src/lib/validations/`) + `@hookform/resolvers`
 - **Error Handling**: `handleApiError()` (`src/lib/api-error.ts`) → `ErrorResponse.message` 추출 + Sonner 토스트
-- **Routing** (`src/App.tsx`): 페이지는 `React.lazy()` + `Suspense`. 라우트 트리: `ProtectedRoute > AppLayout > ...`, 관리자는 추가로 `AdminRoute` 감쌈. 첫 주소 미리 받기 표(`lib/routePreloads.ts`)에 넣은 화면은 `lib/preloadableLazy` 로 선언하면 미리 받은 모듈을 Suspense 로 멈추지 않고 바로 그린다 — React 19 의 드러내기 300ms 조절을 피한다(WP-2080)
+- **Routing** (`src/App.tsx`): 페이지는 `React.lazy()` + `Suspense`. 라우트 트리: `ProtectedRoute > AppLayout > ...`, 관리자는 추가로 `AdminRoute` 감쌈. 첫 주소 미리 받기 표(`lib/routePreloads.ts`)에 넣은 화면은 `lib/preloadableLazy` 로 선언하면 미리 받은 모듈을 Suspense 로 멈추지 않고 바로 그린다 — React 19 의 드러내기 300ms 조절을 피한다(WP-2080). 표의 로더 맵은 preloadableLazy 로더(`PreloadableLoader`)만 받아 일반 import 함수를 넣으면 타입 검사에서 막힌다(WP-2104)
 
 ## Conventions
 

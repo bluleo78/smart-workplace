@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type Preload, type RoutePreloadKey, selectRoutePreloads, startRoutePreloads } from './routePreloads'
 
 // 일부 키만 채운 로더 맵을 전체 Record 로 본다 — 고르지 않은 키는 호출되지 않아야 하므로 비워 둔다.
-const partial = (loaders: Partial<Record<RoutePreloadKey, Preload>>) => loaders as Record<RoutePreloadKey, Preload>
+// 테스트 대역(vi.fn)은 preloadableLazy 표식이 없어 표 타입으로 바꿔 넘긴다(WP-2104 — 실제 앱만 표식을 강제)
+const partial = (loaders: Partial<Record<RoutePreloadKey, () => Promise<unknown>>>) =>
+  loaders as unknown as Record<RoutePreloadKey, Preload>
 
 describe('selectRoutePreloads', () => {
   it('첫 일치 항목의 키를 돌려준다', () => {

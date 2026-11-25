@@ -1,7 +1,12 @@
 import { ISSUE_DETAIL_PATH } from './issueDetailPath'
+import type { PreloadableLoader } from './preloadableLazy'
 
-/** 청크를 내려받는 동적 import 함수 — lazy() 선언이 쓰는 것과 같은 함수여야 모듈이 한 번만 받아진다. */
-export type Preload = () => Promise<unknown>
+/**
+ * 청크를 내려받는 로더 — preloadableLazy 가 돌려준 것만 받는다(WP-2104). 일반 import 함수(React.lazy 화면)는
+ * 미리 받아 둬도 첫 렌더에 Suspense 로 멈춰 미리 받기 효과가 줄어 타입에서 막는다. 같은 로더라 모듈도 한 번만 받아진다.
+ */
+export type Preload = PreloadableLoader<unknown>
+
 
 /**
  * 주소(pathname)에 맞는 미리 받기 키를 고른다(WP-2021) — ROUTE_PRELOADS 에서 첫 일치 항목의 키들, 없으면 [].
