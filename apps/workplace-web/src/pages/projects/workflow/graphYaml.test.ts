@@ -5,11 +5,10 @@ import {
   addAskPath,
   addNode,
   autoLayout,
+  computeLayout,
   connectFromFlow,
   connectOutcome,
   countContextRefs,
-  type GraphEdge,
-  groupParallelEdges,
   moveManyFromDrag,
   moveNode,
   nextOutcomeKey,
@@ -219,8 +218,11 @@ start:
 
   it('autoLayout', () => {
     const d = doc(autoLayout(FIXTURE))
-    expect(d.layout.start.x).toBe(0)
-    expect(d.layout.triage.x).toBe(240)
+    const real = Object.keys(doc(FIXTURE).nodes)
+    for (const k of real) expect(d.layout[k]).toBeDefined()
+    // 위→아래 — 시작이 분류보다 위
+    expect(d.layout.start.y).toBeLessThan(d.layout.triage.y)
+    expect(Object.keys(d.layout).some((k) => k.endsWith('_ask'))).toBe(false)
   })
 
   // 최종 리뷰 3 — 만들기 템플릿의 빈 흐름 맵에 더해도 블록 스타일·블록 리터럴로 쓴다
@@ -326,25 +328,63 @@ start:
   })
 
   // 최종 리뷰 8 — 모든 노드에 좌표가 있으면 있는 좌표를 쓰고, 없는 노드만 자동 정렬 좌표를 받는다
-  it('placeNodes_usesAutoLayoutOnlyForNodesWithoutPosition', () => {
+  it('placeNodes_keepsSavedPositionsAndAutoPlacesRest', () => {
     const graphOf = (y: string) => {
       const r = parseWorkflowGraph(y)
       if (!('graph' in r)) throw new Error('parse')
       return r.graph
     }
     const laid = autoLayout(FIXTURE)
-    // 좌표를 바꿔 둔 노드는 자동 정렬 값이 아니라 쓰여 있는 값을 그대로 쓴다
+    // 좌표를 바꿔 둔 노드는 자동 배치 값이 아니라 쓰여 있는 값을 그대로 쓴다
     const moved = moveNode(laid, 'triage', 7, 9)
-    expect(placeNodes(graphOf(moved)).get('triage')).toEqual({ x: 7, y: 9 })
+    expect(placeNodes(graphOf(moved)).positions.get('triage')).toEqual({ x: 7, y: 9 })
+    // 좌표가 없는 노드는 computeLayout 과 같은 자리를 받는다
     const partial = laid.replace(/ {2}triage: \{[^}]*\}\n/, '')
-    expect(placeNodes(graphOf(partial)).get('triage')).toEqual({ x: 240, y: 0 })
+    const g = graphOf(partial)
+    expect(placeNodes(g).positions.get('triage')).toEqual(computeLayout(g).get('triage'))
   })
 
-  it('placeNodes_putsVirtualNodeBelowItsParent', () => {
+  it('placeNodes_virtualNodesOnlyWhenShowAsk', () => {
     const r = parseWorkflowGraph(`nodes:\n  a: { type: human_task, ask: { role: x } }\nlayout:\n  a: { x: 10, y: 20 }\n`)
     if (!('graph' in r)) throw new Error('parse')
     expect(r.graph.nodes.find((n) => n.virtual)?.virtualParent).toBe('a')
-    expect(placeNodes(r.graph).get('a_ask')).toEqual({ x: 10, y: 160 })
+    expect(placeNodes(r.graph, { showAsk: false }).positions.has('a_ask')).toBe(false)
+    const { layout } = placeNodes(r.graph, { showAsk: true })
+    const a = layout.positions.get('a')
+    const ask = layout.positions.get('a_ask')
+    const sa = layout.sizes.get('a')
+    const sk = layout.sizes.get('a_ask')
+    if (!a || !ask || !sa || !sk) throw new Error('missing')
+    const overlap = a.x < ask.x + sk.width && ask.x < a.x + sa.width && a.y < ask.y + sk.height && ask.y < a.y + sa.height
+    expect(overlap).toBe(false)
+  })
+
+  // 숨는 실제 질문 노드는 저장하지 않는다 — 펼친 보기는 저장 좌표를 쓰지 않으므로 접힘 배치에 있는 노드만 담는다
+  it('computeLayout_realQuestionNodeOnlyViaAsk_notStored', () => {
+    const r = parseWorkflowGraph(
+      `nodes:\n  start: { type: start }\n  a:\n    type: agent_task\n    outcomes:\n      ask: { to: q }\n      done: { to: end }\n  q: { type: human_task, returnTo: a }\n  end: { type: end }\nstart:\n  - { to: a }\n`,
+    )
+    if (!('graph' in r)) throw new Error('parse')
+    expect(placeNodes(r.graph, { showAsk: false }).positions.has('q')).toBe(false)
+    const pos = computeLayout(r.graph)
+    expect(pos.has('q')).toBe(false)
+    expect(Number.isInteger(pos.get('a')!.x)).toBe(true)
+  })
+
+  it('autoLayout_doesNotStoreHiddenQuestionNodes', () => {
+    const out = doc(autoLayout(addAskPath(FIXTURE, 'dev')))
+    expect(out.layout.dev_ask).toBeUndefined()
+    for (const k of Object.keys(out.nodes).filter((k) => k !== 'dev_ask')) expect(out.layout[k]).toBeDefined()
+  })
+
+  it('moveManyFromDrag_createsLayoutWhenMissing', () => {
+    const y = FIXTURE
+    expect(y).not.toContain('layout:')
+    const out = moveManyFromDrag(y, [{ id: 'triage', position: { x: 10.4, y: 20.6 } }])
+    expect(doc(out).layout.triage).toEqual({ x: 10, y: 21 })
+    const r = parseWorkflowGraph(out)
+    if (!('graph' in r)) throw new Error('parse')
+    expect(placeNodes(r.graph).positions.get('triage')).toEqual({ x: 10, y: 21 })
   })
 
   // 최종 리뷰 13 — 되돌림 횟수는 1 이상 정수만, 빈칸은 지우기
@@ -545,46 +585,3 @@ describe('graphYaml 코드 리뷰 지적', () => {
   })
 })
 
-describe('groupParallelEdges', () => {
-  const e = (id: string, from: string, to: string, kind: GraphEdge['kind'], label: string): GraphEdge => ({ id, from, to, kind, label })
-  const keys = new Set(['a', 'b', 'c'])
-
-  it('같은 출발·도착의 outcome 과 returnTo 는 한 간선·한 라벨·점선이 된다', () => {
-    const out = groupParallelEdges([e('1', 'a', 'b', 'outcome', 'answered'), e('2', 'a', 'b', 'returnTo', '돌아가기')], keys)
-    expect(out).toEqual([{ id: '1', from: 'a', to: 'b', label: 'answered · 돌아가기', dashed: true }])
-  })
-
-  it('addAskPath 로 만든 질문 노드의 answered + returnTo 도 한 간선이다', () => {
-    const parsed = parseWorkflowGraph(addAskPath(FIXTURE, 'dev'))
-    if ('error' in parsed) throw new Error(parsed.error)
-    const keySet = new Set(parsed.graph.nodes.map((n) => n.key))
-    const back = groupParallelEdges(parsed.graph.edges, keySet).filter((g) => g.from === 'dev_ask' && g.to === 'dev')
-    expect(back).toHaveLength(1)
-    expect(back[0].label).toBe('answered · 돌아가기')
-    expect(back[0].dashed).toBe(true)
-  })
-
-  it('같은 출발·도착 셋은 라벨이 순서대로 이어진다', () => {
-    const out = groupParallelEdges([
-      e('1', 'a', 'b', 'outcome', 'x'), e('2', 'a', 'b', 'outcome', 'y'), e('3', 'a', 'b', 'onError', '오류'),
-    ], keys)
-    expect(out).toHaveLength(1)
-    expect(out[0].label).toBe('x · y · 오류')
-    expect(out[0].dashed).toBe(true)
-  })
-
-  it('반대 방향 간선은 합치지 않는다', () => {
-    const out = groupParallelEdges([e('1', 'a', 'b', 'ask', 'ask'), e('2', 'b', 'a', 'outcome', 'answered')], keys)
-    expect(out.map((g) => [g.from, g.to, g.dashed])).toEqual([['a', 'b', true], ['b', 'a', false]])
-  })
-
-  it('한쪽 끝 노드가 없는 간선은 묶기 전에 뺀다', () => {
-    const out = groupParallelEdges([e('1', 'a', 'zz', 'outcome', 'x'), e('2', 'a', 'b', 'outcome', 'y'), e('3', 'a', 'b', 'default', '기본')], keys)
-    expect(out).toEqual([{ id: '2', from: 'a', to: 'b', label: 'y · 기본', dashed: false }])
-  })
-
-  it('평행 간선이 없으면 간선 수·라벨·id 가 그대로다', () => {
-    const out = groupParallelEdges([e('1', 'a', 'b', 'outcome', 'x'), e('2', 'a', 'c', 'outcome', 'y')], keys)
-    expect(out.map((g) => [g.id, g.label])).toEqual([['1', 'x'], ['2', 'y']])
-  })
-})

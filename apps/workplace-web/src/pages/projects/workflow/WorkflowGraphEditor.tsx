@@ -1,10 +1,10 @@
 import '@xyflow/react/dist/style.css'
 
 import {
-  Background, type Connection, type Edge, Handle, type Node, type NodeProps, type OnNodesChange, Position, ReactFlow,
-  ReactFlowProvider, useNodesInitialized, useNodesState, useReactFlow, useViewport,
+  Background, type Connection, ConnectionMode, type Edge, MarkerType, type Node, type OnNodesChange, ReactFlow,
+  ReactFlowProvider, useNodesState, useReactFlow, useViewport,
 } from '@xyflow/react'
-import { Minus, Plus } from 'lucide-react'
+import { Minus, Plus, Undo2 } from 'lucide-react'
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -14,18 +14,14 @@ import { Button } from '@/components/ui/button'
 import type { WorkflowProblem } from '@/lib/workflows'
 
 import { applyConnection } from './applyConnection'
-import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeActorLabel, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
+import { edgeAriaLabel, GRAPH_ARIA_LABEL_CONFIG, GRAPH_ARIA_LABEL_CONFIG_READONLY, GRAPH_EDITOR_ARIA_LABEL, nodeAriaLabel, panelActionFromKeyDown } from './graphA11y'
+import { CARD_HEIGHT, drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './graphLayout'
 import {
-  addAskPath, addNode, autoLayout, type GraphEdge, type GraphNode, groupParallelEdges, moveManyFromDrag, type NewNodeType,
-  parseWorkflowGraph, placeNodes, type WorkflowGraph,
+  addAskPath, addNode, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
-import { NodeKindIcon, NodePanel } from './NodePanel'
+import { NodePanel } from './NodePanel'
 import { revealOffset } from './viewportReveal'
-
-interface FlowNodeData extends Record<string, unknown> {
-  node: GraphNode
-  roleName?: string
-}
+import { type FlowNodeData, GraphLegend, RoutedEdge, type RoutedEdgeData, WorkflowNodeView } from './WorkflowGraphShapes'
 
 /** 문서에 시작 노드가 없을 때만 「+ 노드」 메뉴 맨 앞에 더하는 항목. */
 const START_MENU_ITEM: { type: NewNodeType; label: string } = { type: 'start', label: '시작' }
@@ -35,44 +31,12 @@ const NEW_NODE_MENU: { type: NewNodeType; label: string }[] = [
   { type: 'decision', label: '분기' },
   { type: 'end', label: '종료' },
 ]
-/** 노드 한 장 — 종류 아이콘, 이름, 담당(AI·사람 + 역할 이름). 가상 노드는 점선 테두리. */
-function WorkflowNodeCard({ data, selected }: NodeProps<Node<FlowNodeData>>) {
-  const { node, roleName } = data
-  // 담당 줄은 접근 이름(nodeAriaLabel)과 같은 함수로 만들어 화면 글자와 스크린리더 이름이 어긋나지 않게 한다
-  const actor = nodeActorLabel(node, roleName)
-  return (
-    <div
-      className={`min-w-36 rounded-md border bg-card px-3 py-2 text-sm ${node.virtual ? 'border-dashed' : ''} ${selected ? 'ring-2 ring-ring' : ''}`}
-    >
-      <Handle type="target" position={Position.Left} />
-      <div className="flex items-center gap-2 font-medium">
-        <NodeKindIcon type={node.type} />
-        <span>{node.name ?? node.key}</span>
-      </div>
-      {actor && <div className="mt-1 text-xs text-muted-foreground">{actor}</div>}
-      <Handle type="source" position={Position.Right} />
-    </div>
-  )
-}
-// 컴포넌트 밖에 두어야 ReactFlow 가 매 렌더마다 노드를 다시 만들지 않는다.
-const nodeTypes = { workflow: WorkflowNodeCard }
-
-/**
- * 그래프 선을 ReactFlow 선으로 바꾼다. 양 끝 노드가 그려지는 것(keys)만 남긴다 — 없는 노드를 가리키는 선(YAML 의 오타 등)을
- * 넘기면 ReactFlow 가 경고를 내고 그리지 못한다. 같은 출발·도착 간선은 한 선·한 라벨로 합치고(WP-2063), 오류·되돌림·질문 경로가 낀 묶음은 점선으로 정상 흐름과 구분한다.
- */
-function toFlowEdges(edges: GraphEdge[], names: Map<string, string>): Edge[] {
-  return groupParallelEdges(edges, new Set(names.keys())).map((e) => {
-    // 합친 묶음이 모두 질문 경로 선이면 접근 이름을 「(질문)」으로 읽는다 — 묶음에는 종류가 없어 원래 간선에서 본다
-    const askOnly = edges.filter((x) => x.from === e.from && x.to === e.to).every((x) => x.kind === 'ask')
-    return {
-      id: e.id, source: e.from, target: e.to, label: e.label, type: 'smoothstep',
-      // 스크린리더용 한국어 이름(출발 → 도착)
-      ariaLabel: edgeAriaLabel({ id: e.id, from: e.from, to: e.to, label: e.label, kind: askOnly ? 'ask' : 'outcome' }, names),
-      style: e.dashed ? { strokeDasharray: '5 4' } : undefined,
-    }
-  })
-}
+// 컴포넌트 밖에 두어야 ReactFlow 가 매 렌더마다 노드·간선 종류를 다시 만들지 않는다.
+const nodeTypes = { workflow: WorkflowNodeView }
+const edgeTypes = { routed: RoutedEdge }
+/** 간선 끝 화살표 — 위→아래 흐름의 방향을 보인다. */
+const EDGE_MARKER = { type: MarkerType.ArrowClosed, width: 16, height: 16 }
+const BACK_EDGE_MARKER = { ...EDGE_MARKER, color: 'var(--warning-text)' }
 
 /** 확대·축소 단추와 현재 배율. ReactFlow 안(Provider 아래)에서만 쓸 수 있다. */
 function ZoomControls() {
@@ -110,9 +74,9 @@ function WarningBar({ yaml, problems, onChange, onOpenYaml }: {
 }
 
 /**
- * 그래프 편집 화면의 본체 — 도구 줄(+ 노드·자동 정렬), ReactFlow 캔버스, 고른 노드의 편집 패널, 경고 줄.
+ * 그래프 편집 화면의 본체 — 도구 줄(+ 노드·자동 정렬·실행 취소·질문 경로 보기), ReactFlow 캔버스·범례, 고른 노드의 편집 패널, 경고 줄.
  * 노드·선은 매번 graph(YAML 을 읽은 것)에서 만들고, 끌기·연결·추가는 graphYaml 함수로 YAML 을 고쳐 onChange 로 올린다.
- * 지역 상태는 고른 노드와 드래그 중 좌표뿐이다 — 원본을 둘로 들지 않으려는 것이다.
+ * 지역 상태는 고른 노드·드래그 중 좌표·질문 경로 펼침·자동 정렬 실행 취소 기억뿐이다 — 원본을 둘로 들지 않으려는 것이다.
  */
 function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   yaml: string
@@ -129,42 +93,58 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   // 캔버스 컨테이너 자체의 화면 사각형을 재기 위한 ref — 노드와 캔버스를 같은 기준으로 비교한다.
   const canvasRef = useRef<HTMLDivElement>(null)
   const roleNames = useMemo(() => new Map(graph.roles.map((r) => [r.key, r.name ?? r.key])), [graph.roles])
-  const positions = useMemo(() => placeNodes(graph), [graph])
-  const derivedNodes: Node<FlowNodeData>[] = useMemo(() => graph.nodes.map((n) => {
+  // 질문 경로(ask) 펼침 여부 — 보기만 바꾸는 지역 상태라 읽기 전용이어도 켤 수 있다(기본은 접힘).
+  const [showAsk, setShowAsk] = useState(false)
+  // 「자동 정렬」 직전·직후 YAML — 지금 YAML 이 직후와 같은 동안만 「실행 취소」를 보인다(다른 편집이 끼면 덮지 않게).
+  const [undoLayout, setUndoLayout] = useState<{ before: string; after: string } | null>(null)
+  const placed = useMemo(() => placeNodes(graph, { showAsk }), [graph, showAsk])
+  const { positions, layout, view } = placed
+  // 화면에 그리는 노드는 보이는 것(view.nodes)뿐이다 — 접혀 숨은 질문 노드는 positions 에도 없다.
+  // width·height 를 배치 계산의 nodeSize 와 같게 주어 그려진 상자가 겹침 검사의 상자와 똑같게 한다.
+  const derivedNodes: Node<FlowNodeData>[] = useMemo(() => view.nodes.map((n) => {
+    const size = nodeSize(n)
     const roleName = n.role ? roleNames.get(n.role) ?? n.role : undefined
     return {
-    id: n.key,
-    type: 'workflow',
-    position: positions.get(n.key) ?? { x: 0, y: 0 },
-    data: { node: n, roleName },
-    // 스크린리더용 한국어 이름(표시 이름, 담당) — React Flow 기본은 영어 안내라 직접 준다
-    ariaLabel: nodeAriaLabel(n, roleName),
-    selected: n.key === selected,
-    // 가상 노드만 막고, 나머지는 undefined 로 두어 ReactFlow 의 nodesDraggable·nodesConnectable(readOnly)을 따르게 한다
-    draggable: n.virtual ? false : undefined,
-    connectable: n.virtual ? false : undefined,
+      id: n.key,
+      type: 'workflow',
+      position: positions.get(n.key) ?? { x: 0, y: 0 },
+      width: size.width,
+      height: size.height,
+      handles: flowHandles(n),
+      data: {
+        node: n,
+        roleName,
+        askHost: !showAsk && view.askHosts.has(n.key),
+        commonRecovery: n.key === view.commonErrorTo,
+      },
+      // 스크린리더용 한국어 이름(표시 이름, 담당) — React Flow 기본은 영어 안내라 직접 준다(WP-2052)
+      ariaLabel: nodeAriaLabel(n, roleName),
+      selected: n.key === selected,
+      // 가상 노드만 막고, 나머지는 undefined 로 두어 ReactFlow 의 nodesDraggable·nodesConnectable(readOnly)을 따르게 한다
+      // 질문 경로를 펼친 보기는 보기 전용 배치라 끌어 옮길 수 없다(끌면 접힘 배치 좌표를 덮어쓴다)
+      draggable: n.virtual || showAsk ? false : undefined,
+      connectable: n.virtual ? false : undefined,
     }
-  }), [graph.nodes, positions, roleNames, selected])
+  }), [view, positions, roleNames, selected, showAsk])
   // 드래그 중 노드가 커서를 따라오려면 ReactFlow 가 바뀐 좌표를 들고 있어야 한다(v12 의 제어 노드는 onNodesChange 가 적용해야 움직인다).
   // YAML 에서 만든 노드가 바뀌면 지역 상태를 다시 맞춘다 — 드래그가 끝나면 moveManyFromDrag 가 YAML 을 고쳐 같은 좌표로 수렴한다.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(derivedNodes)
   useEffect(() => { setNodes(derivedNodes) }, [derivedNodes, setNodes])
-  // 노드 크기·좌표가 준비되었는지 — 준비 전에 재면 틀린 위치를 본다.
-  const nodesInitialized = useNodesInitialized()
   // 「+ 노드」로 더한 노드가 보이지 않으면 최소한만큼 시야를 옮긴다 — ReactFlow 의 fitView 는 처음 그릴 때 한 번뿐이라 그 뒤로는 화면을 따라가지 않는다.
+  // 노드 크기는 nodeSize 로 미리 주므로(측정을 기다리지 않는다) useNodesInitialized 게이트를 쓰지 않는다 — 크기를 준 노드는
+  // ReactFlow 가 「측정 완료」로 치지 않아 그 값이 끝내 false 에 머물러 시야가 영영 옮겨지지 않았다(WP-2089).
   useEffect(() => {
-    if (!pendingReveal || !nodesInitialized) return // 노드 크기가 측정되기 전 좌표를 재면 틀린다
+    if (!pendingReveal) return
     const node = derivedNodes.find((n) => n.id === pendingReveal)
     const canvas = canvasRef.current
     // yaml·derivedNodes 어디에도 없으면 끝내 안 오는 노드다(추가가 실제로 실패했거나 이미 지워진 경우) — 영구 대기를 막기 위해 비운다.
     if (!node || !canvas) { setPendingReveal(null); return }
     // 같은 커밋의 효과 시점에는 새 노드가 아직 스토어에 없다 — nodes 상태 동기(setNodes)와 StoreUpdater 가 effects 에서
-    // 뒤에야 채우기 때문이다. 그 시절의 nodesInitialized 는 지난 노드들만 본 거라(참) 게이트도 막지 못한다.
+    // 뒤에야 채우기 때문이다. 지역 상태 nodes 가 바뀌어 다시 그려진 뒤에는(자식 ReactFlow 의 동기 효과가 먼저 돈다) 스토어에 있다.
     const stored = flow.getInternalNode(pendingReveal)
     if (!stored) return // 스토어에 들어올 때까지 — 소진하지 말고 기다린다
-    // 스토어에 들어와도 측정 전 크기는 0이라 원점 기준으로 헛이동하고 pendingReveal 를 소진한다 — 측정이 끝나길 기다린다.
-    // 새 노드 추가로 nodesInitialized 가 false 로 갔다가 측정되면 true 로 바뀌며 그때 효과가 다시 돌아 계산한다.
-    if (!stored.measured?.width || !stored.measured.height) return
+    // 크기가 없으면 원점 기준으로 헛이동하므로 기다린다(크기는 노드에 미리 준 width·height 또는 측정값).
+    if (!(stored.measured?.width || stored.width) || !(stored.measured?.height || stored.height)) return
     const canvasRect = canvas.getBoundingClientRect()
     const bounds = flow.getNodesBounds([pendingReveal])
     // 화면 좌표는 두 점 다 flowToScreenPosition 으로 받아야 한다 — bounds 는 그래프 단위라 배율이 1 이 아니면
@@ -180,10 +160,42 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
     // 스토어·측정 상태를 확인한 뒤에야 소진할 수 있어 렌더·핸들러로 옮길 수 없다 — 계산이 끝난 이 시점에서만 비운다.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 영구 대기를 막는 소진(pendingReveal 비움)은 effect 안에서만 가능하다.
     setPendingReveal(null)
-  }, [pendingReveal, nodesInitialized, derivedNodes, flow])
-  // 선 이름용 「노드 키 → 표시 이름」 맵 — 렌더마다 새로 만들지 않는다
+  }, [pendingReveal, derivedNodes, nodes, flow])
+  // 간선은 배치 결과(평행 간선을 합치고 숨길 선을 뺀 것)를 그대로 쓴다. 배치 때 양 끝 자리를 실어 옮겼는지 판정하게 한다.
+  // 선 이름용 「노드 키 → 표시 이름」 맵(WP-2052)
   const nodeNames = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n.name ?? n.key])), [graph.nodes])
-  const edges = useMemo(() => toFlowEdges(graph.edges, nodeNames), [graph.edges, nodeNames])
+  const edges: Edge<RoutedEdgeData>[] = useMemo(() => {
+    const shapeKeys = new Set(view.nodes.filter(isShapeNode).map((n) => n.key))
+    // 출발·도착 쌍마다 ask 가 아닌 선이 있는지 — 선마다 view.edges 를 훑지 않도록 미리 모은다
+    const pairKey = (from: string, to: string) => `${from}\u0000${to}`
+    const nonAskPairs = new Set(view.edges.filter((x) => x.kind !== 'ask').map((x) => pairKey(x.from, x.to)))
+    return layout.edges.map((e) => {
+      // 되돌림·점선·손잡이는 그린 자리로 한 번에 정한다(양 끝이 배치 자리를 벗어났으면 두 노드 가운데 y 로 가른다)
+      const { back, dashed, sourceHandle, targetHandle } = drawnEdge(e, positions, layout)
+      // 합친 묶음이 모두 질문 경로 선이면 접근 이름을 「(질문)」으로 읽는다 — 묶음에는 종류가 없어 원래 간선에서 본다
+      const askOnly = !nonAskPairs.has(pairKey(e.from, e.to))
+      return {
+      id: e.id,
+      source: e.from,
+      target: e.to,
+      type: 'routed',
+      sourceHandle,
+      targetHandle,
+      // 스크린리더용 한국어 이름(출발 → 도착, WP-2052)
+      ariaLabel: edgeAriaLabel({ id: e.id, from: e.from, to: e.to, label: e.label, kind: askOnly ? 'ask' : 'outcome' }, nodeNames),
+      // 되돌림 선은 화살촉도 선과 같은 글자 강도 색으로 — 기본 화살촉(회색)이면 선과 따로 보인다
+      markerEnd: back ? BACK_EDGE_MARKER : EDGE_MARKER,
+      data: {
+        label: e.label, points: routedPoints(e, layout, shapeKeys), labelPos: e.labelPos, back, dashed,
+        fromAt: layout.positions.get(e.from), toAt: layout.positions.get(e.to),
+      },
+      }
+    })
+  }, [layout, view, nodeNames, positions])
+  const commonRecoveryName = view.commonErrorTo
+    ? (graph.nodes.find((n) => n.key === view.commonErrorTo)?.name ?? view.commonErrorTo)
+    : null
+  const canUndoLayout = undoLayout !== null && undoLayout.before !== undoLayout.after && yaml === undoLayout.after
   // YAML 에 실제로 있는 노드의 키(가상 노드 제외)
   const realKeys = useMemo(() => new Set(graph.nodes.filter((n) => !n.virtual).map((n) => n.key)), [graph])
   // 편집 패널은 마우스 클릭(onNodeClick)과 키보드 Enter·Space 로만 연다. onSelectionChange 로 열지 않는 까닭: React Flow 는
@@ -209,7 +221,8 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
   // v13 의 변경 묶음은 배열이 아니라 Changeset 이라 getByType 으로 position 변경만 꺼낸다
   const handleNodesChange: OnNodesChange<Node<FlowNodeData>> = (changes) => {
     onNodesChange(changes)
-    if (readOnly) return
+    // 질문 경로를 펼친 보기는 보기 전용 배치라 그 좌표를 저장하지 않는다
+    if (readOnly || showAsk) return
     const moved = changes.getByType('position')
       .filter((c) => c.dragging === false && c.position && realKeys.has(c.id))
       .map((c) => ({ id: c.id, position: c.position! }))
@@ -218,7 +231,8 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
     if (next !== yaml) onChange(next)
   }
   // 지워진 노드를 가리키는 선택은 패널이 스스로 비어 있으므로 여기서 걸러 둔다.
-  const panelKey = selected && realKeys.has(selected) ? selected : null
+  // 질문 경로를 접어 화면에서 사라진 노드도 패널을 닫는다 — 보이지 않는 노드를 고치는 패널이 남지 않게.
+  const panelKey = selected && realKeys.has(selected) && positions.has(selected) ? selected : null
   // 시작 노드가 없는 초안(만들기 템플릿 등)은 시작 노드를 그래프에서 더할 수 있어야 한다
   const menu = graph.nodes.some((n) => n.type === 'start') ? NEW_NODE_MENU : [START_MENU_ITEM, ...NEW_NODE_MENU]
 
@@ -239,9 +253,13 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
               <DropdownMenuItem
                 key={item.type}
                 onSelect={() => {
-                  // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 가장 오른쪽 바깥에 놓는다.
-                  const xs = [...positions.values()].map((p) => p.x)
-                  const added = addNode(yaml, item.type, { x: (xs.length ? Math.max(...xs) : -240) + 240, y: 0 })
+                  // 좌표를 정해 두면 새 노드가 겹쳐 그려지지 않는다 — 위→아래 흐름에 맞춰 가장 아래 노드 밑, 가장 왼쪽 x 에 놓는다.
+                  // 질문 경로 보기의 좌표는 보기 전용이라 저장 좌표의 기준이 될 수 없다 — 늘 접은 배치로 정한다.
+                  const ps = [...(showAsk ? placeNodes(graph).positions : positions).values()]
+                  const at = ps.length
+                    ? { x: Math.min(...ps.map((p) => p.x)), y: Math.max(...ps.map((p) => p.y)) + CARD_HEIGHT + 64 }
+                    : { x: 0, y: 0 }
+                  const added = addNode(yaml, item.type, at)
                   onChange(added.yaml)
                   setSelected(added.key)
                   // addNode 가 실패하면(yaml·layout 없음 등) 새 키가 없다 — 앞서 기다리던 노드도 그 시점에 대체된 것이므로
@@ -252,7 +270,31 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button type="button" variant="outline" size="sm" disabled={readOnly} onClick={() => onChange(autoLayout(yaml))}>자동 정렬</Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={readOnly}
+          onClick={() => {
+            const after = autoLayout(yaml)
+            // 이미 정렬된 상태에서 또 누르면 before===after 가 되어 실행 취소가 사라지므로 원래 before 를 지킨다
+            setUndoLayout((prev) => ({ before: yaml === prev?.after ? prev.before : yaml, after }))
+            onChange(after)
+          }}
+        >자동 정렬</Button>
+        {canUndoLayout && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={readOnly}
+            onClick={() => {
+              onChange(undoLayout.before)
+              setUndoLayout(null)
+            }}
+          ><Undo2 aria-hidden="true" />실행 취소</Button>
+        )}
+        <Button type="button" variant="outline" size="sm" aria-pressed={showAsk} onClick={() => setShowAsk((v) => !v)}>질문 경로 보기</Button>
       </div>
       {/* 좁으면 세로로 쌓아 캔버스 폭을 지키고, @3xl 이상에서만 YAML 모드와 같은 옆으로 배치 */}
       <div className="flex min-h-96 flex-col @3xl:flex-row">
@@ -269,9 +311,11 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
             ariaLabelConfig={readOnly ? GRAPH_ARIA_LABEL_CONFIG_READONLY : GRAPH_ARIA_LABEL_CONFIG}
             onKeyDown={onKeyDown}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
             nodesDraggable={!readOnly}
             nodesConnectable={!readOnly}
+            connectionMode={ConnectionMode.Loose}
             deleteKeyCode={null}
             proOptions={{ hideAttribution: true }}
             onNodeClick={(_, node) => { if (realKeys.has(node.id)) setSelected(node.id) }}
@@ -281,6 +325,7 @@ function Canvas({ yaml, problems, readOnly, onChange, onOpenYaml, graph }: {
             <Background />
             <ZoomControls />
           </ReactFlow>
+          <GraphLegend commonRecoveryName={commonRecoveryName} />
         </div>
         {panelKey && (
           <NodePanel key={panelKey} yaml={yaml} graph={graph} nodeKey={panelKey} readOnly={readOnly} onChange={onChange} onClose={() => setSelected(null)} />

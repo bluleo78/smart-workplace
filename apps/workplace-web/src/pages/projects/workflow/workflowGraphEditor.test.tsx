@@ -1,5 +1,6 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { type Connection, ConnectionMode, type Edge } from '@xyflow/react'
 import { useState } from 'react'
 import { beforeAll, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
@@ -8,8 +9,10 @@ import type { WorkflowProblem } from '@/lib/workflows'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { applyConnection } from './applyConnection'
-import { connectFromFlow, moveManyFromDrag, parseWorkflowGraph, REFUSE_NO_ROLE } from './graphYaml'
+import { computeGraphLayout, drawnEdge, SHAPE_SIZE } from './graphLayout'
+import { addAskPath, autoLayout, connectFromFlow, moveManyFromDrag, parseWorkflowGraph, placeNodes, REFUSE_NO_ROLE, REFUSE_SELF, type WorkflowGraph } from './graphYaml'
 import { WorkflowGraphEditor } from './WorkflowGraphEditor'
+import { ASK_TIP } from './WorkflowGraphShapes'
 
 const FIXTURE = `schema: genia/workflow@1
 name: AI 개발 흐름
@@ -59,6 +62,21 @@ const toastInfo = vi.hoisted(() => vi.fn())
 vi.mock('sonner', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sonner')>()
   return { ...actual, toast: Object.assign(actual.toast, { info: toastInfo }) }
+})
+
+// ReactFlow 속성(connectionMode·onConnect·edges)을 가로채려고 감싼다 — jsdom 에서는 끌어 잇기를 흉내 낼 수 없다(WP-2089).
+const captured = vi.hoisted(() => ({
+  props: null as null | { connectionMode?: unknown; onConnect?: (c: Connection) => void; edges?: Edge[] },
+}))
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@xyflow/react')>()
+  return {
+    ...actual,
+    ReactFlow: (props: React.ComponentProps<typeof actual.ReactFlow>) => {
+      captured.props = props as never
+      return <actual.ReactFlow {...props} />
+    },
+  }
 })
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -458,9 +476,11 @@ it('graphEditor_space_preventsDefaultScroll', () => {
   expect(notPrevented).toBe(false)
 })
 // 질문 경로(가상) 노드는 패널을 열지 않지만, 그 위의 Space 도 페이지를 스크롤하지 않는다
-it('graphEditor_spaceOnVirtualNode_preventsScrollWithoutOpeningPanel', () => {
+it('graphEditor_spaceOnVirtualNode_preventsScrollWithoutOpeningPanel', async () => {
   renderWithProviders(<Harness initial={'name: 질문\nnodes:\n  work:\n    name: 작업\n    type: agent_task\n    ask: { role: owner }'} />)
-  const virtualNode = screen.getByLabelText(/질문 경로\(편집 불가\)$/)
+  // 질문 경로 노드는 기본으로 접혀 있어(WP-2089) 펼친 뒤에 본다
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  const virtualNode = await screen.findByLabelText(/질문 경로\(편집 불가\)$/)
   const notPrevented = fireEvent.keyDown(virtualNode, { key: ' ' })
   expect(notPrevented).toBe(false)
   expect(screen.queryByLabelText('노드 이름')).toBeNull()
@@ -473,4 +493,306 @@ it('graphEditor_escapeOnNode_closesPanel', async () => {
   expect(await screen.findByLabelText('노드 이름')).toHaveValue('개발')
   fireEvent.keyDown(node, { key: 'Escape' })
   await waitFor(() => expect(screen.queryByLabelText('노드 이름')).toBeNull())
+})
+
+// WP-2089 — 질문 경로(ask 줄임)와 공통 오류 처리(onError 3개가 모두 triage)를 가진 작은 흐름
+const RECOVERY = `schema: genia/workflow@1
+name: 복구 흐름
+roles:
+  lead: { name: 팀장 }
+  owner: { name: 확인자 }
+
+nodes:
+  start: { type: start }
+  triage:
+    type: agent_task
+    name: 분류
+    role: lead
+    outcomes:
+      ready: { to: dev }
+  dev:
+    type: agent_task
+    name: 개발
+    role: lead
+    ask: { role: owner }
+    onError: { to: triage }
+    outcomes:
+      submitted: { to: review }
+  review:
+    type: agent_task
+    name: 리뷰
+    role: lead
+    onError: { to: triage }
+    outcomes:
+      merged: { to: pick }
+  pick:
+    type: decision
+    name: 고르기
+    conditions:
+      - { when: { context: review.ok, equals: true }, to: qa }
+    default: done
+  qa:
+    type: agent_task
+    name: 검증
+    role: lead
+    onError: { to: triage }
+    outcomes:
+      ok: { to: done }
+  done: { type: end, name: 끝 }
+
+start:
+  - { when: { assigneeRole: lead }, to: triage }
+`
+
+/** ReactFlow 노드 감싸개(data-id)를 찾는다. */
+function flowNode(key: string) {
+  return document.querySelector<HTMLElement>(`.react-flow__node[data-id="${key}"]`)
+}
+
+it('shapes_decisionDiamond_startEndCircle', () => {
+  renderWithProviders(<Harness initial={RECOVERY} />)
+  expect(flowNode('start')!.querySelector('[data-shape="circle"]')).not.toBeNull()
+  expect(flowNode('done')!.querySelector('[data-shape="circle"]')).not.toBeNull()
+  expect(flowNode('pick')!.querySelector('[data-shape="diamond"]')).not.toBeNull()
+  expect(flowNode('dev')!.querySelector('[data-shape="card"]')).not.toBeNull()
+  // 이름은 모양 오른쪽에 그대로 보인다
+  expect(within(flowNode('pick')!).getByText('고르기')).toBeInTheDocument()
+})
+
+it('askCollapsed_byDefault_showsIconHidesQuestionNode', () => {
+  renderWithProviders(<Harness initial={RECOVERY} />)
+  expect(within(flowNode('dev')!).getByLabelText(ASK_TIP)).toHaveAttribute('title', ASK_TIP)
+  expect(document.querySelector('.react-flow__node[data-id$="_ask"]')).toBeNull()
+  expect(screen.getByRole('button', { name: '질문 경로 보기' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+it('askToggle_showsQuestionNodes', async () => {
+  // 읽기 전용이어도 보기 토글은 켤 수 있다
+  renderWithProviders(<Harness initial={RECOVERY} readOnly />)
+  const toggle = screen.getByRole('button', { name: '질문 경로 보기' })
+  expect(toggle).toBeEnabled()
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await waitFor(() => expect(flowNode('dev_ask')).not.toBeNull())
+})
+
+it('commonError_badgeAndLegend_noEdges', async () => {
+  renderWithProviders(<Harness initial={RECOVERY} />)
+  expect(within(flowNode('triage')!).getByText('↺ 모든 단계에서')).toBeInTheDocument()
+  expect(within(flowNode('dev')!).queryByText('↺ 모든 단계에서')).not.toBeInTheDocument()
+  expect(screen.getByText('막힌 단계는 실행 조치에서 「분류」로 되돌릴 수 있음')).toBeInTheDocument()
+  // 다른 선은 그려지는데(양성 대조) 공통 목적지로 가는 「오류」 선만 없다
+  expect(await screen.findByText('submitted')).toBeInTheDocument()
+  expect(screen.queryByText('오류')).not.toBeInTheDocument()
+})
+
+it('legend_showsProgressAndBack', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  expect(screen.getByText('진행')).toBeInTheDocument()
+  expect(screen.getByText('되돌림')).toBeInTheDocument()
+  // 공통 오류 처리가 없으면 복구 줄은 없다
+  expect(screen.queryByText(/막힌 단계는 실행 조치에서/)).not.toBeInTheDocument()
+})
+
+it('backEdge_markedWithWarning', async () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  // FIXTURE 의 revise(기획 확정 → 분류)는 위로 되돌아가는 선이다
+  const revise = await screen.findByText('revise')
+  expect(revise.closest('[data-back]')).toHaveAttribute('data-back', 'true')
+  expect(screen.getByText('submitted').closest('[data-back]')).toHaveAttribute('data-back', 'false')
+})
+
+it('autoLayout_undo_restoresPreviousYaml', async () => {
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={RECOVERY} onYaml={onYaml} />)
+  expect(screen.queryByRole('button', { name: '실행 취소' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '자동 정렬' }))
+  expect(doc(onYaml.mock.lastCall![0]).layout.triage).toBeDefined()
+  fireEvent.click(await screen.findByRole('button', { name: '실행 취소' }))
+  expect(onYaml.mock.lastCall![0]).toBe(RECOVERY)
+  expect(screen.queryByRole('button', { name: '실행 취소' })).not.toBeInTheDocument()
+})
+
+it('undoAutoLayout_hiddenAfterOtherEdit', async () => {
+  renderWithProviders(<Harness initial={RECOVERY} />)
+  fireEvent.click(screen.getByRole('button', { name: '자동 정렬' }))
+  expect(await screen.findByRole('button', { name: '실행 취소' })).toBeInTheDocument()
+  clickNode('dev')
+  fireEvent.change(await screen.findByLabelText('노드 이름'), { target: { value: '개발2' } })
+  await waitFor(() => expect(screen.queryByRole('button', { name: '실행 취소' })).not.toBeInTheDocument())
+})
+
+it('autoLayout_twice_undoStillRestoresOriginal', async () => {
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={RECOVERY} onYaml={onYaml} />)
+  fireEvent.click(screen.getByRole('button', { name: '자동 정렬' }))
+  fireEvent.click(screen.getByRole('button', { name: '자동 정렬' }))
+  fireEvent.click(await screen.findByRole('button', { name: '실행 취소' }))
+  expect(onYaml.mock.lastCall![0]).toBe(RECOVERY)
+})
+
+it('showAsk_nodesAreNotDraggable', async () => {
+  const { container } = renderWithProviders(<Harness initial={RECOVERY} />)
+  const node = () => container.querySelector('.react-flow__node[data-id="dev"]')!
+  await waitFor(() => expect(node()).toHaveClass('draggable'))
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  await waitFor(() => expect(node()).not.toHaveClass('draggable'))
+})
+
+it('showAsk_collapse_closesPanelOfHiddenQuestionNode', async () => {
+  // 실제 질문 노드(dev_ask)를 펼친 보기에서 골랐다가 접으면 보이지 않는 노드의 패널이 남지 않는다
+  renderWithProviders(<Harness initial={addAskPath(RECOVERY, 'dev')} />)
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  await waitFor(() => expect(flowNode('dev_ask')).not.toBeNull())
+  fireEvent.click(within(flowNode('dev_ask')!).getByText('개발 질문 답변'))
+  expect(await screen.findByLabelText('노드 이름')).toHaveValue('개발 질문 답변')
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  await waitFor(() => expect(screen.queryByLabelText('노드 이름')).toBeNull())
+})
+
+it('addNode_whileShowAsk_usesCollapsedPositions', async () => {
+  // 펼친 보기의 좌표는 보기 전용이다 — 새 노드의 저장 좌표는 접은 배치의 가장 아래 노드 밑으로 정한다
+  const onYaml = vi.fn()
+  const laid = autoLayout(RECOVERY)
+  renderWithProviders(<Harness initial={laid} onYaml={onYaml} />)
+  fireEvent.click(screen.getByRole('button', { name: '질문 경로 보기' }))
+  await userEvent.click(screen.getByRole('button', { name: '+ 노드' }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: '사람 차례' }))
+  const collapsed = [...placeNodes((parseWorkflowGraph(laid) as { graph: WorkflowGraph }).graph).positions.values()]
+  const at = doc(onYaml.mock.lastCall![0]).layout.human_1
+  expect(at.y).toBe(Math.max(...collapsed.map((p) => p.y)) + 64 + 64)
+  expect(at.x).toBe(Math.min(...collapsed.map((p) => p.x)))
+})
+
+it('backEdge_strokeAndArrowUseWarningText', async () => {
+  const { container } = renderWithProviders(<Harness initial={FIXTURE} />)
+  await screen.findByText('revise')
+  const path = container.querySelector('[data-back="true"] path.react-flow__edge-path')
+  expect(path?.getAttribute('style')).toContain('var(--warning-text)')
+  // 화살촉 마커 id·정의에 되돌림 색이 실려 있다
+  expect(container.innerHTML).toContain('color=var(--warning-text)')
+})
+
+it('editor_legacyLeftRightLayout_edgesUseSideHandles', () => {
+  // 옛 좌→우 좌표가 저장된 YAML — 그려지는 자리는 저장 좌표라 두 노드의 상대 위치(가로)로 변을 골라야 한다
+  const legacy = FIXTURE + `layout:
+  start: { x: 0, y: 0 }
+  triage: { x: 240, y: 0 }
+  dev: { x: 480, y: 0 }
+  plan_ok: { x: 720, y: 0 }
+  done: { x: 960, y: 0 }
+`
+  const parsed = parseWorkflowGraph(legacy)
+  if ('error' in parsed) throw new Error(parsed.error)
+  const { positions, view } = placeNodes(parsed.graph, { showAsk: false })
+  const layout = computeGraphLayout(view)
+  const laid = layout.edges.find((e) => e.from === 'start' && e.to === 'triage')!
+  expect(drawnEdge(laid, positions, layout)).toMatchObject({ sourceHandle: 's-right', targetHandle: 's-left' })
+  // 편집기가 실제로 그린 선 — 저장 좌표가 옛 좌→우 배치라 대체 경로(smoothstep)를 쓰므로 선이 start 의 오른쪽 변에서 시작한다
+  renderWithProviders(<Harness initial={legacy} />)
+  const edge = [...document.querySelectorAll('.react-flow__edge')].find((e) => e.getAttribute('data-id')?.startsWith('start->triage'))
+  const d = edge?.querySelector('path')?.getAttribute('d') ?? ''
+  // 시작 원의 오른쪽 변(x = SHAPE_SIZE 근처, y = 원 가운데)에서 나가 triage 의 왼쪽 변(x = 240 근처, y = 카드 가운데)으로 들어온다
+  expect(d).toMatch(new RegExp(`^M${SHAPE_SIZE + 0.5} ${SHAPE_SIZE / 2}L`))
+  expect(d).toMatch(/L239\.5 32$/)
+})
+
+it('legend_showsGrayDashed', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  expect(screen.getByText('질문·오류')).toBeInTheDocument()
+})
+
+it('card_handlesHolderNotOverflowHidden_textWrapperIs', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  const card = flowNode('dev')!.querySelector('[data-shape="card"]')!
+  const handle = card.querySelector('.react-flow__handle')!
+  // 손잡이를 가진 바깥 상자는 자르지 않고, 글자 줄을 감싼 안쪽 상자만 자른다
+  expect(handle.parentElement).toBe(card)
+  expect(card.className).not.toContain('overflow-hidden')
+  const wrapper = screen.getByText('개발', { selector: 'span.truncate' }).closest('.overflow-hidden')
+  expect(wrapper).not.toBeNull()
+  expect(wrapper).not.toBe(card)
+  expect(card.contains(wrapper)).toBe(true)
+})
+
+it('legend_doesNotBlockPointer', () => {
+  renderWithProviders(<Harness initial={FIXTURE} />)
+  expect(screen.getByText('진행').closest('div.absolute')!.className).toContain('pointer-events-none')
+})
+
+it('backEdge_savedLeftRightLayout_forwardEdgeIsNotBack', async () => {
+  const legacy = FIXTURE + `layout:
+  start: { x: 0, y: 0 }
+  triage: { x: 240, y: 0 }
+  dev: { x: 480, y: 0 }
+  plan_ok: { x: 720, y: 0 }
+  done: { x: 960, y: 0 }
+`
+  renderWithProviders(<Harness initial={legacy} />)
+  // 옛 좌→우 배치에서는 어느 선도 위로 가지 않는다 — dagre 층으로 되돌림이라 하지 않는다
+  expect((await screen.findByText('submitted')).closest('[data-back]')).toHaveAttribute('data-back', 'false')
+  expect(screen.getByText('revise').closest('[data-back]')).toHaveAttribute('data-back', 'false')
+})
+
+it('backEdge_savedTargetAboveSource_isBack', async () => {
+  // dev 가 triage 위에 그려져 있으면 triage → dev 선은 위로 되돌아간다
+  const saved = FIXTURE + `layout:
+  start: { x: 0, y: 0 }
+  triage: { x: 0, y: 300 }
+  dev: { x: 0, y: 100 }
+  plan_ok: { x: 0, y: 500 }
+  done: { x: 0, y: 700 }
+`
+  const { container } = renderWithProviders(<Harness initial={saved} />)
+  expect((await screen.findByText('ready')).closest('[data-back]')).toHaveAttribute('data-back', 'true')
+  expect(container.querySelector('[data-back="true"] path.react-flow__edge-path')?.getAttribute('style')).toContain('var(--warning-text)')
+})
+
+// 손잡이는 자리마다 s-* 하나뿐이다 — 같은 자리에 t-* 를 겹치면 느슨한 모드가 연결 불가 쪽을 잡는다(WP-2089)
+it('handles_onlyOneSourceHandlePerSide_onEveryShape', () => {
+  const { container } = render(<Harness initial={FIXTURE} />)
+  for (const shape of ['card', 'diamond', 'circle']) {
+    const node = container.querySelector(`[data-shape="${shape}"]`)
+    if (!node) continue
+    const ids = [...node.closest('.react-flow__node')!.querySelectorAll('.react-flow__handle')].map((h) => h.getAttribute('data-handleid'))
+    expect(ids.sort()).toEqual(['s-bottom', 's-left', 's-right', 's-top'])
+  }
+  // 세 모양이 모두 이 고정 그래프에 있어야 위 검사가 건너뛰어지지 않는다
+  expect(container.querySelectorAll('[data-shape]').length).toBeGreaterThan(2)
+})
+
+// 느슨한 연결 모드의 대체 동작 고정 — 선은 s-* 손잡이(나감 형)에서 끝난다. 들어옴 형 손잡이를 다시 더하면 선 끝이 사라진다
+it('edges_endpointHandleIdsExistOnRenderedNodes', () => {
+  const { container } = render(<Harness initial={FIXTURE} />)
+  const edges = captured.props!.edges!
+  expect(edges.length).toBeGreaterThan(0)
+  const handlesOf = (id: string) =>
+    [...container.querySelector(`.react-flow__node[data-id="${id}"]`)!.querySelectorAll('[data-handleid]')].map((h) => h.getAttribute('data-handleid'))
+  for (const e of edges) {
+    expect(handlesOf(e.source), `${e.id} 출발`).toContain(e.sourceHandle)
+    expect(handlesOf(e.target), `${e.id} 도착`).toContain(e.targetHandle)
+  }
+})
+
+it('reactFlow_usesLooseConnectionMode', () => {
+  render(<Harness initial={FIXTURE} />)
+  expect(captured.props?.connectionMode).toBe(ConnectionMode.Loose)
+})
+
+it.each(['s-top', 's-left'])('onConnect_dropOnHandle_%s_keepsDirectionFromStartNode', (targetHandle) => {
+  const onYaml = vi.fn()
+  render(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  captured.props!.onConnect!({ source: 'triage', target: 'done', sourceHandle: 's-right', targetHandle })
+  const out = doc(onYaml.mock.lastCall![0])
+  expect(Object.values(out.nodes.triage.outcomes).map((o) => (o as { to: string }).to)).toContain('done')
+  expect(out.nodes.done.outcomes).toBeUndefined()
+})
+
+it('onConnect_selfConnection_refusedWithToast', () => {
+  toastInfo.mockClear()
+  const onYaml = vi.fn()
+  render(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  captured.props!.onConnect!({ source: 'dev', target: 'dev', sourceHandle: 's-right', targetHandle: 's-top' })
+  expect(onYaml).not.toHaveBeenCalled()
+  expect(toastInfo).toHaveBeenCalledWith(REFUSE_SELF)
 })

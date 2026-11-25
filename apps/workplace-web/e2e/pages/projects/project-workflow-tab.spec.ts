@@ -231,3 +231,32 @@ test('workflowGraph_keyboardMove_persistsAfterRedraw', { tag: '@input' }, async 
   const yamlBox = page.getByRole('textbox', { name: '워크플로우 YAML' })
   await expect.poll(async () => Number(parse(await yamlBox.inputValue())?.layout?.review?.x ?? 0)).toBeGreaterThan(0)
 })
+
+// WP-2089 — 한 노드의 아래 손잡이에서 다른 노드의 위 손잡이로 끌면 앞 노드 → 뒤 노드 선이 생긴다(겹친 손잡이 때문에 거절되거나 뒤집히지 않아야 한다).
+// 오프셋 8 은 손잡이 중심에서 벗어나 connectionRadius 안에 놓는 경우다. 두 경우 모두 손잡이 id 경고가 콘솔에 없어야 한다.
+for (const offset of [0, 8]) {
+  test(`workflowGraph_dragBottomToTopHandle_offset${offset}_addsEdge`, { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const warnings: string[] = []
+    page.on('console', (m) => { if (m.text().includes("Couldn't create edge")) warnings.push(m.text()) })
+    await mockWorkflow(page, 'name: 작업 정리\nroles:\n  lead: { name: 팀장 }\nnodes:\n  review:\n    type: agent_task\n    role: lead\n  other:\n    type: agent_task\n    role: lead\nlayout:\n  review: { x: 0, y: 0 }\n  other: { x: 0, y: 200 }')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/projects/WP/workflow')
+    await page.getByRole('button', { name: '그래프' }).click()
+    const from = page.locator('.react-flow__node').filter({ hasText: 'review' }).locator('[data-handleid="s-bottom"]')
+    const to = page.locator('.react-flow__node').filter({ hasText: 'other' }).locator('[data-handleid="s-top"]')
+    await expect(from).toBeVisible()
+    const a = (await from.boundingBox())!
+    const b = (await to.boundingBox())!
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(b.x + b.width / 2 + offset, b.y + b.height / 2 + offset / 2, { steps: 12 })
+    await page.mouse.up()
+    await page.getByRole('button', { name: 'YAML' }).click()
+    const yamlBox = page.getByRole('textbox', { name: '워크플로우 YAML' })
+    await expect.poll(async () => {
+      const outcomes = parse(await yamlBox.inputValue())?.nodes?.review?.outcomes ?? {}
+      return Object.values(outcomes).map((o) => (o as { to: string }).to)
+    }).toContain('other')
+    expect(warnings).toEqual([])
+  })
+}
