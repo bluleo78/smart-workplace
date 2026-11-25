@@ -1,3 +1,5 @@
+import { ISSUE_DETAIL_PATH } from './issueDetailPath'
+
 /** 청크를 내려받는 동적 import 함수 — lazy() 선언이 쓰는 것과 같은 함수여야 모듈이 한 번만 받아진다. */
 export type Preload = () => Promise<unknown>
 
@@ -43,6 +45,8 @@ export function startInitialRoutePreloads(pathname: string, loaders: Record<Rout
  * (/projects/:key/versions/:id 등)은 해당 모듈·탭 청크가 필요 없으니 일부러 일치하지 않게 좁혀 둔다.
  */
 export const ROUTE_PRELOADS = [
+  // 이슈 상세(/projects/:key/issues/:number) — 탭 밖 단독 화면이라 탭 청크 없이 상세 페이지 청크만 받는다(WP-2074)
+  [ISSUE_DETAIL_PATH, ['issueDetail']],
   [/^\/projects\/[^/]+\/?$/, ['projectTabs', 'projectIssues']],
   // 탭 라우트만: overview·timeline·cycles·versions(목록)·workflow·notes(/:pageId). versions/:id 상세는 탭 밖이다.
   [/^\/projects\/[^/]+\/(?:(?:timeline|cycles|versions|overview|workflow)|notes(?:\/[^/]+)?)\/?$/, ['projectTabs']],

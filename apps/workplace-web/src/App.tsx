@@ -49,7 +49,9 @@ const WorkflowTab = lazy(() => import('./pages/projects/workflow/WorkflowTab'))
 const TimelinePage = lazy(() => import('./pages/projects/timeline/TimelinePage'))
 const VersionsPage = lazy(() => import('./pages/projects/versions/VersionsPage'))
 const VersionDetailPage = lazy(() => import('./pages/projects/versions/VersionDetailPage'))
-const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
+// 이슈 상세 청크 로더 — lazy() 와 첫 주소 미리 받기가 같은 함수를 써 모듈이 한 번만 받아진다(WP-2074)
+const loadIssueDetailPage = () => import('./pages/projects/IssueDetailPage')
+const IssueDetailPage = lazy(loadIssueDetailPage)
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
 const MyTasksIndexRedirect = lazy(() => import('./pages/me/MyTasksIndexRedirect'))
 const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
@@ -217,6 +219,7 @@ function preloadInitialRoute(): void {
     projectTabs: loadProjectTabsLayout,
     projectIssues: loadProjectIssuesPage,
     projectList: loadProjectListPage,
+    issueDetail: loadIssueDetailPage,
     home: loadHomePage,
     mailLayout: loadMailLayout,
     mailInbox: loadMailInbox,

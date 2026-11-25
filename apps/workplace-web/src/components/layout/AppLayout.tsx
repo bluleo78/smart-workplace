@@ -39,6 +39,7 @@ import { useAppLinkConfig } from '@/hooks/queries/useAppLinks'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
+import { useInitialIssuePrefetch } from '@/hooks/useInitialIssuePrefetch'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIssueOriginTracker } from '@/hooks/useIssueOrigin'
 import { openPushTarget, takePendingPushTarget } from '@/lib/push/openTarget'
@@ -68,6 +69,8 @@ export function AppLayout() {
 
   // 이슈 상세의 "이전 화면으로 돌아가기"가 출발 화면을 찾도록 히스토리 위치를 기록(#885).
   useIssueOriginTracker()
+  // 첫 주소가 이슈 상세면 상세 데이터를 미리 요청(WP-2074) — 인증 뒤 셸이 먼저 그려지는 자리라(WP-2021 Suspense 경계) 페이지 청크를 기다리지 않는다.
+  useInitialIssuePrefetch()
   // 채팅·노트의 앱 링크 판정에 쓸 공개 웹 주소 호스트(WP-1165) — 내부 주소로 접속해도 공개 주소 링크가 카드로 나오게.
   useAppLinkConfig()
 
