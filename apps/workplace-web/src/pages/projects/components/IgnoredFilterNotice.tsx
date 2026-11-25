@@ -12,6 +12,7 @@ import { withIgnoredCleared } from '../hooks/useRememberedIssueQuery';
  * 알 수 없는 필터 값 안내 한 줄. 주소(useSearchParams)를 직접 읽는다. 알림(role=status) 영역은 늘 그려 두고 안의 글만 채워야
  * 화면 낭독기가 나중에 생긴 안내를 알린다(IssueResultStatus 와 같은 패턴) — 알 수 없는 값이 없으면 보이는 것은 없다.
  * 「주소에서 지우기」는 그 토큰만 뺀 주소로 replace 이동한다 — 조건 기억이 지워지지 않게 표지 state 를 단다(useRememberedIssueQuery).
+ * 표지는 history.state 에 남지만 훅은 그 REPLACE 이동에서만 따른다 — 새로고침·뒤로/앞으로(POP)에서는 평소처럼 기억을 되살린다.
  */
 export function IgnoredFilterNotice() {
   const [params, setParams] = useSearchParams();

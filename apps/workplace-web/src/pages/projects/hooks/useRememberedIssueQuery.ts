@@ -69,7 +69,9 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   // 개요 링크로 온 이동 — 주소의 조건을 따르되 기억은 쓰지도 지우지도 않는다.
   const fromOverview = readProjectNavState(state).fromOverview
   // 알 수 없는 값 지우기로 온 이동 — 기억을 되살리지도 지우지도 쓰지도 않는다.
-  const ignoredCleared = readIgnoredClearedState(state)
+  // 표지는 그 지우기 REPLACE 이동 한 번에서만 따른다. 표지는 history.state 에 남아 새로고침(F5)·뒤로/앞으로(POP)에도 다시 읽히는데,
+  // 그때까지 따르면 조건 없는 주소로 다시 들어와도 기억을 되살리지 않는다(WP-2083 리뷰) — POP·PUSH 로 온 표지는 없는 것으로 본다.
+  const ignoredCleared = readIgnoredClearedState(state) && navigationType === 'REPLACE'
   const query = rememberedIssueQuery(params).toString()
   // 주소에 조건이 있는가 — 기본 보기(view=list)는 직렬화하면 빠지지만, 주소에 적혀 있으면 「목록으로」 고른 것이라 되살리지 않는다.
   const recordable = query !== '' || params.has('view')

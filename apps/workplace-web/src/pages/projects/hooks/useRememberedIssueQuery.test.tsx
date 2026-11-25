@@ -26,7 +26,7 @@ vi.mock('@/hooks/chat-session-context', () => ({
 const keyOf = (project: string) => `issue-list-query:${project}:1:1`
 
 /** @param withDeepLink 앱 셸(AppLayout)처럼 AI 대화 링크 처리기를 함께 띄운다 — 화면보다 바깥이라 effect 가 화면 뒤에 돈다. */
-function renderAt(url: string, project = 'WP', enabled = true, withDeepLink = false) {
+function renderAt(url: string | { pathname: string; search: string; state: unknown }, project = 'WP', enabled = true, withDeepLink = false) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthContext.Provider value={testAuthValue}>
       <MemoryRouter initialEntries={[url]}>
@@ -184,6 +184,28 @@ describe('useRememberedIssueQuery', () => {
       act(() => result.current.setParams((prev) => { prev.set('aiChat', '1'); return prev }, { replace: true }))
       expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
       expect(searchOf(result)).toEqual(new URLSearchParams('aiChat=1&status=TODO'))
+    })
+
+    it('표지가 history.state 에 남은 채 새로고침(POP 진입)하면 평소처럼 기억을 되살린다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      // 새로고침 = 같은 주소·같은 state 로 POP 진입(브라우저가 history.state 를 되돌려 준다).
+      const { result } = renderAt({ pathname: '/projects/WP', search: '', state: IGNORED_CLEARED_STATE })
+      expect(result.current.location.search).toBe('?status=TODO')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지운 뒤 다른 화면에 갔다가 뒤로(POP) 돌아와도 평소처럼 기억을 되살리고, 앞으로 갔다 다시 뒤로 와도 같다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('')
+      act(() => result.current.navigate('/projects/WP/issues/5'))
+      act(() => result.current.navigate(-1))
+      expect(result.current.location.search).toBe('?status=TODO')
+      act(() => result.current.navigate(1))
+      act(() => result.current.navigate(-1))
+      expect(result.current.location.search).toBe('?status=TODO')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
     })
 
     it('알 수 없는 값이 섞여도 알려진 값은 기억한다', () => {
