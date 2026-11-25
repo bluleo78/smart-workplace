@@ -27,6 +27,7 @@ function setup(over: Partial<{ text: string; shared: SharedInstruction[]; readOn
   const onOpenChange = vi.fn()
   // 열린 사이 부모가 text 를 바꾸는 경우(AI·YAML 탭)를 흉내 낼 수 있게 현재 text 를 들고 있는다
   let currentText = over.text ?? TEXT
+  let currentReadOnly = over.readOnly ?? false
   // 다시 그릴 때마다 새 요소로 — 같은 요소를 넘기면 React 가 다시 그리지 않아 AI 패널 상태를 다시 읽지 않는다
   const ui = () => (
     <InstructionEditorDialog
@@ -36,7 +37,7 @@ function setup(over: Partial<{ text: string; shared: SharedInstruction[]; readOn
       nodeKey="analyze"
       text={currentText}
       shared={over.shared ?? []}
-      readOnly={over.readOnly ?? false}
+      readOnly={currentReadOnly}
       onApply={onApply}
     />
   )
@@ -45,8 +46,9 @@ function setup(over: Partial<{ text: string; shared: SharedInstruction[]; readOn
     onApply,
     onOpenChange,
     user: userEvent.setup(),
-    rerender: (nextText?: string) => {
+    rerender: (nextText?: string, nextReadOnly?: boolean) => {
       if (nextText !== undefined) currentText = nextText
+      if (nextReadOnly !== undefined) currentReadOnly = nextReadOnly
       rerender(ui())
     },
   }
@@ -312,6 +314,55 @@ describe('InstructionEditorDialog', () => {
     await user.click(screen.getByRole('button', { name: '+ 블록 추가' }))
     expect(screen.getByLabelText('블록 원문')).toBeInTheDocument()
     expect(screen.getByText(`analyze · ${TEXT.length}자`)).toBeInTheDocument()
+  })
+
+  it('원문_모드에서_위에_제목이_생겨_목차가_낡아도_누른_제목의_블록으로_스크롤한다', async () => {
+    const { user } = setup()
+    await user.click(screen.getByRole('button', { name: '마크다운 원문' }))
+    deferredFreeze.value = TEXT
+    // 앞에 다른 제목이 생겼다 — 낡은 목차는 목표 하나뿐이라 순번만 쓰면 새 제목(0번)으로 간다
+    fireEvent.change(screen.getByLabelText('지시 원문'), { target: { value: '## 새 제목\n\n' + TEXT } })
+    await user.click(within(screen.getByRole('navigation', { name: '목차' })).getByRole('button', { name: '목표' }))
+    const target = vi.mocked(Element.prototype.scrollIntoView).mock.contexts[0] as HTMLElement
+    expect(target.getAttribute('data-block-index')).toBe('2')
+  })
+
+  it('알림이_뜬_뒤_text가_원래대로_돌아오면_알림이_사라진다', async () => {
+    const { user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender('B')
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    rerender(TEXT)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('알림이_뜬_뒤_text가_또_바뀌면_알림이_남고_최신_글을_보기_전엔_그래도_적용이_적용하지_않는다', async () => {
+    const { onApply, user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender('B')
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    rerender('C')
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '그래도 적용' }))
+    expect(onApply).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '그래도 적용' }))
+    expect(onApply).toHaveBeenCalledTimes(1)
+  })
+
+  it('알림이_뜬_뒤_읽기_전용이_되면_알림과_그래도_적용이_없다', async () => {
+    const { user, rerender } = setup()
+    await user.click(screen.getAllByTestId('instruction-block')[1])
+    await user.type(screen.getByLabelText('블록 원문'), '!')
+    rerender('B')
+    await user.click(screen.getByRole('button', { name: '적용' }))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    rerender(undefined, true)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '그래도 적용' })).not.toBeInTheDocument()
   })
 
   it('AI_패널이_열려_non_modal_일_때_바깥을_눌러도_창이_닫히지_않는다', async () => {

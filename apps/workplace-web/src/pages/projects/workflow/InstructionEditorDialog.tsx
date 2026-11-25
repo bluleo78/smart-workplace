@@ -92,6 +92,24 @@ function settledOf(cur: Editing | null, draft: string): string {
   return isBlankNewBlock(cur) ? cur.restore : joinEditing(cur)
 }
 
+/**
+ * 원문 모드 목차(낡았을 수 있는 파싱)의 ordinal 번째 제목을 현재 draft 의 파싱에서 글·깊이로 찾아 블록 번호를 돌려준다.
+ * 같은 글·깊이 제목이 여럿이면 그 가운데 몇 번째인지로만 가린다. 하나도 못 찾으면 옛 번호.
+ */
+function freshHeadingIndex(
+  draft: string,
+  stale: { index: number; depth: 2 | 3; text: string }[],
+  ordinal: number,
+  fallback: number,
+): number {
+  const h = stale[ordinal]
+  if (!h) return fallback
+  const same = (x: { depth: number; text: string }) => x.depth === h.depth && x.text === h.text
+  const dup = stale.slice(0, ordinal).filter(same).length
+  const matches = instructionHeadings(splitInstructionBlocks(draft)).filter(same)
+  return (matches[dup] ?? matches[0])?.index ?? fallback
+}
+
 /** 편집을 끝낸 뒤 포커스를 둘 곳 — 블록 번호, 새로 생긴 마지막 블록('last'), 「+ 블록 추가」·안내 버튼('add'). */
 type FocusTarget = number | 'last' | 'add'
 
@@ -130,12 +148,13 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
 
   const [draft, setDraft] = useState(text)
   // 창을 연 때의 지시 — 적용 때 draft 와 비교한다. 열린 사이 AI·YAML 탭이 text prop 을 바꿔도 안 고친 채 적용하면 옛 글로 덮지 않는다
-  const openedText = useRef(text)
+  const [openedText, setOpenedText] = useState(text)
   const [mode, setMode] = useState<'format' | 'raw'>('format')
   const [editing, setEditing] = useState<Editing | null>(null)
   const [sharedView, setSharedView] = useState<SharedInstruction | null>(null)
   // 창을 연 뒤 다른 곳에서 지시가 바뀐 채 적용을 눌렀을 때 보이는 알림(덮어쓰기 전에 사용자가 고르게 한다)
-  const [conflict, setConflict] = useState(false)
+  // 알림을 띄운 때의 text(null 이면 알림 없음) — 알림 뒤 text 가 또 바뀌면 이 값과 달라져 다시 경고한다
+  const [warnedText, setWarnedText] = useState<string | null>(null)
   const editingRef = useRef<Editing | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const centerRef = useRef<HTMLDivElement | null>(null)
@@ -173,12 +192,7 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
   )
 
   /** 지금 편집을 끝냈을 때의 지시 원문 — 비운 새 칸이면 붙였던 빈 줄을 뺀 원래 글. */
-  const settledText = (): string => {
-    const cur = editingRef.current
-    if (!cur) return draft
-    if (isBlankNewBlock(cur)) return cur.restore
-    return joinEditing(cur)
-  }
+  const settledText = (): string => settledOf(editingRef.current, draft)
 
   /** src 의 [start, end) 구간을 편집 칸으로 — 앞뒤는 src 에서 잘라 고정하고, 렌더 뒤 입력칸에 포커스를 준다(편집 시작 때만). */
   const beginEdit = (src: string, start: number, end: number, index: number, snapshot: InstructionDoc) => {
@@ -309,27 +323,27 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
       centerRef.current?.querySelector(`[data-block-index="${index}"]`)?.scrollIntoView({ block: 'start' })
       return
     }
-    const fresh = mode === 'raw' ? instructionHeadings(splitInstructionBlocks(draft)) : null
-    pendingScroll.current = fresh ? (fresh[ordinal]?.index ?? index) : index
+    pendingScroll.current = mode === 'raw' ? freshHeadingIndex(draft, headings, ordinal, index) : index
     setSharedView(null)
     setMode('format')
   }
 
-  /** 주어진 글로 적용하고 닫는다 — 비면 null. */
+  /** 주어진 글로 적용하고 닫는다 — 비면 null. 읽기 전용이면 적용하지 않는다. */
   const commit = (next: string) => {
+    if (readOnly) return
     onApply(next.trim() === '' ? null : next)
     onOpenChange(false)
   }
 
   const apply = () => {
     const next = settledText()
-    if (text !== openedText.current) {
+    if (text !== openedText) {
       // 연 뒤 다른 곳에서 지시가 바뀌었다 — 안 고쳤거나 이미 같은 글이면 잃을 게 없으니 닫기만, 아니면 덮어쓰기 전에 알린다
-      if (next === openedText.current || next === text) onOpenChange(false)
-      else setConflict(true)
+      if (next === openedText || next === text) onOpenChange(false)
+      else setWarnedText(text)
       return
     }
-    if (next !== openedText.current) onApply(next.trim() === '' ? null : next)
+    if (next !== openedText) onApply(next.trim() === '' ? null : next)
     onOpenChange(false)
   }
 
@@ -338,9 +352,21 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
     editingRef.current = null
     setEditing(null)
     setDraft(text)
-    openedText.current = text
-    setConflict(false)
+    setOpenedText(text)
+    setWarnedText(null)
   }
+
+  /** 그래도 적용 — 알림 뒤 text 가 또 바뀌었으면 최신 글을 못 본 것이므로 적용하지 않고 알림만 새로 한다. */
+  const forceApply = () => {
+    if (text !== warnedText) {
+      setWarnedText(text)
+      return
+    }
+    commit(settledText())
+  }
+
+  // 알림은 아직 연 때와 다를 때만 — 다시 원래 글로 돌아왔거나(text === openedText) 읽기 전용이면 감춘다
+  const showConflict = warnedText !== null && !readOnly && text !== openedText
 
   /** 편집 칸 한 개(블록 자리·새 칸 공통) */
   const editor = (
@@ -553,14 +579,14 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
           </div>
         </div>
 
-        {conflict && (
+        {showConflict && (
           <div role="alert" className="flex items-center justify-between gap-3 border-t bg-muted px-5 py-2 text-sm">
             <span>창을 연 뒤 다른 곳에서 이 지시가 바뀌었어요.</span>
             <div className="flex gap-2">
               <Button type="button" size="sm" variant="outline" onClick={reload}>
                 새 글 불러오기
               </Button>
-              <Button type="button" size="sm" onClick={() => commit(settledText())}>
+              <Button type="button" size="sm" onClick={forceApply}>
                 그래도 적용
               </Button>
             </div>
