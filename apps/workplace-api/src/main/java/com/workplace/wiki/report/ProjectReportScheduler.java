@@ -1,11 +1,15 @@
 package com.workplace.wiki.report;
 
+import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.RoundDeadline;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.issue.outbound.IssueAiConfig;
 import com.workplace.wiki.report.ProjectReportGenerator.Outcome;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -38,7 +42,8 @@ public class ProjectReportScheduler {
 
   /**
    * 한 회차에 처리하는 프로젝트 수 상한(모든 테넌트 합계). 최악은 건마다 API 읽기 시간 제한(210초)까지 기다리는 경우라 5 × 210초 ≈ 17.5분 + 노트 쓰기
-   * — 잠금 시간(40분) 안에 끝나게 묶는다(코드 리뷰 #4).
+   * — 잠금 시간(40분) 안에 끝나게 묶는다(코드 리뷰 #4). 상한을 덮어써 건당 시간이 늘면 시간 예산({@link RoundDeadline})이 다음 건 시작 전에
+   * 끊는다(WP-2111).
    */
   static final int MAX_PER_RUN = 5;
 
@@ -47,6 +52,15 @@ public class ProjectReportScheduler {
   private final ProjectReportSettingRepository settings;
   private final ProjectReportGenerator generator;
   private final AiAgentProperties aiAgentProperties;
+
+  /** AI 호출 실행 상한 표(WP-2111) — 회차 시간 예산에서 한 건의 최악 시간을 계산한다. */
+  private final AiCallTimeouts timeouts;
+
+  /** 잠금 최대 — @SchedulerLock 의 lockAtMostFor 와 회차 마감 계산이 함께 쓰는 한 값. */
+  static final String LOCK_AT_MOST_FOR = "PT40M";
+
+  /** 잠금 최대 Duration — {@link #LOCK_AT_MOST_FOR} 를 파싱한 값. */
+  static final Duration LOCK_AT_MOST = Duration.parse(LOCK_AT_MOST_FOR);
 
   /** 「지금」의 기준 시계. */
   private final Clock clock = Clock.systemUTC();
@@ -65,7 +79,7 @@ public class ProjectReportScheduler {
 
   /** 5분마다(기동 90초 뒤 시작) — 때가 된 프로젝트의 리포트를 만든다. */
   @Scheduled(fixedDelay = 300_000, initialDelay = 90_000)
-  @SchedulerLock(name = "ProjectReportScheduler.runOnce", lockAtMostFor = "PT40M")
+  @SchedulerLock(name = "ProjectReportScheduler.runOnce", lockAtMostFor = LOCK_AT_MOST_FOR)
   public void runOnce() {
     Summary s = runOnce(clock);
     if (s.processed() > 0) {
@@ -86,6 +100,12 @@ public class ProjectReportScheduler {
    * 프로젝트가 다음 회차 앞쪽에 온다.
    */
   Summary runOnce(Clock runClock, int limit) {
+    // 회차 시간 예산(WP-2111) — 회차 시작(잠금 직후, 대상 수집 전)에 마감을 잡는다(수집도 잠금 안에서 흐른다).
+    // 건당 최악은 리포트 클라이언트 읽기 상한(IssueAiConfig#reportReadTimeout) — 같은 클라이언트가 나르는 항목 최대 + 여유라, ai-agent
+    // 가 상한을 지키지 않아도 HTTP 가 그만큼만 기다린다. 다음 건은 그 최악이 마감 안에 끝날
+    // 때만 시작한다(개수 상한만으로는 상한을 덮어쓰면 잠금을 넘는다). 남은 대상은 다음 실행 시각이 그대로라 다음 회차 앞쪽에 온다.
+    RoundDeadline deadline = RoundDeadline.underLock(runClock, LOCK_AT_MOST);
+    Duration perCall = IssueAiConfig.reportReadTimeout(timeouts);
     // AI 연동이 꺼져 있으면 회차를 열지 않는다(WP-1639) — 재시도·건너뛰기로 회차를 잃지 않게. 다시 켜면 남은 예정부터 만든다.
     if (!aiAgentProperties.enabled()) return new Summary(0, 0, 0);
     OffsetDateTime now = OffsetDateTime.now(runClock);
@@ -99,7 +119,13 @@ public class ProjectReportScheduler {
           }
         });
     Map<Outcome, Integer> counts = new EnumMap<>(Outcome.class);
+    int processed = 0;
     for (Target t : targets) {
+      if (!deadline.allowsOrWarn(
+          perCall, log, "프로젝트 리포트 회차 시간 예산 소진 — 남은 프로젝트 {}건은 다음 회차에", targets.size() - processed)) {
+        break;
+      }
+      processed++;
       TenantContext.set(t.tenantId());
       Outcome outcome;
       try {
@@ -114,7 +140,7 @@ public class ProjectReportScheduler {
       counts.merge(outcome, 1, Integer::sum);
     }
     return new Summary(
-        targets.size(),
+        processed,
         counts.getOrDefault(Outcome.GENERATED, 0),
         counts.getOrDefault(Outcome.FAILED, 0));
   }

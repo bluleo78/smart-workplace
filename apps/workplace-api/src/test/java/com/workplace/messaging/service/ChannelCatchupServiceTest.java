@@ -74,8 +74,7 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
   @Autowired SharedAiMemoryReader sharedReader;
 
   /** 해석될 비서 사양 — 하드코딩 id(2) 가 아닌 이 값이 AI 요청에 실려야 한다(WP-110). */
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(777L, "test-model", "NORMAL", 8);
 
   private long callerA;
   private long userB;
@@ -212,6 +211,7 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
 
     assertThat(res.unreadCount()).isEqualTo(210);
     assertThat(res.summarizedCount()).isEqualTo(200);
+    assertThat(req.getValue().timeoutMs()).isEqualTo(60_000); // 표(MESSAGING_CATCHUP) 값(WP-2111)
     assertThat(res.yourTurn()).extracting("messageId").containsExactly(ids.get(208), ids.get(209));
     // 요약 입력은 가장 최근 200건(오래된→최신) — 처음 10건이 빠진다.
     assertThat(req.getValue().messages())

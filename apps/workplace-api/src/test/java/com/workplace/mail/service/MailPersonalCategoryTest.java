@@ -42,9 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
 class MailPersonalCategoryTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec PERSONAL =
-      new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+      new AssistantSpec(9L, "claude-sonnet-4-6", "NORMAL", 8);
   private static final AssistantSpec WORKSPACE =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
   private static final AiMemoryLine RULE =
       new AiMemoryLine(7L, "PREFERENCE", "원티드 뉴스레터는 뉴스레터로 분류", "MAIL", null, null);
 

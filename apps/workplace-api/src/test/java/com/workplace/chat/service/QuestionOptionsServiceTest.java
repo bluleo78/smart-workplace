@@ -66,7 +66,7 @@ class QuestionOptionsServiceTest extends ExternalClientMockedTestBase {
   private final List<Map.Entry<String, Map<String, Object>>> events = new CopyOnWriteArrayList<>();
   private final List<Collection<Long>> recipients = new CopyOnWriteArrayList<>();
   private static final AssistantSpec SPEC =
-      new AssistantSpec(77L, "claude-sonnet-5-5", "NORMAL", 8, 60000, "claude-haiku-5-5");
+      new AssistantSpec(77L, "claude-sonnet-5-5", "NORMAL", 8, "claude-haiku-5-5");
 
   private ChatFixtures.AgentSetup s;
   private long threadId;

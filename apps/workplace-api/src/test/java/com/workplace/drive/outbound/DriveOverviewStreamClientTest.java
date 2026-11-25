@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.sun.net.httpserver.HttpServer;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.outbound.AiAgentProperties;
 import java.io.OutputStream;
@@ -55,7 +56,9 @@ class DriveOverviewStreamClientTest {
     AiAgentProperties props =
         new AiAgentProperties(
             "http://127.0.0.1:" + server.getAddress().getPort(), "changeme-local", true);
-    client = new DriveOverviewStreamClient(props, HttpClient.newHttpClient(), recorder);
+    client =
+        new DriveOverviewStreamClient(
+            props, HttpClient.newHttpClient(), recorder, AiCallTimeouts.defaults());
   }
 
   private void callClient() throws Exception {
@@ -109,7 +112,9 @@ class DriveOverviewStreamClientTest {
     }
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + closedPort, "changeme-local", true);
-    client = new DriveOverviewStreamClient(props, HttpClient.newHttpClient(), recorder);
+    client =
+        new DriveOverviewStreamClient(
+            props, HttpClient.newHttpClient(), recorder, AiCallTimeouts.defaults());
     org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.stream("{}", t -> {}, () -> {}))
         .isInstanceOf(java.io.IOException.class);
     org.mockito.ArgumentCaptor<com.workplace.airun.dto.AiRunRecord> cap =

@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
@@ -52,23 +54,13 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class HomeChatService {
 
-  /** 생성 타임아웃 — CLI cold-start(최대 ~60s) + 실행 예산 여유. */
+  /** 생성 타임아웃 기본(하한) — CLI cold-start(최대 ~60s) + 실행 예산 여유. 실제 값은 AI_CHAT 상한에 맞춰 생성자에서 정한다. */
   private static final Duration TIMEOUT = Duration.ofSeconds(300);
-
-  /**
-   * compose 전용 CLI 예산 하한(#456). Global Chat 라우터는 여러 도메인 전문가(캘린더+메일 등)에 순차 위임하고 sync_mail(IMAP) 같은
-   * 느린 도구를 거쳐, 공유 기본값 60s(AssistantDefaults.TIMEOUT_MS)를 종종 초과한다. compose 의 HTTP
-   * read(AiAgentComposeClient 300s)·레지스트리 타임아웃(300s)이 이를 충분히 감싸므로 180s 로 상향한다.
-   *
-   * <p>공유 기본값을 올리지 않는 이유: 같은 값을 쓰는 mail/wiki 경로의 HTTP read 가 각각 90s/120s 라, 기본값을 180s 로 올리면 그 경로들이
-   * CLI 완주 전에 잘린다. 따라서 compose 경로에서만 하한을 적용한다. 비서별 설정으로 더 큰 timeoutMs 가 지정되면 그 값을 존중한다(하한이므로).
-   */
-  private static final int COMPOSE_MIN_TIMEOUT_MS = 180_000;
 
   /**
    * compose 전용 턴 한도 하한. maxTurns 는 질문 1건 처리 중 라우터가 도구·위임을 반복하는 횟수 상한인데, 공유 기본값
    * 8(AssistantDefaults.MAX_TURNS)로는 "어제~오늘 완료된 이슈를 에픽 중심으로" 같은 조회도 끝나기 전에 끊겨 "오류로 중단됨"이 됐다(운영 실측).
-   * 무한 루프 방지용 안전장치로만 두도록 넉넉히 50 으로 올린다 — 실제 실행 시간은 위 timeout 하한(180s)이 묶는다.
+   * 무한 루프 방지용 안전장치로만 두도록 넉넉히 50 으로 올린다 — 실제 실행 시간은 AI_CHAT 상한(기본 180s)이 묶는다.
    *
    * <p>공유 기본값을 올리지 않는 이유는 timeout 과 같다(다른 단발 AI 경로에 영향을 주지 않기 위해 compose 에만 하한 적용).
    */
@@ -129,6 +121,18 @@ public class HomeChatService {
   /** WP-1512: 답이 매뉴얼 공백 표식으로 끝나면 질문을 지표로 남긴다(비동기, 실패해도 채팅에 영향 없음). */
   private final HelpGapRecorder helpGapRecorder;
 
+  /**
+   * AI 호출 실행 상한 표(WP-2111). compose 는 Global Chat 라우터가 여러 도메인 전문가에 순차 위임하고 sync_mail(IMAP) 같은 느린
+   * 도구를 거쳐 공유 기본값 60s 를 종종 초과하므로(#456) 표의 AI_CHAT 값(기본 180s)을 싣는다. 비서별 assistant_config.timeout_ms
+   * 는 실행 상한에 쓰지 않는다.
+   */
+  private final AiCallTimeouts timeouts;
+
+  /**
+   * 생성 레지스트리 턴 상한 — HTTP 요청 타임아웃과 같은 값(max(300s, AI_CHAT+여유))이라 AI_CHAT 을 덮어써도 레지스트리가 먼저 끊지 않는다.
+   */
+  private final Duration generationTimeout;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -146,7 +150,10 @@ public class HomeChatService {
       AiMemoryService memoryService,
       SharedMemorySpaces sharedSpaces,
       SharedAiMemoryReader sharedReader,
-      HelpGapRecorder helpGapRecorder) {
+      HelpGapRecorder helpGapRecorder,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
+    this.generationTimeout = AiAgentChatClient.requestTimeout(timeouts);
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
@@ -177,7 +184,10 @@ public class HomeChatService {
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
   static final String SCOPE = "home";
 
-  /** 한 턴 생성 상한(300초). 테스트가 펌프 대기 상한을 이 값에서 파생하도록 공개한다. */
+  /**
+   * 한 턴 생성 상한의 기본값(하한, 300초). 실제 레지스트리 상한은 생성자의 generationTimeout 이지만, AI_CHAT 덮어쓰기 최대가
+   * 4분(240+30=270초)이라 항상 이 하한과 같다 — 그래서 테스트가 펌프 대기 상한을 이 값에서 파생해도 어긋나지 않는다.
+   */
   public static Duration turnTimeout() {
     return TIMEOUT;
   }
@@ -338,7 +348,7 @@ public class HomeChatService {
     registry.launch(
         reservation,
         executor,
-        TIMEOUT,
+        generationTimeout,
         () ->
             AiRunScope.run(
                 actor,
@@ -418,8 +428,8 @@ public class HomeChatService {
               spec.thinkingDepth(),
               // compose 는 다중 조회·위임으로 기본 8턴을 넘기기 쉬워 하한(50)을 적용.
               Math.max(spec.maxTurns(), COMPOSE_MIN_MAX_TURNS),
-              // #456: compose 는 다중 도메인 위임으로 기본 60s 를 넘기 쉬워 하한(180s)을 적용.
-              Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS),
+              // #456·WP-2111: compose 는 다중 도메인 위임으로 느리므로 비서별 timeout_ms 가 아니라 상한 표의 AI_CHAT 값만 싣는다.
+              timeouts.timeoutMs(AiCall.AI_CHAT),
               // WP-54: 화면 컨텍스트 1:1 전달(USER 메시지 영속에는 포함하지 않는다).
               screenContext,
               ctx.summary(),

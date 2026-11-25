@@ -65,7 +65,7 @@ class WorkProfileApiTest extends ExternalClientMockedTestBase {
   @BeforeEach
   void assistant() {
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(999L, "m", "NONE", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(999L, "m", "NONE", 8)));
   }
 
   private Long user(String prefix) {

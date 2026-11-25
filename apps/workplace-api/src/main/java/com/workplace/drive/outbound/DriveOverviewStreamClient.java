@@ -1,5 +1,7 @@
 package com.workplace.drive.outbound;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunHeader;
 import com.workplace.airun.outbound.AiRunFailures;
 import com.workplace.airun.service.AiRunRecorder;
@@ -25,8 +27,8 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class DriveOverviewStreamClient {
 
-  /** 요청 전체 타임아웃 — SseEmitter 타임아웃(120s)과 정렬. */
-  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(120);
+  /** 요청 전체 타임아웃의 하한 — SseEmitter 타임아웃(120s)과 정렬. 상한 표 값이 이보다 작아도 내리지 않는다. */
+  private static final Duration MIN_REQUEST_TIMEOUT = Duration.ofSeconds(120);
 
   /** 연결 타임아웃 — 에이전트가 떠 있지 않을 때 빠르게 실패. */
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -34,22 +36,40 @@ public class DriveOverviewStreamClient {
   private final HttpClient http;
   private final AiAgentProperties props;
 
+  /** 요청 전체 타임아웃 — {@link #requestTimeout}. 취소가 안 먹는 블로킹 read 도 이 시각엔 강제 종료된다. */
+  private final Duration requestTimeout;
+
   /** 호출 전 실패(연결 거부·시간 초과·5xx)를 AI 처리 기록으로 남기는 기록기 (WP-1829). */
   private final AiRunRecorder aiRunRecorder;
 
   private static final ObjectMapper MAPPER = JsonMappers.JACKSON2;
 
+  /**
+   * 요청 전체 타임아웃 — DRIVE_OVERVIEW 실행 상한 + 여유와 기존 120초 중 큰 값(WP-2111). 생성 레지스트리 상한도 같은 값을
+   * 쓴다(SseEmitter 와 정렬).
+   */
+  public static Duration requestTimeout(AiCallTimeouts timeouts) {
+    return timeouts.readTimeoutAtLeast(MIN_REQUEST_TIMEOUT, AiCall.DRIVE_OVERVIEW);
+  }
+
   @Autowired
-  public DriveOverviewStreamClient(AiAgentProperties props, AiRunRecorder aiRunRecorder) {
+  public DriveOverviewStreamClient(
+      AiAgentProperties props, AiRunRecorder aiRunRecorder, AiCallTimeouts timeouts) {
     this.props = props;
+    this.requestTimeout = requestTimeout(timeouts);
     this.aiRunRecorder = aiRunRecorder;
     // HTTP/1.1 고정 — InternalHttp 참조
     this.http = InternalHttp.httpClientBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */
-  DriveOverviewStreamClient(AiAgentProperties props, HttpClient http, AiRunRecorder aiRunRecorder) {
+  DriveOverviewStreamClient(
+      AiAgentProperties props,
+      HttpClient http,
+      AiRunRecorder aiRunRecorder,
+      AiCallTimeouts timeouts) {
     this.props = props;
+    this.requestTimeout = requestTimeout(timeouts);
     this.aiRunRecorder = aiRunRecorder;
     this.http = http;
   }
@@ -72,7 +92,7 @@ public class DriveOverviewStreamClient {
             aiRun ->
                 HttpRequest.newBuilder()
                     .uri(URI.create(props.baseUrl() + "/drive/overview"))
-                    .timeout(REQUEST_TIMEOUT)
+                    .timeout(requestTimeout)
                     .header("Authorization", "Internal " + props.internalToken())
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")

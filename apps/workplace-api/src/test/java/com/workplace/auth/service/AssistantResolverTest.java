@@ -47,7 +47,18 @@ class AssistantResolverTest extends IntegrationTestBase {
     assertThat(spec.model()).isEqualTo(AssistantDefaults.MODEL);
     assertThat(spec.thinkingDepth()).isEqualTo(AssistantDefaults.THINKING_DEPTH);
     assertThat(spec.maxTurns()).isEqualTo(AssistantDefaults.MAX_TURNS);
-    assertThat(spec.timeoutMs()).isEqualTo(AssistantDefaults.TIMEOUT_MS);
+  }
+
+  /** WP-2111: timeout_ms 가 저장된 비서도 spec 해석은 그대로 성공한다(spec 에 실행 상한이 없다). 값은 보존만 한다. */
+  @Test
+  void timeout_ms_가_저장된_비서도_해석된다() {
+    long human = TestFixtures.createHuman(dsl);
+    long agent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
+    workspaceRepo.upsert(agent, human);
+    configRepo.upsert(agent, null, null, null, 5000);
+
+    assertThat(resolver.resolve(human).agentUserId()).isEqualTo(agent);
+    assertThat(configRepo.find(agent).orElseThrow().timeoutMs()).isEqualTo(5000);
   }
 
   @Test

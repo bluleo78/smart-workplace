@@ -85,7 +85,8 @@ class PriorityClassificationSchedulerUnitTest {
             aiClient,
             assistantResolver,
             repo,
-            txManager);
+            txManager,
+            com.workplace.airun.AiCallTimeouts.defaults());
 
     // forEachActiveTenant(consumer) 가 테넌트 1개(TENANT_ID)에 대해 콜백을 실행하도록.
     doAnswer(

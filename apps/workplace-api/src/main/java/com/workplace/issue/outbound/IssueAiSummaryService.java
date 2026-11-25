@@ -1,5 +1,7 @@
 package com.workplace.issue.outbound;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -81,6 +83,9 @@ public class IssueAiSummaryService {
   private final IssueRelationService relationService;
   private final AiAgentProperties aiAgentProperties;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   /** AI 연동이 꺼져 있을 때 「요약 생성」 버튼에 보이는 문구(WP-1640). */
   static final String DISABLED_MESSAGE = "AI 연동이 꺼져 있어 요약을 만들 수 없어요.";
 
@@ -95,7 +100,8 @@ public class IssueAiSummaryService {
       ProjectRepository projectRepo,
       IssueChatExcerptReader chatReader,
       IssueRelationService relationService,
-      AiAgentProperties aiAgentProperties) {
+      AiAgentProperties aiAgentProperties,
+      AiCallTimeouts timeouts) {
     this.issueRepo = issueRepo;
     this.commentRepo = commentRepo;
     this.historyRepo = historyRepo;
@@ -107,6 +113,7 @@ public class IssueAiSummaryService {
     this.chatReader = chatReader;
     this.relationService = relationService;
     this.aiAgentProperties = aiAgentProperties;
+    this.timeouts = timeouts;
   }
 
   /** 이슈 생성 이벤트 핸들러. AFTER_COMMIT — 커밋 후 별도 워커 스레드에서 opt-in 자동 갱신. */
@@ -350,7 +357,7 @@ public class IssueAiSummaryService {
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),
-        spec.timeoutMs());
+        timeouts.timeoutMs(AiCall.ISSUE_PROGRESS_SUMMARY));
   }
 
   /**

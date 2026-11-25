@@ -1,5 +1,7 @@
 package com.workplace.wiki.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.util.Texts;
@@ -45,6 +47,10 @@ public class WikiSummaryService {
   private final WikiPermissions perms;
   private final AssistantResolver assistantResolver;
   private final WikiAiAgentSummaryClient agent;
+
+  /** 노트 요약 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   private final TransactionTemplate readTx;
   private final TransactionTemplate writeTx;
 
@@ -57,11 +63,13 @@ public class WikiSummaryService {
       WikiPermissions perms,
       AssistantResolver assistantResolver,
       WikiAiAgentSummaryClient agent,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
     this.pages = pages;
     this.perms = perms;
     this.assistantResolver = assistantResolver;
     this.agent = agent;
+    this.timeouts = timeouts;
     this.readTx = new TransactionTemplate(txManager);
     this.readTx.setReadOnly(true);
     this.writeTx = new TransactionTemplate(txManager);
@@ -151,7 +159,7 @@ public class WikiSummaryService {
                 spec.agentUserId(),
                 spec.model(),
                 MAX_TURNS,
-                spec.timeoutMs()));
+                timeouts.timeoutMs(AiCall.WIKI_SUMMARIZE)));
     // 응답이 없거나 공백뿐이면 실패 — 빈 카드를 저장하지 않는다.
     String summary =
         Optional.ofNullable(res)

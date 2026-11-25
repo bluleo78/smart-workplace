@@ -26,13 +26,6 @@ import org.springframework.web.client.RestClientException;
 @Slf4j
 public class AiAgentIssueClient {
 
-  /**
-   * 프로젝트 리포트 AI 실행 예산(ms, WP-1483) — 20,000자 템플릿과 이슈 60건을 읽고 긴 한국어 글을 쓰므로 비서 기본 예산(60초)으로는 모자라 따로
-   * 둔다. 리포트 전용 RestClient 의 읽기 시간 제한({@link IssueAiConfig#REPORT_READ_TIMEOUT})이 이보다 길어야 API 가
-   * ai-agent 보다 먼저 포기하지 않는다.
-   */
-  public static final long PROJECT_REPORT_TIMEOUT_MS = 180_000L;
-
   /** ai-agent baseUrl 이 이미 설정된 RestClient. */
   private final RestClient restClient;
 
@@ -57,7 +50,8 @@ public class AiAgentIssueClient {
 
   /**
    * @param builder 일반 이슈 AI 호출용 빌더(IssueAiConfig 에서 주입)
-   * @param reportBuilder 프로젝트 리포트용 빌더 — 읽기 시간 제한이 {@link #PROJECT_REPORT_TIMEOUT_MS} 보다 길다
+   * @param reportBuilder 프로젝트 리포트용 빌더 — 읽기 시간 제한이 실행 상한({@code AiCall.PROJECT_REPORT}·{@code
+   *     PERSONAL_REPORT})보다 길다
    * @param internalToken AiAgentProperties.internalToken
    * @param enabled AiAgentProperties.enabled — false 면 보고 작성이 ai-agent 를 부르지 않는다(WP-1639)
    */
@@ -161,7 +155,7 @@ public class AiAgentIssueClient {
 
   /**
    * 개인 일일·주간·월간 보고 본문(WP-1486) — 템플릿·계산값·이슈 목록을 보내 마크다운을 받는다. 프로젝트 리포트와 같은 리포트 전용 RestClient(긴 읽기
-   * 시간 제한)로 보내고, 실행 예산도 {@link #PROJECT_REPORT_TIMEOUT_MS} 를 같이 쓴다.
+   * 시간 제한)로 보내고, 실행 상한은 호출자가 상한 표(PERSONAL_REPORT)에서 실어 보낸다.
    */
   public PersonalReportAiResult writePersonalReport(PersonalReportAiRequest req) {
     requireEnabled("personal report", DISABLED_MESSAGE);

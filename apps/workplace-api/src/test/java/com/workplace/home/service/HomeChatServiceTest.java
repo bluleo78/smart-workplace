@@ -64,7 +64,7 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
 
   private void stubAssistant() {
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8));
   }
 
   /** 펌프를 호출 스레드에서 돌리는 핸들(WP-1918) — 5초 래치 대기 없이 startChat 반환 시점에 펌프가 끝나 있게 한다. */
@@ -491,13 +491,13 @@ class HomeChatServiceTest extends ExternalClientMockedTestBase {
   /**
    * #456: compose 가 ai-agent 로 보내는 ChatRequest 의 timeoutMs 가 compose 하한(180s)으로 상향되는지 검증.
    *
-   * <p>비서 기본 timeoutMs 는 60s(AssistantDefaults.TIMEOUT_MS)인데, Global Chat 은 다중 도메인 위임으로 60s 를 종종
-   * 초과한다. compose 경로는 하한을 적용해 ≥180s 를 전달해야 한다. 상수 비교가 아닌 실제 전송된 요청 본문을 캡처해 검증한다.
+   * <p>옛 비서 기본 timeoutMs 는 60s 였는데, Global Chat 은 다중 도메인 위임으로 60s 를 종종 초과한다. compose 경로는 하한을 적용해
+   * ≥180s 를 전달해야 한다. 상수 비교가 아닌 실제 전송된 요청 본문을 캡처해 검증한다.
    */
   @Test
   void compose_요청_timeoutMs_를_180s_하한으로_상향한다() throws Exception {
     long uid = user("timeoutfloor" + System.nanoTime());
-    // 기본 비서: timeoutMs=60000 (공유 기본값).
+    // 기본 비서 사양(상한은 사양이 아니라 상한 표 AI_CHAT 이 정한다 — WP-2111).
     stubAssistant();
 
     doAnswer(

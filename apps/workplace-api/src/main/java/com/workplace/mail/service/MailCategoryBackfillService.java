@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
@@ -77,6 +79,9 @@ public class MailCategoryBackfillService {
   private final MailPeopleRepository peopleRepo;
   private final TransactionTemplate txTemplate;
 
+  /** AI 호출 실행 상한 표 — 묶음 분류는 MAIL_CLASSIFY_BATCH 값을 싣는다(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public MailCategoryBackfillService(
       EmailMessageRepository messageRepo,
       EmailAccountRepository accountRepo,
@@ -84,7 +89,9 @@ public class MailCategoryBackfillService {
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
       MailPeopleRepository peopleRepo,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.peopleRepo = peopleRepo;
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
@@ -96,7 +103,7 @@ public class MailCategoryBackfillService {
 
   /**
    * 동기 본체 — 최대 min(MAX_BATCHES, maxBatches) 묶음을 부르고, 실제로 부른 묶음 호출 수(실패 포함)를 돌려준다. 호출부(스케줄러)는 이 값으로
-   * 회차 전체 묶음 예산을 깎는다 — 호출 하나가 최대 60초·LLM 비용 1회이므로 실패한 호출도 센다.
+   * 회차 전체 묶음 예산을 깎는다 — 호출 하나가 최대 MAIL_CLASSIFY_BATCH 상한(+읽기 여유)·LLM 비용 1회이므로 실패한 호출도 센다.
    *
    * <p>비서가 없으면 아무것도 하지 않는다(0). agent 불가(503·연결/읽기 타임아웃)면 guard 에 기록하고 아무것도 표시하지 않은 채 멈춘다 — 호출부가 남은
    * 계정을 건너뛴다. 그 외 사유의 실패(예: 특정 메일 때문에 항상 502)는 독 메일 하나가 계정의 나머지를 영원히 막지 않도록 처리한다. 2통 이상 묶음이 실패하면 이
@@ -227,7 +234,7 @@ public class MailCategoryBackfillService {
     return probe.classifier(aiEnabled).orElse(null);
   }
 
-  private static ClassifyBatchRequest request(
+  private ClassifyBatchRequest request(
       List<ClassifyInput> inputs, Set<String> members, AssistantSpec spec) {
     List<ClassifyBatchItem> items =
         inputs.stream()
@@ -242,7 +249,11 @@ public class MailCategoryBackfillService {
                         MailPeopleRepository.isMember(members, in.fromAddress())))
             .toList();
     return new ClassifyBatchRequest(
-        items, spec.agentUserId(), spec.model(), MAX_TURNS, spec.timeoutMs());
+        items,
+        spec.agentUserId(),
+        spec.model(),
+        MAX_TURNS,
+        timeouts.timeoutMs(AiCall.MAIL_CLASSIFY_BATCH));
   }
 
   /** ③ 과 같은 규칙으로 고른 본문(자동 발송이면 미리보기, 아니면 새로 쓴 본문)을 앞 BODY_HEAD_CHARS 글자로 자른다. 비면 빈 문자열. */

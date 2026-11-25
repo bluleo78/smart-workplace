@@ -9,6 +9,8 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.ProjectReportAiRequest;
 import com.workplace.issue.report.ProjectReportEpics;
@@ -94,13 +96,14 @@ class AiAgentIssueClientProjectReportTest {
     commonServer.verify();
   }
 
-  /** 리포트 읽기 시간 제한은 ai-agent 리포트 실행 예산(180초)보다 길고, 다른 이슈 AI 호출(90초)보다 길다. */
+  /** 리포트 읽기 시간 제한은 ai-agent 리포트 실행 예산(180초)보다 길고, 다른 이슈 AI 호출 읽기 상한 이상이다. */
   @Test
   void reportReadTimeout_exceedsReportBudget() {
-    assertThat(IssueAiConfig.REPORT_READ_TIMEOUT.toMillis())
-        .isGreaterThan(AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS)
-        .isGreaterThan(IssueAiConfig.READ_TIMEOUT.toMillis());
-    assertThat(AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS).isEqualTo(180_000L);
+    AiCallTimeouts t = AiCallTimeouts.defaults();
+    assertThat(IssueAiConfig.reportReadTimeout(t).toMillis())
+        .isGreaterThan(t.timeout(AiCall.PROJECT_REPORT).toMillis())
+        .isGreaterThanOrEqualTo(IssueAiConfig.readTimeout(t).toMillis());
+    assertThat(t.timeoutMs(AiCall.PROJECT_REPORT)).isEqualTo(180_000);
   }
 
   @Test

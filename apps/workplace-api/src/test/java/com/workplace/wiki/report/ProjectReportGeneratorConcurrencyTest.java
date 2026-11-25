@@ -85,7 +85,7 @@ class ProjectReportGeneratorConcurrencyTest extends ExternalClientMockedTestBase
     projectId = project.id();
     projectKey = key;
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
     when(client.writeProjectReport(any()))
         .thenReturn(new ProjectReportAiResult("## 상태와 한 줄\n\n**순조로움**\n\n잘 됐어요.\n"));
     settingsService.update(

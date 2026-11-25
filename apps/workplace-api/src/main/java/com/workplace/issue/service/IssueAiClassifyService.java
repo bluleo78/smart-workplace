@@ -1,5 +1,7 @@
 package com.workplace.issue.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -47,6 +49,9 @@ public class IssueAiClassifyService {
   private final TransactionTemplate txTemplate;
   private final AiAgentProperties aiAgentProperties;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   /** AI 연동이 꺼져 있을 때 「AI 분류」에 보이는 문구(WP-1640). */
   static final String DISABLED_MESSAGE = "AI 연동이 꺼져 있어 분류를 제안할 수 없어요.";
 
@@ -56,12 +61,14 @@ public class IssueAiClassifyService {
       AssistantResolver assistantResolver,
       AiAgentIssueClient aiClient,
       PlatformTransactionManager txManager,
-      AiAgentProperties aiAgentProperties) {
+      AiAgentProperties aiAgentProperties,
+      AiCallTimeouts timeouts) {
     this.accessGuard = accessGuard;
     this.labelRepository = labelRepository;
     this.assistantResolver = assistantResolver;
     this.aiClient = aiClient;
     this.aiAgentProperties = aiAgentProperties;
+    this.timeouts = timeouts;
     this.txTemplate = new TransactionTemplate(txManager);
     // readOnly 힌트 — 조회 전용 TX1 에서 불필요한 쓰기 락 방지
     this.txTemplate.setReadOnly(true);
@@ -116,7 +123,7 @@ public class IssueAiClassifyService {
             gathered.spec().agentUserId(),
             gathered.spec().model(),
             gathered.spec().maxTurns(),
-            gathered.spec().timeoutMs());
+            timeouts.timeoutMs(AiCall.ISSUE_CLASSIFY));
 
     IssueClassifyResult result = aiClient.classify(req); // 실패 시 IssueAiException 전파
 

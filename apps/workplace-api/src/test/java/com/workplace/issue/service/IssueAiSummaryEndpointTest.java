@@ -50,7 +50,7 @@ class IssueAiSummaryEndpointTest extends ExternalClientMockedTestBase {
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =
-      new AssistantSpec(999L, "claude-sonnet-4-6", "NONE", 8, 60_000);
+      new AssistantSpec(999L, "claude-sonnet-4-6", "NONE", 8);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Case 1: 읽기 경로 — 저장본 없음 + 블로커 없음 → aiContext non-null, summary null, blockers 빈 리스트

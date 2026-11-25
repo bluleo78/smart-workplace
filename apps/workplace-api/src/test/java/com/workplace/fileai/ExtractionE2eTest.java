@@ -77,7 +77,7 @@ class ExtractionE2eTest extends ExternalClientMockedTestBase {
 
   /** 테스트용 AssistantSpec — agentUserId/model/timeoutMs 고정값. */
   private static final AssistantSpec TEST_SPEC =
-      new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1, 60_000);
+      new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1);
 
   private final List<Long> createdFileIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();

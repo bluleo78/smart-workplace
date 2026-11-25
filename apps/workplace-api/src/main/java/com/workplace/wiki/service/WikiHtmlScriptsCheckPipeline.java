@@ -1,5 +1,7 @@
 package com.workplace.wiki.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.exception.FileAiException;
@@ -46,13 +48,18 @@ public class WikiHtmlScriptsCheckPipeline {
   /** 짧은 트랜잭션 — 진입 시 TenantAwareTransactionManager 가 RLS GUC 를 주입한다. */
   private final TransactionTemplate tx;
 
+  /** AI 호출 종류별 실행 상한 표(WP-2111) — 스크립트 검사도 DRIVE_SECURITY_CHECK. */
+  private final AiCallTimeouts timeouts;
+
   public WikiHtmlScriptsCheckPipeline(
       WikiHtmlScriptsCheckRepository repo,
       AssistantResolver assistantResolver,
       AiAgentDriveClient driveClient,
       ObjectMapper objectMapper,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
     this.repo = repo;
+    this.timeouts = timeouts;
     this.assistantResolver = assistantResolver;
     this.driveClient = driveClient;
     this.objectMapper = objectMapper;
@@ -106,7 +113,9 @@ public class WikiHtmlScriptsCheckPipeline {
                   spec.agentUserId(),
                   spec.model(),
                   MAX_TURNS,
-                  Math.min(spec.timeoutMs(), FileSecurityCheckPipeline.MAX_AGENT_TIMEOUT_MS)));
+                  Math.min(
+                      timeouts.timeoutMs(AiCall.DRIVE_SECURITY_CHECK),
+                      FileSecurityCheckPipeline.MAX_AGENT_TIMEOUT_MS)));
       FileSecurityCheckPipeline.validate(res);
       evidenceJson =
           objectMapper.writeValueAsString(res.evidence() == null ? List.of() : res.evidence());

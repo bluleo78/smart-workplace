@@ -116,7 +116,7 @@ class MessagingAttentionCreatePathIntegrationTest extends ExternalClientMockedTe
 
     // 공용 비서가 설정된 상태(WP-110 — 하드코딩 id 대신 해석).
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8)));
     // 분류는 owner(양동희)를 relevant 로 반환하도록 모킹 — 이름 토큰("동희")이 본문에 등장해 프리필터 통과.
     when(aiClient.classify(any()))
         .thenReturn(

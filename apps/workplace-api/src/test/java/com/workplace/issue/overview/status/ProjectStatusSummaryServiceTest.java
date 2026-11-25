@@ -73,7 +73,7 @@ class ProjectStatusSummaryServiceTest extends ExternalClientMockedTestBase {
         projectService.create(
             owner, new CreateProjectRequest("PS" + suffix, "상태-" + suffix, "x", "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
   }
 
   /** 담당자 없는 열린 이슈 — 생성 시각을 비교 기간 밖으로 둔다. */
@@ -126,6 +126,8 @@ class ProjectStatusSummaryServiceTest extends ExternalClientMockedTestBase {
     ArgumentCaptor<ProjectStatusAiRequest> req =
         ArgumentCaptor.forClass(ProjectStatusAiRequest.class);
     verify(client, times(1)).summarizeProjectStatus(req.capture());
+    // 실행 상한은 비서 사양(60초)이 아니라 상한 표의 PROJECT_STATUS 값(120초)이다(WP-2111).
+    assertThat(req.getValue().timeoutMs()).isEqualTo(120_000);
     assertThat(req.getValue().projectName()).isEqualTo(project.name());
     assertThat(req.getValue().badge()).isEqualTo("ON_TRACK");
     assertThat(req.getValue().inputs().openTotal()).isEqualTo(2);

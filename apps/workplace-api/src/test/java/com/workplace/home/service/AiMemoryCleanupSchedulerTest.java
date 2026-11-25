@@ -111,7 +111,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     users.add(admin);
     users.add(wsAgentId);
     when(client.cleanup(any())).thenReturn(new Result(List.of()));
-    when(participant.prepare(any())).thenReturn(SessionCleanupParticipant.Prepared.NONE);
+    when(participant.prepare(any(), any())).thenReturn(SessionCleanupParticipant.Prepared.NONE);
   }
 
   @AfterEach
@@ -265,7 +265,8 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
 
     scheduler.runAllTenants();
 
-    verify(participant, never()).prepare(argThat(in -> in != null && in.sessionId().equals(sid)));
+    verify(participant, never())
+        .prepare(argThat(in -> in != null && in.sessionId().equals(sid)), any());
     assertThat(processed(sid)).isEqualTo(lastMessageId(sid));
   }
 
@@ -337,7 +338,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     assertThat(req.model())
         .isEqualTo(
             inTenant(() -> assistantResolver.resolveOrEmpty(uid)).orElseThrow().suggestionModel());
-    assertThat(req.timeoutMs()).isEqualTo(30_000);
+    assertThat(req.timeoutMs()).isEqualTo(60_000);
     assertThat(req.today()).isEqualTo(LocalDate.now(AiMemoryClock.ZONE).toString());
     assertThat(processed(sid)).isEqualTo(lastMessageId(sid));
   }
@@ -436,7 +437,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     long uid = user();
     String marker = "훅장애-" + uid;
     UUID sid = conversation(uid, Duration.ofDays(6), "USER", LONG + marker);
-    when(participant.prepare(argThat(in -> in != null && in.sessionId().equals(sid))))
+    when(participant.prepare(argThat(in -> in != null && in.sessionId().equals(sid)), any()))
         .thenThrow(
             new MemoryCleanupAiException(
                 "공용 추출 실패", new HttpServerErrorException(HttpStatus.BAD_GATEWAY)));
@@ -444,7 +445,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
 
     scheduler.runAllTenants();
 
-    verify(participant, atLeastOnce()).prepare(cap.capture());
+    verify(participant, atLeastOnce()).prepare(cap.capture(), any());
     SessionCleanupInput in =
         cap.getAllValues().stream()
             .filter(i -> i.sessionId().equals(sid))
@@ -464,7 +465,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     String marker = "훅적용-" + uid;
     UUID sid = conversation(uid, Duration.ofDays(6), "USER", LONG + marker);
     AtomicBoolean inTx = new AtomicBoolean(false);
-    when(participant.prepare(argThat(in -> in != null && in.sessionId().equals(sid))))
+    when(participant.prepare(argThat(in -> in != null && in.sessionId().equals(sid)), any()))
         .thenReturn(() -> inTx.set(TransactionSynchronizationManager.isActualTransactionActive()));
 
     scheduler.runAllTenants();
@@ -621,10 +622,10 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     assertThat(failures(sid)).isZero();
   }
 
-  // 코드 리뷰 4: 회차가 ShedLock 잠금 시간을 넘기지 않게 — 시작 뒤 25분이 지나면 새 세션을 시작하지 않고 다음 회차로 넘긴다(넘긴 세션은 실패로 세지
+  // 코드 리뷰 4: 회차가 ShedLock 잠금 시간을 넘기지 않게 — 시작 뒤 20분이 지나면 새 세션을 시작하지 않고 다음 회차로 넘긴다(넘긴 세션은 실패로 세지
   // 않는다).
   @Test
-  void 회차_시작_뒤_25분이_지나면_새_세션을_시작하지_않고_다음_회차로_넘긴다() {
+  void 회차_시작_뒤_20분이_지나면_새_세션을_시작하지_않고_다음_회차로_넘긴다() {
     long uid = user();
     String slow = "느림-" + uid;
     String next = "다음-" + uid;
@@ -634,7 +635,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     when(client.cleanup(argThat(r -> carries(r, slow))))
         .thenAnswer(
             inv -> {
-              clock.advance(Duration.ofMinutes(26));
+              clock.advance(Duration.ofMinutes(21));
               return new Result(List.of());
             });
 
@@ -644,6 +645,105 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     verify(client, never()).cleanup(argThat(r -> carries(r, next)));
     assertThat(processed(second)).isNull();
     assertThat(failures(second)).isZero();
+  }
+
+  // WP-2111: 공간 단위 마감 — 회차의 첫 세션은 미루지 않고(deferOnOverrun=false), 그 뒤 세션은 공간 마감에 걸리면 다음 회차로 미룬다(실패로
+  // 세지 않고 경계를 올리지 않으며 남은 세션도 시작하지 않는다).
+  @Test
+  void 공간_마감에_걸린_뒤_세션은_실패로_세지_않고_다음_회차로_미룬다() {
+    long uid = user();
+    String a = "첫세션-" + uid;
+    String b = "둘째-" + uid;
+    String c = "셋째-" + uid;
+    // 가장 오래된 순으로 처리되므로 7일 창 안에서 최대한 오래된 쪽에 둔다(회차의 첫 세션이 되게)
+    UUID first = conversation(uid, Duration.ofDays(6).plusHours(23), "USER", LONG + a);
+    UUID second = conversation(uid, Duration.ofDays(6).plusHours(22), "USER", LONG + b);
+    UUID third = conversation(uid, Duration.ofDays(6).plusHours(21), "USER", LONG + c);
+    MutableClock clock = new MutableClock(Instant.now());
+    List<Boolean> deferFlags = new ArrayList<>();
+    when(participant.prepare(any(), any()))
+        .thenAnswer(
+            inv -> {
+              SessionCleanupInput in = inv.getArgument(0);
+              SessionCleanupParticipant.SpaceBudget budget = inv.getArgument(1);
+              if (!in.sessionId().equals(first) && !in.sessionId().equals(second)) {
+                return SessionCleanupParticipant.Prepared.NONE;
+              }
+              deferFlags.add(budget.deferOnOverrun());
+              if (in.sessionId().equals(first)) {
+                clock.advance(Duration.ofMinutes(19)); // 첫 세션이 공간 여럿을 처리해 19분 걸린 것처럼
+                return SessionCleanupParticipant.Prepared.NONE;
+              }
+              // 둘째 세션: 실제 참여자처럼 공간 하나 최악(370초)이 마감 안에 안 들어가면 미룬다 — 19분 + 18분 뒤면 남은 1분
+              clock.advance(Duration.ofMinutes(18));
+              assertThat(budget.deadline().allows(Duration.ofSeconds(370))).isFalse();
+              throw new SessionCleanupParticipant.DeadlineReached("마감");
+            });
+
+    scheduler.runAllTenants(clock);
+
+    // 이 테스트가 만든 세션만 본다 — 첫 세션은 미루지 않는 예산, 둘째는 미루는 예산을 받았다
+    assertThat(deferFlags).containsExactly(false, true);
+    assertThat(processed(first)).isEqualTo(lastMessageId(first));
+    assertThat(processed(second)).isNull();
+    assertThat(failures(second)).isZero();
+    verify(client, never()).cleanup(argThat(r -> carries(r, c)));
+    assertThat(processed(third)).isNull();
+  }
+
+  // WP-2111 리뷰 후속 2: 정리 호출 뒤 첫 공간에서 마감에 걸려 미루면 끝난 정리 호출을 버린다 — 미루는 예산이면 정리 호출 전에 「정리 최악 + 참여자 단위
+  // 최악」을 본다. 첫 세션 뒤 19분(RUN_BUDGET 20분 안)이어도 단위 최악 18분이면 잠금 마감(38분)을 넘으므로 정리 호출 없이 미룬다.
+  @Test
+  void 미루는_예산이면_정리_호출_전에_마감을_보고_부르지_않고_미룬다() {
+    long uid = user();
+    String a = "앞세션-" + uid;
+    String b = "뒤세션-" + uid;
+    UUID first = conversation(uid, Duration.ofDays(6).plusHours(23), "USER", LONG + a);
+    UUID second = conversation(uid, Duration.ofDays(6).plusHours(22), "USER", LONG + b);
+    MutableClock clock = new MutableClock(Instant.now());
+    when(participant.unitWorst()).thenReturn(Duration.ofMinutes(18));
+    when(client.cleanup(argThat(r -> carries(r, a))))
+        .thenAnswer(
+            inv -> {
+              clock.advance(Duration.ofMinutes(19));
+              return new Result(List.of());
+            });
+
+    scheduler.runAllTenants(clock);
+
+    assertThat(processed(first)).isEqualTo(lastMessageId(first));
+    verify(client, never()).cleanup(argThat(r -> carries(r, b)));
+    assertThat(processed(second)).isNull();
+    assertThat(failures(second)).isZero();
+  }
+
+  // WP-2111 리뷰 후속 1: 첫 세션이 마감으로 경계를 줄이면(uptoLimit) 그 뒤 발화는 다음 회차가 개인 정리를 다시 돌린다 — 그 발화를 근거로 한 개인 op
+  // 를
+  // 지금 적용하면 같은 ADD 가 두 번 들어갈 수 있으므로, 경계 안 발화를 근거로 한 op 만 적용한다.
+  @Test
+  void 참여자가_경계를_줄이면_그_뒤_발화를_근거로_한_개인_op_는_적용하지_않는다() {
+    long uid = user();
+    String marker = "경계줄임-" + uid;
+    UUID sid = inTenant(() -> sessions.create(uid).id());
+    append(uid, sid, "USER", LONG + marker);
+    long second = append(uid, sid, "USER", "그리고 다음 주부터 매일 아침 9시에 스탠드업을 해");
+    idle(sid, Duration.ofDays(6));
+    long limit = second - 1;
+    when(participant.prepare(argThat(in -> in != null && in.sessionId().equals(sid)), any()))
+        .thenReturn(
+            SessionCleanupParticipant.Prepared.limitedTo(
+                limit, SessionCleanupParticipant.Prepared.NONE));
+    when(client.cleanup(argThat(r -> carries(r, marker))))
+        .thenReturn(
+            new Result(
+                List.of(
+                    new Op("ADD", null, "WP 프로젝트 배포 일을 맡고 있다", "CONTEXT", null, null, 0, "맡은 일"),
+                    new Op("ADD", null, "매일 아침 9시에 스탠드업을 한다", "CONTEXT", null, null, 1, "일정"))));
+
+    scheduler.runAllTenants();
+
+    assertThat(memories(uid)).extracting(Row::content).containsExactly("WP 프로젝트 배포 일을 맡고 있다");
+    assertThat(processed(sid)).isEqualTo(limit);
   }
 
   /** 테스트가 앞으로 돌리는 시계(UTC). */

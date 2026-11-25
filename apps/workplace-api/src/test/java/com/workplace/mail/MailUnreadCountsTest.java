@@ -106,7 +106,7 @@ class MailUnreadCountsTest extends ExternalClientMockedTestBase {
     fetched(box[1], box[2], "개인", false);
     fetched(box[1], box[2], "알림", true); // 읽음 — 세지 않음
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(5L, "m", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(5L, "m", "NORMAL", 8)));
 
     mvc.perform(
             get("/api/v1/mail/accounts/{a}/unread-counts", box[1])
@@ -126,7 +126,7 @@ class MailUnreadCountsTest extends ExternalClientMockedTestBase {
   void classificationActive_falseWithoutAnyAssistant_personalNeedsAiEnabled() throws Exception {
     long[] box = TestFixtures.seedMailbox(dsl, "cnt2-" + System.nanoTime() + "@test.local");
     when(assistantResolver.resolvePersonalOrEmpty(box[0]))
-        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8)));
 
     // 개인 비서는 있지만 계정 AI 꺼짐 → false
     mvc.perform(
@@ -152,7 +152,7 @@ class MailUnreadCountsTest extends ExternalClientMockedTestBase {
   void accountList_classificationActive_matchesUnreadCounts() throws Exception {
     long[] box = TestFixtures.seedMailbox(dsl, "lst-" + System.nanoTime() + "@test.local");
     when(assistantResolver.resolvePersonalOrEmpty(box[0]))
-        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8)));
 
     // 개인 비서는 있지만 계정 AI 꺼짐 → 목록·안 읽은 수 모두 false
     expectListClassificationActive(box[0], box[1], false);
@@ -199,7 +199,7 @@ class MailUnreadCountsTest extends ExternalClientMockedTestBase {
     fetched(b, bInbox, "개인", false);
     fetched(b, bInbox, "알림", false);
     when(assistantResolver.resolvePersonalOrEmpty(a[0]))
-        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(9L, "m", "NORMAL", 8)));
     dsl.update(EMAIL_ACCOUNT)
         .set(EMAIL_ACCOUNT.AI_ENABLED, true)
         .where(EMAIL_ACCOUNT.ID.eq(a[1]))
@@ -262,7 +262,7 @@ class MailUnreadCountsTest extends ExternalClientMockedTestBase {
     // 공통 비서 있음 + 스위치 꺼짐 → 공통 비서가 분류·회신필요를 판정하므로 true
     setAiEnabled(box[1], false);
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(5L, "m", "NORMAL", 8, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(5L, "m", "NORMAL", 8)));
     expectHomeClassificationActive(box[0], true);
   }
 

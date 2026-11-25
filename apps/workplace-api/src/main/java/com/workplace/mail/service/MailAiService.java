@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
@@ -73,6 +75,9 @@ public class MailAiService {
    */
   private final TransactionTemplate readTx;
 
+  /** AI 호출 실행 상한 표 — 답장 초안·코칭·새 메일 초안은 각자의 값을 싣는다(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public MailAiService(
       MailAnalysisService analysis,
       AiAgentMailClient mailClient,
@@ -82,7 +87,9 @@ public class MailAiService {
       AiMemoryReader memoryReader,
       PlatformTransactionManager txManager,
       SharedAiMemoryReader sharedReader,
-      MailPeopleRepository peopleRepo) {
+      MailPeopleRepository peopleRepo,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.analysis = analysis;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
@@ -210,7 +217,7 @@ public class MailAiService {
                 in.spec().agentUserId(),
                 in.spec().model(),
                 MAX_TURNS,
-                in.spec().timeoutMs(),
+                timeouts.timeoutMs(AiCall.MAIL_REPLY_DRAFT),
                 memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
                 shared.items(),
                 shared.moreCount()));
@@ -260,7 +267,7 @@ public class MailAiService {
                 in.spec().agentUserId(),
                 in.spec().model(),
                 MAX_TURNS,
-                in.spec().timeoutMs(),
+                timeouts.timeoutMs(AiCall.MAIL_DRAFT_COACHING),
                 memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
                 shared.items(),
                 shared.moreCount()));
@@ -306,7 +313,7 @@ public class MailAiService {
                 in.account().spec().agentUserId(),
                 in.account().spec().model(),
                 MAX_TURNS,
-                in.account().spec().timeoutMs(),
+                timeouts.timeoutMs(AiCall.MAIL_COMPOSE_DRAFT),
                 // 새 메일이라 메모리 질의가 없다(고정 + 최신)
                 memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null),
                 shared.items(),

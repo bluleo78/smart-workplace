@@ -12,6 +12,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.drive.dto.DriveContentHit;
@@ -92,11 +93,12 @@ class DriveOverviewServiceTest {
             registry,
             sseRegistry,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
   }
 
   private AssistantSpec spec() {
-    return new AssistantSpec(900L, "claude-opus", "NORMAL", 5, 60_000);
+    return new AssistantSpec(900L, "claude-opus", "NORMAL", 5);
   }
 
   private DriveContentHit hit(long fileId, String name) {
@@ -332,7 +334,8 @@ class DriveOverviewServiceTest {
             realRegistry,
             sseRegistry,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -382,7 +385,8 @@ class DriveOverviewServiceTest {
             mockRegistry,
             sseRegistry,
             memoryReader,
-            sharedReader);
+            sharedReader,
+            AiCallTimeouts.defaults());
 
     svc.cancelOverview("corr-1", CALLER);
 

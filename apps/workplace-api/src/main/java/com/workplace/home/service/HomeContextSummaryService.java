@@ -1,5 +1,7 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.util.TokenEstimates;
@@ -40,8 +42,6 @@ public class HomeContextSummaryService {
   /** 요약 실행 예산 — 도구 없는 단발 요약. 클라이언트 read 90s 이내. */
   static final int SUMMARY_MAX_TURNS = 3;
 
-  static final int SUMMARY_TIMEOUT_MS = 60_000;
-
   /**
    * 요약 실패 후 같은 세션의 요약 재시도를 쉬는 시간. ai-agent 가 내려가 있으면 매 예산 초과 턴마다 동기 요약(진행 라벨 + 최대 read 90s 블록)이 반복돼
    * 채팅이 매번 느려지므로, 그동안은 요약 없이 오래된 원문을 버리는 폴백으로 바로 진행한다.
@@ -60,6 +60,9 @@ public class HomeContextSummaryService {
   private final HomeChatProperties props;
   private final AsyncTaskExecutor executor;
 
+  /** AI 호출 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   /** 비동기 요약 진행 중인 세션 — 같은 세션 중복 예약 방지(단일 인스턴스 가정, 중복돼도 조건부 갱신이 막는다). */
   private final Set<UUID> inFlight = ConcurrentHashMap.newKeySet();
 
@@ -71,7 +74,9 @@ public class HomeContextSummaryService {
       AiAgentContextSummaryClient summaryClient,
       AssistantResolver assistantResolver,
       HomeChatProperties props,
-      @Qualifier("homeContextSummaryExecutor") AsyncTaskExecutor executor) {
+      @Qualifier("homeContextSummaryExecutor") AsyncTaskExecutor executor,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.sessionService = sessionService;
     this.summaryClient = summaryClient;
     this.assistantResolver = assistantResolver;
@@ -240,7 +245,7 @@ public class HomeContextSummaryService {
                       spec.agentUserId(),
                       spec.model(),
                       SUMMARY_MAX_TURNS,
-                      SUMMARY_TIMEOUT_MS,
+                      timeouts.timeoutMs(AiCall.HOME_CONTEXT_SUMMARY),
                       cur.summary(),
                       toContextMessages(fold)))
               .summary();

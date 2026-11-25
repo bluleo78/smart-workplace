@@ -214,8 +214,9 @@ public class OutboundConfig {
   }
 
   /**
-   * 후속 질문 전용 executor(WP-139). ai-agent 호출(최대 read 25s)이 채팅 펌프 스레드를 붙잡지 않게 분리한다. 후속 질문은 없어도 되는 부가
-   * 기능이라 소형 풀 + 짧은 큐(core 2·max 2·queue 32)이고 넘치면 버린다(호출부가 TaskRejectedException 을 삼킨다).
+   * 후속 질문 전용 executor(WP-139). ai-agent 호출(후속 질문 상한 20초 + 여유 5초, 최대 read 25s)이 채팅 펌프 스레드를 붙잡지 않게
+   * 분리한다. 후속 질문은 없어도 되는 부가 기능이라 소형 풀 + 짧은 큐(core 2·max 2·queue 32)이고 넘치면 버린다(호출부가
+   * TaskRejectedException 을 삼킨다).
    *
    * <p>core 와 max 를 같게 두는 이유: ThreadPoolExecutor 는 큐가 가득 찬 뒤에야 core 를 넘는 스레드를 만든다. core 1·max 2 였을
    * 땐 큐(32)가 차기 전까지 스레드 1개만 돌아 모든 사용자의 후속 질문(건당 수 초~20초)이 한 줄로 직렬화됐다. 2개면 한 사람의 느린 생성이 다른 사람을 막지

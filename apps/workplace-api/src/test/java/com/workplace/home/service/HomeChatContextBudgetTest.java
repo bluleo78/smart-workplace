@@ -102,7 +102,7 @@ class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
             .getId();
     users.add(id);
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8));
     return id;
   }
 

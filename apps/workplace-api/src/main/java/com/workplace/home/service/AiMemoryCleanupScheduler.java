@@ -1,11 +1,15 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.RoundDeadline;
 import com.workplace.global.ai.TextEmbedder;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.exception.MemoryCleanupAiException;
 import com.workplace.home.outbound.AiAgentMemoryCleanupClient;
+import com.workplace.home.outbound.HomeChatConfig;
 import com.workplace.home.outbound.MemoryCleanupMessages;
 import com.workplace.home.outbound.MemoryCleanupMessages.MemoryRef;
 import com.workplace.home.outbound.MemoryCleanupMessages.Op;
@@ -16,6 +20,8 @@ import com.workplace.home.service.AiMemoryCleanupCollector.Collected;
 import com.workplace.home.service.AiMemoryCleanupCollector.Nothing;
 import com.workplace.home.service.AiMemoryCleanupCollector.Ready;
 import com.workplace.home.service.AiMemoryCleanupCollector.Skip;
+import com.workplace.home.service.SessionCleanupParticipant.DeadlineReached;
+import com.workplace.home.service.SessionCleanupParticipant.SpaceBudget;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,11 +58,19 @@ public class AiMemoryCleanupScheduler {
   static final Duration WINDOW = Duration.ofDays(7);
   static final int SESSIONS_PER_TENANT = 20;
   static final int MAX_FAILURES = 3;
-  static final int AGENT_TIMEOUT_MS = 30_000;
   static final Duration RESULT_EMBED_WAIT = Duration.ofSeconds(5);
 
-  /** 한 회차의 시간 예산 — 시작 뒤 이만큼 지나면 새 세션을 시작하지 않고 남은 세션은 다음 회차로 넘긴다(잠금 40분 안에 끝나게). */
-  static final Duration RUN_BUDGET = Duration.ofMinutes(25);
+  /**
+   * 새 세션 시작 마감 — 시작 뒤 이만큼 지나면 새 세션을 시작하지 않고 남은 세션은 다음 회차로 넘긴다. 세션 안의 공용 추출은 공간 수에 상한이 없어 이것만으로는 잠금을
+   * 지키지 못하므로, 공간마다 {@link #LOCK_AT_MOST} − 2분 마감도 확인한다(WP-2111, {@link SpaceBudget}).
+   */
+  static final Duration RUN_BUDGET = Duration.ofMinutes(20);
+
+  /** 잠금 최대 — @SchedulerLock 의 lockAtMostFor 와 회차 마감 계산이 함께 쓰는 한 값. */
+  static final String LOCK_AT_MOST_FOR = "PT40M";
+
+  /** 잠금 최대 Duration — {@link #LOCK_AT_MOST_FOR} 를 파싱한 값. */
+  static final Duration LOCK_AT_MOST = Duration.parse(LOCK_AT_MOST_FOR);
 
   /**
    * 내용을 새로 만드는 op — 결과 문장을 임베딩해 지운 기록과 비교한다. WP-386 공용 추출(SharedMemoryExtractionParticipant)도 같은
@@ -78,6 +92,12 @@ public class AiMemoryCleanupScheduler {
   private final ObjectProvider<SessionCleanupParticipant> participants;
   private final TransactionTemplate tx;
 
+  /** AI 호출 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
+  /** 정리 호출 하나의 최악 — 정리 클라이언트의 읽기 상한(덮어쓴 값 반영). 정리 호출 전 마감 확인에 쓴다(WP-2111 리뷰 후속). */
+  private final Duration cleanupWorst;
+
   public AiMemoryCleanupScheduler(
       TenantScopedRunner tenantRunner,
       AiMemoryCleanupRepository cleanupRepo,
@@ -86,7 +106,10 @@ public class AiMemoryCleanupScheduler {
       AiAgentMemoryCleanupClient client,
       TextEmbedder embedder,
       ObjectProvider<SessionCleanupParticipant> participants,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
+    this.cleanupWorst = HomeChatConfig.memoryCleanupReadTimeout(timeouts);
     this.tenantRunner = tenantRunner;
     this.cleanupRepo = cleanupRepo;
     this.collector = collector;
@@ -98,11 +121,16 @@ public class AiMemoryCleanupScheduler {
   }
 
   /**
-   * 5분 간격(앞 회차가 끝난 뒤부터). 첫 실행은 기동 3분 뒤 — 배포 직후 ai-agent 재기동 구간을 피한다. 잠금은 최대 40분(기본 30분보다 길게) — 회차는
-   * {@link #RUN_BUDGET}(25분)이 지나면 새 세션을 시작하지 않으므로, 마지막 세션(ai-agent 30초 + 임베딩·적용)까지 끝나도 잠금 안이다.
+   * 5분 간격(앞 회차가 끝난 뒤부터). 첫 실행은 기동 3분 뒤 — 배포 직후 ai-agent 재기동 구간을 피한다. 잠금은 최대 40분(기본 30분보다 길게).
+   *
+   * <p>잠금 계산(WP-2111): 새 세션은 {@link #RUN_BUDGET}(20분) 안에서만 시작하고(정리 읽기 상한 기본 90초 + 결과 임베딩), 세션 안의 공용
+   * 추출은 공간마다 시작 전에 「지금 + 공간 최악(추출 90초 + 검사 2×90초 + 임베딩 20×5초 = 370초)」이 회차 마감(잠금 40분 − 2분 = 38분)을
+   * 넘는지 본다(추출·검사 최악은 배경 클라이언트 읽기 상한). 넘으면 그 세션은 다음 회차로 미루고(실패로 세지 않음) 회차를 멈춘다 — 회차의 첫 세션만은 미루지 않고
+   * 처리한 공간까지만 진행한 것으로 기록한다: 경계를 건너뛴 첫 공간의 첫 발화 바로 앞까지만 올려 다음 회차가 남은 공간부터 이어 한다(건너뛴 발화를 잃지 않고, 회차마다
+   * 적어도 한 공간씩 나아간다). 그래서 마지막 공간이 끝나는 시각 ≤ 38분이고, 남는 2분이 적용 트랜잭션 몫이다.
    */
   @Scheduled(initialDelay = 180_000, fixedDelay = 300_000)
-  @SchedulerLock(name = "AiMemoryCleanupScheduler.runOnce", lockAtMostFor = "PT40M")
+  @SchedulerLock(name = "AiMemoryCleanupScheduler.runOnce", lockAtMostFor = LOCK_AT_MOST_FOR)
   public void runOnce() {
     runAllTenants();
   }
@@ -116,6 +144,9 @@ public class AiMemoryCleanupScheduler {
   int runAllTenants(Clock clock) {
     Instant started = clock.instant();
     Instant deadline = started.plus(RUN_BUDGET);
+    RoundDeadline lockDeadline = RoundDeadline.underLock(clock, LOCK_AT_MOST);
+    // 이번 회차에 이미 ai-agent 를 부른 세션이 있는가 — 없으면(첫 세션) 공간 마감에 걸려도 미루지 않고 처리한 공간까지만 기록한다(SpaceBudget 참고).
+    boolean agentCalled = false;
     OffsetDateTime now = OffsetDateTime.ofInstant(started, ZoneOffset.UTC);
     List<Target> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
@@ -143,10 +174,18 @@ public class AiMemoryCleanupScheduler {
       }
       TenantContext.set(t.tenantId());
       try {
-        Outcome o = process(t);
-        if (o.calledAgent()) guard.recordResponse();
+        Outcome o = process(t, new SpaceBudget(lockDeadline, agentCalled));
+        if (o.calledAgent()) {
+          guard.recordResponse();
+          agentCalled = true;
+        }
         if (o.marked()) marked++;
+      } catch (DeadlineReached e) {
+        // 공간 마감 — 경계를 그대로 두어 다음 회차가 이 세션부터 다시 한다(실패로 세지 않는다).
+        log.warn("메모리 정리 회차 마감 — 세션 {}과 남은 {}개 세션은 다음 회차에", t.sessionId(), targets.size() - i - 1);
+        break;
       } catch (MemoryCleanupAiException e) {
+        agentCalled = true;
         boolean down = e.isAgentDown();
         if (down) guard.recordUnavailable();
         else guard.recordResponse();
@@ -168,22 +207,41 @@ public class AiMemoryCleanupScheduler {
   }
 
   /** 세션 하나 — 수집 → (건너뛰면 경계만) → ai-agent → 참여자 준비 → 결과 임베딩 → 적용. */
-  private Outcome process(Target t) {
+  private Outcome process(Target t, SpaceBudget budget) {
     Collected c = collector.collect(t.tenantId(), t.userId(), t.sessionId(), t.processedId());
     return switch (c) {
       case Nothing n -> new Outcome(false, false);
       case Skip s ->
           new Outcome(false, applier.markSkipped(t.sessionId(), t.processedId(), s.uptoId()));
-      case Ready r -> run(r.input());
+      case Ready r -> run(r.input(), budget);
     };
   }
 
-  private Outcome run(SessionCleanupInput in) {
+  /**
+   * 정리 호출 → 결과 임베딩 → 참여자 준비(공간 마감 확인) → 적용. 임베딩을 참여자 준비보다 먼저 해, 공간 마감 확인 뒤에는 적용만 남게 한다(WP-2111).
+   */
+  private Outcome run(SessionCleanupInput in, SpaceBudget budget) {
+    // 미루는 예산(회차 첫 세션이 아님)이면 정리 호출 전에 「정리 최악 + 참여자 단위 하나 최악」이 마감 안인지 본다 — 호출 뒤 첫 공간에서 걸려 미루면
+    // 끝난 정리 호출·임베딩을 버리고 다음 회차에 되풀이한다(WP-2111 리뷰 후속). 첫 세션은 미루지 않으므로 보지 않는다(참여자가 처리한 데까지만 기록).
+    if (budget.deferOnOverrun()
+        && !budget.deadline().allows(cleanupWorst.plus(participantUnitWorst()))) {
+      throw new DeadlineReached("메모리 정리 — 회차 마감 전에 정리 호출과 공간 하나를 끝낼 수 없음");
+    }
     Result result = client.cleanup(request(in));
-    List<SessionCleanupParticipant.Prepared> prepared =
-        participants.orderedStream().map(p -> p.prepare(in)).toList();
     Map<String, float[]> vectors = embedResults(result.ops());
+    List<SessionCleanupParticipant.Prepared> prepared =
+        participants.orderedStream().map(p -> p.prepare(in, budget)).toList();
     return new Outcome(true, applier.apply(in, result.ops(), vectors, prepared));
+  }
+
+  /** 참여자 처리 단위 하나의 최악 중 가장 큰 값(없거나 모르면 0). */
+  private Duration participantUnitWorst() {
+    return participants
+        .orderedStream()
+        .map(SessionCleanupParticipant::unitWorst)
+        .filter(java.util.Objects::nonNull)
+        .max(Duration::compareTo)
+        .orElse(Duration.ZERO);
   }
 
   /**
@@ -230,12 +288,12 @@ public class AiMemoryCleanupScheduler {
     }
   }
 
-  /** 수집 입력 → ai-agent 요청(비서 추천 모델, 30초). */
-  static Request request(SessionCleanupInput in) {
+  /** 수집 입력 → ai-agent 요청(비서 추천 모델, 실행 상한은 표의 HOME_MEMORY_CLEANUP). */
+  Request request(SessionCleanupInput in) {
     return new Request(
         in.spec().agentUserId(),
         in.spec().suggestionModel(),
-        AGENT_TIMEOUT_MS,
+        timeouts.timeoutMs(AiCall.HOME_MEMORY_CLEANUP),
         in.today().toString(),
         in.utterances().stream().map(SessionCleanupInput.Utterance::text).toList(),
         in.assistantNotes().stream()

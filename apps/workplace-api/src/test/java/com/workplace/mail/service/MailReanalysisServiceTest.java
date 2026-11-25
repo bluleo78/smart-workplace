@@ -44,8 +44,7 @@ import org.springframework.web.client.ResourceAccessException;
 @Transactional
 class MailReanalysisServiceTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
 
   @Autowired MailReanalysisService reanalysis;
   @Autowired DSLContext dsl;

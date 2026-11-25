@@ -1,5 +1,7 @@
 package com.workplace.wiki.report;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.airun.service.AiRunRecorder;
@@ -107,6 +109,10 @@ public class PersonalReportGenerator {
   private final AiAgentIssueClient client;
   private final UserRepository users;
   private final AiRunRecorder aiRunRecorder;
+
+  /** AI 호출 종류별 실행 상한 표(WP-2111) — 개인 보고는 PERSONAL_REPORT. */
+  private final AiCallTimeouts timeouts;
+
   private final TransactionTemplate tx;
   private final String issueUrlPrefix;
 
@@ -122,6 +128,7 @@ public class PersonalReportGenerator {
       AiAgentIssueClient client,
       UserRepository users,
       AiRunRecorder aiRunRecorder,
+      AiCallTimeouts timeouts,
       PlatformTransactionManager txManager,
       @Value("${workplace.public-base-url:}") String publicBaseUrl) {
     this.settings = settings;
@@ -135,6 +142,7 @@ public class PersonalReportGenerator {
     this.client = client;
     this.users = users;
     this.aiRunRecorder = aiRunRecorder;
+    this.timeouts = timeouts;
     this.tx = new TransactionTemplate(txManager);
     // 공개 주소가 없으면 링크 다듬기를 건너뛴다 — 경고는 프로젝트 리포트 생성기가 기동 때 이미 한 번 남긴다(같은 설정값).
     this.issueUrlPrefix = ProjectReportGenerator.issueUrlPrefix(publicBaseUrl);
@@ -391,7 +399,7 @@ public class PersonalReportGenerator {
         spec.model(),
         spec.maxTurns(),
         // 비서 예산(기본 60초)이 아니라 리포트 전용 예산 — 긴 입력·출력이라 모자란다(프로젝트 리포트와 같은 값).
-        AiAgentIssueClient.PROJECT_REPORT_TIMEOUT_MS);
+        timeouts.timeoutMs(AiCall.PERSONAL_REPORT));
   }
 
   /** 일일 표 한 줄 — 머리 칸과 값을 「끝냄 4 · 기한 내 3 | 새로 만듦 1 | …」 로 잇는다. */

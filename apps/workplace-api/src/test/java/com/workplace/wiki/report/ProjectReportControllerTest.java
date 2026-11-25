@@ -134,7 +134,7 @@ class ProjectReportControllerTest extends ExternalClientMockedTestBase {
   @Test
   void generate_ownerOk_memberForbidden_failureBadGateway() throws Exception {
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(ownerId, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(ownerId, "m", "low", 4)));
     doReturn(new ProjectReportAiResult("## 상태와 한 줄\n\n지금 만든 리포트"))
         .when(client)
         .writeProjectReport(any());

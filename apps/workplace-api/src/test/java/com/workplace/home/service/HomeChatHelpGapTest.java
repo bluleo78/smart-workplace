@@ -125,7 +125,7 @@ class HomeChatHelpGapTest extends ExternalClientMockedTestBase {
       long uid, String question, String answer, AiScreenContext screen, Runnable beforeDone)
       throws Exception {
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8));
     CountDownLatch done = new CountDownLatch(1);
     AtomicBoolean entered = new AtomicBoolean(false);
     AtomicReference<Throwable> pumpFailure = new AtomicReference<>();

@@ -107,7 +107,7 @@ class MailSummaryDedupIntegrationTest extends ExternalClientMockedTestBase {
 
     // 비서 해석·LLM 호출 mock
     // ③ 원본 분석은 resolveWorkspaceOrEmpty()(공통 비서)만 본다. resolve() 스텁은 다른 경로 대비 그대로 둔다.
-    AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+    AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
     given(assistantResolver.resolve(any(Long.class))).willReturn(spec);
     given(assistantResolver.resolveWorkspaceOrEmpty()).willReturn(java.util.Optional.of(spec));
     given(assistantResolver.resolvePersonalOrEmpty(any(Long.class)))

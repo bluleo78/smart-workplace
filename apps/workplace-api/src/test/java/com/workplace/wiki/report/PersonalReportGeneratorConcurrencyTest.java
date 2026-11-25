@@ -75,7 +75,7 @@ class PersonalReportGeneratorConcurrencyTest extends ExternalClientMockedTestBas
         projectService.create(me, new CreateProjectRequest(key, "동시-" + key, null, "TEAM"));
     projectId = project.id();
     when(assistantResolver.resolveOrEmpty(me))
-        .thenReturn(Optional.of(new AssistantSpec(me, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(me, "m", "low", 4)));
     when(client.writePersonalReport(any()))
         .thenReturn(new PersonalReportAiResult("## 한 줄\n\n어제 일을 끝냈습니다.\n"));
     var issue =

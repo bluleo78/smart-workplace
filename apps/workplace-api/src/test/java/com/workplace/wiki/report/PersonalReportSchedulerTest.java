@@ -70,7 +70,7 @@ class PersonalReportSchedulerTest extends ExternalClientMockedTestBase {
   void seed() {
     fixtureTenant = ensureFixtureTenant("personal-report-scheduler");
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4)));
   }
 
   @AfterEach
@@ -226,7 +226,12 @@ class PersonalReportSchedulerTest extends ExternalClientMockedTestBase {
     long due = person(fixtureTenant, true, NOW.minusMinutes(1));
     AiAgentProperties off = Mockito.mock(AiAgentProperties.class); // enabled() == false
     PersonalReportScheduler offScheduler =
-        new PersonalReportScheduler(tenantRunner, settingRepository, generator, off);
+        new PersonalReportScheduler(
+            tenantRunner,
+            settingRepository,
+            generator,
+            off,
+            com.workplace.airun.AiCallTimeouts.defaults());
 
     assertThat(offScheduler.runOnce(CLOCK)).isEqualTo(new PersonalReportScheduler.Summary(0, 0, 0));
     assertThat(nextRunAt(fixtureTenant, due).toInstant())

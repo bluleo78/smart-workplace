@@ -1,11 +1,15 @@
 package com.workplace.issue.overview.status;
 
+import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.RoundDeadline;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.issue.outbound.IssueAiConfig;
 import com.workplace.issue.overview.status.ProjectStatusSummaryService.Outcome;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -40,9 +44,19 @@ public class ProjectStatusSummaryScheduler {
   private final ProjectStatusSummaryService service;
   private final AiAgentProperties aiAgentProperties;
 
+  /** AI 호출 실행 상한 표(WP-2111) — 회차 시간 예산에서 한 건의 최악 시간을 계산한다. */
+  private final AiCallTimeouts timeouts;
+
+  /** 잠금 최대 — @SchedulerLock 의 lockAtMostFor 와 회차 마감 계산이 함께 쓰는 한 값. */
+  static final String LOCK_AT_MOST_FOR = "PT30M";
+
+  /** 잠금 최대 Duration — {@link #LOCK_AT_MOST_FOR} 를 파싱한 값. */
+  static final Duration LOCK_AT_MOST = Duration.parse(LOCK_AT_MOST_FOR);
+
   /**
    * 한 회차에 처리하는 프로젝트 수 상한(모든 테넌트 합계). 첫 배포 때는 모든 프로젝트가 한꺼번에 대상이 되는데, 한 건마다 AI 호출(최대 수십 초)이 이어져 한 회차가
-   * ShedLock 잠금(30분)을 넘기면 다른 파드가 겹쳐 돌 수 있다 — 그래서 한 회차를 묶고, 나머지는 다음 5분 회차에 이어서 처리한다.
+   * ShedLock 잠금(30분)을 넘기면 다른 파드가 겹쳐 돌 수 있다 — 그래서 한 회차를 묶고, 나머지는 다음 5분 회차에 이어서 처리한다. 호출 상한(기본 120초)이
+   * 올라 30 × 150초가 잠금을 넘으므로 시간 예산({@link RoundDeadline})이 먼저 끊는다(WP-2111).
    */
   static final int MAX_PER_RUN = 30;
 
@@ -67,7 +81,7 @@ public class ProjectStatusSummaryScheduler {
 
   /** 5분마다(기동 1분 뒤 시작) — 점검 시각이 된 프로젝트의 상태 요약을 점검한다. */
   @Scheduled(fixedDelay = 300_000, initialDelay = 60_000)
-  @SchedulerLock(name = "ProjectStatusSummaryScheduler.runOnce", lockAtMostFor = "PT30M")
+  @SchedulerLock(name = "ProjectStatusSummaryScheduler.runOnce", lockAtMostFor = LOCK_AT_MOST_FOR)
   public void runOnce() {
     Summary s = runOnce(clock);
     if (s.targets() > 0) {
@@ -102,6 +116,12 @@ public class ProjectStatusSummaryScheduler {
    * @param limit 이번 회차에 처리할 최대 프로젝트 수
    */
   Summary runOnce(Clock runClock, int limit) {
+    // 회차 시간 예산(WP-2111) — 회차 시작(잠금 직후, 대상 수집 전)에 마감을 잡는다(수집도 잠금 안에서 흐른다).
+    // 건당 최악은 이슈 클라이언트 읽기 상한(IssueAiConfig#readTimeout) — 같은 클라이언트가 나르는 항목 최대 + 여유라, ai-agent 가 상한을
+    // 지키지 않아도 HTTP 가 그만큼만 기다린다. 다음 건은 그 최악이 마감 안에 끝날
+    // 때만 시작한다(개수 상한만으로는 상한을 덮어쓰면 잠금을 넘는다). 남은 대상은 다음 실행 시각이 그대로라 다음 회차 앞쪽에 온다.
+    RoundDeadline deadline = RoundDeadline.underLock(runClock, LOCK_AT_MOST);
+    Duration perCall = IssueAiConfig.readTimeout(timeouts);
     // AI 연동이 꺼져 있으면 회차를 열지 않는다(WP-1640) — 점검 시각을 밀지 않아 다시 켜면 곧 점검된다.
     if (!aiAgentProperties.enabled()) return new Summary(0, 0, 0, 0, 0, 0);
     OffsetDateTime now = OffsetDateTime.now(runClock);
@@ -117,7 +137,16 @@ public class ProjectStatusSummaryScheduler {
           }
         });
     Map<Outcome, Integer> counts = new EnumMap<>(Outcome.class);
+    int processed = 0;
     for (Target t : targets) {
+      if (!deadline.allowsOrWarn(
+          perCall,
+          log,
+          "프로젝트 상태 요약 회차 시간 예산 소진 — 남은 프로젝트 {}건은 다음 회차에",
+          targets.size() - processed)) {
+        break;
+      }
+      processed++;
       TenantContext.set(t.tenantId());
       Outcome outcome;
       try {
@@ -132,7 +161,7 @@ public class ProjectStatusSummaryScheduler {
       counts.merge(outcome, 1, Integer::sum);
     }
     return new Summary(
-        targets.size(),
+        processed,
         counts.getOrDefault(Outcome.GENERATED, 0),
         counts.getOrDefault(Outcome.UNCHANGED, 0),
         counts.getOrDefault(Outcome.SKIPPED_EMPTY, 0),

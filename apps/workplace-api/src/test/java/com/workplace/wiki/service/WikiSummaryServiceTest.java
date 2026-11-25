@@ -65,7 +65,7 @@ class WikiSummaryServiceTest extends ExternalClientMockedTestBase {
     TenantContext.set(1L);
     // 요약은 모든 독자가 공유하므로 공용(워크스페이스) 비서로만 만든다 — 호출자 개인 비서는 쓰지 않는다.
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(900L, "claude-test", "NORMAL", 3, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(900L, "claude-test", "NORMAL", 3)));
   }
 
   @AfterEach

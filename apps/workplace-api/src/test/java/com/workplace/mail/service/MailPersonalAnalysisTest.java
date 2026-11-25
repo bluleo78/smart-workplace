@@ -50,8 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RecordApplicationEvents
 class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
 
   @Autowired MailAnalysisService analysis;
   @Autowired DSLContext dsl;
@@ -169,6 +168,8 @@ class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
     analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     AnalyzePersonalRequest req = captured();
+    // 실행 상한은 비서 설정(60_000)이 아니라 표(MAIL_ANALYZE_PERSONAL)에서 온다(WP-2111).
+    assertThat(req.timeoutMs()).isEqualTo(120_000);
     assertThat(req.includeNeedsReply()).isTrue();
     assertThat(req.includeCategory()).isTrue(); // 공통 비서 없음 + content 분류 비어 있음
     assertThat(req.includePersonalSummary()).isFalse(); // 개인 비서 없음

@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
@@ -60,6 +62,9 @@ public class MailCategoryService {
   private final MailAnalysisService analysis;
   private final TransactionTemplate txTemplate;
 
+  /** AI 호출 실행 상한 표 — 분류 학습은 MAIL_LEARN_CATEGORY 값을 싣는다(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public MailCategoryService(
       EmailMessageRepository messageRepo,
       NeedsReplyFinalizer finalizer,
@@ -69,7 +74,9 @@ public class MailCategoryService {
       AiMemoryWriter memoryWriter,
       AiAgentMailClient mailClient,
       MailAnalysisService analysis,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.messageRepo = messageRepo;
     this.finalizer = finalizer;
     this.notifier = notifier;
@@ -164,7 +171,7 @@ public class MailCategoryService {
                   spec.agentUserId(),
                   spec.model(),
                   MAX_TURNS,
-                  spec.timeoutMs()));
+                  timeouts.timeoutMs(AiCall.MAIL_LEARN_CATEGORY)));
     } catch (RuntimeException e) {
       // 구 ai-agent(404)·모델 출력 오류(502)·불가(503) — 분류 변경은 이미 끝났다. 학습만 건너뛴다(Review Focus 4).
       log.warn("메일 분류 학습 실패 — 기억 없이 끝냄 (messageId={}): {}", messageId, e.toString());

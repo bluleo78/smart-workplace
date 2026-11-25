@@ -65,6 +65,19 @@ spec:
             - name: AGENT_RUNTIME_IMAGES
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.api.aiTimeouts }}
+            # AI 호출 종류별 실행 상한 덮어쓰기(WP-2111) — values.yaml api.aiTimeouts 참고. 키 정렬로 렌더가 안정적이다
+            - name: WORKPLACE_AI_TIMEOUT_OVERRIDES
+              {{- $pairs := list }}
+              {{- range $k := keys . | sortAlpha }}
+              {{- $v := toString (get $.Values.api.aiTimeouts $k) }}
+              {{- if regexMatch "^[0-9.]+$" $v }}
+              {{- fail (printf "api.aiTimeouts.%s 는 90s·3m 처럼 단위를 붙여야 합니다 (받은 값: %s)" $k $v) }}
+              {{- end }}
+              {{- $pairs = append $pairs (printf "%s=%s" $k $v) }}
+              {{- end }}
+              value: {{ join "," $pairs | quote }}
+            {{- end }}
             {{- with .Values.agentPluginVersion }}
             # 이 릴리스의 genia-works 플러그인 버전 — values.yaml agentPluginVersion 참고(WP-1707)
             - name: AGENT_PLUGIN_VERSION

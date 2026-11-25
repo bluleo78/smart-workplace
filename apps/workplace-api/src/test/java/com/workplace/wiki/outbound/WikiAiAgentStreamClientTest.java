@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.sun.net.httpserver.HttpServer;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.service.AiRunRecorder;
 import com.workplace.global.outbound.AiAgentProperties;
 import java.io.OutputStream;
@@ -60,7 +61,9 @@ class WikiAiAgentStreamClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new WikiAiAgentStreamClient(props, HttpClient.newHttpClient(), recorder);
+    client =
+        new WikiAiAgentStreamClient(
+            props, HttpClient.newHttpClient(), recorder, AiCallTimeouts.defaults());
   }
 
   @Test
@@ -115,7 +118,9 @@ class WikiAiAgentStreamClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new WikiAiAgentStreamClient(props, HttpClient.newHttpClient(), recorder);
+    client =
+        new WikiAiAgentStreamClient(
+            props, HttpClient.newHttpClient(), recorder, AiCallTimeouts.defaults());
 
     List<String> deltas = new ArrayList<>();
     AtomicBoolean done = new AtomicBoolean(false);
@@ -173,7 +178,9 @@ class WikiAiAgentStreamClientTest {
     AiAgentProperties props =
         new AiAgentProperties(
             "http://127.0.0.1:" + server.getAddress().getPort(), "changeme-local", true);
-    client = new WikiAiAgentStreamClient(props, HttpClient.newHttpClient(), recorder);
+    client =
+        new WikiAiAgentStreamClient(
+            props, HttpClient.newHttpClient(), recorder, AiCallTimeouts.defaults());
   }
 
   private void callClient() throws Exception {
@@ -227,7 +234,9 @@ class WikiAiAgentStreamClientTest {
     }
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + closedPort, "changeme-local", true);
-    client = new WikiAiAgentStreamClient(props, HttpClient.newHttpClient(), recorder);
+    client =
+        new WikiAiAgentStreamClient(
+            props, HttpClient.newHttpClient(), recorder, AiCallTimeouts.defaults());
     org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.stream("{}", t -> {}, () -> {}))
         .isInstanceOf(java.io.IOException.class);
     org.mockito.ArgumentCaptor<com.workplace.airun.dto.AiRunRecord> cap =

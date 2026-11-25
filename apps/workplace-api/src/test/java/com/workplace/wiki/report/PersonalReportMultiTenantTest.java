@@ -75,7 +75,7 @@ class PersonalReportMultiTenantTest extends ExternalClientMockedTestBase {
           });
     }
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4)));
     when(client.writePersonalReport(any()))
         .thenReturn(new PersonalReportAiResult("## 한 줄\n\n일을 했습니다.\n"));
   }

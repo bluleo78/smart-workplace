@@ -47,8 +47,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 class WikiHtmlScriptsCheckCommitTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1);
 
   @Autowired DSLContext dsl;
   @Autowired MockMvc mvc;

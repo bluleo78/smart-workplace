@@ -81,8 +81,7 @@ import org.springframework.transaction.annotation.Transactional;
 class SecurityCheckEndpointsTest extends ExternalClientMockedTestBase {
 
   private static final long T = 1L;
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(1L, "claude-sonnet-4-6", "NORMAL", 1);
   private static final String SCRIPT_HTML = "<html><body><script>alert(1)</script></body></html>";
 
   @Autowired MockMvc mvc;

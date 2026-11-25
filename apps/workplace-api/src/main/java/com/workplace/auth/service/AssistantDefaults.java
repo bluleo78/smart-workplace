@@ -13,5 +13,4 @@ public final class AssistantDefaults {
   public static final String THINKING_DEPTH = "DEFAULT";
 
   public static final int MAX_TURNS = 8;
-  public static final int TIMEOUT_MS = 60_000;
 }

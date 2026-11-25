@@ -87,7 +87,7 @@ class ProjectReportGenerateNowTest extends ExternalClientMockedTestBase {
     project =
         projectService.create(owner, new CreateProjectRequest(key, "리포트-" + key, null, "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())
-        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
   }
 
   // ───────────── 헬퍼 ─────────────

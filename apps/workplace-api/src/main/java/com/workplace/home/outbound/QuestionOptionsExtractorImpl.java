@@ -1,5 +1,7 @@
 package com.workplace.home.outbound;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.chat.outbound.QuestionOptionsExtractor;
@@ -25,25 +27,27 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 함께 보는 것이라 어느 한 사람의 설정으로 켜고 끌 수 없다. 워크스페이스·프로젝트 단위의 AI 추천 켜기/끄기 설정은 아직 없어(2026-11 확인 —
  * tenant·project· assistant_config 에 해당 칼럼 없음), 연결된 비서가 있느냐만 본다.
  *
- * <p>트랜잭션: 비서 해석만 짧은 트랜잭션(RLS GUC 주입)으로 하고, ai-agent HTTP(최대 {@link #TIMEOUT_MS})는 트랜잭션 밖에서
- * 부른다(커넥션을 쥔 채 기다리지 않게).
+ * <p>트랜잭션: 비서 해석만 짧은 트랜잭션(RLS GUC 주입)으로 하고, ai-agent HTTP(상한은
+ * AiCall.HOME_SUGGESTIONS_QUESTION_OPTIONS)는 트랜잭션 밖에서 부른다(커넥션을 쥔 채 기다리지 않게).
  */
 @Component
 public class QuestionOptionsExtractorImpl implements QuestionOptionsExtractor {
-
-  /** ai-agent 실행 상한 — 후속 질문(HomeFollowupService)과 같다. 클라이언트 read 25s 이내. */
-  static final int TIMEOUT_MS = 20_000;
 
   private final ProjectRepository projectRepo;
   private final AssistantResolver assistantResolver;
   private final AiAgentSuggestionClient client;
   private final TransactionTemplate txTemplate;
 
+  /** AI 호출 실행 상한 표(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public QuestionOptionsExtractorImpl(
       ProjectRepository projectRepo,
       AssistantResolver assistantResolver,
       AiAgentSuggestionClient client,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.projectRepo = projectRepo;
     this.assistantResolver = assistantResolver;
     this.client = client;
@@ -70,6 +74,6 @@ public class QuestionOptionsExtractorImpl implements QuestionOptionsExtractor {
             question,
             null,
             QuestionOptions.MAX,
-            TIMEOUT_MS));
+            timeouts.timeoutMs(AiCall.HOME_SUGGESTIONS_QUESTION_OPTIONS)));
   }
 }

@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
 import com.workplace.auth.service.AssistantResolver;
@@ -52,8 +54,11 @@ public class MailAnalysisService {
   /** 단발 호출이라 turn 1 고정. */
   private static final int MAX_TURNS = 1;
 
-  /** 다른 스레드가 같은 메일을 분석 중일 때 기다리는 상한 — LLM 타임아웃보다 넉넉히. */
-  private static final Duration SINGLE_FLIGHT_WAIT = Duration.ofSeconds(150);
+  /**
+   * 다른 스레드가 같은 메일을 분석 중일 때 기다리는 상한에 더하는 여유 — 리더의 최악(분석 호출 읽기 상한)에 이만큼 더 기다려, 기다리는 쪽이 리더보다 먼저 포기하지
+   * 않게 한다(WP-2111 — 예전 고정 150초는 상한을 덮어쓰면 리더보다 짧아졌다).
+   */
+  static final Duration SINGLE_FLIGHT_EXTRA = Duration.ofSeconds(30);
 
   private final AiAgentMailClient mailClient;
   private final EmailMessageRepository messageRepo;
@@ -65,7 +70,19 @@ public class MailAnalysisService {
   private final MailChangeNotifier notifier;
   private final AiMemoryReader memoryReader;
   private final TransactionTemplate txTemplate;
-  private final SingleFlight singleFlight = new SingleFlight(SINGLE_FLIGHT_WAIT);
+
+  /** AI 호출 실행 상한 표 — 분석 호출은 비서 설정이 아니라 이 표의 값을 싣는다(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
+  /** 같은 메일 분석 단일 실행 — 대기 상한은 생성자에서 {@link #singleFlightWait} 로 정한다. */
+  private final SingleFlight singleFlight;
+
+  /** SingleFlight 대기 상한 — 본문·개인 분석 읽기 상한(실행 상한 최대 + 읽기 여유) + {@link #SINGLE_FLIGHT_EXTRA}. */
+  static Duration singleFlightWait(AiCallTimeouts timeouts) {
+    return timeouts
+        .readTimeoutFor(AiCall.MAIL_ANALYZE_CONTENT, AiCall.MAIL_ANALYZE_PERSONAL)
+        .plus(SINGLE_FLIGHT_EXTRA);
+  }
 
   public MailAnalysisService(
       AiAgentMailClient mailClient,
@@ -77,7 +94,10 @@ public class MailAnalysisService {
       NeedsReplyFinalizer finalizer,
       MailChangeNotifier notifier,
       AiMemoryReader memoryReader,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
+    this.singleFlight = new SingleFlight(singleFlightWait(timeouts));
     this.memoryReader = memoryReader;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
@@ -155,7 +175,8 @@ public class MailAnalysisService {
                         true,
                         !skipSummary,
                         spec,
-                        ctx.senderIsMember())));
+                        ctx.senderIsMember(),
+                        timeouts)));
     // WP-1340·1342: 검증 뒤 결정적 보정(광고 표기·사내 발신)
     String category =
         MailCategoryRules.sharedCategory(r.category(), ctx.subject(), ctx.senderIsMember());
@@ -223,7 +244,7 @@ public class MailAnalysisService {
                 ctx, Started.USER), // 사용자가 누른 강제 요약 — 주체는 SecurityContext 기본값, 원본 시각 비움(WP-1829)
             () ->
                 mailClient.analyzeContent(
-                    contentRequest(ctx, newBody, wantCategory, true, spec, member)));
+                    contentRequest(ctx, newBody, wantCategory, true, spec, member, timeouts)));
     String category =
         wantCategory ? MailCategoryRules.sharedCategory(r.category(), ctx.subject(), member) : null;
     txTemplate.executeWithoutResult(
@@ -444,7 +465,8 @@ public class MailAnalysisService {
                             wantPersonal,
                             wantCategory,
                             spec,
-                            memories)))
+                            memories,
+                            timeouts)))
             : RULE_SKIPPED_RESULT;
     if (r.needsReply() == null) {
       throw new IllegalStateException("개인 분석 응답에 needsReply 가 없음 (messageId=" + messageId + ")");
@@ -562,7 +584,8 @@ public class MailAnalysisService {
                         true,
                         false,
                         spec,
-                        null)));
+                        null,
+                        timeouts)));
     String summary = r.personalSummaryValid() ? r.personalSummary() : null;
     txTemplate.executeWithoutResult(status -> messageRepo.savePersonalSummary(messageId, summary));
   }
@@ -602,6 +625,7 @@ public class MailAnalysisService {
    * @param me "나" 프로필(주소는 rules 와 같은 집합)
    * @param extra 보낸 사람 관계·이전 메일·연결 이슈·첨부(없으면 {@link PersonalContext#EMPTY})
    * @param memories 메일 범위 기억(개인 비서이고 하나라도 있을 때만, 아니면 null) — 있으면 개인 비서 분류도 요청한다(WP-1341·1346)
+   * @param timeouts 실행 상한 표 — 개인 분석은 MAIL_ANALYZE_PERSONAL 값을 싣는다(WP-2111)
    */
   static AnalyzePersonalRequest personalRequest(
       AnalysisContext ctx,
@@ -613,7 +637,8 @@ public class MailAnalysisService {
       boolean includePersonalSummary,
       boolean includeCategory,
       AssistantSpec spec,
-      List<AiMemoryLine> memories) {
+      List<AiMemoryLine> memories,
+      AiCallTimeouts timeouts) {
     return new AnalyzePersonalRequest(
         nz(ctx.subject()),
         nz(ctx.fromAddress()),
@@ -633,7 +658,7 @@ public class MailAnalysisService {
         spec.agentUserId(),
         spec.model(),
         MAX_TURNS,
-        spec.timeoutMs(),
+        timeouts.timeoutMs(AiCall.MAIL_ANALYZE_PERSONAL),
         memories != null ? Boolean.TRUE : null,
         memories);
   }
@@ -659,7 +684,8 @@ public class MailAnalysisService {
       boolean includeCategory,
       boolean includeSummary,
       AssistantSpec spec,
-      boolean senderIsMember) {
+      boolean senderIsMember,
+      AiCallTimeouts timeouts) {
     return new AnalyzeContentRequest(
         nz(ctx.subject()),
         sender(ctx),
@@ -670,7 +696,7 @@ public class MailAnalysisService {
         spec.agentUserId(),
         spec.model(),
         MAX_TURNS,
-        spec.timeoutMs(),
+        timeouts.timeoutMs(AiCall.MAIL_ANALYZE_CONTENT),
         senderIsMember);
   }
 

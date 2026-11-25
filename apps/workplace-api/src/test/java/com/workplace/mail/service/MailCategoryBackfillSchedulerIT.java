@@ -9,10 +9,14 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -41,6 +45,8 @@ class MailCategoryBackfillSchedulerIT extends IntegrationTestBase {
   @Autowired MailCategoryBackfillScheduler scheduler;
 
   @Autowired MailCategoryBackfillService categoryBackfill;
+  @Autowired TenantScopedRunner tenantRunner;
+  @Autowired EmailAccountRepository accountRepo;
 
   /** 서비스가 받은 (계정, 넘겨받은 예산, 호출 시점 TenantContext). */
   private record Call(long userId, long accountId, int budget, Long ctx) {}
@@ -187,8 +193,22 @@ class MailCategoryBackfillSchedulerIT extends IntegrationTestBase {
       seedAccount(1L);
     }
     stub((c, g) -> Math.min(c.budget(), MailCategoryBackfillService.MAX_BATCHES));
+    // 기본 상한(120+30초)이면 시간 예산(28분 ÷ 150초 = 11)이 개수 상한(20)보다 먼저 묶는다(WP-2111) — 개수 상한만 보려고 호출 상한을 30초로
+    // 덮어쓴 스케줄러를 쓴다(28분 ÷ 60초 = 28 > 20). 호출 최악은 메일 클라이언트 읽기 상한(메일 항목 최대 + 여유)이라 메일 항목을 모두 덮어쓴다.
+    MailCategoryBackfillScheduler countBound =
+        new MailCategoryBackfillScheduler(
+            tenantRunner,
+            accountRepo,
+            categoryBackfill,
+            Runnable::run,
+            null,
+            new AiCallTimeouts(
+                "MAIL_CLASSIFY_BATCH=30s,MAIL_ANALYZE_CONTENT=30s,MAIL_ANALYZE_PERSONAL=30s,"
+                    + "MAIL_LEARN_CATEGORY=30s,MAIL_REPLY_DRAFT=30s,MAIL_COMPOSE_DRAFT=30s,"
+                    + "MAIL_DRAFT_COACHING=30s,MAIL_ISSUE_DRAFT=30s"),
+            Clock.systemUTC());
 
-    scheduler.runOnceNow();
+    countBound.runOnceNow();
 
     List<Call> mine = seededCalls();
     assertThat(mine).hasSize(5);

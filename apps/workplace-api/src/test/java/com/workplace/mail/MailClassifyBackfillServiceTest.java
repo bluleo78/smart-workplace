@@ -32,8 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class MailClassifyBackfillServiceTest extends ExternalClientMockedTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
+  private static final AssistantSpec SPEC = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8);
 
   @Autowired DSLContext dsl;
   @Autowired MailClassifyBackfillService classifyBackfillService;

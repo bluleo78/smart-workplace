@@ -83,7 +83,7 @@ class ProjectReportSchedulerTest extends ExternalClientMockedTestBase {
         .thenAnswer(
             inv ->
                 Long.valueOf(fixtureTenant).equals(TenantContext.get())
-                    ? Optional.of(new AssistantSpec(owner, "m", "low", 4, 60_000))
+                    ? Optional.of(new AssistantSpec(owner, "m", "low", 4))
                     : Optional.empty());
   }
 
@@ -207,7 +207,12 @@ class ProjectReportSchedulerTest extends ExternalClientMockedTestBase {
     AiAgentProperties off = Mockito.mock(AiAgentProperties.class); // enabled() == false
     ProjectReportScheduler offScheduler =
         new ProjectReportScheduler(
-            tenantRunner, assistantResolver, settingRepository, generator, off);
+            tenantRunner,
+            assistantResolver,
+            settingRepository,
+            generator,
+            off,
+            com.workplace.airun.AiCallTimeouts.defaults());
 
     assertThat(offScheduler.runOnce(CLOCK)).isEqualTo(new ProjectReportScheduler.Summary(0, 0, 0));
     assertThat(nextRunAt(fixtureTenant, due).toInstant())

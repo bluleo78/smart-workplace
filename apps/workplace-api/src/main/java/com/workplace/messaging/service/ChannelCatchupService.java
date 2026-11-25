@@ -1,5 +1,7 @@
 package com.workplace.messaging.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
@@ -47,8 +49,6 @@ public class ChannelCatchupService {
   /** 캐치업 요약 1회 호출 예산 — 비서 설정(대화형 compose 기준)과 무관한 요약 전용 값. */
   private static final int CATCHUP_MAX_TURNS = 3;
 
-  private static final long CATCHUP_TIMEOUT_MS = 60_000L;
-
   private final MessageRepository messageRepo;
   private final ChannelMemberRepository memberRepo;
   private final AiAgentCatchupClient catchupClient;
@@ -70,6 +70,9 @@ public class ChannelCatchupService {
   /** 「내 차례」 미리보기의 멘션 토큰(<@id>)을 이름으로 풀 사전 — 대화 목록·스레드 인박스와 같은 hydrator(WP-1188). */
   private final UserMentionHydrator mentionHydrator;
 
+  /** AI 호출 실행 상한 표 — 캐치업 요약은 MESSAGING_CATCHUP 값을 싣는다(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public ChannelCatchupService(
       MessageRepository messageRepo,
       ChannelMemberRepository memberRepo,
@@ -79,7 +82,9 @@ public class ChannelCatchupService {
       AiMemoryReader memoryReader,
       PlatformTransactionManager txManager,
       SharedAiMemoryReader sharedReader,
-      UserMentionHydrator mentionHydrator) {
+      UserMentionHydrator mentionHydrator,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.messageRepo = messageRepo;
     this.memberRepo = memberRepo;
     this.catchupClient = catchupClient;
@@ -127,7 +132,7 @@ public class ChannelCatchupService {
               spec.agentUserId(),
               spec.model(),
               CATCHUP_MAX_TURNS,
-              CATCHUP_TIMEOUT_MS,
+              timeouts.timeoutMs(AiCall.MESSAGING_CATCHUP),
               memories,
               shared.items(),
               shared.moreCount());

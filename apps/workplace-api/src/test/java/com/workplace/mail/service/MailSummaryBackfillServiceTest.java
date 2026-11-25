@@ -71,6 +71,26 @@ class MailSummaryBackfillServiceTest {
     verify(analysis, never()).analyzePersonal(anyLong(), anyLong(), any());
   }
 
+  /** WP-2111: 회차 시간 예산이 다음 호출을 못 담으면(mayCall false) 남은 메일은 부르지 않고 다음 회차로 넘긴다. */
+  @Test
+  void contentPass_stopsWhenRoundBudgetCannotFitNextCall() {
+    given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
+        .willReturn(List.of(10L, 11L, 12L));
+    given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
+    java.util.concurrent.atomic.AtomicInteger asked =
+        new java.util.concurrent.atomic.AtomicInteger();
+
+    service.summarizeObjectiveRecentNow(
+        USER,
+        ACCOUNT,
+        new com.workplace.global.outbound.AgentOutageGuard(),
+        () -> asked.incrementAndGet() <= 1); // 첫 메일만 마감 안에 들어간다
+
+    verify(analysis).analyzeContent(USER, 10L);
+    verify(analysis, never()).analyzeContent(USER, 11L);
+    verify(analysis, never()).analyzeContent(USER, 12L);
+  }
+
   @Test
   void personalPass_usesUnanalyzedTargets() {
     given(messageRepo.listRecentUnreadUnanalyzedIds(ACCOUNT, 20)).willReturn(List.of(20L));

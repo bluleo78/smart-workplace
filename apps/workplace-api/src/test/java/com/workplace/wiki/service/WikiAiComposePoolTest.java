@@ -86,7 +86,7 @@ class WikiAiComposePoolTest extends IntegrationTestBase {
     long tenantId = defaultTenantId();
     when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
     when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(900L, "claude-opus", "NORMAL", 5, 60_000));
+        .thenReturn(new AssistantSpec(900L, "claude-opus", "NORMAL", 5));
     // 요청마다 읽기 트랜잭션(커넥션 하나)을 쥔 채 여기서 모두 만난다 — 풀의 커넥션이 전부 요청 첫 커넥션으로 잡힌 순간을 만든다.
     CyclicBarrier allHoldingConnection = new CyclicBarrier(poolSize);
     List<Boolean> inTransaction = new ArrayList<>();

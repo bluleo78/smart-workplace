@@ -177,6 +177,10 @@ workplace:
   # 자동 모델은 API 한 곳에서만 정한다(ai-agent 는 기본값 없음). 상태 응답의 suggestionModelAuto 도 이 값을 쓴다.
   ai:
     suggestion-default-model: ${WORKPLACE_AI_SUGGESTION_MODEL:}  # 비면 AiSuggestionProperties.DEFAULT_MODEL
+    # WP-2111: AI 호출 종류별 실행 상한 덮어쓰기 — "이름=기간" 쉼표 구분(예: HOME_PRIORITY_CLASSIFY=90s,WORK_PROFILE=3m).
+    # 이름은 AiCall 상수, 기간은 90s·3m·PT2M·숫자(ms), 범위 1초~최대(기본 10분, 항목별 AiCall.maxOverride). 비우면 코드 기본값.
+    # 잘못되면 기동 실패. 운영은 Helm values 의 api.aiTimeouts 맵이 이 환경변수로 렌더된다.
+    timeout-overrides: ${WORKPLACE_AI_TIMEOUT_OVERRIDES:}
   # WP-596: 개인 비서·AI 구성원 모델 서버 주소(baseURL) 의 내부망 차단 예외 — 우리 운영자만 정하는 호스트 목록(쉼표 구분, 기본 비어 있음).
   # 목록의 호스트는 사설 주소·http 여도 허용(사내 LLM 전용 설치용). ai-agent 의 같은 이름 환경 변수와 함께 맞춘다.
   assistant:

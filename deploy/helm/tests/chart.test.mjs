@@ -106,6 +106,20 @@ test('agentPluginVersion 은 api 의 AGENT_PLUGIN_VERSION 으로 들어가고, �
   assert.doesNotMatch(BASE_DOCS.get('Deployment/api'), /AGENT_PLUGIN_VERSION/);
 });
 
+test('api.aiTimeouts 는 api 의 WORKPLACE_AI_TIMEOUT_OVERRIDES 로 키 정렬해 이어 들어가고, 비면 환경변수를 두지 않는다 (WP-2111)', () => {
+  const r = render('-f', IMAGES, '--set', 'api.aiTimeouts.WORK_PROFILE=3m', '--set', 'api.aiTimeouts.HOME_PRIORITY_CLASSIFY=90s');
+  assert.ok(r.ok, r.err);
+  assert.match(docs(r.out).get('Deployment/api'),
+    /- name: WORKPLACE_AI_TIMEOUT_OVERRIDES\n\s+value: "HOME_PRIORITY_CLASSIFY=90s,WORK_PROFILE=3m"/);
+  assert.doesNotMatch(BASE_DOCS.get('Deployment/api'), /WORKPLACE_AI_TIMEOUT_OVERRIDES/);
+});
+
+test('api.aiTimeouts 값에 단위가 없으면 렌더가 실패한다 (WP-2111)', () => {
+  const r = render('-f', IMAGES, '--set', 'api.aiTimeouts.WORK_PROFILE=180');
+  assert.equal(r.ok, false);
+  assert.match(r.err, /api\.aiTimeouts\.WORK_PROFILE 는 90s·3m 처럼 단위를 붙여야 합니다/);
+});
+
 test('api 는 파드 IP 를 AGENT_SCREEN_POD_ADDRESS 로 받고 application.yml 이 같은 이름을 읽는다 — 작업 화면 파드 사이 잇기 (WP-1978)', () => {
   const api = BASE_DOCS.get('Deployment/api');
   assert.match(api, /- name: POD_IP\n\s+valueFrom:\n\s+fieldRef:\n\s+fieldPath: status\.podIP/);

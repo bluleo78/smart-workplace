@@ -60,7 +60,7 @@ class PersonalReportControllerTest extends ExternalClientMockedTestBase {
     me = human();
     other = human();
     when(assistantResolver.resolveOrEmpty(anyLong()))
-        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4, 60_000)));
+        .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4)));
   }
 
   @Test

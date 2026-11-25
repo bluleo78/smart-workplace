@@ -46,8 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class AiMemoryCleanupApplyTest extends IntegrationTestBase {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(1L, "claude-sonnet-5-5", "NORMAL", 8, 60_000);
+  private static final AssistantSpec SPEC = new AssistantSpec(1L, "claude-sonnet-5-5", "NORMAL", 8);
 
   @Autowired DSLContext dsl;
   @Autowired AiMemoryCleanupApplier applier;

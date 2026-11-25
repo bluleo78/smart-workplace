@@ -28,12 +28,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 테스트가 스케줄러 메서드를 연달아 직접 호출할 때 두 번째 호출이 lockAtLeastFor 에 막혀 조용히 건너뛰어진다. 잠금 동작은 전용 테스트가 켜서 검증한다.
  */
 @Configuration
-@EnableSchedulerLock(defaultLockAtMostFor = "PT30M", defaultLockAtLeastFor = "PT10S")
+@EnableSchedulerLock(
+    defaultLockAtMostFor = SchedulerLockConfig.DEFAULT_LOCK_AT_MOST_FOR,
+    defaultLockAtLeastFor = "PT10S")
 @ConditionalOnProperty(
     name = "workplace.scheduling.lock-enabled",
     havingValue = "true",
     matchIfMissing = true)
 public class SchedulerLockConfig {
+
+  /**
+   * 기본 lockAtMostFor(ISO-8601) — {@code @SchedulerLock} 에 값을 안 적은 작업의 잠금 최대. 회차 예산 계산이 이 값을 참조한다.
+   */
+  public static final String DEFAULT_LOCK_AT_MOST_FOR = "PT30M";
 
   /** JDBC 잠금 제공자 — 런타임 datasource(app_tenant) 로 {@code shedlock}(비-RLS) 행을 갱신한다. 트랜잭션 밖 자동 커밋. */
   @Bean

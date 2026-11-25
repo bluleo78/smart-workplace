@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.AiCall;
+import com.workplace.airun.AiCallTimeouts;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
@@ -71,6 +73,9 @@ public class MailIssueService {
    */
   private final TransactionTemplate txTemplate;
 
+  /** AI 호출 실행 상한 표 — 이슈 초안은 MAIL_ISSUE_DRAFT 값을 싣는다(WP-2111). */
+  private final AiCallTimeouts timeouts;
+
   public MailIssueService(
       IssueService issueService,
       IssueRepository issueRepository,
@@ -83,7 +88,9 @@ public class MailIssueService {
       AiMemoryReader memoryReader,
       SharedAiMemoryReader sharedReader,
       MailSenderReporter senderReporter,
-      IssueReporterService reporterService) {
+      IssueReporterService reporterService,
+      AiCallTimeouts timeouts) {
+    this.timeouts = timeouts;
     this.issueService = issueService;
     this.issueRepository = issueRepository;
     this.messageRepo = messageRepo;
@@ -207,7 +214,7 @@ public class MailIssueService {
                 spec.agentUserId(),
                 spec.model(),
                 MAX_TURNS,
-                spec.timeoutMs(),
+                timeouts.timeoutMs(AiCall.MAIL_ISSUE_DRAFT),
                 // WP-383: 메일 제목으로 관련 메모리를 고른다(비면 고정 + 최신).
                 memoryReader.readForEntry(
                     callerId,
