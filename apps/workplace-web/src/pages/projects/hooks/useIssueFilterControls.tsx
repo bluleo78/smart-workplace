@@ -2,8 +2,8 @@
 // URL 의 SearchParams 가 단일 source of truth — 내부 state 는 q 입력 debounce 버퍼뿐.
 
 import type { LucideIcon } from 'lucide-react';
-import { useMemo } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 
 import { type FacetDef, type FilterValue, QUICK_FILTER_STORAGE_PREFIX } from '@/components/filter';
 
@@ -46,7 +46,7 @@ import { assigneeFacetValue, assigneeFilterFromFacet, buildAssigneeFacet } from 
 import { buildComponentFacet, componentFacetValue, componentFilterFromFacet } from './componentFacet';
 import { buildStatusFacets } from './statusFacets';
 import { useSetIssueSort } from './useIssueSortParam';
-import { issueFiltersResetNav, readIssueFiltersReset } from './useResetIssueFilters';
+import { issueFiltersResetNav, readIssueFiltersReset, registerPendingSearchCancel } from './useResetIssueFilters';
 import { buildVersionFacet, versionFacetValue, versionFilterFromFacet } from './versionFacet';
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
@@ -147,13 +147,29 @@ export function useIssueFilterControls(
   // URL 의 q 가 외부 변경(예: 필터 지우기 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
   // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003). 쓰는 순간의 최신 필터·view·group 에 q 만 바꾼다.
   // 「필터 지우기」(빈 상태 CTA 포함)가 싣는 router state 신호를 cancelKey 로 받아, 대기 중인 q 쓰기를 접는다(WP-2125).
+  // 뒤로·앞으로 가기(POP)로 돌아온 항목에는 옛 신호값이 남아 있어도 지우기로 보지 않는다 — 그 사이 친 검색어가 버려진다.
+  // 새 신호는 REPLACE·PUSH 이동만 싣는다.
   const { state: locationState } = useLocation();
+  const navigationType = useNavigationType();
+  // 신호값은 지울 때마다 커지므로(nextResetSeq) 「이미 본 값보다 큰 새 신호」만 새 지우기로 받는다 — 드로어 열기·replace 처럼 location.state 를 복사하는 이동이
+  // 옛 신호를 다시 실어도 cancelKey 가 바뀌지 않아 방금 친 검색어를 잃지 않는다. 렌더 중 조건부 setState 로 처리한다(ref 를 렌더 중 읽지 않음).
+  const resetSignal = readIssueFiltersReset(locationState);
+  const [seenResetSignal, setSeenResetSignal] = useState(resetSignal);
+  const [acceptedResetSignal, setAcceptedResetSignal] = useState(resetSignal);
+  if (resetSignal != null && (seenResetSignal == null || resetSignal > seenResetSignal)) {
+    setSeenResetSignal(resetSignal);
+    // POP 으로 닿은 항목의 신호는 본 것으로만 기록하고 지우기로 받지 않는다.
+    if (navigationType !== 'POP') setAcceptedResetSignal(resetSignal);
+  }
   const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(
     filters.q,
     (q) => writeFilters({ ...filters, q }, view, groupParam),
     300,
-    readIssueFiltersReset(locationState),
+    acceptedResetSignal,
   );
+  // 저장 보기 칩(다른 컴포넌트)이 적용·「전체」 클릭 순간 대기 중 q 쓰기를 동기로 접을 수 있게 등록한다 — draft 를 URL 값으로 되돌리면 debounce 타이머가 정리된다.
+  const currentQ = filters.q;
+  useEffect(() => registerPendingSearchCancel(() => setQDraft(currentQ)), [currentQ, setQDraft]);
 
   // view·groupBy 는 IssueFilters 와 분리된 URL 키 — 필터 변경 시에도 함께 보존해야 한다.
   function writeFilters(

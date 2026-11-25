@@ -48,7 +48,9 @@ export function PersonalChecklistView({
   // 필터 지우기 — 필터 키만 지우고 뷰·그룹·열린 작업(task)은 남긴다. 오른쪽 패널이 열린 채 필터로 0건이 돼도 패널이 닫히지 않게
   // (프로젝트 목록 useResetIssueFilters 는 task 를 모르므로 여기서 따로 둔다).
   // 지우기 신호도 싣는다 — 대기 중인 검색어 debounce 가 지운 뒤 q 를 되살리지 않게(WP-2125).
-  const resetFilters = () =>
+  const resetFilters = () => {
+    // 이동 옵션을 먼저 만든다 — issueFiltersResetNav() 가 클릭 순간 대기 중 검색어 쓰기를 동기로 접는다(신호가 커밋되기 전 debounce 경합 대비).
+    const nav = issueFiltersResetNav();
     setParams((prev) => {
       const next = new URLSearchParams();
       for (const k of ['view', 'group', 'task']) {
@@ -56,7 +58,8 @@ export function PersonalChecklistView({
         if (v) next.set(k, v);
       }
       return next;
-    }, issueFiltersResetNav());
+    }, nav);
+  };
   // 데이터 없음 — 아이콘·제목·설명·빠른 추가(DS 06 §B 4요소). 섹션이 모두 비는 경우(취소만 남음 등)도 같은 모양.
   const noData = (title: string) => (
     <ListEmptyState
