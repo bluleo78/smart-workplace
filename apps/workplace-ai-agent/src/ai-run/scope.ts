@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { failureReasonOf } from './failure-reason.js';
 import type { RunnerUsage } from '../agent/runner-events.js';
 import type { AiRunContext, AiRunRecord, AiRunSink } from './types.js';
 
@@ -39,8 +40,11 @@ export class AiRunScope {
   private _closed = false;
   private model: string | null = null;
   private credentialLabel: string | null = null;
-  /** 러너 실패 목록(시도 순) — 항목마다 사유 메시지(없으면 null). 용서는 마지막 하나만 지운다(WP-1828). */
-  private readonly runnerFailures: Array<string | null> = [];
+  /**
+   * 러너 실패 목록(시도 순) — 항목마다 상세 메시지(없으면 null)와 원인 코드(분류 불가면 null, WP-2106).
+   * 용서는 마지막 하나만 지운다(WP-1828).
+   */
+  private readonly runnerFailures: Array<{ message: string | null; reason: string | null }> = [];
   /** 라우트가 직접 지정한 실패 사유(markFailed) — 러너는 성공했어도 처리가 실패한 경우. */
   private forcedFailure: { reason: string; detail: string | null } | null = null;
   private readonly usages: RunnerUsage[] = [];
@@ -73,7 +77,14 @@ export class AiRunScope {
   runnerFinished(r: { ok: boolean; usage: RunnerUsage | null; error?: unknown }): void {
     if (this._closed) return;
     if (r.usage) this.usages.push(r.usage);
-    if (!r.ok) this.runnerFailures.push(r.error !== undefined ? errorMessage(r.error) : null);
+    if (!r.ok) {
+      // 원인 코드는 오류 객체에서만 알 수 있어 닫을 때가 아니라 기록할 때 분류해 둔다.
+      this.runnerFailures.push(
+        r.error !== undefined
+          ? { message: errorMessage(r.error), reason: failureReasonOf(r.error) }
+          : { message: null, reason: null },
+      );
+    }
   }
 
   /**
@@ -100,13 +111,20 @@ export class AiRunScope {
     const forced = this.forcedFailure;
     const runnerFailed = this.runnerFailures.length > 0;
     // 남은 실패 중 가장 최근 항목의 사유를 쓴다.
-    const runnerErrorDetail = runnerFailed ? this.runnerFailures[this.runnerFailures.length - 1] : null;
+    const lastFailure = runnerFailed ? this.runnerFailures[this.runnerFailures.length - 1] : null;
+    const runnerErrorDetail = lastFailure?.message ?? null;
     const ok = o.ok && !runnerFailed && !forced;
-    // 실패 사유 우선순위: 미들웨어가 정한 o.reason(http_<코드>·client_closed) > 러너 실패(runner_error) > markFailed 사유 > 'failed'.
-    // 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다 — 러너는 성공했는데 스트림만 실패한 경우에만 stream_error 가 남는다.
-    const reason = ok
-      ? null
-      : cut(o.reason ?? (runnerFailed ? 'runner_error' : (forced?.reason ?? 'failed')), REASON_MAX);
+    // 실패 사유 우선순위(WP-2106): client_closed > 남은 러너 오류 중 마지막의 원인 코드(한도·인증·시간 초과 등)
+    // > o.reason(http_<코드>) > runner_error(분류 불가 러너 오류) > markFailed 사유 > 'failed'.
+    // 분류 불가 러너 오류는 종전 순서를 그대로 둔다 — 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다(WP-1828).
+    // 왜: 러너 오류가 한도 초과여도 라우트는 503 만 알려 http_503 으로 뭉뚱그려지던 것을 원인별로 가른다.
+    // 분류 못 한 러너 오류는 기존대로 http_<코드> 가 이긴다. client_closed 는 사용자가 끊은 것이라 항상 우선.
+    const classified = lastFailure?.reason ?? null;
+    const raw =
+      o.reason === 'client_closed'
+        ? o.reason
+        : (classified ?? o.reason ?? (runnerFailed ? 'runner_error' : (forced?.reason ?? 'failed')));
+    const reason = ok ? null : cut(raw, REASON_MAX);
     // 상세도 같은 순서: o.detail > 마지막 러너 오류(runnerFailed 일 때만 값이 있다) > markFailed 상세.
     const detailSrc = ok ? null : (o.detail ?? runnerErrorDetail ?? forced?.detail ?? null);
     const detail = detailSrc === null ? null : cut(detailSrc, DETAIL_MAX);

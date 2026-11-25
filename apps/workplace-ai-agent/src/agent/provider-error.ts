@@ -131,3 +131,13 @@ export function classifyProviderError(e: unknown): ProviderErrorReason | null {
   if (has(OVERLOADED_PHRASES)) return 'PROVIDER_OVERLOADED';
   return null;
 }
+
+/** 모델이 없거나 비활성화됐다는 문구(소문자 비교) — 게이트웨이가 404 로 돌려준다(WP-2106). */
+const MODEL_NOT_FOUND_PHRASE = 'does not exist or is disabled';
+
+/** 오류가 "모델 없음/비활성"인지 — 메시지·cause 의 문구로 판정한다. 모델 출력 파싱 오류는 제외한다. */
+export function isModelNotFoundError(e: unknown): boolean {
+  if (e instanceof ModelOutputError || e instanceof SyntaxError) return false;
+  const cause = e instanceof Error ? (e as { cause?: unknown }).cause : undefined;
+  return `${messageOf(e)}\n${messageOf(cause)}`.toLowerCase().includes(MODEL_NOT_FOUND_PHRASE);
+}

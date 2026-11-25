@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AiRunScope, currentAiRunScope, withAiRunScope } from './scope.js';
+import { RunnerLimitError } from '../agent/runner-limit.js';
 import type { AiRunRecord } from './types.js';
 
 const NOW = new Date('2026-01-01T00:00:00.000Z');
@@ -130,7 +131,6 @@ describe('AiRunScope', () => {
     expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'stream_error', errorDetail: 'boom' });
   });
 
-  // 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다.
   it('러너 실패 + markFailed(stream_error) 면 사유는 runner_error, 상세는 러너 오류', () => {
     const { sink, scope } = make();
     scope.runnerStarted('m', 'c');
@@ -147,5 +147,48 @@ describe('AiRunScope', () => {
     scope.markFailed('stream_error', 'sse broke');
     scope.close({ ok: true });
     expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'stream_error', errorDetail: 'sse broke' });
+  });
+
+  // 원인별 실패 사유 (WP-2106)
+  const LIMIT = new Error("API Error: You've hit your org's monthly spend limit");
+
+  it('close_limitRunnerError_beatsHttpReason', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    scope.close({ ok: false, reason: 'http_503' });
+    expect(sink[1]).toMatchObject({ status: 'FAILED', errorReason: 'provider_limit' });
+  });
+
+  it('close_withoutRunnerError_keepsHttpReason', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.close({ ok: false, reason: 'http_502' });
+    expect(sink[1].errorReason).toBe('http_502');
+  });
+
+  it('close_multipleRunnerErrors_classifiesLast', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    scope.runnerFinished({ ok: false, usage: null, error: new RunnerLimitError('timeout', 'x timeout after 1ms') });
+    scope.close({ ok: false, reason: 'http_502' });
+    expect(sink[1].errorReason).toBe('timeout');
+  });
+
+  it('close_unclassifiedRunnerError_keepsHttpReason', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: new Error('boom') });
+    scope.close({ ok: false, reason: 'http_502' });
+    expect(sink[1].errorReason).toBe('http_502');
+  });
+
+  it('close_clientClosed_stays', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    scope.close({ ok: false, reason: 'client_closed' });
+    expect(sink[1].errorReason).toBe('client_closed');
   });
 });
