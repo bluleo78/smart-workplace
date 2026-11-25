@@ -58,6 +58,32 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(screen.getByRole('button', { name: 'answered' })).toBeInTheDocument()
   })
 
+  // WP-2093: 질문 경로 노드(returnTo)는 내가 담당이어도 결과 단추 배너를 그리지 않는다 — 챗 답 글이 실행을 움직인다.
+  test('askNode_returnTo_noBannerEvenForAssignee', async () => {
+    const counter = { gets: 0 }
+    const base = run()
+    setup(run({ currentNode: { ...(base.currentNode as object), returnTo: 'dev' } }), [], {}, 200, counter)
+    await waitFor(() => expect(counter.gets).toBeGreaterThan(0))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'answered' })).not.toBeInTheDocument()
+  })
+
+  // WP-2093 리뷰 후속: 질문 노드에 answered 말고 다른 결과도 있으면 배너는 보이되 answered 단추만 뺀다(답은 챗으로).
+  test('askNode_withOtherOutcomes_bannerWithoutAnswered', async () => {
+    const moves: Record<string, unknown>[] = []
+    const base = run()
+    setup(run({ currentNode: { ...(base.currentNode as object), returnTo: 'dev' }, outcomes: [outcome(), outcome({ key: 'giveUp', toNode: 'end' })] }), moves)
+    const user = userEvent.setup()
+    expect(await screen.findByTestId('issue-workflow-banner')).toBeInTheDocument()
+    expect(screen.getByText('질문에 대한 답은 이슈 챗에 쓰면 돼요.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'answered' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'giveUp' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(moves).toHaveLength(1))
+    expect(moves[0]).toMatchObject({ fromNode: 'dev_ask', outcome: 'giveUp' })
+  })
+
   test('humanTurn_notAssignee_noBanner', async () => {
     const counter = { gets: 0 }
     setup(run(), [], { meId: 99 }, 200, counter)

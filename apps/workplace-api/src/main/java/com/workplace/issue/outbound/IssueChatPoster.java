@@ -7,6 +7,13 @@ import java.util.List;
  * 구현한다(chat→issue 는 기존 의존).
  */
 public interface IssueChatPoster {
+
+  /**
+   * 이슈 챗 글 본문 상한(글자 수) — DB 제약(chat_message 의 length(body) 4000 이하, V82)과 챗 작성·수정 요청 검증이 같은 값을 쓴다.
+   * 이 포트로 올리는 쪽(워크플로우 질문 등)이 DB 오류(500) 전에 미리 거르는 데 쓴다(WP-2093).
+   */
+  int BODY_MAX = 4000;
+
   /**
    * 호출자 이름으로 이슈 챗에 보고 글을 올리고 메시지 id 를 돌려준다. question 이면 "답변 필요 질문"으로 함께 저장한다(WP-373 — 예전
    * markQuestion 사후 표시를 대체). 보고 글은 사람의 답으로 치지 않는다. fileIds 는 호출자가 스테이징한 파일로, 같은 트랜잭션에서 이 글의 첨부로

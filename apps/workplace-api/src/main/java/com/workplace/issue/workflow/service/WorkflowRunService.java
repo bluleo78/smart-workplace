@@ -1,11 +1,14 @@
 package com.workplace.issue.workflow.service;
 
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.util.PersonNames;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueBodyImageService;
 import com.workplace.issue.workflow.domain.AssigneeResolution;
 import com.workplace.issue.workflow.domain.AssigneeResolution.Resolution;
 import com.workplace.issue.workflow.domain.MoveActor;
@@ -34,6 +37,8 @@ import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.issue.workflow.repository.WorkflowVersionRef;
 import com.workplace.issue.workflow.service.WorkflowRunViews.Snapshot;
 import com.workplace.project.dto.ProjectRow;
+import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.Instant;
@@ -51,6 +56,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -78,6 +84,12 @@ public class WorkflowRunService {
 
   static final int QA_MAX = 50;
 
+  /** 질문 대기 노드에서 질문한 AI 노드로 돌아가는 결과 키(WP-2093 챗 답 이동). */
+  static final String ANSWERED = "answered";
+
+  /** 챗 답 이동의 멱등 키 앞머리 — 글 id 를 붙여 같은 글이 두 번 옮기지 않게 한다. */
+  static final String CHAT_ANSWER_KEY_PREFIX = "chat-answer-";
+
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository assigneeRepository;
   private final ProjectRepository projectRepository;
@@ -90,6 +102,9 @@ public class WorkflowRunService {
   private final WorkflowRunWriter writer;
   private final WorkflowRunViews views;
   private final WorkflowAgentWorkBridge agentWorkBridge;
+  private final IssueChatPoster chatPoster;
+  // 질문 챗 글의 스테이징 파일 자리표시(WP-1634)를 챗 첨부·파일 이름으로 바꾼다(WP-2093).
+  private final IssueBodyImageService bodyImageService;
   private final ObjectMapper objectMapper;
 
   // ───────────────────────── 조회 ─────────────────────────
@@ -285,12 +300,125 @@ public class WorkflowRunService {
       // 옛 실행을 겨눈 새 이동 — 요청자가 본 실행이 이미 지나갔으니 지금 실행 기준으로 다시 보게 한다.
       throw staleNow(run);
     }
+    return advance(
+        project, issue, run, req, new MoveActor(actorId, isManager(project, actorId)), null);
+  }
 
+  /**
+   * 이슈 챗 사람 글을 질문 대기 노드의 답으로 받아 {@code answered} 이동을 한다(WP-2093, 설계 §2). 질문 대기가 아니면 아무것도 쓰지 않고 빈
+   * 값이다.
+   *
+   * <p>답으로 보는 때: 글쓴이가 프로젝트 구성원(쓰기 권한 — 아니면 「답 아님」)이고, 이슈의 활성 실행이 WAITING 이고, 지금 노드가 {@code
+   * returnTo} 가 있는 human_task(질문 이동이 들어간 노드)이고 {@code answered} 결과가 있고, 글이 그 질문 글보다 뒤다(질문을 챗 글로 남기지
+   * 않은 옛 댓글 질문이면 이 비교는 건너뛴다 — 배포 전부터 기다리던 실행도 챗 답으로 풀리게). 멈춤(SUSPENDED)·끝난 실행·일반 사람 노드 대기는 답이 아니다.
+   *
+   * <p>이동은 {@link #move} 와 같은 경로({@link #advance})로 돈다 — revision 은 잠근 실행의 지금 값, 멱등 키는 글 id 로 만든
+   * {@code chat-answer-<messageId>}. 담당 검사만 챗 답 행위자로 통과시키고(override 로 적지 않는다), 의견 댓글은 만들지 않으며(답은 챗
+   * 글 그 자체), {@code _qa} 에 {@code answerMessageId} 를 남긴다. 그 밖의 판정(결과·의견·담당 계산) 위반은 그대로 던진다 — 부르는 쪽이
+   * 세이브포인트로 감싸 「답 아님」으로 바꾼다.
+   *
+   * @param body 챗 글 본문(멘션 토큰 포함 원문) — 이동 의견·{@code _qa.answer} 가 된다
+   * @return 이동 뒤 실행 모습. 답이 아니면 빈 값
+   */
+  public Optional<IssueWorkflowView> answerFromChat(
+      long issueId, long messageId, long actorId, String body) {
+    IssueRow seen = issueRepository.findById(issueId).orElse(null);
+    if (seen == null) {
+      return Optional.empty();
+    }
+    ProjectRow project;
+    try {
+      project = writableProject(seen, actorId);
+    } catch (IssueNotFoundException | ProjectNotFoundException | ProjectAccessDeniedException e) {
+      // 구성원이 아니면 이동 권한이 없다 — 오류가 아니라 「답 아님」이다(글은 그대로 저장된다).
+      return Optional.empty();
+    }
+    IssueRow issue = issueRepository.findActiveByIdForNoKeyUpdate(seen.id()).orElse(null);
+    if (issue == null) {
+      return Optional.empty();
+    }
+    // 이슈 행을 잠근 뒤 읽은 활성 실행 — 그 revision 으로 옮긴다(그사이 다른 이동이 끼지 못한다).
+    RunRow run =
+        runRepository
+            .findActiveByIssue(issue.id())
+            .filter(r -> RunState.WAITING.equals(r.status()))
+            .orElse(null);
+    if (run == null || run.currentNode() == null) {
+      return Optional.empty();
+    }
+    WorkflowModel model = model(run.versionId());
+    Node node = model.nodes().get(run.currentNode());
+    if (node == null
+        || !NodeTypes.HUMAN_TASK.equals(node.type())
+        || node.returnTo() == null
+        || !node.outcomes().containsKey(ANSWERED)) {
+      return Optional.empty();
+    }
+    Long questionMessageId = pendingQuestionMessageId(readContext(run.contextJson()), node.key());
+    if (questionMessageId != null && messageId <= questionMessageId) {
+      return Optional.empty();
+    }
+    MoveRequest req =
+        new MoveRequest(
+            node.key(),
+            ANSWERED,
+            null,
+            null,
+            body,
+            run.revision(),
+            CHAT_ANSWER_KEY_PREFIX + messageId,
+            run.id());
+    return Optional.of(advance(project, issue, run, req, MoveActor.chatAnswer(actorId), messageId));
+  }
+
+  /**
+   * 그 답 노드의 마지막 미답 질문이 챗 글로 남긴 질문 글 id — 없으면(옛 댓글 질문·질문 기록 없음) null. {@link #withQa} 가 답을 채울 항목과 같은
+   * 항목을 본다.
+   */
+  private static Long pendingQuestionMessageId(Map<String, Object> context, String answerNode) {
+    if (!(context.get(QA_KEY) instanceof List<?> qa)) {
+      return null;
+    }
+    for (int i = qa.size() - 1; i >= 0; i--) {
+      if (qa.get(i) instanceof Map<?, ?> m
+          && answerNode.equals(m.get("answerNode"))
+          && isUnanswered(m.get("answer"))) {
+        return m.get("questionMessageId") instanceof Number n ? n.longValue() : null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * {@code _qa} 항목의 answer 값이 「아직 답 없음」인지 — 칸이 없거나(null) JSON null 이면 미답이다. 답 채우기({@link
+   * #withQa})·챗 답의 질문 글 찾기·조회의 질문 대기 표시({@code WorkflowRunQueryService.pendingQuestion})가 같은 기준을 쓴다
+   * — 한쪽만 answer:null 을 미답으로 보면 화면에는 질문이 보이는데 챗 답이 다른 항목을 채우는 어긋남이 생긴다(WP-2093 리뷰 후속).
+   *
+   * @param answer Map 으로 읽은 값(없으면 null) 또는 Jackson 트리 노드
+   */
+  static boolean isUnanswered(Object answer) {
+    return answer == null || (answer instanceof JsonNode node && node.isNull());
+  }
+
+  /**
+   * 이동 판정·쓰기 본체 — {@link #move}(화면·도구)와 {@link #answerFromChat}(챗 답)이 같이 쓴다. 이슈 행은 이미 잠갔고 run 은 겨눈
+   * 지금 실행이다.
+   *
+   * @param answerMessageId 챗 답 이동이면 그 챗 글 id(의견 댓글을 쓰지 않고 {@code _qa.answerMessageId} 로 남긴다), 일반
+   *     이동이면 null
+   */
+  private IssueWorkflowView advance(
+      ProjectRow project,
+      IssueRow issue,
+      RunRow run,
+      MoveRequest req,
+      MoveActor actor,
+      Long answerMessageId) {
+    long actorId = actor.id();
     // 4~8. 판정
     Snapshot before = snapshot(project, issue, run);
     RunState state = WorkflowRunViews.stateOf(before);
     WorkflowModel model = before.model();
-    MoveActor actor = new MoveActor(actorId, isManager(project, actorId));
     Node from = state.currentNode() == null ? null : model.nodes().get(state.currentNode());
     Outcome outcome = from == null ? null : from.outcomes().get(req.outcome());
     List<MoveViolation> violations =
@@ -315,14 +443,54 @@ public class WorkflowRunService {
     // 담당 교체 → 의견 댓글 순서: 댓글 알림(COMMENTED)의 받는 담당은 댓글을 쓸 때의 이슈 담당이라, 교체 뒤에 써야 빠지는 옛 담당이 아니라
     // 새 담당이 받는다(리뷰 후속). 둘 다 실행 행 갱신 전이라 잠금 순서(이슈 → 구성원 → 실행)는 그대로다.
     writer.applyAssignees(actorId, project, issue, add, remove);
-    WorkflowRunWriter.WrittenComment comment = writer.comment(actorId, issue.id(), req.comment());
+    // 질문 이동(WP-2093): AI 의 질문은 이슈 댓글이 아니라 이슈 챗의 「답변 필요 질문」으로 남긴다 — 사람이 챗에서 질문을 보고 거기서 답하게.
+    // 이 경우 node_run.comment_id 는 null 이고 질문 글 id 는 _qa 에 questionMessageId 로 남는다.
+    // 질문 알림(AI_QUESTION)도 챗 글 이벤트가 낸다. 의견이 비면(공백뿐) 올릴 글이 없어 아무것도 쓰지 않는다. 담당 교체 뒤에 쓰는 순서는 댓글과 같다(질문
+    // 알림이 새 담당에게 가게).
+    boolean askMove = OutputRules.isQuestion(model, from, outcome);
+    WorkflowRunWriter.WrittenComment comment = null;
+    Long questionMessageId = null;
+    String questionText = null;
+    if (askMove) {
+      // 챗과 같은 기준(그려지는 글자)으로 빈 의견을 본다 — 제로폭만 있는 의견을 올리면 챗이 빈 글로 거절해 이동 전체가 실패한다.
+      if (req.comment() != null && PersonNames.hasVisibleChar(req.comment())) {
+        // 의견의 file:N 자리표시는 댓글처럼 본문 주소로 바꾸지 않고 챗 글 첨부로 붙이며, 그 자리는 파일 이름으로 바꾼다(깨진 링크가 남지 않게).
+        // _qa.question 에도 바꾼 본문을 남긴다 — 원문의 file:N 은 저장 뒤 쓸모가 없다.
+        IssueBodyImageService.ChatBody chatBody =
+            bodyImageService.resolveStagedPlaceholdersForChat(
+                actorId, req.comment(), IssueChatPoster.BODY_MAX);
+        questionText = chatBody.body();
+        questionMessageId =
+            chatPoster.post(
+                actorId, project.key(), issue.number(), chatBody.body(), true, chatBody.fileIds());
+      }
+    } else if (answerMessageId == null) {
+      comment = writer.comment(actorId, issue.id(), req.comment());
+    }
+    // 챗 답 이동(WP-2093)은 의견 댓글을 쓰지 않는다 — 답은 챗 글 그 자체라 _qa 에 그 본문과 글 id 를 남긴다.
     Long commentId = comment == null ? null : comment.id();
 
     String status = statusOf(model, route);
-    // _qa 에는 저장된(첨부 자리 표시를 바꾼) 댓글 본문을 넣는다 — 요청 원문의 file:N 은 저장 뒤 쓸모가 없다(리뷰 후속).
+    // _qa 에 남길 본문 — 질문 이동이면 챗 질문 글 본문, 챗 답 이동이면 답 챗 글 본문, 그 밖에는 저장된(첨부 자리 표시를 바꾼) 댓글 본문(요청
+    // 원문의 file:N 은 저장 뒤 쓸모가 없다, 리뷰 후속). 의견 글을 만들지 않았으면 null.
+    String qaBody;
+    if (askMove) {
+      qaBody = questionText;
+    } else if (answerMessageId != null) {
+      qaBody = req.comment();
+    } else {
+      qaBody = comment == null ? null : comment.body();
+    }
     Map<String, Object> context =
         withQa(
-            plan.context(), model, from, outcome, comment == null ? null : comment.body(), actorId);
+            plan.context(),
+            model,
+            from,
+            outcome,
+            qaBody,
+            questionMessageId,
+            answerMessageId,
+            actorId);
     if (!runRepository.compareAndAdvance(
         run.id(),
         run.revision(),
@@ -645,8 +813,10 @@ public class WorkflowRunService {
    *   <li>최근 {@link #QA_MAX} 개만 남긴다. 값이 없는 칸은 넣지 않는다
    * </ul>
    *
-   * @param commentBody 저장된 의견 댓글 본문(자리 표시를 바꾼 것). 댓글을 만들지 않았으면(없음·공백뿐) null 이라 question·answer 칸을
-   *     넣지 않는다
+   * @param commentBody 질문이면 요청 의견 원문(챗 질문 글 본문 그대로), 답이면 저장된 의견 댓글 본문(자리 표시를 바꾼 것). 만든 글이
+   *     없으면(없음·공백뿐) null 이라 question·answer 칸을 넣지 않는다
+   * @param questionMessageId 질문을 이슈 챗 글로 남겼으면 그 메시지 id(WP-2093), 아니면 null
+   * @param answerMessageId 답을 이슈 챗 글로 받았으면 그 메시지 id(WP-2093 챗 답 이동), 아니면 null
    */
   private static Map<String, Object> withQa(
       Map<String, Object> planned,
@@ -654,6 +824,8 @@ public class WorkflowRunService {
       Node from,
       Outcome outcome,
       String commentBody,
+      Long questionMessageId,
+      Long answerMessageId,
       long actorId) {
     boolean question = OutputRules.isQuestion(model, from, outcome);
     boolean answer = from.returnTo() != null && from.returnTo().equals(outcome.to());
@@ -671,19 +843,25 @@ public class WorkflowRunService {
       if (commentBody != null) {
         entry.put("question", commentBody);
       }
+      if (questionMessageId != null) {
+        entry.put("questionMessageId", questionMessageId);
+      }
       entry.put("askedBy", actorId);
       qa.add(entry);
     } else {
       for (int i = qa.size() - 1; i >= 0; i--) {
         if (qa.get(i) instanceof Map<?, ?> m
             && from.key().equals(m.get("answerNode"))
-            && !m.containsKey("answer")) {
+            && isUnanswered(m.get("answer"))) {
           Map<String, Object> filled = new LinkedHashMap<>();
           m.forEach((k, v) -> filled.put(String.valueOf(k), v));
           if (commentBody != null) {
             filled.put("answer", commentBody);
           }
           filled.put("answeredBy", actorId);
+          if (answerMessageId != null) {
+            filled.put("answerMessageId", answerMessageId);
+          }
           qa.set(i, filled);
           break;
         }

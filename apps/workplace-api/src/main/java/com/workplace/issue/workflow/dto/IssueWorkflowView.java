@@ -48,6 +48,8 @@ public record IssueWorkflowView(
    * @param assignees 지금 node_run 의 담당
    * @param nodeRunStatus 지금 node_run 의 상태(ACTIVE·BLOCKED·COMPLETED·FAILED)
    * @param instructions 게시본의 지시(펼친 값)
+   * @param returnTo 질문 경로 노드(human_task + returnTo)면 돌아갈 노드 키, 아니면 null — 웹이 「챗에서 답하기」로 보일지
+   *     가른다(WP-2093)
    */
   public record NodeView(
       String key,
@@ -57,7 +59,8 @@ public record IssueWorkflowView(
       List<UserSummary> assignees,
       Instant enteredAt,
       String nodeRunStatus,
-      String instructions) {}
+      String instructions,
+      String returnTo) {}
 
   /**
    * 고를 수 있는 결과 하나.

@@ -143,7 +143,8 @@ class WorkflowRunViews {
                 current == null ? List.of() : summaries(current.assigneeIds(), users),
                 current == null ? null : current.enteredAt(),
                 current == null ? null : current.status(),
-                node.instructions());
+                node.instructions(),
+                node.returnTo());
 
     List<OutcomeView> outcomeViews = new ArrayList<>();
     for (OutcomeOptions c : choices) {

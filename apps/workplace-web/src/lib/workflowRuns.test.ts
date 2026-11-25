@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
 
-import { nodeDurationsMs, paintRun, pendingQuestion, runMoveRows, type WorkflowNodeRun, type WorkflowRunDetail } from './workflowRuns'
+import {
+  mentionTokensAsNames,
+  nodeDurationsMs,
+  paintRun,
+  pendingQuestion,
+  questionFirstLine,
+  runMoveRows,
+  runUserNames,
+  type WorkflowNodeRun,
+  type WorkflowRunDetail,
+} from './workflowRuns'
 
 const u = (id: number, name: string) => ({ id, username: name, name })
 function visit(id: number, nodeKey: string, enteredAt: string, leftAt: string | null, extra: Partial<WorkflowNodeRun> = {}): WorkflowNodeRun {
@@ -79,6 +89,27 @@ describe('workflowRuns', () => {
     const rows = runMoveRows(detail(runs))
     expect(rows.map((r) => r.to)).toEqual(['검토', '작성', 'start'])
     expect(rows[0].from).toBe('작성')
+  })
+
+  it.each([
+    ['\n어느 쪽?\n- A', '어느 쪽?'],
+    ['  한 줄  ', '한 줄'],
+    ['\r\n  \r\n둘째\r\n셋째', '둘째'],
+    ['   \n \n', null],
+    ['', null],
+    [null, null],
+  ])('questionFirstLine_%j', (q, expected) => {
+    expect(questionFirstLine(q)).toBe(expected)
+  })
+
+  // WP-2093: 질문 원문의 멘션 토큰은 상세에 실린 사람 이름으로, 모르는 id 는 서버와 같은 @사용자.
+  it('mentionTokensAsNames_usesRunUsers_unknownAsUser', () => {
+    const names = runUserNames({
+      run: { startedBy: u(1, '김') } as WorkflowRunDetail['run'],
+      nodeRuns: [visit(1, 'a', '2026-11-20T00:00:00Z', null, { assignees: [u(2, '박')], workflowAssigned: [u(3, '이')], actor: u(4, '최') })],
+    })
+    expect(mentionTokensAsNames('<@2> <@3> 어느 쪽? <@4><@1> <@99>', names)).toBe('@박 @이 어느 쪽? @최@김 @사용자')
+    expect(mentionTokensAsNames('토큰 없음', names)).toBe('토큰 없음')
   })
 
   it('pendingQuestion_lastUnansweredForNode', () => {

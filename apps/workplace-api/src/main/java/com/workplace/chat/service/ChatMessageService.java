@@ -34,12 +34,15 @@ import com.workplace.global.util.PersonNames;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.outbound.IssueRecurrenceSummaries;
 import com.workplace.issue.outbound.RecurringQuestionAnswers;
+import com.workplace.issue.outbound.WorkflowAnswer;
+import com.workplace.issue.outbound.WorkflowQuestionAnswers;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -69,6 +72,8 @@ public class ChatMessageService {
   private final ChatThreadAccess threadAccess;
   // WP-1312: 사람 글이 반복 회차 질문의 답이면 issue 모듈이 같은 AI 의 이어 처리를 보낸다.
   private final RecurringQuestionAnswers recurringAnswers;
+  // WP-2093: 사람 글이 워크플로우 질문 대기의 답이면 issue 모듈이 실행을 answered 로 옮겨 질문한 AI 노드로 돌린다.
+  private final WorkflowQuestionAnswers workflowAnswers;
   // WP-1377: 실행 일정이 걸린 작업의 담당 AI 가 멘션 없는 글에도 답할지 판정.
   private final ChatImplicitAgentResolver implicitAgentResolver;
 
@@ -180,15 +185,26 @@ public class ChatMessageService {
     boolean humanReply = !origin.fromReport() && UserKind.HUMAN.equals(actor.kind());
     // WP-1312: 사람이 화면에서 쓴 글이 반복 회차가 남긴 질문의 답이면(멘션 없어도) issue 모듈이 같은 AI 의 이어 처리를 보낸다. 깨운 AI 를
     // 챗 이벤트에 실어 같은 글의 @멘션 챗 응답이 그 AI 를 또 깨우지 않게 한다. 이벤트를 만들기 전에 불러야 실을 수 있다.
+    // WP-2093: 워크플로우 질문 대기의 답을 먼저 본다 — 답으로 소비했으면(깨운 AI 가 없어도) 반복 질문 답·암묵 응답은 보지 않는다(같은 글로
+    // 실행 이동과 또 다른 AI 실행을 함께 일으키지 않게). 이동이 깨운 AI 중 첫째를 같은 자리(followUpAgentId)에 싣는다.
     Long followUpAgentId = null;
+    WorkflowAnswer workflowAnswer = WorkflowAnswer.NOT_ANSWER;
     if (humanReply) {
-      var woken = recurringAnswers.answer(context.issueId(), messageId, callerId, req.body());
-      if (woken.isPresent()) followUpAgentId = woken.getAsLong();
+      workflowAnswer = workflowAnswers.answer(context.issueId(), messageId, callerId, req.body());
+      if (!workflowAnswer.consumed()) {
+        var woken = recurringAnswers.answer(context.issueId(), messageId, callerId, req.body());
+        if (woken.isPresent()) followUpAgentId = woken.getAsLong();
+      } else if (!workflowAnswer.wokenAgentIds().isEmpty()) {
+        followUpAgentId = workflowAnswer.wokenAgentIds().getFirst();
+      }
     }
     // WP-1377: 멘션이 하나도 없는 사람 글이고 이어 처리로 깨운 AI 가 없으면, 실행 일정의 담당 AI 가 멘션 없이도 답할지 본다. 멘션이 있으면 지금 멘션
     // 규칙만 쓴다(사람끼리 멘션 대화에 AI 가 끼지 않게). 이어 처리가 있으면 그 처리로만 답한다(같은 글에 이중 실행 금지).
     Long implicitAgentId = null;
-    if (humanReply && mentionUserIds.isEmpty() && followUpAgentId == null) {
+    if (humanReply
+        && !workflowAnswer.consumed()
+        && mentionUserIds.isEmpty()
+        && followUpAgentId == null) {
       // 판정이 실패해도 글은 저장한다 — 세이브포인트로 감싸 실패는 「답할 AI 없음」으로 본다(이어 처리 답 판정과 같은 격리).
       implicitAgentId =
           implicitAgentResolver.isolated(
@@ -221,8 +237,14 @@ public class ChatMessageService {
     // WP-1377: 멘션 없이 답할 담당 AI 도 멘션된 AI 처럼 뺀다 — 이 글로 이미 chat.message.posted 로 깨우므로, 답변 필요로 멈춰 있던 그
     // AI 를
     // 재개 알림(AgentsResumedByChatReply)으로 또 깨우지 않게. implicitAgentId 는 멘션이 없을 때만 실리므로 둘 중 하나만 있다.
+    // WP-2093: 워크플로우 답 이동이 깨운 AI 도 모두 뺀다 — 노드 진입이 이미 깨웠다.
     if (humanReply) {
-      List<Long> alreadyWoken = implicitAgentId == null ? mentionUserIds : List.of(implicitAgentId);
+      List<Long> alreadyWoken =
+          Stream.concat(
+                  (implicitAgentId == null ? mentionUserIds : List.of(implicitAgentId)).stream(),
+                  workflowAnswer.wokenAgentIds().stream())
+              .distinct()
+              .toList();
       publisher.publishEvent(IssueHumanReplyPosted.chat(context.issueId(), callerId, alreadyWoken));
     }
     return saved;

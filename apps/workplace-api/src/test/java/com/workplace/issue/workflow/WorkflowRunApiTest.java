@@ -1,6 +1,6 @@
 package com.workplace.issue.workflow;
 
-import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_COMMENT;
@@ -17,8 +17,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
-import com.workplace.file.api.StagedFileClaimer;
-import com.workplace.file.storage.FileStore;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -41,7 +39,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,7 +82,6 @@ class WorkflowRunApiTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired NotificationService notificationService;
-  @Autowired FileStore fileStore;
 
   /** 프로젝트 OWNER(관리자) — 역할에는 들지 않는다. */
   private long pm;
@@ -922,10 +918,15 @@ class WorkflowRunApiTest extends IntegrationTestBase {
     assertThat(commentCount(issue)).isZero();
 
     events.clear();
+    // 질문 이동(WP-2093)은 의견을 댓글이 아니라 이슈 챗 질문으로 올리므로 node_run.comment_id 는 null 이고 댓글은 생기지 않는다.
     ok(moveReq(issue, "dev", "ask", null, null, "질문입니다", 1, "k2"), dev1);
     assertThat(issueChanges()).isEqualTo(1);
+    assertThat(latestNodeRun(issue, "dev").get(NODE_RUN.COMMENT_ID)).isNull();
+    assertThat(commentCount(issue)).isZero();
 
-    Long commentId = latestNodeRun(issue, "dev").get(NODE_RUN.COMMENT_ID);
+    // 질문이 아닌 이동(답)의 의견은 그대로 댓글이고 떠나는 node_run 에 이어진다.
+    ok(moveReq(issue, "dev_ask", "answered", null, null, "답입니다", 2, "k3"), owner);
+    Long commentId = latestNodeRun(issue, "dev_ask").get(NODE_RUN.COMMENT_ID);
     assertThat(commentId).isNotNull();
     assertThat(
             dsl.select(ISSUE_COMMENT.BODY, ISSUE_COMMENT.ISSUE_ID)
@@ -933,7 +934,7 @@ class WorkflowRunApiTest extends IntegrationTestBase {
                 .where(ISSUE_COMMENT.ID.eq(commentId))
                 .fetchSingle()
                 .value1())
-        .isEqualTo("질문입니다");
+        .isEqualTo("답입니다");
     assertThat(commentCount(issue)).isEqualTo(1);
   }
 
@@ -945,43 +946,41 @@ class WorkflowRunApiTest extends IntegrationTestBase {
     ok(startReq(issue, wf, false), lead);
     // dev1 은 워크플로우가 넣은 담당 — dev → dev_ask 이동에서 빠지고 owner 가 들어온다.
     ok(moveReq(issue, "triage", "ready", null, List.of(dev1), null, 0, "k1"), lead);
+    ok(moveReq(issue, "dev", "ask", null, null, "질문입니다", 1, "k2"), dev1);
     events.clear();
 
-    ok(moveReq(issue, "dev", "ask", null, null, "질문입니다", 1, "k2"), dev1);
+    // 답(질문 이동이 아니라 댓글로 남는 이동) — owner 가 빠지고 dev1 이 다시 담당이 된다.
+    ok(moveReq(issue, "dev_ask", "answered", null, null, "답입니다", 2, "k3"), owner);
 
     List<IssueCommentedEvent> commented = events.stream(IssueCommentedEvent.class).toList();
     assertThat(commented).hasSize(1);
     // 알림 받는 담당은 댓글을 쓸 때 담긴다(IssueCommentedEvent.assignees) — 교체 뒤 담당이어야 한다.
     assertThat(commented.getFirst().assignees().stream().map(u -> u.id()).toList())
-        .containsExactlyInAnyOrder(lead, owner);
-    assertThat(issueAssignees(issue)).containsExactlyInAnyOrder(lead, owner);
+        .containsExactlyInAnyOrder(lead, dev1);
+    assertThat(issueAssignees(issue)).containsExactlyInAnyOrder(lead, dev1);
     // node_run.comment_id 연결은 그대로.
-    assertThat(latestNodeRun(issue, "dev").get(NODE_RUN.COMMENT_ID))
+    assertThat(latestNodeRun(issue, "dev_ask").get(NODE_RUN.COMMENT_ID))
         .isEqualTo(commented.getFirst().commentId());
   }
 
   @Test
-  @DisplayName("질문 의견의 _qa.question 은 첨부 자리 표시를 바꿔 저장한 댓글 본문이다")
-  void qaQuestion_usesStoredCommentBody() {
+  @DisplayName("질문 의견의 _qa.question 은 요청 의견 원문이고 챗 질문 글에 그대로 올라간다(WP-2093)")
+  void qaQuestion_isRequestCommentAndChatBody() {
     long wf = publish(spec());
     long issue = issue(dev1);
     ok(startReq(issue, wf, false), dev1);
-    long file = seedStagedText(dev1, "notes.txt");
 
-    JsonNode asked =
-        ok(
-            moveReq(issue, "dev", "ask", null, null, "로그 봐 주세요 ![로그](file:" + file + ")", 0, "q1"),
-            dev1);
+    JsonNode asked = ok(moveReq(issue, "dev", "ask", null, null, "어느 API 를 쓰나요?", 0, "q1"), dev1);
 
-    Long commentId = latestNodeRun(issue, "dev").get(NODE_RUN.COMMENT_ID);
-    String stored =
-        dsl.select(ISSUE_COMMENT.BODY)
-            .from(ISSUE_COMMENT)
-            .where(ISSUE_COMMENT.ID.eq(commentId))
-            .fetchSingle()
-            .value1();
-    assertThat(stored).doesNotContain("file:").contains("notes.txt");
-    assertThat(asked.get("context").get("_qa").get(0).get("question").asString()).isEqualTo(stored);
+    JsonNode qa = asked.get("context").get("_qa").get(0);
+    assertThat(qa.get("question").asString()).isEqualTo("어느 API 를 쓰나요?");
+    assertThat(
+            dsl.select(CHAT_MESSAGE.BODY)
+                .from(CHAT_MESSAGE)
+                .where(CHAT_MESSAGE.ID.eq(qa.get("questionMessageId").asLong()))
+                .fetchSingle()
+                .value1())
+        .isEqualTo("어느 API 를 쓰나요?");
   }
 
   @Test
@@ -1083,29 +1082,6 @@ class WorkflowRunApiTest extends IntegrationTestBase {
             .id();
     TenantContext.set(1L);
     return id;
-  }
-
-  /**
-   * MCP upload_file 로 올린 것과 같은 스테이징 첨부(이미지 아님) — FILE 행 + 저장소 바이트를 직접
-   * 시드한다(IssueBodyFilePlaceholderTest 와 같은 방식). 본문의 {@code file:N} 자리 표시가 저장 때 「**이름** (첨부 파일)」로
-   * 바뀐다.
-   */
-  private long seedStagedText(long uploader, String name) {
-    byte[] bytes = "plain text log line".getBytes(StandardCharsets.UTF_8);
-    String path = "tenant-1/staged/" + UUID.randomUUID();
-    fileStore.storeBytes(path, bytes);
-    return dsl.insertInto(FILE)
-        .set(FILE.ORIGINAL_NAME, name)
-        .set(FILE.STORED_NAME, path)
-        .set(FILE.STORAGE_PATH, path)
-        .set(FILE.MIME_TYPE, "text/plain")
-        .set(FILE.SIZE_BYTES, (long) bytes.length)
-        .set(FILE.CATEGORY, StagedFileClaimer.CATEGORY_ATTACHMENT)
-        .set(FILE.UPLOADED_BY, uploader)
-        .set(FILE.EXPIRES_AT, OffsetDateTime.now().plusHours(24))
-        .returning(FILE.ID)
-        .fetchOne()
-        .getId();
   }
 
   private String username(long userId) {

@@ -11,7 +11,8 @@ import java.time.Instant;
  * @param nodeName 노드 이름(모델에 없으면 null)
  * @param enteredAt 이 노드에 들어간 시각 — 오래 기다린 순의 기준
  * @param handedBy 앞 노드를 마치고 넘긴 사람(없으면 null)
- * @param question 지금 노드에서 아직 답하지 않은 질문(없으면 null)
+ * @param question 지금 노드에서 아직 답하지 않은 질문의 첫 줄(앞뒤 빈 줄·공백을 건너뛴 첫 줄, 없으면 null)
+ * @param asking 지금 노드가 질문 경로(returnTo 가 있는 사람 노드)인가 — 이면 이슈 챗에서 답한다(WP-2093)
  */
 public record MyWorkflowTurn(
     long runId,
@@ -28,4 +29,5 @@ public record MyWorkflowTurn(
     String nodeName,
     Instant enteredAt,
     UserSummary handedBy,
-    String question) {}
+    String question,
+    boolean asking) {}

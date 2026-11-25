@@ -1,6 +1,9 @@
 package com.workplace.issue.workflow.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.service.UserMentionHydrator;
+import com.workplace.global.util.MentionParser;
+import com.workplace.global.util.Texts;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.workflow.domain.NodeTypes;
@@ -67,6 +70,8 @@ public class WorkflowRunQueryService {
   private final WorkflowModelLoader modelLoader;
   private final WorkflowRunViews views;
   private final ObjectMapper objectMapper;
+  // 질문 첫 줄의 멘션 토큰(<@id>)을 @이름으로 바꾸는 데 쓴다(WP-2093 — AgentWorkReportService 의 note 첫 줄과 같은 변환).
+  private final UserMentionHydrator mentionHydrator;
 
   /** 내 차례 응답 상한(WP-1991) — 오래 기다린 순으로 이만큼만 준다. */
   public static final int MY_TURNS_MAX = 200;
@@ -263,9 +268,21 @@ public class WorkflowRunQueryService {
           }
         });
     Map<Long, UserSummary> users = views.users(ids);
+    // 질문 첫 줄 — 멘션 토큰의 사람을 쪽 전체에서 모아 한 번만 읽어 @이름으로 바꾼다(토큰이 없으면 읽지 않는다).
+    Map<Long, String> questions = new HashMap<>();
+    Set<Long> mentioned = new LinkedHashSet<>();
+    for (Turn t : kept) {
+      String line = Texts.firstLine(pendingQuestion(t.row().contextJson(), t.row().nodeKey()));
+      if (line != null) {
+        questions.put(t.row().runId(), line);
+        mentioned.addAll(MentionParser.parse(line));
+      }
+    }
+    var mentions = mentionHydrator.asMentionResponses(List.copyOf(mentioned));
     List<MyWorkflowTurn> out = new ArrayList<>();
     for (Turn t : kept) {
       MyTurnRow r = t.row();
+      String question = questions.get(r.runId());
       ProjectRow project = t.project();
       out.add(
           new MyWorkflowTurn(
@@ -283,7 +300,8 @@ public class WorkflowRunQueryService {
               nodeName(t.model(), r.nodeKey()),
               r.enteredAt(),
               WorkflowRunViews.user(r.handedById(), users),
-              pendingQuestion(r.contextJson(), r.nodeKey())));
+              question == null ? null : MentionParser.replaceWithNames(question, mentions),
+              t.model().nodes().get(r.nodeKey()).returnTo() != null));
     }
     return List.copyOf(out);
   }
@@ -322,7 +340,7 @@ public class WorkflowRunQueryService {
             answerNode != null
                 && answerNode.isString()
                 && nodeKey.equals(answerNode.asString())
-                && (answer == null || answer.isNull());
+                && WorkflowRunService.isUnanswered(answer);
         if (pending && question != null && question.isString()) {
           return question.asString();
         }

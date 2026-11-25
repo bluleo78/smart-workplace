@@ -1,5 +1,6 @@
 package com.workplace.chat.dto;
 
+import com.workplace.issue.outbound.IssueChatPoster;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -9,7 +10,7 @@ import java.util.List;
  * 수행(EmptyChatMessageException).
  */
 public record CreateChatMessageRequest(
-    @Size(max = 4000) String body,
+    @Size(max = IssueChatPoster.BODY_MAX) String body,
     List<Long> fileIds,
     // 원소 null 은 400 — 드라이브 링크 조회에서 500 이 났다(WP-743). fileIds 는 첨부 claim 이 한국어 400 으로 따로 막는다.
     // 같은 id 를 수만 번 넣으면 요청 하나가 수십 초 걸렸다(WP-794) — 개수 상한 + 중복 제거(driveFileIds()).

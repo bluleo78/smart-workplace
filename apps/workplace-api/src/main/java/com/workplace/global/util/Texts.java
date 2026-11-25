@@ -36,6 +36,15 @@ public final class Texts {
     return s.substring(0, end);
   }
 
+  /**
+   * 첫 비어 있지 않은 줄(앞뒤 공백 제거) — 앞쪽 빈 줄·공백은 건너뛴다. null·공백뿐이면 null. 여러 줄 글(챗 질문·보고 글)을 한 줄 자리에 보일 때 쓴다.
+   * 줄 나누기는 lines() 로 필요한 첫 줄까지만 읽는다.
+   */
+  public static String firstLine(String s) {
+    if (s == null) return null;
+    return s.strip().lines().findFirst().map(String::strip).orElse(null);
+  }
+
   /** 빈 문자열·공백뿐인 문자열은 null 로, 그 밖은 그대로 — 선택 값이 비어 오면 "없음"으로 통일해 저장·비교하려고 쓴다. */
   public static String blankToNull(String s) {
     return s == null || s.isBlank() ? null : s;

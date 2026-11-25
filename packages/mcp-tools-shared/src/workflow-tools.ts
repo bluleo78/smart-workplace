@@ -6,7 +6,7 @@
 // 서버 errors 칸(MoveViolation: currentNode·revision·keys·role·candidates)에는 숫자 사용자 id 가 없다(candidates 는 username 쉼표 목록) — 가공할 칸이 없다.
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
-import { resolveMentionTokens } from './messaging-tools.js';
+import { linkMentions, resolveMentionTokens } from './messaging-tools.js';
 import { describeApiError, parseIssueKey } from './parse.js';
 import { type AssigneeResolverClient, resolveAssigneeIds } from './resolve.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -277,7 +277,9 @@ async function saveOrCreate(
 }
 
 /** 워크플로우 도구 — 이슈 실행 3종(issue 앱)과 정의 3종(project 앱). */
-export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolverClient & Pick<MemberToolClient, 'getMember'>): SharedTool[] {
+export function buildWorkflowTools(
+  client: WorkflowToolClient & AssigneeResolverClient & Pick<MemberToolClient, 'getMember' | 'searchMembers'>,
+): SharedTool[] {
   return [
     {
       name: 'get_issue_workflow',
@@ -315,8 +317,9 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
       // 노드를 앞으로 보낼 뿐 값을 덮거나 지우지 않아 destructive 가 아니다.
       hints: { destructive: false, idempotent: true },
       description:
-        'Moves the issue from its current node (fromNode) by an outcome from get_issue_workflow. Give the required outputs, comment if required, ' +
-        'next assignees (usernames) when asked, and expectedRevision and runId from get_issue_workflow. Refused with code WORKFLOW_STALE if it changed meanwhile.',
+        'Moves the issue from fromNode by an outcome from get_issue_workflow. Give required outputs, comment, next assignees (usernames) when asked, ' +
+        'and expectedRevision, runId from get_issue_workflow. WORKFLOW_STALE if changed. ' +
+        "On ask, the comment (max 4000 chars) becomes an issue chat question; a person's chat reply returns the run via answered (read via get_issue_chat; never move answered yourself).",
       inputSchema: moveIssueWorkflowInput,
       async handler(args) {
         const { issueKey, fromNode, outcome, outputs, assignees, comment, expectedRevision, runId } = moveIssueWorkflowInput.parse(args);
@@ -328,7 +331,9 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
           outcome,
           ...(outputs != null && { outputs }),
           ...(assigneeIds && { assigneeIds }),
-          ...(comment != null && comment.trim() !== '' && { comment }),
+          // 의견의 @username 은 <@id> 멘션 토큰으로 바꿔 보낸다(report_agent_work 의 message 와 같은 linkMentions) — 결과 ask 의 의견은
+          // 이슈 챗 질문이 되므로(WP-2093) 토큰이어야 @owner 멘션이 알림으로 간다. 일반 이동의 의견 댓글도 같은 토큰 표기를 쓴다.
+          ...(comment != null && comment.trim() !== '' && { comment: await linkMentions(client, comment) }),
           expectedRevision,
           // 같은 노드·revision·결과의 재시도를 한 번의 이동으로 만든다(Global Constraints 규칙 그대로).
           idempotencyKey: `${issueKey}:${fromNode}:${expectedRevision}:${outcome}`,

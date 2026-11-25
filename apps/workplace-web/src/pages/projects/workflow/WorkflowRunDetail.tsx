@@ -7,11 +7,21 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useWorkflowRun } from '@/hooks/queries/useWorkflowRuns'
 import { focusRow } from '@/hooks/useListFocusRescue'
+import { issueChatPath } from '@/lib/agentWork'
 import { isNotFoundError } from '@/lib/api-error'
 import { issuePath } from '@/lib/appUrl'
 import { formatDateTimeMinute } from '@/lib/formatters'
-import { RUN_STATUS_LABEL, RUN_STATUS_TONE } from '@/lib/workflow'
-import { nodeDurationsMs, paintRun, pendingQuestion, runMoveRows, type WorkflowRunDetail as RunDetail } from '@/lib/workflowRuns'
+import { isAskWaitingState, RUN_STATUS_LABEL, RUN_STATUS_TONE } from '@/lib/workflow'
+import {
+  mentionTokensAsNames,
+  nodeDurationsMs,
+  paintRun,
+  pendingQuestion,
+  questionFirstLine,
+  runMoveRows,
+  runUserNames,
+  type WorkflowRunDetail as RunDetail,
+} from '@/lib/workflowRuns'
 import { IssueWorkflowBanner } from '@/pages/projects/components/IssueWorkflowBanner'
 
 import { RecoverDialog } from './RecoverDialog'
@@ -131,6 +141,21 @@ function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onL
 
   if (run.status === 'WAITING' && node?.type === 'human_task') {
     const assignees = visit?.assignees ?? []
+    // 질문 대기(returnTo 있고 결과가 answered 뿐, WP-2093) — 결과 단추 대신 질문 첫 줄과 이슈 챗 링크. 사람 챗 글이 실행을 움직인다.
+    // 질문 노드에 다른 결과도 있으면 아래 일반 사람 차례로 그린다(배너가 answered 만 뺀다).
+    // 질문 원문은 챗 글이라 멘션 토큰(<@id>)이 있다 — 상세에 실린 사람 이름으로 바꿔 보인다.
+    if (isAskWaitingState(run.status, node.type, node.returnTo, node.outcomes.map((o) => o.key))) {
+      const line = questionFirstLine(pendingQuestion(run.context, run.currentNode))
+      const first = line == null ? null : mentionTokensAsNames(line, runUserNames(detail))
+      return (
+        <div className="space-y-1 rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm" data-testid="run-waiting-banner">
+          <div className="font-medium text-warning-text">{`${node.name ?? node.key} — 질문 대기`}</div>
+          {first && <p>{`「${first}」`}</p>}
+          <Link className="text-xs text-primary hover:underline" to={issueChatPath(projectKey, run.issueNumber)}>챗에서 답하기</Link>
+          {assignees.length > 0 && <p className="text-xs">{`담당: ${assignees.map((a) => a.name).join(', ')}`}</p>}
+        </div>
+      )
+    }
     // 내가 지금 방문의 담당이면 답할 수 있는 배너, 아니면 질문과 담당만 보인다.
     if (assignees.some((a) => a.id === meId)) return <IssueWorkflowBanner issueId={run.issueId} projectKey={projectKey} meId={meId} onLeave={onLeave} />
     const q = pendingQuestion(run.context, run.currentNode)

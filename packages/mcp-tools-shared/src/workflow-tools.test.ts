@@ -85,6 +85,7 @@ function mockClient() {
     getProjectMembers: vi.fn().mockResolvedValue([]),
     getMe: vi.fn(),
     getMember: vi.fn().mockRejectedValue({ response: { status: 404 } }),
+    searchMembers: vi.fn().mockResolvedValue([]),
   };
 }
 type Client = ReturnType<typeof mockClient>;
@@ -237,6 +238,16 @@ describe('start_issue_workflow', () => {
 describe('move_issue_workflow', () => {
   const base = { issueKey: 'WP-7', fromNode: 'dev', outcome: 'done', expectedRevision: 3 };
 
+  it('description_explainsAskGoesToChat: ask 의견은 이슈 챗 질문으로 남고 챗 답이 answered 로 되돌린다고 안내한다(WP-2093)', () => {
+    const c = mockClient();
+    const description = tool(c, 'move_issue_workflow').description;
+    expect(description).toContain('issue chat');
+    expect(description).toContain('answered');
+    expect(description).toContain('get_issue_chat');
+    // 질문 의견은 챗 글 상한(4000자)을 넘으면 서버가 422 로 거절한다 — 미리 알린다(WP-2093 리뷰 후속).
+    expect(description).toContain('max 4000 chars');
+  });
+
   it('assigneesByUsername_resolvedToIds: username 을 id 로 풀고 idempotencyKey 를 규칙대로 만든다', async () => {
     const c = mockClient();
     c.getProjectMembers.mockResolvedValue([member(42, 'kim')]);
@@ -253,6 +264,19 @@ describe('move_issue_workflow', () => {
       idempotencyKey: 'WP-7:dev:3:done',
     });
     expect(body.currentNode.key).toBe('dev');
+  });
+
+  it('move_commentMentions_linked: 의견의 @username 을 <@id> 멘션 토큰으로 바꿔 보낸다 — ask 의견이 챗 질문이 되어 멘션 알림이 가게(WP-2093)', async () => {
+    const c = mockClient();
+    c.searchMembers.mockResolvedValue([member(42, 'kim')]);
+    await tool(c, 'move_issue_workflow').handler({ ...base, outcome: 'ask', comment: '@kim A 와 B 중 어느 쪽?' });
+    expect(c.moveIssueWorkflow).toHaveBeenCalledWith('WP-7', {
+      fromNode: 'dev',
+      outcome: 'ask',
+      comment: '<@42> A 와 B 중 어느 쪽?',
+      expectedRevision: 3,
+      idempotencyKey: 'WP-7:dev:3:ask',
+    });
   });
 
   it('assignees·outputs·comment 를 안 주면 본문에 싣지 않는다', async () => {

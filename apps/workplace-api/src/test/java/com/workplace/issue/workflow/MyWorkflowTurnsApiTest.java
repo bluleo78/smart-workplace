@@ -191,6 +191,57 @@ class MyWorkflowTurnsApiTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("질문은 앞뒤 빈 줄을 건너뛴 첫 줄만 주고, 질문 경로(returnTo) 노드는 asking=true, 일반 사람 노드는 false")
+  void myTurns_askQuestion_firstLineOnly() {
+    Instant t = Instant.now().minus(1, ChronoUnit.HOURS);
+    long asking = seedRun(keyA, wfA, "WAITING", "dev_ask", me, t);
+    setContext(
+        asking,
+        "{\"_qa\":[{\"question\":\"\\n어느 쪽?\\n- A\\n- B\",\"answerNode\":\"dev_ask\",\"answer\":null}]}");
+    long plain = seedRun(keyB, wfB, "WAITING", "confirm", me, t.plusSeconds(60));
+
+    JsonNode items = ok(get(API + "/me/workflow-turns"), me).get("items");
+
+    assertThat(items).hasSize(2);
+    assertThat(items.get(0).get("runId").asLong()).isEqualTo(asking);
+    assertThat(items.get(0).get("question").asString()).isEqualTo("어느 쪽?");
+    assertThat(items.get(0).get("asking").asBoolean()).isTrue();
+    assertThat(items.get(1).get("runId").asLong()).isEqualTo(plain);
+    assertThat(items.get(1).get("asking").asBoolean()).isFalse();
+  }
+
+  @Test
+  @DisplayName("질문 첫 줄의 멘션 토큰(<@id>)은 @이름으로 바꿔 준다(WP-2093 설계 §3)")
+  void myTurns_questionMentionTokens_shownAsNames() {
+    Instant t = Instant.now().minus(1, ChronoUnit.HOURS);
+    long asking = seedRun(keyA, wfA, "WAITING", "dev_ask", me, t);
+    setContext(
+        asking,
+        "{\"_qa\":[{\"question\":\"<@"
+            + me
+            + "> 어느 쪽?\\n- A\",\"answerNode\":\"dev_ask\",\"answer\":null}]}");
+    String myName = dsl.select(USER.NAME).from(USER).where(USER.ID.eq(me)).fetchSingle().value1();
+
+    JsonNode items = ok(get(API + "/me/workflow-turns"), me).get("items");
+
+    assertThat(items.get(0).get("question").asString()).isEqualTo("@" + myName + " 어느 쪽?");
+  }
+
+  @Test
+  @DisplayName("이슈 워크플로우 조회의 currentNode 에 returnTo 가 실린다 — 질문 경로 노드는 돌아갈 노드, 아니면 null")
+  void issueWorkflow_currentNodeCarriesReturnTo() {
+    Instant t = Instant.now().minus(1, ChronoUnit.HOURS);
+    long ask = seedRun(keyA, wfA, "WAITING", "dev_ask", me, t);
+    long plain = seedRun(keyB, wfB, "WAITING", "confirm", me, t);
+
+    JsonNode askView = ok(get(API + "/issues/" + issueOf(ask) + "/workflow"), me);
+    JsonNode plainView = ok(get(API + "/issues/" + issueOf(plain) + "/workflow"), me);
+
+    assertThat(askView.get("currentNode").get("returnTo").asString()).isEqualTo("dev");
+    assertThat(plainView.get("currentNode").get("returnTo").isNull()).isTrue();
+  }
+
+  @Test
   @DisplayName("앞쪽에 못 읽는 행이 한 쪽(50)보다 많아도 뒤의 내 차례가 나온다")
   void myTurns_pagesPastManyUnreadableRows() {
     String keyC = newKey();
@@ -371,6 +422,15 @@ class MyWorkflowTurnsApiTest extends IntegrationTestBase {
     runRepository.insertNodeRun(
         run, node, 1, "ACTIVE", List.of(assignee), List.of(), false, enteredAt);
     return run;
+  }
+
+  /** 실행이 걸린 이슈 id. */
+  private long issueOf(long run) {
+    return dsl.select(WORKFLOW_RUN.ISSUE_ID)
+        .from(WORKFLOW_RUN)
+        .where(WORKFLOW_RUN.ID.eq(run))
+        .fetchSingle()
+        .value1();
   }
 
   /** 실행의 context JSON 을 직접 바꾼다. */
