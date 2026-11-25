@@ -19,6 +19,7 @@ import { clearStarterStorage } from '../lib/ai/starterStorage';
 import { isTransientRequestError } from '../lib/api-error';
 import { emitIdentityChange } from '../lib/auth/identityChange';
 import { AUTH_FLAG_KEY } from '../lib/auth/sessionFlag';
+import { markInitialRefreshSettled } from '../lib/authBoot';
 import { clearIssueBodyDrafts } from '../lib/issueBodyDraft';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
@@ -27,6 +28,7 @@ import { clearWorkflowDraftSessions, invalidateWorkflowDraftSessions } from '../
 import type { Membership, UserResponse } from '../types/auth';
 import type { RoleResponse } from '../types/role';
 import { AuthContext } from './auth-context-value';
+import { startInitialIssuePrefetch } from './useInitialIssuePrefetch';
 
 // React StrictMode(dev)에서 useEffect가 두 번 실행되어 refresh API가 중복 호출되는 것을 방지.
 // 동시 호출 시 동일한 Promise를 반환하여 실제 HTTP 요청은 한 번만 발생한다.
@@ -103,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initAuth = async () => {
       if (!localStorage.getItem(AUTH_FLAG_KEY)) {
+        // WP-2087: refresh 를 하지 않는 경로 — 첫 주소 청크 미리 받기가 기다릴 이유가 없으니 바로 신호한다.
+        markInitialRefreshSettled();
         setIsLoading(false);
         return;
       }
@@ -111,6 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: tokens } = await deduplicatedRefresh();
         if (ignore) return;
         setAccessToken(tokens.accessToken);
+        // WP-2087: refresh 가 끝났다 — 첫 주소 청크 미리 받기를 시작해도 된다. HTTP/1.1 에서 183개 청크가 refresh 를
+        // 줄 세워 상세 요청이 FCP 뒤 803ms 였던 것을 피하려 미리 받기를 refresh 뒤로 미뤘다(authBoot).
+        // 신호는 다음 작업으로 미뤄 돌므로, 아래 같은 동기 구간에서 나가는 memberships·users/me·상세 요청이 청크보다 먼저 나간다.
+        markInitialRefreshSettled();
         // refresh 는 보통 tenant 클레임을 보존하지만, 쓰던 테넌트를 더는 쓸 수 없으면 서버가 로그인과 같은 규칙으로 다시 고른다
         // (WP-341 후속): 남은 소속 1개 → 그 테넌트 토큰, 그 외 → tenant-less. 새 토큰 기준으로 활성 테넌트를 맞춘다.
         // 직전 탭이 테넌트 변경으로 리로드했다면 1회성 표시가 남아 있다 — 결과에 맞는 안내를 한 번만 보여 준다.
@@ -133,12 +141,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           // 같은 테넌트(또는 판독 불가 토큰) — 보관된 활성 테넌트를 복원한다.
           setActiveTenant(stored);
+          // WP-2087: 보관된 활성 테넌트가 있고 토큰이 그것과 같거나 판독 불가일 때만 이슈 상세를 users/me 보다 먼저(병렬로) 미리 요청한다.
+          // 보관값이 없으면(tenant-less 토큰 등) 테넌트 밖 데이터를 캐시에 넣거나 이어지지 않을 세션을 위해 요청하게 되니 건너뛴다 —
+          // 그 경우는 AppLayout 훅이 나중에 커버한다. 위 분기(토큰의 테넌트가 보관값과 다름)도 워크스페이스 선택·테넌트 변경으로 끝날 수 있어 같다.
+          if (stored) startInitialIssuePrefetch(queryClient);
         }
         await fetchUserWithRoles();
         if (ignore) return;
         // 테넌트 변경 리로드 후 다른 워크스페이스로 진입했으면 한 번 알린다.
         if (tenantChanged) toast.info(TENANT_SWITCHED_MESSAGE);
       } catch (e) {
+        // WP-2087: refresh 실패도 끝남이다(ignore 여부와 무관 — 신호는 문서당 첫 한 번뿐이라 재실행에도 안전).
+        markInitialRefreshSettled();
         if (ignore) return;
         setAccessToken(null);
         // 일시 오류(배포 중 502·서버 500·네트워크 끊김)는 세션이 살아 있을 수 있다 — 세션 표시(hasSession)·활성 테넌트를 남기고
@@ -158,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initAuth();
     return () => { ignore = true; };
-  }, [fetchUserWithRoles, authAttempt]);
+  }, [fetchUserWithRoles, authAttempt, queryClient]);
 
   // 세션 확인 다시 시도 — 로딩으로 되돌리고 initAuth 를 다시 돌린다(authAttempt 가 effect 를 다시 실행).
   const retryAuth = useCallback(() => {
