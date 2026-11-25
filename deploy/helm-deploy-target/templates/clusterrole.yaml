@@ -1,0 +1,28 @@
+{{- if .Values.namespaceAccess }}
+# 앱 저장소의 apply -k 가 Namespace 리소스도 함께 apply 할 때 — 클러스터 범위 리소스라 Role 로는 못 주므로,
+# 앱 네임스페이스 이름 하나로만 좁힌 ClusterRole 을 둔다(다른 네임스페이스·생성·삭제 없음).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "deployTarget.namespace" . }}-namespace-{{ include "deployTarget.saName" . }}
+  labels:
+    {{- include "deployTarget.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: [{{ include "deployTarget.namespace" . | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "deployTarget.namespace" . }}-namespace-{{ include "deployTarget.saName" . }}
+  labels:
+    {{- include "deployTarget.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "deployTarget.namespace" . }}-namespace-{{ include "deployTarget.saName" . }}
+subjects:
+  {{- include "deployTarget.subject" . | nindent 2 }}
+{{- end }}

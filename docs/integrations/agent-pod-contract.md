@@ -241,7 +241,7 @@ AI Pod 는 Deployment 없는 맨 Pod(`restartPolicy: Always`)다. 떠 있어야 
 - 대부분의 AI 는 쿠버네티스 API 를 쓰지 않는다. 배포 담당 AI 처럼 권한이 꼭 필요한 AI 만 Helm 값 `agent.serviceAccounts`(`{AI 사용자 id: ServiceAccount 이름}`, runner env `AGENT_SERVICE_ACCOUNTS`)에 적는다. Works 의 템플릿·desired 로는 정할 수 없다 — Works 관리자가 임의의 AI 에 클러스터 권한을 붙이지 못하게. 이름이 아니라 id 로 고르는 것도 같은 까닭이다(사용자 이름은 Works 에서 바뀐다).
 - 허용 목록에 든 AI 의 Pod 는 `serviceAccountName` 을 그 이름으로 두되 `automountServiceAccountToken: false` 는 그대로고, 토큰은 투영 볼륨으로 **agent 컨테이너에만** 꽂는다 — 자동 마운트는 dind·dind-gc·사이드카에도 토큰을 넣어 특권 dind 를 통해서도 권한이 새기 때문이다. 경로·파일 이름은 kubectl·client 라이브러리의 클러스터 안 설정이 그대로 찾는 표준 자리다.
 - 다만 투영 토큰도 노드의 kubelet 폴더에 파일로 있어, 같은 노드에 뜬 특권 dind(다른 AI 의 것 포함)가 노드 디스크를 마운트하면 읽을 수 있다 — 사이드카와 나누지 않는 것까지가 이 장치의 범위고, 노드 수준 격리(배포 담당 AI 전용 위치·노드)는 따로 해야 한다. 배포 담당 AI 의 템플릿에는 dind 사이드카를 두지 않는다(docker 가 필요 없다).
-- ServiceAccount·Role·RoleBinding 은 runner·차트가 만들지 않는다(클러스터 운영자 몫). 없는 이름이면 Pod 가 거절되어 `FAILED` 로 보인다.
+- ServiceAccount·Role·RoleBinding 은 runner 차트가 만들지 않는다(클러스터 운영자 몫). 배포 담당 AI 용은 앱마다 `deploy/helm-deploy-target` 차트(WP-2142)로 한 번 설치하면 앱 네임스페이스 하나만큼의 최소 권한이 나온다. 없는 이름이면 Pod 가 거절되어 `FAILED` 로 보인다.
 - **Pod 재생성**: 허용 목록이 바뀌어도 desired `generation` 은 그대로라, Pod 어노테이션 `genia.works/service-account` 가 설정과 다르면(없음 ↔ 값 포함) 「모델 연결 교체」처럼 Pod 를 다시 만든다. 미뤄 둔 generation(applyNow=false)이 있어도 기다리지 않는다 — 허용 목록에서 뺀 AI 의 권한이 쉴 때까지 남지 않게.
 
 ## 위치 값

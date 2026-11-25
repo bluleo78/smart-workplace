@@ -117,7 +117,7 @@ agent:
 
 **클러스터 권한이 필요한 AI(WP-2135)** — 배포 담당 AI 처럼 쿠버네티스 API 를 써야 하는 AI 만 `agent.serviceAccounts` 에
 `{AI 사용자 id: ServiceAccount 이름}` 으로 적습니다. 그 밖의 AI 는 지금처럼 토큰 없이 뜹니다. 이 값은 Works 화면으로 바꿀 수 없어,
-Works 관리자가 임의의 AI 에 클러스터 권한을 붙이지 못합니다. ServiceAccount 와 권한(Role·RoleBinding)은 차트가 만들지 않으니 먼저 만듭니다
+Works 관리자가 임의의 AI 에 클러스터 권한을 붙이지 못합니다. ServiceAccount 와 권한(Role·RoleBinding)은 이 차트가 만들지 않으니 먼저 만듭니다 — 배포 담당 AI 용은 [deploy-target 차트](../helm-deploy-target/README.md)(WP-2142)로 앱마다 한 번 설치합니다
 (없는 이름을 적으면 그 AI 의 Pod 가 거절되어 관리자 화면에 `FAILED` 로 보입니다). 토큰은 agent 컨테이너에만 꽂히고
 (`/var/run/secrets/kubernetes.io/serviceaccount`, kubectl 이 그대로 찾는 자리) 특권 dind 등 사이드카에는 들어가지 않습니다.
 다만 토큰 파일은 노드의 kubelet 폴더에 있어, 같은 노드에 뜬 특권 dind(다른 AI 의 것 포함)가 노드 디스크를 마운트하면 읽을 수 있습니다.

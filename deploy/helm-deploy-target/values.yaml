@@ -1,0 +1,24 @@
+# 배포 담당 AI 권한 차트 값(WP-2142). 앱 하나에 한 번 설치한다 — 사람이 helm install 로 적용하고,
+# 앱 배포 매니페스트(kustomization 등)에는 넣지 않는다(배포 AI 가 자기 권한을 고치지 못하게).
+
+# 배포할 앱의 네임스페이스(필수). Role·RoleBinding 이 이 안에 생긴다.
+targetNamespace: ""
+
+serviceAccount:
+  # 배포 AI Pod 가 쓸 ServiceAccount 이름. 비우면 deploy-<targetNamespace>.
+  # agent-runner 의 허용 표(agent.serviceAccounts)에 이 이름을 AI id 와 함께 적어야 Pod 가 이 계정으로 뜬다(WP-2135).
+  name: ""
+  # AI Pod 가 뜨는 네임스페이스(agent-runner 를 설치한 곳)
+  namespace: genia-agents
+  # false 면 ServiceAccount 를 만들지 않고 이미 있는 것에 권한만 묶는다 — 배포 AI 하나가 앱 여럿을 맡을 때
+  # 첫 앱 설치만 true 로 두고 나머지는 false 로 같은 name 을 가리킨다.
+  # 토큰 Secret 은 만들지 않는다 — runner 가 Pod 에 1시간짜리 투영 토큰을 꽂는다.
+  create: true
+
+# 앱 저장소의 apply -k 가 Namespace 리소스도 함께 apply 하면 켠다. namespaces 를 targetNamespace 이름 하나로 좁힌
+# ClusterRole(get·patch)을 만든다 — 다른 네임스페이스·생성·삭제는 없다.
+namespaceAccess: false
+
+# 기본 권한(deployments·replicasets·services·ingresses·pods·pods/log) 밖에 앱이 더 필요한 것(예: statefulsets·cronjobs).
+# Role rules 형식 그대로 targetNamespace 안에만 더해진다. secrets·configmaps·pods/exec·delete 는 꼭 필요할 때만 신중히 더한다.
+extraRules: []

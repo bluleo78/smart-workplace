@@ -1,0 +1,46 @@
+# 앱 네임스페이스 안에서 배포에 필요한 일만 허용한다.
+# - apply(-k): 각 리소스 get 뒤 create·patch(update 는 replace 류 도구용)
+# - rollout status·undo: deployments watch·patch, replicasets 조회
+# - 반영 뒤 확인: Pod 상태·로그 읽기
+# secrets·configmaps·pods/exec·delete 는 주지 않는다 — 배포 AI 가 앱 비밀값을 읽거나 컨테이너에 들어가거나 지우지 못하게.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "deployTarget.roleName" . }}
+  namespace: {{ include "deployTarget.namespace" . }}
+  labels:
+    {{- include "deployTarget.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "patch", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+  {{- with .Values.extraRules }}
+  # 앱이 더 필요하다고 values extraRules 로 더한 것
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "deployTarget.roleName" . }}
+  namespace: {{ include "deployTarget.namespace" . }}
+  labels:
+    {{- include "deployTarget.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "deployTarget.roleName" . }}
+subjects:
+  {{- include "deployTarget.subject" . | nindent 2 }}

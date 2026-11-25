@@ -1,0 +1,6 @@
+apiVersion: v2
+name: deploy-target
+description: Gen:iA Works 배포 담당 AI 에게 앱 네임스페이스 하나만큼의 배포 권한(ServiceAccount·Role)을 주는 차트 — 앱마다 한 번 설치한다 (WP-2142)
+type: application
+# 차트 자체의 버전. 이미지가 없어 릴리스 버전과 맞추지 않는다.
+version: 0.1.0
