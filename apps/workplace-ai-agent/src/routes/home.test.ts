@@ -540,6 +540,21 @@ describe('WP-2108: 사용 한도 응답', () => {
     expect(res.body.reason).toBe('PROVIDER_LIMIT');
     expect(res.body.error).toBe('home_priority_classify_unavailable');
   });
+  it('WP-2137: 운영 주간 한도 문구 → 503 PROVIDER_LIMIT + resetsAt', async () => {
+    // 실제 운영 문구(주간 한도)가 한도로 판정되어 같은 503 계약을 따르는지 고정한다
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.mocked(runHomePriorityClassify).mockRejectedValue(
+      new Error("Claude Code returned an error result: You've hit your weekly limit · resets 3pm (UTC)"),
+    );
+    const res = await request(buildApp()).post('/home/priority-classify').send({
+      items: [{ sourceType: 'ISSUE_DUE', sourceId: '1', title: 'a', context: 'b' }],
+      assistantAgentId: 99, model: 'm', maxTurns: 6, timeoutMs: 90000,
+    });
+    expect(res.status).toBe(503);
+    expect(res.body.reason).toBe('PROVIDER_LIMIT');
+    expect(res.body.error).toBe('home_priority_classify_unavailable');
+    expect(res.body.resetsAt).toMatch(/T15:00:00\.000Z$/);
+  });
   it('/home/priority-classify 일반 오류는 502 그대로', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.mocked(runHomePriorityClassify).mockRejectedValue(new Error('boom'));

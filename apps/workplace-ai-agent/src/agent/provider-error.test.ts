@@ -91,6 +91,21 @@ describe('classifyProviderError', () => {
     ['WP-2108: 5-hour limit reached', new Error('Claude Code returned an error result: 5-hour limit reached ∙ resets 3pm'), 'PROVIDER_LIMIT'],
     ['WP-2108: weekly limit reached', new Error('Claude Code returned an error result: weekly limit reached'), 'PROVIDER_LIMIT'],
     ['WP-2108: 429 rate limit reached 는 여전히 속도', new Error('API Error: 429 rate limit reached'), 'PROVIDER_RATE'],
+    ['WP-2137: 운영 주간 문구', new Error("Claude Code returned an error result: You've hit your weekly limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: 운영 조직 지출 문구', new Error("Claude Code returned an error result: You've hit your org's monthly spend limit"), 'PROVIDER_LIMIT'],
+    ['WP-2137: session limit', new Error("Claude Code returned an error result: You've hit your session limit · resets 5pm (Asia/Seoul)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: 5-hour limit', new Error("Claude Code returned an error result: You've hit your 5-hour limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: Opus limit', new Error("Claude Code returned an error result: You've hit your Opus limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: Sonnet limit', new Error("Claude Code returned an error result: You've hit your Sonnet limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: Fable limit', new Error("Claude Code returned an error result: You've hit your Fable limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: usage credit limit', new Error("Claude Code returned an error result: You've hit your usage credit limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: monthly spend limit', new Error("Claude Code returned an error result: You've hit your monthly spend limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: fast limit', new Error("Claude Code returned an error result: You've hit your fast limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: 굽은 따옴표', new Error("Claude Code returned an error result: You’ve hit your weekly limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2137: rate limit 은 속도', new Error("Claude Code returned an error result: You've hit your rate limit"), 'PROVIDER_RATE'],
+    ['WP-2137: channel 월 지출 한도', new Error("Claude Code returned an error result: You've hit your channel's monthly spend limit."), 'PROVIDER_LIMIT'],
+    ['WP-2137: 아포스트로피 없는 weekly limit', new Error('Claude Code returned an error result: Youve hit your weekly limit'), 'PROVIDER_LIMIT'],
+    ['WP-2137: API rate limit 은 속도', new Error("Claude Code returned an error result: You've hit your API rate limit"), 'PROVIDER_RATE'],
   ])('%s', (_label, err, expected) => {
     expect(classifyProviderError(err)).toBe(expected);
   });
@@ -124,6 +139,14 @@ describe('classifyProviderError', () => {
     ['러너 문구 없는 overloaded', new Error('tool result: queue overloaded, retry later')],
     ['러너 문구 없는 rate limit', new Error('workplace-api: rate limit on search endpoint')],
     ['러너 문구 없는 spend limit', new Error('budget note: spend limit for team')],
+    ['WP-2137: 러너 표지 없는 weekly limit', new Error("tool result: You've hit your weekly limit")],
+    ['WP-2137: 문맥 창 한도는 구독 한도 아님', new Error("Claude Code returned an error result: You've hit your context window limit")],
+    ['WP-2137: 최대 출력 토큰 한도는 구독 한도 아님', new Error("Claude Code returned an error result: You've hit your max output token limit")],
+    ['WP-2137: max_tokens 한도는 구독 한도 아님', new Error("Claude Code returned an error result: You've hit your max_tokens limit")],
+    ['WP-2137: max-output-tokens 한도는 구독 한도 아님', new Error("Claude Code returned an error result: You've hit your max-output-tokens limit")],
+    ['WP-2137: prompt length 한도는 구독 한도 아님', new Error("Claude Code returned an error result: You've hit your prompt length limit")],
+    ['WP-2137: file size 한도는 구독 한도 아님', new Error("Claude Code returned an error result: You've hit your file size limit")],
+    ['WP-2137: 낱말 4개 넘는 우연한 문장', new Error("Claude Code returned an error result: You've hit your head on the door and the limit")],
   ])('null: %s', (_label, err) => {
     expect(classifyProviderError(err)).toBeNull();
   });
@@ -180,6 +203,8 @@ describe('parseResetsAt (WP-2108)', () => {
     ['모르는 시간대', '… resets 3pm (Mars/Base)', now, null],
     ['시각 없음', 'usage limit', now, null],
     // 주간 한도 — 날짜가 적힌 문구
+    ['WP-2137: 운영 주간 문구(KST 아침, 오늘 15:00Z 지남 → 다음 날)', "Claude Code returned an error result: You've hit your weekly limit · resets 3pm (UTC)", new Date('2026-11-25T21:55:00Z'), '2026-11-26T15:00:00.000Z'],
+    ['WP-2137: 날짜+시각 Asia/Seoul', "Claude Code returned an error result: You've hit your weekly limit · resets Nov 28, 3pm (Asia/Seoul)", now, '2026-11-28T06:00:00.000Z'],
     ['날짜+시각 (UTC)', '… resets Nov 28 at 3pm (UTC)', now, '2026-11-28T15:00:00.000Z'],
     ['날짜+시각 시간대', '… resets Nov 28 at 3pm (Asia/Seoul)', now, '2026-11-28T06:00:00.000Z'],
     ['날짜 쉼표 표기·시간대 없음', '… resets Nov 28, 3:30pm', now, '2026-11-28T15:30:00.000Z'],
