@@ -25,13 +25,8 @@ export const norm = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p)
 // /notifications 는 🔔 로 들어오는 "푸시 화면"이라(탭바에 고정하지 않았다면) 뒤로가기 = 홈.
 const LIST_PARENTS: Record<string, string> = { '/settings': '/apps', '/notifications': '/' }
 
-// 프로젝트 하위 화면(/projects/:key/…) — 뒤로가기(딥링크) 대상은 그 프로젝트. 모바일 병합 헤더가
-// 페이지의 "프로젝트로 돌아가기" 아이콘을 ‹ 하나로 대체하므로 딥링크에서도 같은 곳으로 돌아가게 한다.
+// 프로젝트 하위 화면(/projects/:key/…) 폴백 — 아래 규칙(상세·설정·탭)에 걸리지 않는 경로의 뒤로가기 대상은 그 프로젝트.
 const PROJECT_SUB = /^(\/projects\/[^/]+)\/.+$/
-
-// 이슈 상세(/projects/:key/issues/:n, WP-2085) — 뒤로가기 대상은 이슈 목록의 정식 주소(/projects/:key/issues).
-// 프로젝트 홈으로 보내면 기억한 탭(개요 등)으로 튕겨 목록이 아닌 곳에 도착한다.
-const PROJECT_ISSUE_DETAIL = /^(\/projects\/[^/]+\/issues)\/[^/]+$/
 
 // 프로젝트 설정(/projects/:key/settings, WP-2085) — 데스크탑 「프로젝트로 돌아가기」와 같이 이슈 목록의 정식 주소로 돌아간다.
 // 프로젝트 홈으로 보내면 기억한 탭(개요 등)으로 튕겨 버튼과 ‹ 의 도착지가 갈린다.
@@ -42,9 +37,10 @@ const PROJECT_SETTINGS = /^\/projects\/([^/]+)\/settings$/
 // 탭 길 목록은 탭 정의(주소 해석)와 같은 한 곳(lib/projectTabPaths)에서 만든다 — 탭을 더할 때 한쪽만 고쳐 어긋나지 않게.
 const PROJECT_TAB = new RegExp(`^(/projects/[^/]+)/(?:${PROJECT_TAB_PATHS.join('|')})$`)
 
-// 프로젝트 노트 탭(WP-1481) — 모바일은 노트 앱처럼 목록(/projects/:key/notes)과 페이지(/projects/:key/notes/:id) 두 화면이다.
-// 목록(notes)은 PROJECT_TAB_PATHS 에 있어 다른 프로젝트 탭과 같이 프로젝트 화면을 떠난다. 페이지의 뒤로가기는 그 목록이다.
-const PROJECT_NOTES_PAGE = /^(\/projects\/[^/]+\/notes)\/[^/]+$/
+// 프로젝트 탭의 상세(/projects/:key/<탭>/:id) — 뒤로가기 대상은 그 탭 목록의 정식 주소(/projects/:key/<탭>).
+// 이슈 상세(WP-2085)·버전 상세(WP-2114)·노트 페이지(WP-1481 — 모바일은 노트 앱처럼 목록과 페이지 두 화면)가 여기에 든다.
+// 프로젝트 홈으로 보내면 기억한 탭(개요 등)으로 튕겨 목록이 아닌 곳에 도착한다. 탭 길 목록은 PROJECT_TAB 과 같은 곳에서 만든다.
+const PROJECT_TAB_DETAIL = new RegExp(`^(/projects/[^/]+/(?:${PROJECT_TAB_PATHS.join('|')}))/[^/]+$`)
 
 // 노트 공간 목록(/wiki/spaces/:id) — 노트는 "공간 → 페이지" 2단 목록이라 공간을 고른 화면도 목록(탭 루트)이다(WP-178).
 // 페이지(/wiki/spaces/:id/pages/:id)는 상세. 모듈 레이아웃도 이 판정으로 목록/상세를 가른다.
@@ -66,12 +62,10 @@ export function isTabRoot(pathname: string, slots: readonly MobileTabId[] = DEFA
 export function moduleRootFor(pathname: string): string {
   const p = norm(pathname)
   if (LIST_PARENTS[p]) return LIST_PARENTS[p]
-  const notesPage = PROJECT_NOTES_PAGE.exec(p)
-  if (notesPage) return notesPage[1]
+  const tabDetail = PROJECT_TAB_DETAIL.exec(p)
+  if (tabDetail) return tabDetail[1]
   const projectTab = PROJECT_TAB.exec(p)
   if (projectTab) return moduleRootFor(projectTab[1])
-  const issueDetail = PROJECT_ISSUE_DETAIL.exec(p)
-  if (issueDetail) return issueDetail[1]
   const settings = PROJECT_SETTINGS.exec(p)
   if (settings) return projectIssuesPath(settings[1])
   const project = PROJECT_SUB.exec(p)
