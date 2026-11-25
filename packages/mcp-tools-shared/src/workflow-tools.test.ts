@@ -244,6 +244,8 @@ describe('move_issue_workflow', () => {
     expect(description).toContain('issue chat');
     expect(description).toContain('answered');
     expect(description).toContain('get_issue_chat');
+    // 결과(outcome)는 get_issue_workflow 가 돌려준 후보에서 고른다 — 출처 안내를 지우지 않는다(WP-2093 리뷰 후속).
+    expect(description).toContain('by an outcome from get_issue_workflow');
     // 질문 의견은 챗 글 상한(4000자)을 넘으면 서버가 422 로 거절한다 — 미리 알린다(WP-2093 리뷰 후속).
     // 상한은 @username 을 <@id> 토큰으로 바꾼 뒤 글자로 잰다 — 도구 검사·서버 판정과 같은 기준임을 알린다.
     expect(description).toContain('max 4000 chars after @username→<@id>');

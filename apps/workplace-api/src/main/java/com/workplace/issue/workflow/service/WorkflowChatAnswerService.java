@@ -55,15 +55,16 @@ public class WorkflowChatAnswerService implements WorkflowQuestionAnswers {
 
   /**
    * 사람 글이 질문 대기의 답이면 answered 이동을 하고 그 결과(소비 여부·깨운 AI)를 돌려준다. 보이는 글자가 없는 글(첨부만)과 멘션 토큰을 빼면 보이는 글자가
-   * 없는 글(「@담당자」만 — 사람을 부르기만 한 글)은 답이 아니다.
+   * 없는 글(「@담당자」·「@a, @b」만 — 사람을 부르기만 한 글. 토큰 사이 쉼표도 함께 뺀다)은 답이 아니다.
    *
    * <p>chat 의 글 저장 트랜잭션 안에서 세이브포인트(NESTED)로 돈다 — 잠그지 않은 사전 확인부터 판정·이동까지 모두 그 안이라, 조회 예외·판정 위반·이동
    * 실패는 그 부분만 되돌리고 log.warn 한 뒤 「답 아님」이다. 사람의 글은 그대로 저장된다(설계 §2 실패 격리).
    */
   @Override
   public WorkflowAnswer answer(long issueId, long messageId, long actorId, String body) {
-    // 멘션 토큰(<@id>)을 지운 뒤 보이는 글자가 있어야 답으로 본다 — 부르기만 한 글이 질문 대기를 answered 로 넘기지 않게.
-    if (!PersonNames.hasVisibleChar(MentionParser.replace(body, id -> ""))) {
+    // 멘션 토큰(<@id>)을 그 사이 구분자(공백류·쉼표)와 함께 지운 뒤 보이는 글자가 있어야 답으로 본다 — 부르기만 한 글(「@a, @b」 포함)이
+    // 질문 대기를 answered 로 넘기지 않게.
+    if (!PersonNames.hasVisibleChar(MentionParser.removeTokens(body))) {
       return WorkflowAnswer.NOT_ANSWER;
     }
     try {

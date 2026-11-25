@@ -77,7 +77,17 @@ public final class ChatDomainEvents {
      * 돌아가면 둘째 AI 를 멘션해도 그 AI 가 두 번 시작되지 않는다.
      */
     public Set<Long> alreadyWokenAgentIds() {
-      Set<Long> woken = new LinkedHashSet<>(workflowWokenAgentIds);
+      return alreadyWoken(followUpAgentId, workflowWokenAgentIds);
+    }
+
+    /**
+     * 이미 깨운 AI 집합을 만드는 한 곳 — 이벤트의 {@link #alreadyWokenAgentIds()} 와, 이벤트를 만들기 전에 같은 집합으로 판정해야 하는
+     * 발행처(글 저장 트랜잭션의 반복 요약 읽기 판정, WP-1375)가 함께 쓴다. 두 벌로 두면 한쪽만 고쳐 판정이 어긋날 수 있다. 워크플로우 답 이동 AI 순서 뒤에
+     * 이어 처리 AI 를 붙인다(중복 없이). workflowWokenAgentIds 가 null 이면 빈 목록으로 본다.
+     */
+    public static Set<Long> alreadyWoken(Long followUpAgentId, List<Long> workflowWokenAgentIds) {
+      Set<Long> woken =
+          new LinkedHashSet<>(workflowWokenAgentIds == null ? List.of() : workflowWokenAgentIds);
       if (followUpAgentId != null) woken.add(followUpAgentId);
       return woken;
     }
