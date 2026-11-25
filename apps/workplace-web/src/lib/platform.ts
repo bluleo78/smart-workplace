@@ -69,14 +69,19 @@ export interface ShortcutKeyEvent {
 }
 
 /**
- * 이 키 이벤트가 K 키인가(WP-1332) — 단축키 판정의 공통 기준(전역 AI 토글·노트 링크 넣기가 같이 쓴다).
- * key 가 라틴 글자가 아닐 때(한글 입력 상태의 'ㅏ' 등)만 물리 키(code)로 본다 — 드보락처럼 K 자리에 다른 라틴 글자가 오는 배열을 가로채지 않게.
+ * 이 키 이벤트가 글자 키(letter, 소문자 한 글자)인가 — 단축키 판정의 공통 기준(Ctrl/Cmd+B·I 등).
+ * key 가 라틴 글자가 아닐 때(한글 입력 상태의 'ㅏ' 등)만 물리 키(code)로 본다 — 드보락처럼 그 자리에 다른 라틴 글자가 오는 배열을 가로채지 않게.
  * 자동 완성이 보내는 key 없는 keydown 도 오류 없이 false.
  */
-export function isKKey(e: { key?: string; code?: string }): boolean {
+export function isLetterKey(e: { key?: string; code?: string }, letter: string): boolean {
   const key = typeof e.key === 'string' ? e.key : ''
-  if (key.toLowerCase() === 'k') return true
-  return !/^[a-z]$/i.test(key) && e.code === 'KeyK'
+  if (key.toLowerCase() === letter) return true
+  return !/^[a-z]$/i.test(key) && e.code === `Key${letter.toUpperCase()}`
+}
+
+/** 이 키 이벤트가 K 키인가(WP-1332) — 전역 AI 토글·노트 링크 넣기가 같이 쓴다. 판정은 isLetterKey. */
+export function isKKey(e: { key?: string; code?: string }): boolean {
+  return isLetterKey(e, 'k')
 }
 
 /**

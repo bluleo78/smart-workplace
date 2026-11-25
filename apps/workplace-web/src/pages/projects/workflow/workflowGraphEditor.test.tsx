@@ -163,7 +163,9 @@ it('nodeDrawer_editsInstructionsRoleOutputs', async () => {
   renderWithProviders(<Harness initial={FIXTURE} onYaml={onYaml} />)
   fireEvent.click(screen.getByText('개발'))
   await expandInstructions()
-  fireEvent.change(await screen.findByLabelText('지시 내용'), { target: { value: '테스트 지시' } })
+  await userEvent.click(screen.getByRole('button', { name: '마크다운 원문' }))
+  fireEvent.change(await screen.findByLabelText('지시 원문'), { target: { value: '테스트 지시' } })
+  await userEvent.click(screen.getByRole('button', { name: '적용' }))
   expect(doc(onYaml.mock.lastCall![0]).nodes.dev.instructions.trim()).toBe('테스트 지시')
 
   fireEvent.change(screen.getByLabelText('담당 역할 선택'), { target: { value: 'lead' } })
@@ -301,7 +303,7 @@ async function openPathsTab() {
   await userEvent.click(await screen.findByRole('tab', { name: '결과·경로' }))
 }
 
-/** 지시 요약의 「지시 편집 ⤢」로 지시 입력 칸을 펼친다(WP-2091). */
+/** 지시 요약의 「지시 편집 ⤢」로 넓은 편집 창을 연다(WP-2091·2092). */
 async function expandInstructions() {
   await userEvent.click(await screen.findByRole('button', { name: '지시 편집 ⤢' }))
 }
@@ -997,22 +999,28 @@ it('nodeDrawer_ask_showsTarget', async () => {
   expect(within(ask).queryByRole('button', { name: '질문 경로 추가' })).toBeNull()
 })
 
-// WP-2091 — 지시는 요약(앞 3줄 + 통계)으로 보이고 「지시 편집 ⤢」로 입력 칸을 펼친다
-it('nodeDrawer_instructionSummary_statsAndExpand', async () => {
+// WP-2091·2092 — 지시는 요약(앞 3줄 + 통계)으로 보이고 「지시 편집 ⤢」로 넓은 편집 창이 열린다
+it('nodeDrawer_instructionSummary_statsAndOpenDialog', async () => {
   const text = '# 목표\n개발한다\n## 표\n| a | b |\n| - | - |'
   const y = FIXTURE.replace('      개발한다\n', text.split('\n').map((l) => '      ' + l + '\n').join(''))
-  renderWithProviders(<Harness initial={y} />)
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={y} onYaml={onYaml} />)
   clickNode('dev')
   const section = await screen.findByRole('region', { name: '지시' })
   expect(within(section).getByText(`${text.length}자 · 표 1 · 제목 2`)).toBeInTheDocument()
   expect(within(section).getByText(/# 목표\s+개발한다\s+## 표/)).toBeInTheDocument()
-  expect(within(section).queryByLabelText('지시 내용')).toBeNull()
+  expect(screen.queryByRole('dialog')).toBeNull()
   fireEvent.click(within(section).getByRole('button', { name: '지시 편집 ⤢' }))
-  expect(within(section).getByRole('textbox', { name: '지시 내용' })).toHaveValue(text + '\n')
-  const collapse = within(section).getByRole('button', { name: '지시 접기' })
-  expect(collapse).toHaveAttribute('aria-expanded', 'true')
-  fireEvent.click(collapse)
-  expect(within(section).queryByLabelText('지시 내용')).toBeNull()
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(/지시 편집/)).toBeInTheDocument()
+  // 블록을 고친 뒤 취소하면 초안 YAML 은 그대로다(onYaml 새 호출 없음)
+  const before = onYaml.mock.calls.length
+  await userEvent.click(within(dialog).getAllByTestId('instruction-block')[1])
+  await userEvent.type(within(dialog).getByLabelText('블록 원문'), ' 고침')
+  fireEvent.click(within(dialog).getByRole('button', { name: '취소' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(onYaml.mock.calls.length).toBe(before)
+  expect(within(section).getByText(`${text.length}자 · 표 1 · 제목 2`)).toBeInTheDocument()
 })
 
 // WP-2091 — 읽기 전용이면 서랍의 편집 컨트롤이 모두 꺼진다
