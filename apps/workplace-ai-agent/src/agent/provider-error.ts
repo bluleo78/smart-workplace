@@ -178,18 +178,18 @@ function tzOffsetMs(tz: string, t: number): number {
 }
 
 /** 월 이름 앞 3글자 → 0 기반 월. */
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 /**
  * tz 의 현지 시각(y-m-d h:min)을 UTC ms 로 바꾼다. 오프셋은 "지금"이 아니라 그 후보 시각에서 구한다(DST 경계 보정):
  * now 의 오프셋으로 1차 추정 → 추정 시각의 오프셋으로 재계산 → 한 번 더 수렴시킨다.
  */
 function localToUtc(tz: string, y: number, m: number, d: number, h: number, min: number, nowMs: number): number {
-  const wall = Date.UTC(y, m, d, h, min)
-  let t = wall - tzOffsetMs(tz, nowMs)
-  t = wall - tzOffsetMs(tz, t)
-  t = wall - tzOffsetMs(tz, t)
-  return t
+  const wall = Date.UTC(y, m, d, h, min);
+  let t = wall - tzOffsetMs(tz, nowMs);
+  t = wall - tzOffsetMs(tz, t);
+  t = wall - tzOffsetMs(tz, t);
+  return t;
 }
 
 /**
@@ -204,44 +204,48 @@ export function parseResetsAt(e: unknown, now: Date = new Date()): string | null
 
   // ③ `resets [at] [Nov 28 [at]] 3pm [(tz)]` — 날짜가 있으면 주간 한도(며칠 뒤), 없으면 오늘/내일 시각.
   const clock =
-    /resets(?: at)? (?:([A-Za-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,?(?: at)? )?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?: \(([^)]+)\))?/i.exec(
-      raw,
-    )
-  const epoch = /usage limit reached\|(\d{10})\b/i.exec(raw)
-  const iso = /resets(?: at)? (\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:?\d{2}))/i.exec(raw)
+    /resets(?: at)? (?:([A-Za-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,?(?: at)? )?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?: \(([^)]+)\))?/i.exec(raw);
+  const epoch = /usage limit reached\|(\d{10})\b/i.exec(raw);
+  const iso = /resets(?: at)? (\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:?\d{2}))/i.exec(raw);
   if (epoch) {
-    at = Number(epoch[1]) * 1000
+    at = Number(epoch[1]) * 1000;
   } else if (iso) {
-    const t = Date.parse(iso[1])
-    at = Number.isNaN(t) ? null : t
+    const t = Date.parse(iso[1]);
+    at = Number.isNaN(t) ? null : t;
   } else if (clock) {
-    const h12 = Number(clock[3])
-    const min = clock[4] ? Number(clock[4]) : 0
-    if (h12 < 1 || h12 > 12 || min > 59) return null
-    const hour = (h12 % 12) + (clock[5].toLowerCase() === 'pm' ? 12 : 0)
-    const tz = clock[6]?.trim() || 'UTC'
+    const h12 = Number(clock[3]);
+    const min = clock[4] ? Number(clock[4]) : 0;
+    if (h12 < 1 || h12 > 12 || min > 59) return null;
+    const hour = (h12 % 12) + (clock[5].toLowerCase() === 'pm' ? 12 : 0);
+    const tz = clock[6]?.trim() || 'UTC';
     try {
       // 그 지역의 "오늘" 날짜(now 기준)를 구한다.
-      const nowLocal = new Date(nowMs + tzOffsetMs(tz, nowMs))
-      const y = nowLocal.getUTCFullYear()
-      const m = nowLocal.getUTCMonth()
-      const d = nowLocal.getUTCDate()
+      const nowLocal = new Date(nowMs + tzOffsetMs(tz, nowMs));
+      const y = nowLocal.getUTCFullYear();
+      const m = nowLocal.getUTCMonth();
+      const d = nowLocal.getUTCDate();
       if (clock[1]) {
         // 날짜가 적힌 경우 — 월 이름(앞 3글자)과 일을 읽고, 이미 지난 날짜면 다음 해로 넘긴다(12월→1월 경계).
-        const mon = MONTHS.indexOf(clock[1].slice(0, 3).toLowerCase())
-        const day = Number(clock[2])
-        if (mon < 0 || day < 1 || day > 31) return null
-        let cand = localToUtc(tz, y, mon, day, hour, min, nowMs)
-        if (cand <= nowMs) cand = localToUtc(tz, y + 1, mon, day, hour, min, nowMs)
-        at = cand
+        const mon = MONTHS.indexOf(clock[1].slice(0, 3).toLowerCase());
+        const day = Number(clock[2]);
+        if (mon < 0 || day < 1 || day > 31) return null;
+        // 올해 날짜가 이미 지났으면 다음 해로 넘긴다. 없는 날짜(2/30·4/31·평년 2/29)는 Date.UTC 가 다음 달로 굴려 버리므로 거른다.
+        let year = y;
+        let cand = localToUtc(tz, year, mon, day, hour, min, nowMs);
+        if (cand <= nowMs) {
+          year = y + 1;
+          cand = localToUtc(tz, year, mon, day, hour, min, nowMs);
+        }
+        if (day > new Date(Date.UTC(year, mon + 1, 0)).getUTCDate()) return null;
+        at = cand;
       } else {
         // 시각만 — 오늘 그 시각이 지났으면 내일(달력상 하루 뒤라 DST 날에도 시각이 맞는다).
-        let cand = localToUtc(tz, y, m, d, hour, min, nowMs)
-        if (cand <= nowMs) cand = localToUtc(tz, y, m, d + 1, hour, min, nowMs)
-        at = cand
+        let cand = localToUtc(tz, y, m, d, hour, min, nowMs);
+        if (cand <= nowMs) cand = localToUtc(tz, y, m, d + 1, hour, min, nowMs);
+        at = cand;
       }
     } catch {
-      return null
+      return null;
     }
   }
   if (at === null || at <= nowMs || at > nowMs + MAX_RESET_AHEAD_MS) return null;
