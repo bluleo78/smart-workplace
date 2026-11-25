@@ -402,6 +402,26 @@ test('상세 시트: 상세 조회가 실패하면 「상세를 불러오지 못
   expect(within(dialog).getByText('응답 시간 초과')).toBeInTheDocument()
 })
 
+// 사유 코드가 이름으로 보인다(WP-2106) — 표 셀·상세 시트 모두 「사용 한도 초과」
+test('사유 provider_limit 행은 표에서 「사용 한도 초과」로 보인다', async () => {
+  const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+  renderHistory('/settings/ai-status/history', h)
+  const row = await screen.findByTestId('ai-run-row')
+  expect(within(row).getAllByRole('cell')[9]).toHaveTextContent('사용 한도 초과')
+})
+
+test('상세 시트: 사유 provider_limit 은 「사용 한도 초과」로 보인다', async () => {
+  const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+  const { user } = renderScreen(<AiStatusHistoryPage />, {
+    path: '/settings/ai-status/history',
+    auth: { isAdmin: true },
+    handlers: [h.handler, http.get(`${RUNS}/:id`, () => HttpResponse.json({}, { status: 500 }))],
+  })
+  await user.click(await screen.findByTestId('ai-run-row'))
+  const dialog = await screen.findByRole('dialog')
+  expect(await within(dialog).findByText('사용 한도 초과')).toBeInTheDocument()
+})
+
 // 모바일 — 표 대신 3줄 카드, 기간은 칩 줄 맨 앞 칩, 상세 시트는 아래에서 올라온다.
 describe('모바일', () => {
   beforeEach(() => {
@@ -422,6 +442,13 @@ describe('모바일', () => {
     expect(lines[0]).toHaveTextContent('실패')
     expect(lines[1]).toHaveTextContent('메일 20통 · 김민수')
     expect(lines[2]).toHaveTextContent('자동 · 30초 · 응답 시간 초과')
+  })
+
+  test('모바일 카드: 사유 provider_limit 은 「사용 한도 초과」로 보인다', async () => {
+    const h = runsHandler([createAiRunPage([createAiRunItem({ errorReason: 'provider_limit' })])])
+    renderHistory('/settings/ai-status/history', h)
+    const card = await screen.findByTestId('ai-run-card')
+    expect(card.querySelectorAll('[data-line]')[2]).toHaveTextContent('사용 한도 초과')
   })
 
   test('모바일 기간 칩으로 7일을 고르면 주소 period=7d', async () => {

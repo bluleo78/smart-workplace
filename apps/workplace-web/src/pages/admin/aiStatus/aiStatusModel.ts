@@ -247,7 +247,7 @@ function alertLabel(a: AiStatusAlert): string {
   switch (a.code) {
     case 'KIND_FAILURE':
       parts = [
-        alertHead(a.kind ?? '', '실패율', whenPresent(a.value, formatPercent)),
+        alertHead(a.kind ? aiRunKindLabel(a.kind) : '', '실패율', whenPresent(a.value, formatPercent)),
         alertThreshold(a.threshold, formatPercent),
       ]
       break
@@ -267,7 +267,7 @@ function alertLabel(a: AiStatusAlert): string {
       const count = (v: number) => `${formatNumber(v)}건`
       // 이 경고의 threshold 는 한도가 아니라 60분 전 밀린 건수다(서버 AiStatusAlertEvaluator — 줄지 않고 그대로인지 본다)
       const before = a.threshold == null ? null : `60분 전 ${count(a.threshold)}`
-      parts = [alertHead(a.kind ?? '', '밀린 건수', whenPresent(a.value, count)), before]
+      parts = [alertHead(a.kind ? aiRunKindLabel(a.kind) : '', '밀린 건수', whenPresent(a.value, count)), before]
       break
     }
     default:
