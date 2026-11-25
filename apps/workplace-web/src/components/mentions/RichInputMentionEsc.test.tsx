@@ -244,16 +244,29 @@ describe('맞는 멤버가 없는 @ 뒤 Enter (WP-2107)', () => {
     })
     expect(onSubmit).not.toHaveBeenCalled() // 반쯤 쓴 글을 보내지 않는다
     expect(editor.getJSON().content).toHaveLength(1) // 줄 나누기도 아니다
-    // 목록이 따라오면 후보가 보이고, 다음 Enter 는 그 후보를 고른다.
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 30))
-    })
-    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    // 목록이 따라오면 후보가 보이고, 다음 Enter 는 그 후보를 고른다(고정 대기 대신 목록이 뜰 때까지 기다린다).
+    expect(await screen.findByRole('listbox')).toBeInTheDocument()
     await act(async () => {
       fireEvent.keyDown(el, { key: 'Enter' })
     })
     expect(onSubmit).not.toHaveBeenCalled()
     expect(JSON.stringify(editor.getJSON())).toContain('mention')
+  })
+
+  it('멤버 목록이 늦게 와 목록이 빈 채로 남으면 Enter 는 삼키지 않고 보낸다(리뷰 후속)', async () => {
+    const onSubmit = vi.fn()
+    const props = { ariaLabel: '코멘트 작성', inputTestId: 'mention-enter-late', submitTestId: 'mention-enter-late-submit', onSubmit }
+    const { rerender } = renderWithProviders(<RichInput members={[]} {...props} />)
+    const el = screen.getByTestId('mention-enter-late')
+    // 멤버가 아직 없을 때 '@kim' — 목록은 빈 채로 이 검색어를 따라왔다.
+    await typeAtEnd(editorOf(el), '@kim')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // 멤버가 늦게 와 지금 거르면 맞지만 목록은 그대로 비어 있다 — 이때 Enter 는 보이는 대로(후보 없음) 보낸다.
+    rerender(<RichInput members={MEMBERS} {...props} />)
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
   it('후보가 보일 때 Enter 는 고르고 보내지 않는다', async () => {
