@@ -127,10 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // (표시용 이름·슬러그는 목록에서), tenant-less 이거나 목록에 없으면(경합 등) 선택 경로로 보낸다.
           const { data: memberships } = await authApi.memberships();
           const next = claim == null ? undefined : memberships.find((m) => m.tenantId === claim);
-          // WP-2116: 이어 갈 테넌트가 있을 때만 미리 받기를 허용한다(없으면 워크스페이스 선택으로 가 이슈 청크가 필요 없다).
-          // ignore 확인 앞에서 보낸다 — StrictMode·언마운트로 무시된 실행도 문서당 첫 신호는 남겨야 안전망 전에 정해진다.
-          markInitialRefreshSettled(!!next);
           if (ignore) return;
+          // WP-2116: 이어 갈 테넌트가 있을 때만 미리 받기를 허용한다(없으면 워크스페이스 선택으로 가 이슈 청크가 필요 없다).
+          // ignore 확인 뒤에서 보낸다 — 무시된 실행(StrictMode 첫 실행은 위 refresh 직후 확인에서 이미 끝난다, memberships 도중
+          // 언마운트)은 그 결과가 화면에 쓰이지 않으므로 신호도 내지 않는다. 살아 있는 실행이 같은 결과로 신호한다.
+          markInitialRefreshSettled(!!next);
           if (!next) {
             await toSelection(memberships, tenantChanged);
             return;
