@@ -185,6 +185,11 @@ describe('parseResetsAt (WP-2108)', () => {
     ['날짜 쉼표 표기·시간대 없음', '… resets Nov 28, 3:30pm', now, '2026-11-28T15:30:00.000Z'],
     ['연말→연초 넘김', '… resets Jan 2 at 3pm (UTC)', new Date('2026-12-30T12:00:00Z'), '2027-01-02T15:00:00.000Z'],
     ['지난 날짜는 다음 해로 가 8일 초과 → null', '… resets Nov 20 at 3pm (UTC)', now, null],
+    // 없는 날짜는 다음 달로 굴리지 않고 null
+    ['없는 날짜 2/30', '… resets Feb 30 at 3pm (UTC)', new Date('2026-02-25T12:00:00Z'), null],
+    ['없는 날짜 4/31', '… resets Apr 31 at 3pm (UTC)', new Date('2026-04-28T12:00:00Z'), null],
+    ['평년 2/29', '… resets Feb 29 at 3pm (UTC)', new Date('2026-02-25T12:00:00Z'), null],
+    ['윤년 2/29 는 유효', '… resets Feb 29 at 3pm (UTC)', new Date('2028-02-26T12:00:00Z'), '2028-02-29T15:00:00.000Z'],
     ['모르는 월 이름', '… resets Foo 28 at 3pm (UTC)', now, null],
     // DST — 오프셋은 "지금"이 아니라 재설정 시각에서 구한다
     [
