@@ -1,6 +1,8 @@
 // 이슈 첨부 업로드의 순수 판정 — 남은 자리에 맞춰 파일 자르기, 결과 토스트 문구, 남은 개수 힌트.
 // 왜: 한도(20)를 넘는 파일마다 토스트를 쌓지 않고 결과 하나로 알리기 위해(WP-2118). jsdom 없이 판정되도록 순수 함수로 둔다.
 
+import { toast } from 'sonner';
+
 /** 힌트를 보이기 시작하는 남은 자리 상한 — 남은 자리 1~5 일 때만 「· n개 남음」. */
 const REMAINING_HINT_MAX = 5;
 
@@ -41,6 +43,14 @@ export function attachmentLimitLabel(count: number, max: number): string | null 
 export function blockedUploadMessage(reason: 'uploading' | 'limit', max: number, action: '드롭' | '선택' = '드롭'): string {
   if (reason === 'uploading') return `업로드 중입니다. 끝난 뒤 다시 ${action}해 주세요`;
   return attachmentLimitLabel(max, max) ?? '';
+}
+
+/** 막힌 안내 토스트의 고정 id — 막힌 클릭·드롭을 반복해도 토스트가 쌓이지 않고 앞의 것을 바꾼다. */
+export const BLOCKED_UPLOAD_TOAST_ID = 'attachment-blocked';
+
+/** 막힌 업로드 이유를 토스트 하나로 알린다 — 드롭존·모바일 스트립이 같은 문구·같은 id 를 쓴다(WP-2118). */
+export function notifyBlockedUpload(reason: 'uploading' | 'limit', max: number, action: '드롭' | '선택' = '드롭'): void {
+  toast.info(blockedUploadMessage(reason, max, action), { id: BLOCKED_UPLOAD_TOAST_ID });
 }
 
 /** 남은 자리가 1~5 일 때만 「· n개 남음」, 그 외(여유 많음·0)는 null — 한도 도달은 호출자가 따로 보인다. */

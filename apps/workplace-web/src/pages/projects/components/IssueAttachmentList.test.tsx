@@ -29,7 +29,9 @@ function makeLink(driveFileId: number, name: string): DriveLink {
 // 데이터 훅은 끊는다 — 이 테스트의 관심사는 확인창이 고른 링크를 보여 주는지와 그 링크로 제거하는지뿐.
 // vi.mock 이 파일 맨 위로 끌어올려지므로 목 함수도 vi.hoisted 로 함께 올린다.
 // 업로드 첨부 목록은 테스트별로 바꿀 수 있게 hoisted 값으로 둔다(기본 빈 목록).
-const { removeMutate, deleteMutate, attachmentsData } = vi.hoisted(() => ({
+const { removeMutate, deleteMutate, attachmentsData, extraLinks } = vi.hoisted(() => ({
+  // 기본 링크 2개 외에 더 붙일 링크 수(테스트별로 바꾼다).
+  extraLinks: { current: 0 },
   removeMutate: vi.fn(),
   deleteMutate: vi.fn(),
   attachmentsData: { current: [] as IssueAttachment[] },
@@ -39,7 +41,7 @@ vi.mock('@/hooks/queries/useIssueAttachments', () => ({
 }))
 vi.mock('@/hooks/queries/useDeleteIssueAttachment', () => ({ useDeleteIssueAttachment: () => ({ mutate: deleteMutate }) }))
 vi.mock('@/hooks/queries/useIssueDriveLinks', () => ({
-  useIssueDriveLinks: () => ({ isLoading: false, data: [makeLink(11, '회의록.docx'), makeLink(12, '예산.xlsx')] }),
+  useIssueDriveLinks: () => ({ isLoading: false, data: [makeLink(11, '회의록.docx'), makeLink(12, '예산.xlsx'), ...Array.from({ length: extraLinks.current }, (_, i) => makeLink(100 + i, `추가${i}.pdf`))] }),
   useRemoveIssueDriveLink: () => ({ mutate: removeMutate }),
 }))
 
@@ -48,6 +50,7 @@ describe('IssueAttachmentList — 드라이브 링크 제거 확인창', () => {
     removeMutate.mockClear()
     // 첨부 목록은 다른 describe 가 채운다 — 순서와 상관없이 이 묶음은 첨부 없이 시작한다.
     attachmentsData.current = []
+    extraLinks.current = 0
   })
 
   it('× 를 누른 링크의 파일 이름을 확인창 설명에 넣고, 제거하면 그 링크를 뺀다', async () => {
@@ -149,6 +152,17 @@ describe('IssueAttachmentList — strip 접기(WP-2118)', () => {
     rerender(<IssueAttachmentList projectKey="LNK" number={1} currentUserId={1} isOwner={false} layout="strip" onPreview={vi.fn()} />)
     expect(chips()).toBe(12)
     expect(screen.getByRole('button', { name: '2개 더 보기' })).toBeInTheDocument()
+  })
+
+  it('드라이브 링크가 많아도 단추는 업로드 칩 바로 뒤이고 링크 칩은 strip 목록에 섞이지 않는다', () => {
+    attachmentsData.current = many(13)
+    extraLinks.current = 12
+    renderStrip()
+    const ul = screen.getByTestId('attachment-list')
+    expect(ul.nextElementSibling).toBe(screen.getByRole('button', { name: '1개 더 보기' }))
+    expect(screen.queryByText('회의록.docx')).not.toBeInTheDocument()
+    expect(screen.queryByText('추가0.pdf')).not.toBeInTheDocument()
+    expect(chips()).toBe(12)
   })
 
   it('12개면 단추가 없다', () => {

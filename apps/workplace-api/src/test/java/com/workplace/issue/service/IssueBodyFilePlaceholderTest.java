@@ -681,17 +681,20 @@ class IssueBodyFilePlaceholderTest extends IntegrationTestBase {
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
-  /** WP-1780 HTTP — fileIds 는 만들기와 같이 10개까지. */
+  /** WP-1780 HTTP — fileIds 는 만들기와 같이 20개까지(WP-2118). 21개면 스테이징 검사 전에 크기 검사(@Size max=20)로 400. */
   @Test
-  void 고치기_fileIds_가_10개를_넘으면_400() throws Exception {
+  void 고치기_fileIds_가_20개를_넘으면_400() throws Exception {
     var created = issueService.create(ownerId, projectKey, createReq("처음"));
 
     mvc.perform(
             patch("/api/v1/projects/" + projectKey + "/issues/" + created.number())
                 .header("Authorization", tokenFor(ownerId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"fileIds\":[1,2,3,4,5,6,7,8,9,10,11]}"))
-        .andExpect(status().isBadRequest());
+                .content("{\"fileIds\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21]}"))
+        .andExpect(status().isBadRequest())
+        // 크기 검사(@Size max=20)가 잡았다는 증거 — 스테이징 검사였다면 message 가 달라 errors.fileIds 가 없다.
+        .andExpect(jsonPath("$.message").value("Validation failed"))
+        .andExpect(jsonPath("$.errors.fileIds").exists());
   }
 
   /** WP-1780 fileIds 의 빈 원소(null)는 첨부 단계까지 가 500 이 되지 않고 형태 오류 400 으로 거절된다. */

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/renderWithProviders'
 
+import { BLOCKED_UPLOAD_TOAST_ID } from '../../../lib/issueAttachmentUpload'
 import { IssueAttachmentDropzone } from './IssueAttachmentDropzone'
 
 const { toastInfo } = vi.hoisted(() => ({ toastInfo: vi.fn() }))
@@ -48,6 +49,9 @@ describe('IssueAttachmentDropzone — 막힌 때에도 브라우저 기본 동�
   })
 })
 
+// 막힌 안내 토스트는 고정 id 로 띄운다(반복해도 쌓이지 않게).
+const BLOCKED_OPTS = { id: BLOCKED_UPLOAD_TOAST_ID }
+
 describe('IssueAttachmentDropzone — 막힌 드롭 안내(WP-2118)', () => {
   beforeEach(() => {
     mutate.mockClear()
@@ -59,15 +63,35 @@ describe('IssueAttachmentDropzone — 막힌 드롭 안내(WP-2118)', () => {
     state.isPending = true
     renderWithProviders(<IssueAttachmentDropzone projectKey="P" number={1} currentCount={3} disabled={false} />)
     drop([new File(['x'], 'a.log')])
-    expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('업로드 중'))
+    expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('업로드 중'), BLOCKED_OPTS)
     expect(mutate).not.toHaveBeenCalled()
   })
 
   it('한도 도달에서 드롭하면 한도 안내 토스트', () => {
     renderWithProviders(<IssueAttachmentDropzone projectKey="P" number={1} currentCount={20} disabled />)
     drop([new File(['x'], 'a.log')])
-    expect(toastInfo).toHaveBeenCalledWith('한도 도달 · 최대 20개')
+    expect(toastInfo).toHaveBeenCalledWith('한도 도달 · 최대 20개', BLOCKED_OPTS)
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('업로드 중 클릭하면 드롭과 같은 안내 토스트, 한도 도달 클릭도 한도 안내', () => {
+    state.isPending = true
+    const { unmount } = renderWithProviders(<IssueAttachmentDropzone projectKey="P" number={1} currentCount={3} disabled={false} />)
+    fireEvent.click(screen.getByTestId('attachment-dropzone'))
+    expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('업로드 중'), BLOCKED_OPTS)
+    unmount()
+    toastInfo.mockClear()
+    state.isPending = false
+    renderWithProviders(<IssueAttachmentDropzone projectKey="P" number={1} currentCount={20} disabled />)
+    fireEvent.click(screen.getByTestId('attachment-dropzone'))
+    expect(toastInfo).toHaveBeenCalledWith('한도 도달 · 최대 20개', BLOCKED_OPTS)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('막히지 않았을 땐 클릭해도 토스트가 없다', () => {
+    renderWithProviders(<IssueAttachmentDropzone projectKey="P" number={1} currentCount={3} disabled={false} />)
+    fireEvent.click(screen.getByTestId('attachment-dropzone'))
+    expect(toastInfo).not.toHaveBeenCalled()
   })
 
   it('막히면 dragover 의 dropEffect 가 none, 평소엔 copy', () => {

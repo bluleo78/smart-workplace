@@ -7,7 +7,6 @@
 
 import { Cloud, Paperclip, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
 
 import { ATTACHMENT_MAX_PER_ISSUE } from '../../../api/issueAttachments';
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
@@ -16,7 +15,7 @@ import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
 import { useAddIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
 import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
 import { useIsMobile } from '../../../hooks/useIsMobile';
-import { attachmentLimitLabel, blockedUploadMessage } from '../../../lib/issueAttachmentUpload';
+import { attachmentLimitLabel, notifyBlockedUpload } from '../../../lib/issueAttachmentUpload';
 import { IssueAttachmentDropzone } from './IssueAttachmentDropzone';
 import { IssueAttachmentList } from './IssueAttachmentList';
 import { useIssueAttachmentViewer } from './useIssueAttachmentViewer';
@@ -130,7 +129,7 @@ export function IssueAttachmentStrip({
               if (files.length === 0) return;
               // 업로드 중에 고른 파일은 말없이 버리지 않고 안내한다(WP-2118).
               if (upload.isPending) {
-                toast.info(blockedUploadMessage('uploading', ATTACHMENT_MAX_PER_ISSUE, '선택'));
+                notifyBlockedUpload('uploading', ATTACHMENT_MAX_PER_ISSUE, '선택');
                 return;
               }
               upload.mutate({ files, currentCount: attachmentCount });
