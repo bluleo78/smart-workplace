@@ -1,3 +1,6 @@
+import { isClosedStatus } from '@/lib/issueGrouping'
+import type { IssueStatus } from '@/types/issue'
+
 // 왜: 서버 IssueService.setType 의 releasesParent 와 식을 같이 유지해야 한다(WP-2097)
 
 /**
@@ -35,14 +38,23 @@ export function parentLinkChangeChoices(input: {
   grandparentTypeName: string | null
   grandparentKey: string | null
   grandparentTitle: string | null
-}): { choice: 'move-under-epic' | 'detach'; epic?: { key: string; title: string } } {
-  const { newTypeName, grandparentTypeName, grandparentKey, grandparentTitle } = input
+  /** 할아버지 에픽의 상태 — 없으면(구 응답) 막지 않는다(WP-2132). */
+  grandparentStatus?: IssueStatus | null
+  /** 이 이슈의 상태 — 없으면(구 응답) 막지 않는다(WP-2132). */
+  issueStatus?: IssueStatus | null
+}): { choice: 'move-under-epic' | 'detach'; epic?: { key: string; title: string }; moveBlocked?: boolean } {
+  const { newTypeName, grandparentTypeName, grandparentKey, grandparentTitle, grandparentStatus, issueStatus } = input
   if (
     newTypeName !== 'EPIC' &&
     grandparentTypeName === 'EPIC' &&
     grandparentKey != null &&
     grandparentTitle != null
   ) {
+    // WP-2132 — 완료(DONE) 에픽 아래로 열린 이슈를 옮기면 서버가 거절하므로(막힘) 이동을 못 고르게 하고
+    // 에픽은 안내용으로 그대로 싣는다. DONE·CANCELED 이슈나 상태를 모르는 구 응답은 막지 않는다.
+    if (grandparentStatus === 'DONE' && issueStatus != null && !isClosedStatus(issueStatus)) {
+      return { choice: 'detach', epic: { key: grandparentKey, title: grandparentTitle }, moveBlocked: true }
+    }
     return { choice: 'move-under-epic', epic: { key: grandparentKey, title: grandparentTitle } }
   }
   return { choice: 'detach' }

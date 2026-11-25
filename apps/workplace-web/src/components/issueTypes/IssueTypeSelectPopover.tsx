@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { parentLinkChangeChoices, shouldShowParentLinkChange } from '@/lib/issueTypeParentLink';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
+import type { IssueStatus } from '@/types/issue';
 
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
 import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
@@ -25,7 +26,9 @@ export interface ParentLink {
   parentTypeName: string;
   parentTitle: string;
   /** 지금 상위의 위에 있는 에픽(할아버지) — 없으면(에픽이 곧 상위) null 이고 창은 「상위 없이 변경」만 그린다. */
-  grandparent: { key: string; title: string } | null;
+  grandparent: { key: string; title: string; status?: IssueStatus } | null;
+  /** 이 이슈의 상태(summary.status) — 완료된 에픽으로의 이동 막힘 판정에 쓴다(WP-2132). */
+  issueStatus?: IssueStatus;
 }
 
 export function IssueTypeSelectPopover({
@@ -86,6 +89,8 @@ export function IssueTypeSelectPopover({
           grandparentTypeName: parentLink.grandparent ? 'EPIC' : null,
           grandparentKey: parentLink.grandparent?.key ?? null,
           grandparentTitle: parentLink.grandparent?.title ?? null,
+          grandparentStatus: parentLink.grandparent?.status ?? null,
+          issueStatus: parentLink.issueStatus ?? null,
         })
       : null;
 
@@ -109,7 +114,7 @@ export function IssueTypeSelectPopover({
     if (pendingType == null) return;
     update.mutate({
       typeId: pendingType.id,
-      ...(p.moveToEpic && choices?.epic ? { parentKey: choices.epic.key } : {}),
+      ...(p.moveToEpic && choices?.epic && !choices.moveBlocked ? { parentKey: choices.epic.key } : {}),
       relateToReleasedParent: p.relateToReleasedParent,
     });
     setPendingType(null);
@@ -229,6 +234,7 @@ export function IssueTypeSelectPopover({
             typeName: parentLink.parentTypeName,
           }}
           epic={choices?.epic ?? null}
+          moveBlocked={choices?.moveBlocked === true}
           onConfirm={onDialogConfirm}
           onCancel={() => setPendingType(null)}
           pending={update.isPending}

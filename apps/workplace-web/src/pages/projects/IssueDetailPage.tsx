@@ -285,6 +285,7 @@ export default function IssueDetailPage() {
       ? {
           key: `${parentSummary.epic.projectKey ?? parentSummary.projectKey ?? key}-${parentSummary.epic.number}`,
           title: parentSummary.epic.title,
+          status: parentSummary.epic.status,
         }
       : null;
   const parentLink =
@@ -294,6 +295,7 @@ export default function IssueDetailPage() {
           parentTypeName: parentSummary.type.name,
           parentTitle: parentSummary.title,
           grandparent: grandparentEpic,
+          issueStatus: summary.status,
         }
       : undefined;
 
