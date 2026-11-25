@@ -41,7 +41,6 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -505,10 +504,11 @@ public class ChatMessageService {
       List<Long> workflowWokenAgentIds,
       Long implicitAgentId) {
     List<UserSummary> mentions = hydrator.summariesOf(mentionUserIds);
-    // 이 글로 이미 깨운 AI 집합(반복 이어 처리 + 워크플로우 답 이동 — WP-1312·WP-2093). dispatcher 는 이벤트의
-    // alreadyWokenAgentIds() 로 같은 집합을 만든다.
-    Set<Long> alreadyWoken = new LinkedHashSet<>(workflowWokenAgentIds);
-    if (followUpAgentId != null) alreadyWoken.add(followUpAgentId);
+    // 이 글로 이미 깨운 AI 집합(반복 이어 처리 + 워크플로우 답 이동 — WP-1312·WP-2093). 이벤트를 만들기 전에 판정해야 해서
+    // dispatcher 가 쓰는 이벤트의 alreadyWokenAgentIds() 와 같은 한 곳(ChatMessageCreatedEvent.alreadyWoken)으로
+    // 만든다.
+    Set<Long> alreadyWoken =
+        ChatMessageCreatedEvent.alreadyWoken(followUpAgentId, workflowWokenAgentIds);
     // WP-1375: 반복 요약은 ai-agent 로 나갈 글(dispatcher 와 같은 판정)일 때만 읽는다 — 나머지 글은 이 값을 쓰지 않아 매 글마다 읽지
     // 않는다. 쓰기 트랜잭션 안에서 읽어 테넌트(RLS)가 맞다(after-commit 비동기 dispatcher 는 트랜잭션이 없다).
     boolean mayWakeAgent = mayWakeAgent(actor, mentions, alreadyWoken, implicitAgentId);

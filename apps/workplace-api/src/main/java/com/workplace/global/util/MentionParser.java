@@ -24,6 +24,10 @@ public final class MentionParser {
   // 선행 멘션 — 앞 매치 끝(\G)에서 구분자(공백류·쉼표)만 건너뛴 뒤 바로 토큰이 와야 한다. 토큰 모양은 P 를 그대로 쓴다(WP-1841).
   private static final Pattern LEADING = Pattern.compile("\\G[\\s,]*" + P.pattern());
 
+  // 토큰과 그 앞뒤 구분자(공백류·쉼표) — 멘션을 지운 나머지 글을 볼 때 「@a, @b」의 쉼표가 글로 남지 않게 함께 지운다(WP-2093).
+  private static final Pattern WITH_SEPARATORS =
+      Pattern.compile("[\\s,]*" + P.pattern() + "[\\s,]*");
+
   /** 사용자 id 의 멘션 토큰({@code <@id>}) — 토큰 형식을 이 클래스 한 곳에 둔다(본문 검색 등 SQL 쪽도 이것으로 만든다, WP-719). */
   public static String token(long id) {
     return "<@" + id + ">";
@@ -50,6 +54,15 @@ public final class MentionParser {
     LinkedHashSet<Long> seen = new LinkedHashSet<>();
     while (m.find()) seen.add(Long.parseLong(m.group(1)));
     return new ArrayList<>(seen);
+  }
+
+  /**
+   * 멘션 토큰을 그 앞뒤 구분자(공백류·쉼표)와 함께 지운 나머지 글. 「@a, @b」·「@a,@b」처럼 멘션만 쉼표로 이은 글은 빈 문자열이 된다 — 사람을 부르기만 한
+   * 글인지(워크플로우 질문의 답이 아닌지, WP-2093) 판정용이라 표시에는 쓰지 않는다. 멘션과 떨어진 쉼표·글은 그대로 남는다. null/빈 본문은 빈 문자열.
+   */
+  public static String removeTokens(String body) {
+    if (body == null || body.isEmpty()) return "";
+    return WITH_SEPARATORS.matcher(body).replaceAll("");
   }
 
   /**

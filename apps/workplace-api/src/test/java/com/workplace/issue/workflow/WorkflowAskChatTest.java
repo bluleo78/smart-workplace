@@ -296,6 +296,35 @@ class WorkflowAskChatTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("질문 대기 중 쉼표로 이은 멘션뿐인 사람 글(「@a, @b」·「@a,@b」)은 답이 아니다 — 실행 그대로, 글은 저장")
+  void commaSeparatedMentionOnlyReply_doesNotMove() {
+    long bot = agent();
+    long issue = startedIssue(bot);
+    expectAsAgent(move(issue, "work", "ask", QUESTION, 0, "k-ask"), bot);
+    // 멘션 사이 구분자가 쉼표(공백 있음·없음)뿐 — 토큰과 그 사이 구분자를 빼면 남는 글자가 없다.
+    String spaced = "<@" + pm + ">, <@" + lead + ">";
+    String tight = "<@" + pm + ">,<@" + lead + ">,";
+
+    chat(issue, lead, spaced);
+    chat(issue, lead, tight);
+
+    assertAsking(issue);
+    assertThat(chatBodies(issue)).contains(spaced, tight);
+  }
+
+  @Test
+  @DisplayName("질문 대기 중 멘션 뒤에 쉼표와 글이 있으면 답이다 — 구분자만 지우고 글은 남긴다")
+  void mentionCommaThenText_isAnswer() {
+    long bot = agent();
+    long issue = startedIssue(bot);
+    expectAsAgent(move(issue, "work", "ask", QUESTION, 0, "k-ask"), bot);
+
+    chat(issue, lead, "<@" + pm + ">, A 로 해 주세요");
+
+    assertThat(run(issue).get(WORKFLOW_RUN.CURRENT_NODE)).isEqualTo("work");
+  }
+
+  @Test
   @DisplayName("멈춘(SUSPENDED) 실행에 단 사람 글은 이동하지 않고 글만 저장한다")
   void suspendedRun_reply_savesMessage_noMove() {
     long bot = agent();

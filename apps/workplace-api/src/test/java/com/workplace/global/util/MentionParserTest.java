@@ -40,4 +40,15 @@ class MentionParserTest {
         .isEqualTo("<@1234567890123456789>");
     assertThat(MentionParser.replace(null, id -> "X")).isEmpty();
   }
+
+  @Test
+  void removeTokens_dropsTokensWithAdjacentSeparators() {
+    // 쉼표로 이은 멘션만 있는 글은 비어야 한다(WP-2093 — 부르기만 한 글은 워크플로우 질문의 답이 아님).
+    assertThat(MentionParser.removeTokens("<@1>, <@2>")).isEmpty();
+    assertThat(MentionParser.removeTokens("<@1>,<@2>,")).isEmpty();
+    assertThat(MentionParser.removeTokens(" <@1>\n<@2> ")).isEmpty();
+    // 멘션과 떨어진 쉼표·글은 남는다.
+    assertThat(MentionParser.removeTokens("<@1>, A, B 로 해 주세요")).isEqualTo("A, B 로 해 주세요");
+    assertThat(MentionParser.removeTokens(null)).isEmpty();
+  }
 }

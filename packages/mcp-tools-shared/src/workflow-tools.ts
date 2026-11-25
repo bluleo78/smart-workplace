@@ -335,10 +335,12 @@ export function buildWorkflowTools(
       // idempotencyKey 로 같은 이동의 재시도는 서버가 저장한 응답을 그대로 돌려준다(WorkflowRunService findIdempotent) — 멱등이다.
       // 노드를 앞으로 보낼 뿐 값을 덮거나 지우지 않아 destructive 가 아니다.
       hints: { destructive: false, idempotent: true },
+      // 결과(outcome) 출처 「from get_issue_workflow」는 남긴다 — 결과 이름을 지어내지 않게. 도구 정의 토큰 상한(tool-naming.test)을 지키려
+      // 같은 출처를 다시 말하는 곳은 「from it」으로 줄였다(WP-2093 리뷰 후속).
       description:
-        'Moves the issue from fromNode by an outcome. Give required outputs, comment, next assignees (usernames) when asked, ' +
-        'and expectedRevision, runId from get_issue_workflow. WORKFLOW_STALE if changed. ' +
-        "On ask, the comment becomes an issue chat question (max 4000 chars after @username→<@id>); a person's chat reply returns the run via answered (read via get_issue_chat; never move answered yourself).",
+        'Moves the issue from fromNode by an outcome from get_issue_workflow. Give required outputs, comment, next assignees (usernames) when asked, ' +
+        'and expectedRevision, runId from it. WORKFLOW_STALE if changed. ' +
+        "On ask, the comment becomes an issue chat question (max 4000 chars after @username→<@id>); a person's reply returns it via answered (read via get_issue_chat; never move answered yourself).",
       inputSchema: moveIssueWorkflowInput,
       async handler(args) {
         const { issueKey, fromNode, outcome, outputs, assignees, comment, expectedRevision, runId } = moveIssueWorkflowInput.parse(args);
