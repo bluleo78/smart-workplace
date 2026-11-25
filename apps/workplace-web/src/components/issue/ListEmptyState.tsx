@@ -34,7 +34,7 @@ export function ListEmptyState({
 }) {
   return (
     // min-w-0(바깥)·max-w-full(글 칸): 긴 낱말이 칸을 부모 폭 너머로 키우지 않게 — 그래야 break-words 가 끊는다(WP-1869).
-    // 한국어는 어절 단위로(break-keep, WP-941), 띄어쓰기 없는 긴 값은 칸을 넘칠 때만(break-words) 끊는다.
+    // 한국어는 어절 단위로(break-keep, WP-941), 띄어쓰기 없는 긴 값은 칸을 넘칠 때만(break-words) 끊는다 — 둘 다 공용 설명 클래스 기본값(WP-2051).
     // wrap-anywhere 는 최소 폭을 0 으로 만들어 한국어가 글자 단위로 끊겨 쓰지 않는다(WP-1869).
     <EmptyState
       icon={Icon}
@@ -42,7 +42,6 @@ export function ListEmptyState({
       description={description || undefined}
       grouped
       textClassName="max-w-full"
-      descriptionClassName="break-keep break-words"
       className={cn('min-w-0 justify-center gap-3 py-16', className)}
       testId={testId}
       action={

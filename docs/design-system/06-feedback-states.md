@@ -163,14 +163,14 @@ import { EmptyState } from "@/components/layout/EmptyState";
 - `textRole` — 묶음 div 의 `role`(예: `status`). 지정하면 `grouped` 없이도 묶음 div 가 생긴다(role 을 붙일 요소가 필요하므로).
 - `leading` — 아이콘 **앞**에 그대로 그릴 노드. 상세 칸의 sr-only `<h2>` 헤딩처럼 아이콘보다 앞에 와야 하는 요소용이다.
 - `variant="widget"` — 홈 위젯 빈 상태 공통 모양(`gap-2 px-4 py-8`, 설명 `max-w-xs`). 위젯마다 같은 className 쌍을 반복하지 않는다. 추가 `className` 은 뒤에 덧붙는다.
-- `titleClassName`·`descriptionClassName` — 자리별 덧붙임(보드 빈 열은 제목에 `text-muted-foreground`, 좁은 열 설명에 `break-keep`).
+- `titleClassName`·`descriptionClassName` — 자리별 덧붙임(보드 빈 열은 제목에 `text-muted-foreground` — 설명의 `break-keep` 은 기본값이라 따로 넘기지 않는다).
 - `className` — 바깥 여백·높이 등 바깥 클래스. 부품 자체에는 기본 간격·패딩이 없다(바탕은 `flex flex-col items-center text-center` 뿐) — 자리마다 gap·padding 을 `className` 으로 넘긴다(위 예시의 `justify-center gap-3 py-16` 처럼).
 
 `ListEmptyState`(목록)·`WidgetEmptyState`(홈 위젯)·`MobileEmptyState`(모바일 전체 화면)는 모두 `EmptyState` 를 감싼 얇은 래퍼다. 보드 빈 열·스윔레인 빈 상태도 `EmptyState` 를 쓴다. `TableEmptyRow` 검색 빈 상태만 자체 레이아웃을 쓰되 아이콘은 `emptyStateIconClass`(40px muted)를 쓴다 — 흐린 색(`/50`·`/60`)이나 32px 는 쓰지 않는다.
 
 **원칙**: 빈 상태는 항상 생산적인 액션을 포함한다.
 
-**코드 원본(WP-1924)**: 이 규격의 클래스는 `@/components/layout/empty-state` 의 `emptyStateIconClass`(아이콘 40px muted)·`emptyStateTitleClass`(제목 14px/500)·`emptyStateDescriptionClass`(본문 12px muted) 한 곳에 둔다. `ListEmptyState`·`ChatEmptyState` 와 손으로 만든 빈 상태(드라이브 폴더·최근·필터 0건·공유 안내, 노트 빈 화면·최근·즐겨찾기)가 이 상수를 쓴다 — 빈 상태 제목에 섹션 제목(`bodySectionTitleClass`, 600)을 쓰지 않는다.
+**코드 원본(WP-1924)**: 이 규격의 클래스는 `@/components/layout/empty-state` 의 `emptyStateIconClass`(아이콘 40px muted)·`emptyStateTitleClass`(제목 14px/500)·`emptyStateDescriptionClass`(본문 12px muted) 한 곳에 둔다. 설명 상수(데스크톱·모바일)는 `break-keep break-words` 를 품는다 — 한국어를 단어 단위로 줄바꿈하고(기본 줄바꿈은 「있 / 어요.」처럼 단어 중간에서 꺾여 마지막 줄에 한 글자만 남길 수 있다), 띄어쓰기 없는 긴 낱말은 칸을 넘칠 때만 끊는다(WP-2051). `ListEmptyState`·`ChatEmptyState` 와 손으로 만든 빈 상태(드라이브 폴더·최근·필터 0건·공유 안내, 노트 빈 화면·최근·즐겨찾기)가 이 상수를 쓴다 — 빈 상태 제목에 섹션 제목(`bodySectionTitleClass`, 600)을 쓰지 않는다.
 
 **모바일 전체 화면 변형(WP-1939)**: 하단 탭바 화면의 전체 화면 빈 상태는 `MobileEmptyState` 가 쓰며, 아이콘 48px · 제목 17px semibold · 설명 14px 이다. 색은 데스크톱과 같은 muted 이고 흐린 색(`/40`·`/50`)은 쓰지 않는다. 클래스는 `empty-state` 의 `mobileEmptyStateIconClass`·`mobileEmptyStateTitleClass`·`mobileEmptyStateDescriptionClass` 세 상수가 원본이다.
 
