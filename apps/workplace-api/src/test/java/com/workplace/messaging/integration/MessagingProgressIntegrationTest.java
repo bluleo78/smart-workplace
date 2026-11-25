@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -91,12 +92,13 @@ class MessagingProgressIntegrationTest extends ExternalClientMockedTestBase {
 
     // then: messaging.message.progress 가 채널 전 멤버에게 fan-out 되고, payload 에 streamId/channelId 포함.
     @SuppressWarnings("unchecked")
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    // 다른 테스트의 progress fan-out 을 잡지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2110).
     verify(registry, timeout(2000))
-        .fanOut(ids.capture(), eq("messaging.message.progress"), payload.capture());
-    assertThat(ids.getValue()).contains(humanId);
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(humanId)),
+            eq("messaging.message.progress"),
+            payload.capture());
     assertThat(payload.getValue()).containsEntry("streamId", "s1");
     assertThat(payload.getValue()).containsEntry("channelId", channelId);
   }
@@ -147,7 +149,12 @@ class MessagingProgressIntegrationTest extends ExternalClientMockedTestBase {
         .andExpect(status().isForbidden())
         // 멤버십·필터가 아니라 내부 호출 확인에서 막혔다
         .andExpect(jsonPath("$.message").value(AiProgressRequest.INTERNAL_ONLY_MESSAGE));
-    verify(registry, never()).fanOut(any(), eq("messaging.message.progress"), any());
+    // 다른 테스트의 progress fan-out 을 잡지 않도록 받는 사람을 이 테스트 유저로 좁힌다(WP-2110).
+    verify(registry, never())
+        .fanOut(
+            argThat((Collection<Long> ids) -> ids != null && ids.contains(c[1])),
+            eq("messaging.message.progress"),
+            any());
   }
 
   @Test
