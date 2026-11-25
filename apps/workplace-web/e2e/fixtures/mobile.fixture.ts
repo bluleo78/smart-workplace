@@ -61,24 +61,30 @@ export async function expectBodyNoHorizontalOverflow(page: Page) {
  * 판정하는 순간만 body 의 pointer-events 를 되돌려 쌓임 순서 그대로 elementFromPoint 를 읽는다.
  * containerSelector — 대상 중심점의 최상단 요소가 이 선택자 안에 있어야 통과.
  */
-export async function expectOnTop(page: Page, target: Locator, containerSelector: string) {
-  expect(await isOnTop(page, target, containerSelector)).toBe(true)
+export async function expectOnTop(page: Page, target: Locator, containerSelector: string, options: OnTopOptions = {}) {
+  expect(await isOnTop(page, target, containerSelector, options)).toBe(true)
 }
+
+/** isOnTop 옵션 — toast: 대상이 알림(토스트)일 때만 true(아래 설명). */
+export type OnTopOptions = { toast?: boolean }
 
 /**
  * expectOnTop 의 판정만 — 대상 중심점의 최상단 요소가 containerSelector 안이면 true(poll 로 재시도할 때 쓴다).
- * WP-2084: 앱 CSS 는 보이는 알림 몸통을 포인터 통과(none)로 두므로, 쌓임 순서만 보려고 판정 순간만 몸통도 받게 한다.
+ * WP-2084: 앱 CSS 는 알림 몸통을 기본 포인터 통과(none)로 두므로, 알림이 쌓임 순서상 맨 위인지 보려는 호출만 toast:true 로
+ * 판정 순간에 보이는 알림 몸통도 받게 한다. 알림과 무관한 호출엔 걸지 않는다 — 모킹 안 된 API 의 에러 알림이 대상을 덮은 것으로 오판하지 않게.
  * 숨은 알림(data-visible=false)은 그대로 통과라 판정에서 빠진다.
  */
-export async function isOnTop(page: Page, target: Locator, containerSelector: string) {
+export async function isOnTop(page: Page, target: Locator, containerSelector: string, options: OnTopOptions = {}) {
   const b = (await target.boundingBox())!
   return page.evaluate(
-    ([x, y, sel]) => {
+    ([x, y, sel, toast]) => {
       const prev = document.body.style.pointerEvents
       document.body.style.pointerEvents = 'auto'
       const probe = document.createElement('style')
-      probe.textContent = "[data-sonner-toast]:not([data-visible='false']) { pointer-events: auto !important; }"
-      document.head.appendChild(probe)
+      if (toast) {
+        probe.textContent = "[data-sonner-toast]:not([data-visible='false']) { pointer-events: auto !important; }"
+        document.head.appendChild(probe)
+      }
       try {
         return document.elementFromPoint(x, y)?.closest(sel) != null
       } finally {
@@ -86,7 +92,7 @@ export async function isOnTop(page: Page, target: Locator, containerSelector: st
         document.body.style.pointerEvents = prev
       }
     },
-    [b.x + b.width / 2, b.y + b.height / 2, containerSelector] as const,
+    [b.x + b.width / 2, b.y + b.height / 2, containerSelector, options.toast === true] as const,
   )
 }
 

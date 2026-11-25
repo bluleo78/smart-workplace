@@ -6,7 +6,6 @@ import { dropToastPassthrough, expect, test } from '../../fixtures/auth.fixture'
 import { personalSpace } from '../../factories/drive.factory'
 import { detail } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { isOnTop } from '../../fixtures/mobile.fixture'
 import { MEMO_TEXT, stubMailWithAttachments } from '../../fixtures/mail-viewer-mock'
 import { trackRequests } from '../../fixtures/requests'
 import { expectPdfPageVisible } from '../../fixtures/pdf'
@@ -170,10 +169,19 @@ test.describe('메일 첨부 뷰어', () => {
     // 토스트가 뷰어(z-50) 위에 실제로 보여야 한다 — toBeVisible 은 가림을 보지 않으므로 화면 안·최상단까지 확인한다.
     const toast = page.locator('[data-sonner-toast]', { hasText: '파일을 내려받지 못했습니다' })
     await expect(toast).toBeInViewport()
-    // fixture 의 에러 토스트 포인터 통과 규칙과 모달의 body pointer-events:none 이 있으면 elementFromPoint 가 토스트를 건너뛴다 —
-    // 규칙을 걷어내고 판정 순간만 body 를 되돌려 쌓임 순서 그대로 읽는다(auth.fixture.ts·mobile.fixture.ts expectOnTop).
+    // 픽스처의 에러 알림 통과 규칙만 걷어내고, 모달의 body pointer-events:none 과 앱 CSS 는 그대로 둔 채 맨 위 요소를 읽는다 —
+    // 모달 중 보이는 알림 몸통이 클릭을 받는 앱 규칙(WP-2084)이 깨지면 여기서 잡힌다(판정용 보정 없음).
     await dropToastPassthrough(page)
-    await expect.poll(() => isOnTop(page, toast, '[data-sonner-toast]')).toBe(true)
+    await expect(page.locator('body')).toHaveCSS('pointer-events', 'none')
+    await expect
+      .poll(async () => {
+        const r = (await toast.boundingBox())!
+        return page.evaluate(
+          ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-sonner-toast]') != null,
+          [r.x + r.width / 2, r.y + r.height / 2] as const,
+        )
+      })
+      .toBe(true)
     expect(downloads.count()).toBe(1)
   })
 

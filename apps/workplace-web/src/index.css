@@ -992,18 +992,22 @@
   z-index: 85 !important;
 }
 
-/* 알림 포인터 규칙 — 몸통은 통과, 안의 단추·링크만 받는다(WP-2084: 알림이 아래 「제목 편집」 같은 단추를 덮어 몇 초 눌리지 않던 문제).
-   모달이 열려 body 가 pointer-events:none 이어도 알림 단추는 눌려야 하므로(WP-1235) 단추·링크는 auto 로 살린다.
-   자기 단추(닫기 제외)가 있는 알림은 몸통도 받는다(WP-238: 실행 취소 알림의 호버 멈춤·밀어 닫기). 모달이 body 에 inline
-   pointer-events:none 을 건 동안엔 보이는 알림 몸통도 받는다(안 받으면 클릭이 딤 오버레이로 내려가 모달이 닫힌다).
-   숨은·뒤에 접힌 알림의 단추는 none 으로 되돌린다(앞 알림 탭이 뒤 단추로 새지 않게).
-   트레이드오프: 단추 없는 알림은 몸통 호버 멈춤·밀어 닫기를 잃고, 접힌 뒤 알림(단추 있음)의 몸통은 호버로 펼치기 전에도 클릭을 받는다. */
+/* 알림 포인터 규칙(WP-2084) — 알림 몸통은 기본 통과(none)라 아래 「제목 편집」 같은 페이지 단추가 몇 초씩 가려져 눌리지 않던 문제를 막는다.
+   몸통이 클릭을 받는 경우: (a) 맨 앞 알림이 자기 단추(닫기 제외)를 가진 때 — 실행 취소 알림의 호버 멈춤·밀어 닫기(WP-238),
+   (b) 스택이 펼쳐진(data-expanded) 동안의 보이는 알림 전부 — 하나만 받으면 포인터가 그 알림을 벗어나는 순간 접혔다 펴졌다 깜빡인다,
+   (c) 모달이 body 에 inline pointer-events:none 을 건 동안의 보이는 알림 — 안 받으면 클릭이 딤 오버레이로 내려가 모달이 닫힌다(WP-1235).
+   숨은 알림과 접힌 뒤 알림은 몸통·단추 모두 통과 — 앞 알림 탭이 뒤 단추로 새거나 뒤 알림이 아래 페이지 클릭을 삼키지 않게 한다.
+   트레이드오프: 단추 없는 알림 뒤로 밀린 실행 취소 알림은 앞 알림이 사라질 때까지(또는 Alt+T 로 펼칠 때까지) 마우스로 닿지 않는다. */
 [data-sonner-toast] {
   pointer-events: none;
 }
-[data-sonner-toast]:has(:is(button, a, [role='button']):not([data-close-button])),
-[data-sonner-toast] :is(button, a, [role='button']),
-body:is([style*='pointer-events: none'], [style*='pointer-events:none']) [data-sonner-toast] {
+[data-sonner-toast][data-front='true']:has(:is(button, a, [role='button']):not([data-close-button])),
+[data-sonner-toast][data-expanded='true']:not([data-visible='false']),
+body:is([style*='pointer-events: none'], [style*='pointer-events:none']) [data-sonner-toast]:not([data-visible='false']) {
+  pointer-events: auto;
+}
+[data-sonner-toast][data-front='true']:not([data-visible='false']) :is(button, a, [role='button']),
+[data-sonner-toast][data-expanded='true']:not([data-visible='false']) :is(button, a, [role='button']) {
   pointer-events: auto;
 }
 [data-sonner-toaster] [data-sonner-toast][data-visible='false'],

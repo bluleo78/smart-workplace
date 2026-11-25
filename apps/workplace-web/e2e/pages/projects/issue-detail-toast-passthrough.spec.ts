@@ -61,39 +61,62 @@ test.describe('알림 포인터 통과 (WP-2084)', { tag: ['@layout'] }, () => {
     await expect(page.getByRole('textbox', { name: '이슈 제목' })).toBeVisible();
   });
 
-  // 숨은(4번째 이후)·앞 알림 뒤에 접힌 알림의 단추는 클릭을 받으면 안 된다 — 앞 알림 탭이 뒤의 「실행 취소」로 샌다.
-  // 실행 취소 알림을 만드는 앱 흐름(채팅 삭제 등)은 채팅 스텁 설정이 무거워, 실제 토스터(ol)에 Sonner 가 다는 속성 그대로의
-  // 알림 li 를 심어 앱 CSS 만 판정한다. 대조군(펼쳐진 보이는 알림의 단추)이 눌려야 판정이 의미 있다.
-  test('숨은·뒤에 접힌 알림의 단추는 클릭을 받지 않는다', async ({ authenticatedPage: page }) => {
-    await setupIssuePage(page);
-    await saveTitle(page, '저장해서 알림 띄우기');
+  // 숨은(4번째 이후)·앞 알림 뒤에 접힌 알림은 단추도 몸통도 클릭을 받지 않는다 — 앞 알림 탭이 뒤의 「실행 취소」로 새거나
+  // 뒤 알림이 아래 페이지 클릭을 삼키면 안 된다. 속성 조합별 판정은 토스터(ol)에 Sonner 가 다는 속성 그대로의 알림 li 를 심어
+  // 앱 CSS 만으로 본다(진짜 실행 취소 알림 스택은 messaging-phase4.spec 의 WP-2084 테스트). 대조군(펼쳐진 보이는 알림)은 눌려야 한다.
+  // 클릭이 실제로 닿는 곳은 elementFromPoint 가 아니라 진짜 마우스 클릭의 event.target 으로 읽는다.
+  test('숨은·뒤에 접힌 알림은 단추·몸통 클릭을 받지 않고 아래로 통과시킨다', async ({ authenticatedPage: page }) => {
+    await setupIssuePage(page)
+    await saveTitle(page, '저장해서 알림 띄우기')
 
-    // 단추가 든 알림 3종을 서로 겹치지 않는 자리(위에서 200·300·400px)에 심고 한 번에 히트 테스트한다.
-    const hits = await page.evaluate(() => {
-      const list = document.querySelector('[data-sonner-toaster]')!;
+    // 알림 3종을 서로 겹치지 않는 자리(위에서 200·300·400px)에 심는다. 각 알림에 단추(오른쪽)와 빈 몸통(왼쪽) 점이 있다.
+    const points = await page.evaluate(() => {
+      const list = document.querySelector('[data-sonner-toaster]')!
       const specs: [string, number, Record<string, string>][] = [
-        ['control', 200, { 'data-visible': 'true', 'data-expanded': 'true', 'data-front': 'true' }],
-        // 펼침·앞 상태로 둬 접힌 뒤 알림 규칙(expanded=false·front=false)과 겹치지 않게 — data-visible=false 규칙만 판정한다.
-        ['hidden', 300, { 'data-visible': 'false', 'data-expanded': 'true', 'data-front': 'true' }],
+        ['control', 200, { 'data-visible': 'true', 'data-expanded': 'true', 'data-front': 'false' }],
+        // 펼침 상태로 둬 접힌 뒤 알림 규칙과 겹치지 않게 — data-visible=false 규칙만 판정한다.
+        ['hidden', 300, { 'data-visible': 'false', 'data-expanded': 'true', 'data-front': 'false' }],
         ['back', 400, { 'data-visible': 'true', 'data-expanded': 'false', 'data-front': 'false' }],
-      ];
-      return Object.fromEntries(
-        specs.map(([id, top, attrs]) => {
-          const li = document.createElement('li');
-          li.setAttribute('data-sonner-toast', '');
-          for (const [k, v] of Object.entries(attrs)) li.setAttribute(k, v);
-          li.style.cssText = `position:fixed;top:${top}px;right:0;width:320px;height:60px;z-index:1000;opacity:1`;
-          const btn = document.createElement('button');
-          btn.textContent = '실행 취소';
-          btn.style.cssText = 'position:absolute;top:10px;right:10px;width:80px;height:30px';
-          li.appendChild(btn);
-          list.appendChild(li);
-          const r = btn.getBoundingClientRect();
-          const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-          return [id, !!hit && btn.contains(hit)];
-        }),
-      );
-    });
-    expect(hits).toEqual({ control: true, hidden: false, back: false });
-  });
-});
+      ]
+      return specs.flatMap(([id, top, attrs]) => {
+        const li = document.createElement('li')
+        li.setAttribute('data-sonner-toast', '')
+        li.setAttribute('data-probe', id)
+        for (const [k, v] of Object.entries(attrs)) li.setAttribute(k, v)
+        li.style.cssText = `position:fixed;top:${top}px;left:500px;width:320px;height:60px;z-index:1000;opacity:1`
+        const btn = document.createElement('button')
+        btn.textContent = '실행 취소'
+        btn.style.cssText = 'position:absolute;top:10px;right:10px;width:80px;height:30px'
+        li.appendChild(btn)
+        list.appendChild(li)
+        const l = li.getBoundingClientRect()
+        const r = btn.getBoundingClientRect()
+        return [
+          { key: `${id}-button`, x: r.x + r.width / 2, y: r.y + r.height / 2 },
+          { key: `${id}-body`, x: l.x + 20, y: l.y + 30 },
+        ]
+      })
+    })
+
+    // 진짜 클릭을 한 점씩 보내 mousedown 의 event.target 이 어느 알림 안인지(아니면 아래 페이지인지) 기록한다.
+    await page.evaluate(() => {
+      const w = window as unknown as { __lastClick: string }
+      w.__lastClick = ''
+      document.addEventListener('mousedown', (e) => (w.__lastClick = (e.target as Element).closest('[data-probe]')?.getAttribute('data-probe') ?? 'page'), true)
+    })
+    const landed: Record<string, string> = {}
+    for (const p of points) {
+      await page.evaluate(() => ((window as unknown as { __lastClick: string }).__lastClick = '(없음)'))
+      await page.mouse.click(p.x, p.y)
+      landed[p.key] = await page.evaluate(() => (window as unknown as { __lastClick: string }).__lastClick)
+    }
+    expect(landed).toEqual({
+      'control-button': 'control',
+      'control-body': 'control',
+      'hidden-button': 'page',
+      'hidden-body': 'page',
+      'back-button': 'page',
+      'back-body': 'page',
+    })
+  })
+})

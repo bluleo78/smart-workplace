@@ -9,7 +9,7 @@ import {
   createChannelMember,
   createMessage,
 } from '../../factories/messaging.factory'
-import { expect, test } from '../../fixtures/auth.fixture'
+import { dropToastPassthrough, expect, test } from '../../fixtures/auth.fixture'
 import { pauseClockAhead } from '../../fixtures/clock'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, stableBox } from '../../fixtures/wait'
@@ -124,6 +124,52 @@ async function clickDelete(page: Page, msgId: number) {
     await page.getByTestId(`message-delete-${msgId}`).click({ timeout: 2000 })
   }).toPass()
   await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
+}
+
+// WP-2084 — 앞에 단추 없는 알림(수정 실패 에러), 그 뒤에 실행 취소 알림이 쌓인 스택을 만든다.
+// 본인 메시지 2건: 앞 건을 지워 실행 취소 알림을, 뒤 건을 수정해 PATCH 500 에러 알림(단추 없음)을 띄운다. 가상 시계로 알림이 자동으로 사라지지 않게 한다.
+async function setupUndoBehindErrorToast(page: Page, channelId: number, deleteId: number, editId: number) {
+  const channel = createChannel({ id: channelId, name: '알림스택채널', member: true })
+  await stubChannelsList(page, [channel])
+  await stubDmsList(page)
+  await stubChannelDetail(page, channel)
+  await stubMembers(page, channelId, [createChannelMember({ userId: ME_ID, name: '나' })])
+  const messages = [
+    createMessage({ id: deleteId, channelId, authorId: ME_ID, authorName: '나', body: '지울 메시지' }),
+    createMessage({ id: editId, channelId, authorId: ME_ID, authorName: '나', body: '고칠 메시지' }),
+  ]
+  await stubMessages(page, channelId, messages)
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/messages/${deleteId}`,
+    (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204 }) : route.fallback()),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/messages/${editId}`,
+    (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '수정 서버 오류' }) })
+        : route.fallback(),
+  )
+  await page.clock.install()
+  await page.goto(`/chat/channels/${channelId}`)
+  await expect(page.getByTestId(`message-body-${editId}`)).toHaveText('고칠 메시지')
+  // 지우기 → 실행 취소 알림(단추 있음) → 수정 저장 실패 → 에러 알림(단추 없음)이 맨 앞.
+  await page.getByTestId(`message-delete-${deleteId}`).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
+  await page.getByTestId(`message-edit-${editId}`).focus()
+  await page.keyboard.press('Enter')
+  const editor = page.getByTestId(`message-editor-input-${editId}`)
+  await editor.click()
+  await page.keyboard.type('_수정')
+  await page.getByTestId(`message-editor-save-${editId}`).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('수정 서버 오류')).toBeVisible()
+  // 앱 CSS 만 보려고 픽스처의 에러 알림 통과 규칙을 걷어낸다.
+  await dropToastPassthrough(page)
+  const front = page.locator('[data-sonner-toast][data-front="true"]')
+  await expect(front).toContainText('수정 서버 오류')
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(2)
 }
 
 test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
@@ -301,6 +347,61 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await page.clock.runFor(UNDO_DELETE_DELAY_MS * 2)
     await expectStays(page, deletes.count, 0, { ms: 200 })
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
+  })
+
+  // WP-2084 — 단추 없는 앞 알림 뒤에 실행 취소 알림이 쌓여도, 스택을 펼치면(Alt+T) 보이는 알림이 모두 포인터를 받아
+  // 알림 사이로 마우스를 옮겨도 접혔다 펴졌다 깜빡이지 않는다(예전엔 앞 알림이 통과라 ol 을 벗어나 곧바로 접혔다).
+  test('단추 없는 알림 뒤에 실행 취소 알림이 있어도 펼친 스택은 호버로 접히지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await setupUndoBehindErrorToast(page, 220, 861, 862)
+    const toasts = page.locator('[data-sonner-toast]')
+    const back = page.locator('[data-sonner-toast][data-front="false"]')
+    const front = page.locator('[data-sonner-toast][data-front="true"]')
+
+    // 접힌 상태에선 둘 다 마우스를 받지 않는다 — 호버로는 펼칠 수 없어 Alt+T(키보드 펼치기)로 펼친다.
+    await expect(toasts.first()).toHaveAttribute('data-expanded', 'false')
+    await page.keyboard.press('Alt+T')
+    await expect(front).toHaveAttribute('data-expanded', 'true')
+    await expect(back).toHaveAttribute('data-expanded', 'true')
+
+    // 펼친 스택에서 뒤 알림 → 앞 알림으로 마우스를 옮긴다 — 둘 다 포인터를 받으니 토스터 밖으로 나가지 않는다.
+    const backBox = await stableBox(back)
+    await page.mouse.move(backBox.x + 4, backBox.y + backBox.height / 2)
+    const frontBox = await stableBox(front)
+    await page.mouse.move(frontBox.x + 4, frontBox.y + frontBox.height / 2, { steps: 4 })
+    // 약 1초 동안 펼침이 유지돼야 한다(expectStays 가 폴링 — 가상 시계와 무관하게 실제 시간으로 지켜본다).
+    await expectStays(
+      page,
+      async () => [await front.getAttribute('data-expanded'), await back.getAttribute('data-expanded')],
+      ['true', 'true'],
+      { ms: 1000 },
+    )
+  })
+
+  // WP-2084 — 앞 알림 뒤에 접힌 실행 취소 알림이 아래 페이지 클릭을 삼키지 않는다. 앞 알림 중앙에 놓은 페이지 단추를 실제로 눌러
+  // 클릭이 그 단추에 닿고 실행 취소는 눌리지 않았는지(삭제가 취소되지 않음) 본다.
+  test('접힌 뒤 실행 취소 알림은 앞 알림 아래 페이지 클릭을 삼키지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await setupUndoBehindErrorToast(page, 221, 863, 864)
+    const front = page.locator('[data-sonner-toast][data-front="true"]')
+    const back = page.locator('[data-sonner-toast][data-front="false"]')
+    await expect(back).toHaveAttribute('data-expanded', 'false')
+    const box = await stableBox(front)
+    const cx = box.x + box.width / 2
+    const cy = box.y + box.height / 2
+
+    // 앞 알림 중앙 바로 아래에 페이지 단추를 심는다(알림 층 z-85 보다 낮게). 접힌 뒤 알림도 이 점을 덮고 있다.
+    await page.evaluate(([x, y]) => {
+      const btn = document.createElement('button')
+      btn.setAttribute('data-testid', 'under-toast')
+      btn.textContent = '아래 단추'
+      btn.style.cssText = `position:fixed;left:${x - 40}px;top:${y - 15}px;width:80px;height:30px;z-index:10`
+      btn.addEventListener('click', () => btn.setAttribute('data-clicked', 'yes'))
+      document.body.appendChild(btn)
+    }, [cx, cy] as const)
+
+    await page.mouse.click(cx, cy)
+    await expect(page.getByTestId('under-toast')).toHaveAttribute('data-clicked', 'yes')
+    // 실행 취소가 눌렸다면 지우기 알림이 닫힌다 — 아직 그대로여야 한다.
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
   })
 
   // WP-238 — 토스트를 밀어서 닫으면 '취소 안 함'으로 보고 지연 시간을 기다리지 않고 바로 삭제한다.
