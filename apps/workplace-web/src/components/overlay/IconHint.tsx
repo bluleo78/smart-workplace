@@ -43,7 +43,8 @@ export function IconHint({
             {children}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto px-3 py-1.5 text-xs">{content}</PopoverContent>
+        {/* 팝오버 대화상자가 이름을 갖게 label 을 준다(detail 은 이름에 섞지 않는다, WP-2075). */}
+        <PopoverContent aria-label={label} className="w-auto px-3 py-1.5 text-xs">{content}</PopoverContent>
       </Popover>
     )
   }

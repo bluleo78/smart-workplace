@@ -1,7 +1,7 @@
 // 개요 카드 공통 틀(WP-1484) — 개요 탭의 모든 위젯이 같은 표면·테두리·여백을 쓴다. 「직전 같은 기간」 비교 문구도 여기서 그린다(숫자 카드는 components/metrics/StatCard).
 // 내 작업 개요와 프로젝트 개요(WP-1478)가 함께 쓴다.
 import { MetricCard } from '@/components/metrics/MetricCard'
-import { IconHint } from '@/components/ui/icon-hint'
+import { IconHint } from '@/components/overlay/IconHint'
 
 import { compareRangeLabel } from './overviewModel'
 

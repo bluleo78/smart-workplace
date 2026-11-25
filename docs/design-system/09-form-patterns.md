@@ -285,19 +285,21 @@ shadcn `Select` 를 RHF 와 쓸 때도 동일하게 `value`/`onValueChange` 를 
 </FormField>
 ```
 
-옵션이 많아 검색이 필요하면 `SearchableSelect`([04 §B-5](./04-components.md))를 쓴다:
+옵션이 많아 검색이 필요하면 `@/components/overlay/popover` 의 `Popover`·`PopoverContent`(`aria-label` 또는 `aria-labelledby` 필수 — 타입이 막는다) 안에 `Command` 를 둔다(예: `pages/projects/components/MemberSearchPopover.tsx`, `Command` 만 쓰는 `IssueParentPicker.tsx`). `CommandList` 에도 한국어 `label` 을 준다 — 없으면 스크린리더가 cmdk 기본 이름 「Suggestions」로 읽는다(WP-731).
 
 ```tsx
-<FormField label="담당자" htmlFor="assignee">
-  <SearchableSelect
-    id="assignee"
-    value={form.watch('assigneeId')}
-    onChange={(v) => form.setValue('assigneeId', v)}
-    options={members.map(m => ({ value: String(m.id), label: m.name }))}
-    placeholder="담당자 선택"
-    allowClear
-  />
-</FormField>
+<Popover>
+  <PopoverTrigger asChild><Button variant="outline">담당자 선택</Button></PopoverTrigger>
+  <PopoverContent aria-label="담당자 검색">
+    <Command>
+      <CommandInput placeholder="멤버 검색..." />
+      <CommandList label="멤버 후보">
+        <CommandEmpty>결과 없음</CommandEmpty>
+        <CommandGroup>{/* CommandItem 들 */}</CommandGroup>
+      </CommandList>
+    </Command>
+  </PopoverContent>
+</Popover>
 ```
 
 ---
@@ -330,7 +332,7 @@ shadcn `Select` 를 RHF 와 쓸 때도 동일하게 `value`/`onValueChange` 를 
 
 ## J. 비밀번호 입력
 
-인증 폼의 비밀번호는 `PasswordInput`([04 §B-6](./04-components.md))를 쓴다 — 표시/숨김 토글 내장, 표준 input 속성 forwarding.
+인증 폼의 비밀번호는 `PasswordInput`([04 §B-5](./04-components.md))를 쓴다 — 표시/숨김 토글 내장, 표준 input 속성 forwarding.
 
 ```tsx
 <FormField label="비밀번호" htmlFor="password" error={errors.password?.message} required>

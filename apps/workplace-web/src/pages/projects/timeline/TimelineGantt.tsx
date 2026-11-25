@@ -24,7 +24,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
-import { IconHint } from '@/components/ui/icon-hint'
+import { IconHint } from '@/components/overlay/IconHint'
 import { formatDateKey, formatDateOnlyMonthDay, formatDateRangeMonthDay } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import type { IssueStatus } from '@/types/issue'

@@ -34,7 +34,7 @@ function PageSkeleton() {
 
 ### 2. Table Skeleton (테이블 스켈레톤)
 
-테이블 데이터 로드 중 행 구조를 유지한다. 직접 작성하지 말고 공통 컴포넌트 `TableSkeletonRows`([04 §B-10](./04-components.md))를 사용한다.
+테이블 데이터 로드 중 행 구조를 유지한다. 직접 작성하지 말고 공통 컴포넌트 `TableSkeletonRows`([04 §B-9](./04-components.md))를 사용한다.
 
 ```tsx
 <TableBody>
@@ -109,7 +109,7 @@ function FullPageLoading() {
 
 ### 테이블 빈 상태 — `TableEmptyRow`
 
-직접 작성하지 말고 공통 컴포넌트 `TableEmptyRow`([04 §B-9](./04-components.md))를 사용한다. **검색어 유무로 두 가지 UI 가 분기**된다.
+직접 작성하지 말고 공통 컴포넌트 `TableEmptyRow`([04 §B-8](./04-components.md))를 사용한다. **검색어 유무로 두 가지 UI 가 분기**된다.
 
 - `searchKeyword` 있음 → "`'<keyword>'`에 대한 결과가 없습니다." + `SearchX` 아이콘 + (옵션) "검색 초기화" 버튼
 - 검색어 없음(진짜 0건) → `message` + (옵션) `emptyAction` CTA

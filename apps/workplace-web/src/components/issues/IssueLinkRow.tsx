@@ -13,8 +13,8 @@ import { Unlink, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu';
+import { IconHint } from '@/components/overlay/IconHint';
 import { Button } from '@/components/ui/button';
-import { IconHint } from '@/components/ui/icon-hint';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { statusLabel } from '@/lib/issueGrouping';
 import { relatedIssueKey } from '@/lib/issueRelations';
