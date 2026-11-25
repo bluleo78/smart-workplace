@@ -4,8 +4,7 @@ import { createProject } from '../../factories/project.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 /** 실제 라우터가 읽는 등록된 초안과 검증 응답을 스텁한다. */
-async function mockWorkflow(page: Page) {
-  const yaml = 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task'
+async function mockWorkflow(page: Page, yaml = 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task') {
   await page.route('**/api/v1/projects/WP', (route) => route.fulfill({
     json: createProject({ id: 7, key: 'WP', viewerRole: 'OWNER' }),
   }))
@@ -141,4 +140,63 @@ test('workflowGraph_editorPanelBesideCanvasOnWide_belowCanvasOnNarrow', { tag: '
     const box = await panel.boundingBox()
     return box !== null && box.height <= Math.round(664 * 0.6) + 1
   }).toBe(true)
+})
+
+// WP-2052 — 노드를 마우스로 끌기만 해서는 편집 패널이 열리지 않는다(React Flow 는 드래그 시작에도 노드를 선택한다)
+test('workflowGraph_dragNode_doesNotOpenPanel', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  await page.getByRole('button', { name: '그래프' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'review' })
+  await expect(node).toBeVisible()
+  const before = (await node.boundingBox())!
+  const startX = before.x + before.width / 2
+  const startY = before.y + before.height / 2
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX + 80, startY + 20, { steps: 8 })
+  await page.mouse.up()
+  const after = (await node.boundingBox())!
+  expect(Math.abs(after.x - before.x)).toBeGreaterThan(20)
+  await expect(page.getByRole('complementary', { name: '노드 편집' })).not.toBeVisible()
+})
+
+// WP-2052 — 노드에 포커스를 두고 Enter 를 누르면 편집 패널이 열린다
+test('workflowGraph_keyboardEnter_opensPanel', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  await page.getByRole('button', { name: '그래프' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'review' })
+  await expect(node).toBeVisible()
+  await node.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('complementary', { name: '노드 편집' })).toBeVisible()
+})
+
+// WP-2052 — 화살표로 옮긴 노드 자리는 YAML 에 저장되어, 다른 노드를 골라 다시 그려져도 되돌아가지 않는다
+test('workflowGraph_keyboardMove_persistsAfterRedraw', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await mockWorkflow(page, 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task\n  other:\n    type: agent_task\nlayout:\n  review: { x: 0, y: 0 }\n  other: { x: 0, y: 200 }')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+  await page.getByRole('button', { name: '그래프' }).click()
+  const review = page.locator('.react-flow__node').filter({ hasText: 'review' })
+  const other = page.locator('.react-flow__node').filter({ hasText: 'other' })
+  await expect(review).toBeVisible()
+  const before = (await review.boundingBox())!
+  await review.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('complementary', { name: '노드 편집' })).toBeVisible()
+  await review.focus()
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight')
+  await expect.poll(async () => (await review.boundingBox())!.x).toBeGreaterThan(before.x + 10)
+  // 다른 노드를 골라 다시 그리게 한다
+  await other.focus()
+  await page.keyboard.press('Enter')
+  await expect(other).toHaveClass(/selected/)
+  expect((await review.boundingBox())!.x).toBeGreaterThan(before.x + 10)
+  // YAML 탭에서도 새 좌표가 보인다
+  await page.getByRole('button', { name: 'YAML' }).click()
+  await expect(page.getByRole('textbox').first()).not.toHaveValue(/review: \{ x: 0, y: 0 \}/)
 })
