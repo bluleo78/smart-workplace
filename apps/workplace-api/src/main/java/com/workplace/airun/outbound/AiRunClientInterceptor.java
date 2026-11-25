@@ -54,13 +54,20 @@ public class AiRunClientInterceptor implements ClientHttpRequestInterceptor {
       return response;
     }
     // 5xx 는 본문의 reason(사용 한도 초과 등)을 사유로 남기려 본문을 읽고, 호출자에게는 같은 본문을 다시 주는 응답을 돌려준다(WP-2106).
-    byte[] bytes;
+    // 중간에 읽기가 실패해도 반쯤 소비된 원 응답을 돌려주지 않는다 — 이미 읽은 바이트로 감싼 응답을 주고 사유는 http_<코드> 로 남긴다.
+    java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
     try {
-      bytes = response.getBody().readAllBytes();
+      java.io.InputStream in = response.getBody();
+      byte[] chunk = new byte[8192];
+      int n;
+      while ((n = in.read(chunk)) != -1) {
+        buf.write(chunk, 0, n);
+      }
     } catch (RuntimeException | IOException e) {
       AiRunFailures.recordIfServerError(recorder, call, status);
-      return response;
+      return new ReplayedResponse(response, buf.toByteArray());
     }
+    byte[] bytes = buf.toByteArray();
     AiRunFailures.recordIfServerError(
         recorder, call, status, new String(bytes, StandardCharsets.UTF_8));
     return new ReplayedResponse(response, bytes);

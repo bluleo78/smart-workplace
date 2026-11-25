@@ -144,6 +144,37 @@ class AiRunClientInterceptorTest {
     assertThat(captured().errorReason()).isEqualTo("http_503");
   }
 
+  /** 5xx 본문 읽기가 중간에 실패하면 반쯤 소비된 원 응답이 아니라 이미 읽은 바이트로 감싼 응답을 주고 http_<코드> 로 기록한다(WP-2106 리뷰 후속). */
+  @Test
+  void failure_5xxBodyReadFails_returnsReplayOfBytesReadSoFar() throws Exception {
+    var req =
+        new org.springframework.mock.http.client.MockClientHttpRequest(
+            org.springframework.http.HttpMethod.POST,
+            java.net.URI.create("http://x/mail/classify-batch"));
+    var orig = mock(org.springframework.http.client.ClientHttpResponse.class);
+    org.mockito.Mockito.when(orig.getStatusCode())
+        .thenReturn(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+    java.io.InputStream broken =
+        new java.io.InputStream() {
+          int i = 0;
+
+          @Override
+          public int read() throws java.io.IOException {
+            if (i < 3) {
+              return "abc".charAt(i++);
+            }
+            throw new java.io.IOException("reset");
+          }
+        };
+    org.mockito.Mockito.when(orig.getBody()).thenReturn(broken);
+
+    var resp = new AiRunClientInterceptor(recorder).intercept(req, new byte[0], (r, b) -> orig);
+
+    assertThat(resp).isNotSameAs(orig);
+    assertThat(new String(resp.getBody().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("abc");
+    assertThat(captured().errorReason()).isEqualTo("http_503");
+  }
+
   @Test
   void failure_unknownReasonOrNonJson_keepsHttpStatus() {
     assertThat(AiRunFailures.serverErrorReason(503, "{\"reason\":\"WHATEVER\"}"))

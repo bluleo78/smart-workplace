@@ -150,9 +150,13 @@ public final class AiRunFailures {
       return resp;
     }
     // 5xx 는 본문의 reason 을 읽어야 하므로 줄을 모두 읽어 두고, 호출자에게는 같은 줄을 다시 주는 응답을 돌려준다(WP-2106).
+    // 본문 읽기가 실패해도(UncheckedIOException 등) FAILED 기록은 남겨야 하므로 http_<코드> 로 기록하고 빈 재생 응답을 돌려준다.
     List<String> lines;
     try (Stream<String> body = resp.body()) {
       lines = body.toList();
+    } catch (RuntimeException e) {
+      recordIfServerError(r, call, resp.statusCode(), null);
+      return new ReplayedResponse(resp, List.of());
     }
     recordIfServerError(r, call, resp.statusCode(), String.join("", lines));
     return new ReplayedResponse(resp, lines);

@@ -479,6 +479,28 @@ class AiRunRepositoryTest extends IntegrationTestBase {
   }
 
   /**
+   * API 가 503 본문에서 남긴 provider_error 를 ai-agent 가 같은 runId 로 보낸 더 정확한 사유(model_not_found)가
+   * 덮는다(WP-2106 리뷰 후속).
+   */
+  @Test
+  void upsert_providerErrorThenModelNotFound_replaces_butSameOrHttpMarkerDoesNot() {
+    UUID id = UUID.randomUUID();
+    repo.upsert(failedRecord(id, "provider_error", null));
+    repo.upsert(failedRecord(id, "http_503", null));
+    assertThat(row(id).getErrorReason()).isEqualTo("provider_error");
+    repo.upsert(failedRecord(id, "model_not_found", "no model"));
+    assertThat(count(id)).isEqualTo(1);
+    assertThat(row(id).getErrorReason()).isEqualTo("model_not_found");
+    assertThat(row(id).getErrorDetail()).isEqualTo("no model");
+  }
+
+  private AiRunRecord failedRecord(UUID id, String reason, String detail) {
+    return new AiRunRecord(
+        id, null, "AI_CHAT", null, null, null, "USER", 1L, null, T0, T0, null, null, null, null,
+        null, null, "FAILED", reason, detail, null);
+  }
+
+  /**
    * 「표지 → ai-agent 사유로 바뀜」: 5xx 표지가 사유(http_503)로 먼저 들어와도, 그 뒤 온 ai-agent 의 실제
    * 사유(runner_error)·상세(boom)이 남아야 한다 — 표지 사유를 keep-first 로 두면 실제 사유가 영구히 묻힌다(WP-1829 리뷰 후속).
    */
