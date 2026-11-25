@@ -308,7 +308,7 @@ describe('라벨 — 설정 화면', () => {
     const header = await screen.findByTestId('page-header')
     await waitFor(() => expect(header).toHaveTextContent('WP'))
     await user.click(within(header).getByRole('button', { name: '프로젝트로 돌아가기' }))
-    await waitFor(() => expect(location()).toBe('/projects/WP'))
+    await waitFor(() => expect(location()).toBe('/projects/WP/issues'))
   })
 })
 

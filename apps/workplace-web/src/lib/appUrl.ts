@@ -15,7 +15,7 @@ export function issuePath(projectKey: string, issueNumber: number): string {
   return `/projects/${projectKey}/issues/${issueNumber}`
 }
 
-/** 프로젝트 경로 — /projects/:key(이슈 목록·보드). */
+/** 프로젝트 홈 경로 — /projects/:key(홈: 마지막 탭을 되살린다). 이슈 목록 고정 주소는 /projects/:key/issues(WP-2085). */
 export function projectPath(key: string): string {
   return `/projects/${key}`
 }

@@ -91,7 +91,7 @@ export function rememberedIssueQuery(params: URLSearchParams): URLSearchParams {
 }
 
 /**
- * 프로젝트 이슈 화면(/projects/:key)에서 한 번 부른다 — 들어올 때 되살리고, 이후 URL 이 바뀔 때마다 기억한다.
+ * 프로젝트 이슈 화면(목록 /projects/:key/issues · 홈 /projects/:key)에서 한 번 부른다 — 들어올 때 되살리고, 이후 URL 이 바뀔 때마다 기억한다.
  * @param enabled 프로젝트를 불러왔을 때만 — 없거나 볼 수 없는 프로젝트의 기억은 만들지 않는다.
  * @returns 되살리는 중인가 — 그동안 화면은 목록을 그리지 않는다(기본 조건 목록이 잠깐 보이고 헛요청이 나가지 않게).
  */
