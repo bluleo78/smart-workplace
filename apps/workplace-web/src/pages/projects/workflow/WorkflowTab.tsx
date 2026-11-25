@@ -489,14 +489,16 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
   }
 
   // 사용 스위치(WP-2119) — 시안대로 머리 오른쪽 묶음의 게시 단추 옆에 둔다(권한이 없으면 같은 자리에 읽기 전용 배지).
-  // 끄기 확인의 실행 수는 수를 아직 모를 때(버전 목록을 받은 적 없음)만 null — 창을 연 채 다시 불러와도 「끄기」가 잠기지 않게.
+  // 끄기 확인의 실행 수는 수를 아직 모를 때(버전 목록을 받은 적 없음)와 버전 목록 불러오기가 실패했을 때 null —
+  // 창을 연 채 다시 불러오는 중에는 지난 수를 그대로 둬 「끄기」가 잠기지 않게 하고, 다시 불러오기가 실패하면
+  // 지난(낡은) 수 대신 「불러오지 못했습니다」와 다시 불러오기를 보인다(WP-2119 리뷰 후속).
   // 켜고 끄기는 초안과 따로라 초안 충돌 배너 중에도 잠그지 않는다(쓰기 진행 중 busy 만).
   const enableSwitch = (
     <WorkflowEnableSwitch
       enabled={detail.enabled}
       canManage={canManage && !isLoggingOut}
       hasPublishedVersion={activeVersionNo !== null}
-      activeRuns={running}
+      activeRuns={versions.isError ? null : running}
       runsLoadError={versions.isError && !versions.isFetching}
       onRetryRuns={() => void versions.refetch()}
       busy={busy}
