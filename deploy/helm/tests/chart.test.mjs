@@ -350,16 +350,18 @@ test('api 볼륨 권한 init 컨테이너는 표식 파일이 있을 때 전체 
 });
 
 // WP-1971 — 앱별 복제 수·PDB·분산 배치. appReplicas 로 함께 움직이는 여섯 앱(전환·db 는 빠진다).
+// 복제 수 계산 규칙은 차트 기본값(values.yaml) 위에서 본다 — 운영 값은 앱별 복제 수를 따로 정하므로(ai-agent 2대) 규칙 검증과 섞지 않는다.
 const SIX_APPS = ['api', 'ai-agent', 'web', 'admin', 'mcp', 'worker'];
+const renderDefault = (...extra) => helmTemplate(['-f', IMAGES, ...extra]);
 
 test('기본값에서는 여섯 앱이 모두 appReplicas(1)대로 렌더된다 (WP-1971)', () => {
   for (const name of SIX_APPS) {
-    assert.match(BASE_DOCS.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
+    assert.match(DEFAULT_DOCS.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
   }
 });
 
 test('appReplicas 만 바꾸면 앱별 값이 없는 앱이 따라 움직인다 (WP-1971)', () => {
-  const r = render('-f', IMAGES, '--set', 'appReplicas=3');
+  const r = renderDefault('--set', 'appReplicas=3');
   assert.ok(r.ok, r.err);
   for (const name of SIX_APPS) {
     assert.match(docs(r.out).get(`Deployment/${name}`), /^\s+replicas: 3$/m, name);
@@ -367,7 +369,7 @@ test('appReplicas 만 바꾸면 앱별 값이 없는 앱이 따라 움직인다 
 });
 
 test('앱별 복제 수는 그 앱만 바꾸고 나머지는 appReplicas 를 쓴다 (WP-1971 완료 조건 1)', () => {
-  const r = render('-f', IMAGES, '--set', 'web.replicas=2', '--set', 'admin.replicas=2',
+  const r = renderDefault('--set', 'web.replicas=2', '--set', 'admin.replicas=2',
     '--set', 'mcp.replicas=2', '--set', 'worker.replicas=2');
   assert.ok(r.ok, r.err);
   const d = docs(r.out);
@@ -376,25 +378,25 @@ test('앱별 복제 수는 그 앱만 바꾸고 나머지는 appReplicas 를 쓴
 });
 
 test('appReplicas=0 동결은 앱별 값을 이기고, 앱별 값이 정수가 아니면 렌더가 실패한다 (WP-1971)', () => {
-  const frozen = render('-f', IMAGES, '--set', 'appReplicas=0', '--set', 'web.replicas=2');
+  const frozen = renderDefault('--set', 'appReplicas=0', '--set', 'web.replicas=2');
   assert.ok(frozen.ok, frozen.err);
   for (const name of SIX_APPS) {
     assert.match(docs(frozen.out).get(`Deployment/${name}`), /^\s+replicas: 0$/m, name);
   }
-  const bad = render('-f', IMAGES, '--set-string', 'api.replicas=8x');
+  const bad = renderDefault('--set-string', 'api.replicas=8x');
   assert.equal(bad.ok, false);
   assert.match(bad.err, /api\.replicas 는 정수여야 합니다/);
 });
 
 test('기본값(1대)에서는 PDB 와 분산 배치가 하나도 렌더되지 않는다 (WP-1971)', () => {
-  assert.equal([...BASE_DOCS.keys()].filter((k) => k.startsWith('PodDisruptionBudget/')).length, 0);
+  assert.equal([...DEFAULT_DOCS.keys()].filter((k) => k.startsWith('PodDisruptionBudget/')).length, 0);
   for (const name of SIX_APPS) {
-    assert.doesNotMatch(BASE_DOCS.get(`Deployment/${name}`), /topologySpreadConstraints/, name);
+    assert.doesNotMatch(DEFAULT_DOCS.get(`Deployment/${name}`), /topologySpreadConstraints/, name);
   }
 });
 
 test('두 대가 된 앱에만 PDB(minAvailable 1)와 노드 분산 배치가 렌더된다 (WP-1971)', () => {
-  const r = render('-f', IMAGES, '--set', 'web.replicas=2', '--set', 'admin.replicas=2',
+  const r = renderDefault('--set', 'web.replicas=2', '--set', 'admin.replicas=2',
     '--set', 'mcp.replicas=2', '--set', 'worker.replicas=2');
   assert.ok(r.ok, r.err);
   const d = docs(r.out);
@@ -415,7 +417,7 @@ test('두 대가 된 앱에만 PDB(minAvailable 1)와 노드 분산 배치가 �
 });
 
 test('분산 배치는 노드가 한 대여도 스케줄을 거부하지 않는다 — ScheduleAnyway (WP-1971)', () => {
-  const r = render('-f', IMAGES, '--set', 'web.replicas=2');
+  const r = renderDefault('--set', 'web.replicas=2');
   assert.ok(r.ok, r.err);
   const web = docs(r.out).get('Deployment/web');
   assert.match(web, /whenUnsatisfiable: ScheduleAnyway/);
@@ -424,13 +426,26 @@ test('분산 배치는 노드가 한 대여도 스케줄을 거부하지 않는�
 });
 
 test('aiAgent 값 키로 ai-agent 만 바뀐다 — 값 키와 이름이 다른 유일한 앱 (WP-1971)', () => {
-  const r = render('-f', IMAGES, '--set', 'aiAgent.replicas=2');
+  const r = renderDefault('--set', 'aiAgent.replicas=2');
   assert.ok(r.ok, r.err);
   const d = docs(r.out);
   assert.match(d.get('Deployment/ai-agent'), /^\s+replicas: 2$/m);
   assert.match(d.get('PodDisruptionBudget/ai-agent'), /minAvailable: 1/);
   for (const name of ['api', 'web', 'admin', 'mcp', 'worker']) {
     assert.match(d.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
+  }
+});
+
+test('운영 값에서 ai-agent 는 2대·메모리 1Gi/3Gi 이고 PDB·분산 배치가 붙는다 — opencode 서버 실측 ~650MB 대비 여유', () => {
+  const agent = BASE_DOCS.get('Deployment/ai-agent');
+  assert.match(agent, /^\s+replicas: 2$/m);
+  assert.match(agent, /requests:\n\s+cpu: 100m\n\s+memory: 1Gi/);
+  assert.match(agent, /limits:\n\s+memory: 3Gi/);
+  assert.match(agent, /topologyKey: kubernetes\.io\/hostname/);
+  assert.match(BASE_DOCS.get('PodDisruptionBudget/ai-agent'), /minAvailable: 1/);
+  // 다른 앱은 운영에서도 1대 그대로다
+  for (const name of ['api', 'web', 'admin', 'mcp', 'worker']) {
+    assert.match(BASE_DOCS.get(`Deployment/${name}`), /^\s+replicas: 1$/m, name);
   }
 });
 

@@ -47,6 +47,16 @@ config:
   modelUrlAllowedHosts: "genia-code-server.iacloud.kr"
 
 aiAgent:
+  # 2026-11-25: 2Gi 에서 opencode 서버 1개가 MCP 자식 포함 ~650MB(실측, 코드 주석의 380MB 가정보다 큼) — 동시 상한 3개
+  # (OPENCODE_MAX_LIVE_SERVERS)만 차도 앱 포함 ~2.1GB 로 한도를 넘는다. 평소 처리만으로 재시작 10분 안에 최고 1.6GB.
+  # → limit 3Gi·request 1Gi(실사용 ~850MB 상주), 한 대가 재시작돼도 AI 처리가 끊기지 않게 2대.
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      memory: 3Gi
   # genia-code-server 는 Caddy 로컬 CA 인증서를 쓴다 — 그 루트를 ai-agent 가 추가로 신뢰한다(2036-09-05 만료).
   # Caddy 가 루트를 새로 만들면(데이터 폴더 초기화 등) 여기도 바꿔야 한다.
   # API 도 Gen:iA 로그인(WP-1461)에 같은 CA 를 쓴다.
