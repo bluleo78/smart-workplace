@@ -285,17 +285,34 @@ shadcn `Select` 를 RHF 와 쓸 때도 동일하게 `value`/`onValueChange` 를 
 </FormField>
 ```
 
-옵션이 많아 검색이 필요하면 `@/components/overlay/popover` 의 `Popover`·`PopoverContent`(`aria-label` 또는 `aria-labelledby` 필수 — 타입이 막는다) 안에 `Command` 를 둔다(예: `pages/projects/components/MemberSearchPopover.tsx`, `Command` 만 쓰는 `IssueParentPicker.tsx`). `CommandList` 에도 한국어 `label` 을 준다 — 없으면 스크린리더가 cmdk 기본 이름 「Suggestions」로 읽는다(WP-731).
+옵션이 많아 검색이 필요하면 `@/components/overlay/popover` 의 `Popover`·`PopoverContent`(`aria-label` 또는 `aria-labelledby` 필수 — 타입이 막는다) 안에 `Command` 를 둔다. 따라 할 실제 예는 `pages/projects/components/MemberSearchPopover.tsx`(`Command` 만 쓰는 목록은 `IssueParentPicker.tsx`). 단일 선택 콤보박스는 아래 규칙을 지킨다:
+
+- 트리거는 `role="combobox"`·`aria-expanded={open}` — 스크린리더가 펼침 상태를 읽는다.
+- 내용은 `className="w-(--radix-popover-trigger-width) p-0"` — 트리거 폭에 맞추고 `Command` 가 여백을 가진다.
+- `open` 을 제어형으로 두고 후보를 고르면 닫는다.
+- `CommandList` 에도 한국어 `label` 을 준다 — 없으면 스크린리더가 cmdk 기본 이름 「Suggestions」로 읽는다(WP-731).
 
 ```tsx
-<Popover>
-  <PopoverTrigger asChild><Button variant="outline">담당자 선택</Button></PopoverTrigger>
-  <PopoverContent aria-label="담당자 검색">
+const [open, setOpen] = useState(false)
+
+<Popover open={open} onOpenChange={setOpen}>
+  <PopoverTrigger asChild>
+    <Button variant="outline" role="combobox" aria-expanded={open}>
+      {selected?.name ?? '담당자 선택'}
+    </Button>
+  </PopoverTrigger>
+  <PopoverContent aria-label="담당자 검색" className="w-(--radix-popover-trigger-width) p-0">
     <Command>
       <CommandInput placeholder="멤버 검색..." />
       <CommandList label="멤버 후보">
         <CommandEmpty>결과 없음</CommandEmpty>
-        <CommandGroup>{/* CommandItem 들 */}</CommandGroup>
+        <CommandGroup>
+          {members.map((m) => (
+            <CommandItem key={m.id} value={m.name} onSelect={() => { onChange(m); setOpen(false) }}>
+              {m.name}
+            </CommandItem>
+          ))}
+        </CommandGroup>
       </CommandList>
     </Command>
   </PopoverContent>
