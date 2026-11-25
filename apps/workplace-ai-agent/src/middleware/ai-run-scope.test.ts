@@ -113,6 +113,40 @@ describe('aiRunScopeMiddleware', () => {
     expect(records[1].errorReason).toBe('http_500');
   });
 
+  // WP-2106: 분류 사유(provider_limit)는 HTTP 실패가 그 러너 오류에서 왔을 때만 이긴다
+  const LIMIT = new Error("API Error: You've hit your org's monthly spend limit");
+
+  it('러너 한도 오류로 실패해 5xx 로 끝나면 provider_limit', async () => {
+    const { records, sink } = sinkOf();
+    const app = express();
+    app.use(aiRunScopeMiddleware(sink));
+    app.post('/ai/chat', (_req, res) => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'anthropic');
+      s.runnerFinished({ ok: false, usage: null, error: LIMIT });
+      res.status(502).json({});
+    });
+    await request(app).post('/ai/chat').send({});
+    expect(records[1]).toMatchObject({ status: 'FAILED', errorReason: 'provider_limit' });
+  });
+
+  it('러너 한도 오류가 다음 러너 성공으로 우회된 뒤 다른 이유로 5xx 면 provider_limit 이 아니라 http_코드', async () => {
+    const { records, sink } = sinkOf();
+    const app = express();
+    app.use(aiRunScopeMiddleware(sink));
+    app.post('/ai/chat', (_req, res) => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'anthropic');
+      s.runnerFinished({ ok: false, usage: null, error: LIMIT });
+      s.runnerStarted('m', 'anthropic');
+      s.runnerFinished({ ok: true, usage: null });
+      // 러너와 무관한 후속 처리 실패
+      res.status(500).json({});
+    });
+    await request(app).post('/ai/chat').send({});
+    expect(records[1]).toMatchObject({ status: 'FAILED', errorReason: 'http_500' });
+  });
+
   it('잘못된 X-AI-Run 이어도 200 이고 새 runId 로 기록', async () => {
     const { records, sink } = sinkOf();
     const app = express();

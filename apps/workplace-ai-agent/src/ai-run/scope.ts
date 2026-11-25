@@ -30,7 +30,8 @@ function cameFrom(err: unknown, runnerErr: unknown): boolean {
  * - 닫을 때 라우트의 실패 오류(o.error)를 받았으면 그 실패가 마지막 러너 오류에서 왔을 때만 이긴다 — 이벤트 처리(POST /events)는
  *   러너 한도 오류가 핸들러 실패로 전달돼 handler_error 로 닫히는데 그때는 provider_limit 로 남아야 하고, 앞서 우회된 러너 실패가
  *   있어도 라우트가 다른 이유로 실패했다면 그 실패를 한도 초과로 잘못 실패율에서 빼면 안 되기 때문이다.
- * - 오류를 받지 못했으면(미들웨어: 응답 코드만 안다) o.reason 이 없음·http_5xx·runner_error 일 때만 이긴다.
+ * - 오류를 받지 못했으면(미들웨어: 응답 코드만 안다) o.reason 이 없음·http_5xx·runner_error 일 때만 이긴다. 뒤이은 러너 성공으로 우회된
+ *   실패는 runnerFinished 가 분류 사유를 지워 두므로, 여기 남은 분류는 마지막 러너 호출이 실패한 경우뿐이다.
  */
 function classifiedWins(o: { reason?: string; error?: unknown }, runnerErr: unknown): boolean {
   const reason = o.reason;
@@ -106,7 +107,11 @@ export class AiRunScope {
   runnerFinished(r: { ok: boolean; usage: RunnerUsage | null; error?: unknown }): void {
     if (this._closed) return;
     if (r.usage) this.usages.push(r.usage);
-    if (!r.ok) {
+    if (r.ok) {
+      // 앞선 러너 실패가 이 성공으로 우회됐다 — 실패 기록(FAILED 판정·상세)은 남기되 분류 사유는 지운다(WP-2106).
+      // 왜: 그 뒤 처리가 다른 이유로 실패하면(HTTP 5xx 등) 우회된 한도 오류가 사유를 가로채 provider_limit 로 실패율에서 빠지면 안 된다.
+      for (const f of this.runnerFailures) f.reason = null;
+    } else {
       // 원인 코드는 오류 객체에서만 알 수 있어 닫을 때가 아니라 기록할 때 분류해 둔다.
       this.runnerFailures.push(
         r.error !== undefined
