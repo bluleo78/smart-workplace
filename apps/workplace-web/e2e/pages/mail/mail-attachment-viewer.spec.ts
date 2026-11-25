@@ -2,7 +2,7 @@
 // 묶음 = 한 메일의 목록 첨부(본문 인라인 이미지 제외), 다운로드는 뷰어 ⬇, ✨ 없음. ☁ 는 메일 첨부 저장(WP-1400) — 공간은 누를 때 조회해 열 때는 늘 누를 수 있다. 공유 불가라 ⋯ 는 없다.
 // 남은 것: PDF 렌더·다운로드(@platform), 닫은 뒤·폴더 창 뒤 포커스 복원(@input), 오류 토스트가 뷰어 위에 쌓이는지(@layout).
 // 딥링크·찾을 수 없음 안내·열 때만 받기·다른 메일 주소·조회 실패 ?preview 는 src/pages/mail/mailDetailExtras.test.tsx(vitest, WP-984)가 지킨다.
-import { expect, test } from '../../fixtures/auth.fixture'
+import { dropToastPassthrough, expect, test } from '../../fixtures/auth.fixture'
 import { personalSpace } from '../../factories/drive.factory'
 import { detail } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
@@ -169,23 +169,52 @@ test.describe('메일 첨부 뷰어', () => {
     // 토스트가 뷰어(z-50) 위에 실제로 보여야 한다 — toBeVisible 은 가림을 보지 않으므로 화면 안·최상단까지 확인한다.
     const toast = page.locator('[data-sonner-toast]', { hasText: '파일을 내려받지 못했습니다' })
     await expect(toast).toBeInViewport()
-    // fixture 의 에러 토스트 포인터 통과 규칙과 모달의 body pointer-events:none 이 있으면 elementFromPoint 가 토스트를 건너뛴다 —
-    // 규칙을 걷어내고 판정 순간만 body 를 되돌려 쌓임 순서 그대로 읽는다(auth.fixture.ts·mobile.fixture.ts expectOnTop).
-    await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+    // 픽스처의 에러 알림 통과 규칙만 걷어내고, 모달의 body pointer-events:none 과 앱 CSS 는 그대로 둔 채 맨 위 요소를 읽는다 —
+    // 모달 중 보이는 알림 몸통이 클릭을 받는 앱 규칙(WP-2084)이 깨지면 여기서 잡힌다(판정용 보정 없음).
+    await dropToastPassthrough(page)
+    await expect(page.locator('body')).toHaveCSS('pointer-events', 'none')
     await expect
-      .poll(() =>
-        toast.evaluate((el) => {
-          const r = el.getBoundingClientRect()
-          const prev = document.body.style.pointerEvents
-          document.body.style.pointerEvents = 'auto'
-          try {
-            return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
-          } finally {
-            document.body.style.pointerEvents = prev
-          }
-        }),
-      )
+      .poll(async () => {
+        const r = (await toast.boundingBox())!
+        return page.evaluate(
+          ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-sonner-toast]') != null,
+          [r.x + r.width / 2, r.y + r.height / 2] as const,
+        )
+      })
       .toBe(true)
     expect(downloads.count()).toBe(1)
+  })
+
+  // WP-2084: 모달이 열린 동안 body 가 pointer-events:none 이어도 단추 없는 알림의 몸통은 클릭을 받아야 한다 —
+  // 통과하면 클릭이 딤 오버레이로 내려가 폴더 창이 바깥 클릭으로 닫힌다(뷰어 본체는 전체 화면 콘텐츠라 오버레이가 없어 폴더 창으로 본다).
+  test('폴더 창이 열린 채 단추 없는 알림 몸통을 눌러도 창이 닫히지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await stubMailWithAttachments(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/14', detail({
+      id: 14,
+      attachments: [{ id: 20, filename: 'archive.zip', contentType: 'application/zip', sizeBytes: 10, contentId: null }],
+    }))
+    await mockApi(page, 'GET', '/api/v1/drive/spaces', [personalSpace({ id: 1 })])
+    await mockApi(page, 'GET', '/api/v1/drive/spaces/1', personalSpace({ id: 1 }))
+    await mockApi(page, 'GET', '/api/v1/drive/spaces/1/items', { folders: [], files: [] })
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/attachments/20/content',
+      (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"오류"}' }),
+    )
+    await page.goto('/mail/1?messageId=14&preview=mail:20')
+    await expect(page.getByTestId('attachment-viewer')).toBeVisible()
+    await page.getByTestId('preview-download').click()
+    const toast = page.locator('[data-sonner-toast]', { hasText: '파일을 내려받지 못했습니다' })
+    await expect(toast).toBeInViewport()
+    // 알림이 떠 있는 동안 폴더 창을 연다(에러 알림은 픽스처 규칙으로 아래 단추를 통과시킨다).
+    await page.getByTestId('attachment-viewer').locator('button[aria-label="드라이브에 저장"]').click()
+    const picker = page.getByTestId('folder-picker')
+    await expect(picker).toBeVisible()
+    await expect(toast).toBeInViewport()
+    // 픽스처의 에러 알림 통과 규칙을 지워 실제 앱 CSS 만으로 판정한다.
+    await dropToastPassthrough(page)
+    await expect(page.locator('body')).toHaveCSS('pointer-events', 'none')
+    const r = (await toast.boundingBox())!
+    await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2)
+    await expect(picker).toBeVisible()
   })
 })

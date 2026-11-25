@@ -470,3 +470,11 @@ export const test = withReuse.extend<AuthFixtures>({
 })
 
 export { expect } from '@playwright/test'
+
+/**
+ * 픽스처가 심은 에러 알림 포인터 통과 style(data-test-toast-passthrough)을 지운다 — 알림이 맨 위인지·눌리는지를
+ * 실제 앱 CSS 만으로 판정하는 spec(WP-2084)이 히트 테스트 전에 부른다. 이 속성은 여기서만 안다.
+ */
+export async function dropToastPassthrough(page: Page) {
+  await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+}

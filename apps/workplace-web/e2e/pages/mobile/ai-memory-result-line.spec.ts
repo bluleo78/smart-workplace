@@ -2,7 +2,7 @@
 import { ask, setupLiveChat } from '../../fixtures/ai-live-chat'
 import { type HomeChatStartBody } from '../../fixtures/home-chat-mock'
 import { memoryError, memoryTool, mockMemoryUndo } from '../../fixtures/ai-memory-mock'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { dropToastPassthrough, expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { stableBox } from '../../fixtures/wait'
 
 const C = { correlationId: 'corr-a', sessionId: 's-a' }
@@ -77,7 +77,7 @@ test('되돌리기 실패 토스트가 AI 시트 위에 보이고 설정 열기�
   const action = page.getByRole('button', { name: '설정 열기' })
   await expect(action).toBeVisible()
   // 에러 토스트는 fixture 가 포인터를 통과시킨다 — 실제 화면과 같은 조건(토스트가 맨 위인지)으로 히트테스트하려고 그 규칙을 걷어낸다.
-  await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+  await dropToastPassthrough(page)
   const box = await stableBox(action)
   const topmostIsToast = await page.evaluate(
     ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-sonner-toast]') !== null,

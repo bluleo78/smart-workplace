@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test'
 
 import { LINK_TEXT, stubHomeChatAttachments, stubIssueChatAttachments, stubTeamChatAttachments } from '../../fixtures/chat-viewer-mock'
 import { KEY, longPress } from '../../fixtures/mobile-chat'
-import { expect, expectOnTop, test } from '../../fixtures/mobile.fixture'
+import { dropToastPassthrough, expect, expectOnTop, test } from '../../fixtures/mobile.fixture'
 import { centerOf, touchDrag } from '../../fixtures/touch'
 import { expectPdfPageVisible } from '../../fixtures/pdf'
 
@@ -205,8 +205,8 @@ test('AI 시트 위 뷰어에서 받기 실패 토스트가 뷰어 위에 보인
   }
   // 가려지지 않은 최상단인지(elementFromPoint) — 평소 토스트 층(55)은 AI 시트 위 뷰어(80) 아래라 뷰어가 열린 동안만 올린다.
   // fixture 의 에러 토스트 포인터 통과 규칙이 있으면 elementFromPoint 가 토스트를 건너뛰므로 걷어내고 판정한다(메일 뷰어 spec 과 같다).
-  await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
-  await expectOnTop(page, toast, '[data-sonner-toast]')
+  await dropToastPassthrough(page)
+  await expectOnTop(page, toast, '[data-sonner-toast]', { toast: true })
 })
 
 test('터치 대상 — 파일·링크 카드와 썸네일은 44px 이상', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
