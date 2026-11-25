@@ -528,9 +528,23 @@ export function WorkflowGraphEditor({ yaml, parsed, readOnly, onChange, onOpenYa
 }) {
   // 지시 편집 창(WP-2092)을 연 노드 — 서랍 안이 아니라 여기서 든다. 창이 열린 사이 노드 키가 바뀌거나 YAML 이 깨지면
   // 서랍(과 문법 오류면 캔버스 전체)이 사라지는데, 창과 고치던 글은 남아야 하기 때문이다(문법 오류 안내 쪽에도 같이 그린다)
-  const [instructionTarget, setInstructionTarget] = useState<InstructionEditorTarget | null>(null)
-  const instructionEditor = instructionTarget && (
-    <NodeInstructionEditor yaml={yaml} syntaxError={!('graph' in parsed)} target={instructionTarget} readOnly={readOnly} onChange={onChange} onClose={() => setInstructionTarget(null)} />
+  // seq 는 연 횟수 — 창의 key 로 써서 열 때마다(같은 노드를 다시 열어도) 창의 초안·기준 노드가 새로 시작하게 한다.
+  // 창이 열린 채 다른 노드의 「지시 편집 ⤢」가 눌려도(AI 패널과 함께 non-modal) 앞 노드의 글을 새 노드에 적용하지 않는다.
+  // YAML 변경·문법 오류로는 seq 가 바뀌지 않아 다시 마운트되지 않는다(고치던 글 유지)
+  const [instructionSession, setInstructionSession] = useState<{ target: InstructionEditorTarget; seq: number } | null>(null)
+  const openInstructions = useCallback((target: InstructionEditorTarget) => {
+    setInstructionSession((cur) => ({ target, seq: (cur?.seq ?? 0) + 1 }))
+  }, [])
+  const instructionEditor = instructionSession && (
+    <NodeInstructionEditor
+      key={instructionSession.seq}
+      yaml={yaml}
+      syntaxError={!('graph' in parsed)}
+      target={instructionSession.target}
+      readOnly={readOnly}
+      onChange={onChange}
+      onClose={() => setInstructionSession(null)}
+    />
   )
   // 창은 두 갈래 모두 같은 자리(조각의 둘째 자식)에 둔다 — 갈래마다 다른 부모 아래 그리면 YAML 이 깨지는 순간 창이 다시 마운트돼 고치던 글이 사라진다
   return (
@@ -546,7 +560,7 @@ export function WorkflowGraphEditor({ yaml, parsed, readOnly, onChange, onOpenYa
             onDrawerChange={onDrawerChange}
             problems={problems}
             onOpenYaml={onOpenYaml}
-            onOpenInstructions={setInstructionTarget}
+            onOpenInstructions={openInstructions}
             workflowId={workflowId}
           />
         </ReactFlowProvider>

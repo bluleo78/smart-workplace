@@ -10,7 +10,7 @@ import { askTarget, instructionPreview, instructionStats, moveTargets, type Node
 import { DrawerSection, YamlFixButton } from './DrawerShell'
 import { commonErrorTarget } from './graphLayout'
 import { addAskPath, type NodeDetail, type NodePatch, type WorkflowGraph } from './graphYaml'
-import type { InstructionEditorTarget } from './instructionLock'
+import { type InstructionEditorTarget, targetOf } from './instructionLock'
 import { NODE_FIELDS, type PanelField } from './nodeFields'
 import { workflowSelectClass } from './WorkflowVersions'
 
@@ -230,7 +230,7 @@ export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChan
         <InstructionSummary
           text={detail.instructions ?? ''}
           readOnly={readOnly}
-          onOpen={() => onOpenInstructions({ nodeKey, nodeName: detail.name ?? nodeKey, nodeType: detail.type, text: detail.instructions ?? '' })}
+          onOpen={() => onOpenInstructions(targetOf(nodeKey, detail))}
         />
       )}
       {yamlNote && (
