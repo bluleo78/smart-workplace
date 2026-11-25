@@ -91,9 +91,6 @@ export default function AiStatusOverviewPage() {
   // 준비 완료(WP-2079 3라운드) — 감춘 자리의 두 차트가 실제로 그려졌다는 신호. 첫 실행 비용을 치렀다는 뜻이다.
   const [warmed, setWarmed] = useState(false)
   const handleWarmed = useCallback(() => setWarmed(true), [])
-  // 감춘 준비 자리 — 준비가 끝나면(첫 실행 비용을 치렀으면) 없앤다. 청크가 실패한 자리에는 그림이 영영 없어
-  // 준비 신호도 없으므로 함께 없애고, 그 경우 게이트가 저절로 열린다(데드락 방지 — isChartStageOpen).
-  const warmup = !warmed && !chartsFailed ? <AiStatusChartWarmup onWarmed={handleWarmed} /> : null
 
   // 단계 노출(WP-2079) — 0 지표 카드, 1 경고 usage, 2 처리량, 3 작은 그래프, 4 종류별 표.
   // 지표 카드는 data 가 오는 렌더에서 바로 그린다 — 스켈레톤이 지표 카드로 넘어가는 그 커밋이 0단계의 태스크라
@@ -101,6 +98,13 @@ export default function AiStatusOverviewPage() {
   // 이후 단계는 한 틱씩 늘려 데이터 도착 직후 한 번에 몰리지 않게 나눈다(임의의 지연값 없음).
   // 기간 갱신(keepPreviousData)으로 data 가 이어지면 단계는 줄이지 않는다 — 이미 그린 블록이 내려가 화면이 깜빡이지 않게 한다.
   const [visibleBlock, setVisibleBlock] = useState(0)
+  // 종류별 표 틱(WP-2079 6라운드) — 표(4단계)에는 Recharts 가 없어 차트 준비 게이트에 묶이지 않는다. 위 체인은
+  // 게이트에 걸려 2 에서 멈추는데, 그대로 두면 청크 멈춤 때 표까지 게이트 상한(4초)을 기다린다. 그래서 표만
+  // 게이트 밖에서 자기 틱을 세어, 게이트가 닫혀 있는 동안에만 네 틱을 채워 표를 그린다. 게이트가 데이터보다 먼저
+  // 열린 평소 경로에서는 이 틱이 세어지지 않아 표는 여전히 맨 마지막 단계에서 나온다. 반대로 데이터가 먼저 와
+  // 게이트가 뒤에 열리는 경로에서는 표가 차트보다 먼저 그려지고(아래로 밀리는 시늉), 그 대가로 청크 멈춤 때
+  // 4초를 기다리지 않는다 — 표에는 Recharts 가 없어 첫 실행 비용과는 무관하다.
+  const [kindsTick, setKindsTick] = useState(0)
   // 준비 대기 상한 경과(WP-2079 5라운드) — 데이터 도착 후 준비 신호를 CHART_STAGE_MAX_WAIT_MS 동안 기다렸다는 표시.
   // 한 번 켜면 끄지 않는다 — 멈춘 청크는 그대로이고, 이미 연 단계를 다시 닫아 본문이 내려가지 않게 한다.
   const [waitTimedOut, setWaitTimedOut] = useState(false)
@@ -110,8 +114,11 @@ export default function AiStatusOverviewPage() {
   // 도착(undefined → 객체) 때는 !data 가 거짓이라 setState 가 없으므로 재렌더가 생기지 않는다 —
   // 렌더 중 setState 로 추적하던 지난 구조는 도착 렌더를 한 번 더 돌려 본문 계산을 두 번 시켰다(WP-2079 2라운드).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- data 소실 전환은 effect 에서만 알 수 있다(keepPreviousData 로 참조가 이어지는 동안에는 부르지 않아 캐스케이드가 없다)
-    if (!data) setVisibleBlock(0)
+    if (data) return
+    /* eslint-disable react-hooks/set-state-in-effect -- data 소실 전환은 effect 에서만 알 수 있다(keepPreviousData 로 참조가 이어지는 동안에는 부르지 않아 캐스케이드가 없다) */
+    setVisibleBlock(0)
+    setKindsTick(0)
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [data])
 
   // 준비 대기 상한(WP-2079 5라운드) — 데이터가 도착해도 준비 신호가 끝내 오지 않으면(impl 청크 선로딩이 멈춰
@@ -123,6 +130,12 @@ export default function AiStatusOverviewPage() {
   // 차트 단계 게이트 — 닫혀 있으면 처리량 단계부터 진행하지 않는다(WP-2079). 두 효과가 같은 자리에서
   // 같은 값을 묻으니 판정은 한 곳에 두고, 게이트 값이 바뀔 때만 효과가 다시 돈다.
   const chartStageOpen = isChartStageOpen({ chartsReady, warmed, chartsFailed, waitTimedOut })
+
+  // 감춘 준비 자리 — 준비가 끝나면(첫 실행 비용을 치렀으면) 없앤다. 청크가 실패한 자리에는 그림이 영영 없어
+  // 준비 신호도 없으므로 함께 없애고, 그 경우 게이트가 저절로 열린다(데드락 방지 — isChartStageOpen).
+  // 대기 상한으로 게이트가 열렸어도(warmed 없이) 함께 없앤다(WP-2079 6라운드) — 남아 있으면 늦게 도착한 청크의
+  // 준비 차트 2개가 실제 차트와 같은 태스크에 그려져 긴 태스크가 다시 생긴다. 세 조건은 곧 게이트를 여는 세 신호다.
+  const warmup = !warmed && !chartsFailed && !waitTimedOut ? <AiStatusChartWarmup onWarmed={handleWarmed} /> : null
 
   useEffect(() => {
     if (!data || chartStageOpen) return
@@ -141,6 +154,15 @@ export default function AiStatusOverviewPage() {
     const id = window.setTimeout(() => setVisibleBlock((n) => n + 1), 0)
     return () => window.clearTimeout(id)
   }, [data, chartStageOpen, visibleBlock])
+
+  // 종류별 표 틱(WP-2079 6라운드) — 차트 게이트와 따로 한 틱씩 나아간다. 게이트가 열려 있는 동안에는 세지 않아
+  // 평소(게이트가 데이터보다 먼저 열린 경로)에는 표가 맨 마지막 단계에서 나오고, 게이트가 닫혀 체인이 2 에 멈춰
+  // 있는 동안에만 네 틱을 채워 표를 그린다 — 청크 멈춤 때 표까지 게이트 상한(4초)을 기다리지 않는다.
+  useEffect(() => {
+    if (!data || kindsTick >= 4 || chartStageOpen) return
+    const id = window.setTimeout(() => setKindsTick((n) => n + 1), 0)
+    return () => window.clearTimeout(id)
+  }, [data, kindsTick, chartStageOpen])
 
   let body: ReactNode
   if (query.isPending) {
@@ -166,7 +188,9 @@ export default function AiStatusOverviewPage() {
           )}
           {visibleBlock >= 3 && <AiStatusSmallGraphs series={data.series} bucketSeconds={data.bucketSeconds} />}
         </div>
-        {visibleBlock >= 4 && <AiStatusKindsTable kinds={data.kinds} period={shownPeriod} />}
+        {/* 종류별 표 — Recharts 가 없어 차트 준비 게이트와 무관하다(WP-2079 6라운드): 체인(4단계)이거나
+            체인이 게이트에 멈춘 동안 따로 세운 표 틱(4)이어도 그린다 */}
+        {(visibleBlock >= 4 || kindsTick >= 4) && <AiStatusKindsTable kinds={data.kinds} period={shownPeriod} />}
       </div>
     )
   }
