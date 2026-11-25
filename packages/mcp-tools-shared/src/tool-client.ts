@@ -239,7 +239,7 @@ export interface IssueToolClient
     issueKey: string,
     typeId: number,
     parent?: number | string,
-    opts?: { relateToReleasedParent?: boolean },
+    opts?: { relateToReleasedParent?: boolean; convertSubtasksToTypeId?: number },
   ): Promise<{ releasedParentKey: string | null }>;
   /** 부모 지정 — 같은 프로젝트 번호(number)·다른 프로젝트 에픽 키(string, WP-1038), null 이면 해제. */
   setIssueParent(issueKey: string, parent: number | string | null): Promise<void>;

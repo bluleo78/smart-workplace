@@ -107,6 +107,8 @@ export const updateIssueInput = z.object({
   // 리뷰 후속 ② — type 없이 오거나 parent 로 상위를 따로 비우면 유형 요청에 실 수 없어 말없이 무시된다.
   // 핸들러가 값이 참일 때 쓰기 전에 에러로 돌려주므로 그 한정을 설명에도 적는다.
   relateToReleasedParent: z.boolean().optional().describe('하위 태스크의 상위가 풀릴 때 옛 상위와 관련 관계를 남긴다 — type 과 함께, parent: null 은 에러'),
+  // WP-2098: 에픽으로 바꿀 때 하위 태스크를 함께 바꿀 유형 이름 — type 과 함께 줄 때만 쓰이고, type 없이 오면 무시한다.
+  convertSubtasksToType: z.string().optional().describe('에픽으로 바꿀 때 하위 태스크가 있으면 이 옵션으로 함께 바꾼다 — 하위 태스크를 바꿀 유형 이름(예: TASK). 하위의 상위 연결은 그대로'),
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
   // WP-944: 보고자 username(me=호출자) → PUT .../reporter. 프로젝트 OWNER·ADMIN·지금 보고자만, 사람만 — 서버가 거절하면 results.reporter 실패.
   reporter: z.string().min(1).optional(),

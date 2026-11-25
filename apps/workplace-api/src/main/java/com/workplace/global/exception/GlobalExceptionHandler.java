@@ -2069,6 +2069,21 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /**
+   * 하위 태스크가 달린 이슈를 에픽으로 바꾸는데 변환 유형이 없다 — 400(WP-2098). errors 에 code·issueKeys(번호 순 키를 {@code ,} 로
+   * 이은 문자열)를 실어 화면이 변환 확인 창을 띄우게 한다.
+   */
+  @ExceptionHandler(com.workplace.issue.exception.SubtaskConversionRequiredException.class)
+  public ResponseEntity<ErrorResponse> handleSubtaskConversionRequired(
+      com.workplace.issue.exception.SubtaskConversionRequiredException ex,
+      HttpServletRequest request) {
+    Map<String, String> errors = new HashMap<>();
+    errors.put("code", com.workplace.issue.exception.SubtaskConversionRequiredException.CODE);
+    errors.put("issueKeys", String.join(",", ex.getIssueKeys()));
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), errors, request));
+  }
+
   /** 의존성 인자 유효성 위반(자기 자신/없는 이슈/다른 프로젝트) — 400. (Phase 4b) */
   @ExceptionHandler(com.workplace.issue.exception.InvalidDependencyException.class)
   public ResponseEntity<ErrorResponse> handleInvalidDependency(

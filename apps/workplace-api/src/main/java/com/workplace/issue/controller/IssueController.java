@@ -150,17 +150,19 @@ public class IssueController {
   /**
    * 유형 변경 본문. typeId 필수. parentNumber 를 주면 유형과 부모를 한 번에 바꾼다 — 하위 태스크로 바꿀 때 부모를 함께 고르는 데 쓴다(WP-745).
    * parentKey 는 다른 프로젝트 에픽을 부모로 둘 때 쓴다(WP-1038). relateToReleasedParent 를 켜면 유형 변경으로 상위가 풀릴 때 옛 상위와
-   * 관련 관계를 같은 트랜잭션에서 남긴다(WP-2097).
+   * 관련 관계를 같은 트랜잭션에서 남긴다(WP-2097). convertSubtasksToTypeId 는 하위 태스크가 달린 이슈를 에픽으로 바꿀 때 그 하위 태스크들을 바꿀
+   * 유형(EPIC·SUBTASK 가 아닌 이 프로젝트 유형)이다(WP-2098).
    */
   public record UpdateTypeRequest(
       @jakarta.validation.constraints.NotNull Long typeId,
       Integer parentNumber,
       @jakarta.validation.constraints.Size(max = 64) String parentKey,
-      Boolean relateToReleasedParent) {
+      Boolean relateToReleasedParent,
+      Long convertSubtasksToTypeId) {
 
     /** 부모 키·관계 옵션 없이 받는 기존 호환 생성자. */
     public UpdateTypeRequest(Long typeId, Integer parentNumber) {
-      this(typeId, parentNumber, null, null);
+      this(typeId, parentNumber, null, null, null);
     }
   }
 
@@ -181,7 +183,8 @@ public class IssueController {
                 req.typeId(),
                 req.parentNumber(),
                 req.parentKey(),
-                Boolean.TRUE.equals(req.relateToReleasedParent()))));
+                Boolean.TRUE.equals(req.relateToReleasedParent()),
+                req.convertSubtasksToTypeId())));
   }
 
   /** 이슈 soft-delete. reporter 또는 OWNER 만 가능. */

@@ -602,6 +602,7 @@ export default function IssueDetailPage() {
                         current={summary.type}
                         disabled={!canEditWorkflow}
                         parentLink={parentLink}
+                        childCount={summary.childCount}
                       />
                     )}
                     {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
@@ -769,6 +770,7 @@ export default function IssueDetailPage() {
                   current={summary.type}
                   disabled={!canEditWorkflow}
                   parentLink={parentLink}
+                  childCount={summary.childCount}
                 />
               </div>
             )}

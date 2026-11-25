@@ -5,21 +5,26 @@
 // 상세에서 넘긴 parentLink 가 없으면(상위 없음·호출부 미전달) 지금처럼 곧바로 저장한다.
 // WP-2131 — 읽을 수 없는 상위(parentLink.hidden)도 같은 창을 가린 모드(이동·관련 관계 선택 없음)로 띄우고, 확인하면 { typeId } 만 PATCH 한다.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { handleApiError } from '@/lib/api-error';
+import { fetchAllChildren } from '@/lib/fetchAllChildren';
 import { parentLinkChangeChoices, shouldShowParentLinkChange } from '@/lib/issueTypeParentLink';
+import { convertTargetTypes, subtaskChildrenOf } from '@/lib/issueTypeSubtaskConvert';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
 
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
 import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
+import type { IssueResponse } from '../../types/issue';
 import type { IssueTypeSummary } from '../../types/issueType';
 import { IssueTypeBadge } from './IssueTypeBadge';
 import { type ParentLinkChangeChoice, ParentLinkChangeDialog } from './ParentLinkChangeDialog';
+import { type SubtaskConvertChoice, SubtaskConvertDialog } from './SubtaskConvertDialog';
 
 /** 「상위 연결 변경」 창에 넘길 지금 상위 요약 — 상세 응답의 summary.parent 에서 호출부가 만든다(WP-2097). */
 export interface VisibleParentLink {
@@ -48,6 +53,7 @@ export function IssueTypeSelectPopover({
   current,
   disabled = false,
   parentLink,
+  childCount = 0,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -59,6 +65,8 @@ export function IssueTypeSelectPopover({
    * (WP-2131) { hidden: true } 면 가린 모드 창(이동·관련 관계 선택 없음)을 띄우고 확인 시 { typeId } 만 PATCH 한다.
    */
   parentLink?: ParentLink;
+  /** 딸린 하위 수(상세 summary.childCount, WP-2098) — 0 이면 에픽으로 바꿀 때 하위 조회를 건너뛴다. */
+  childCount?: number;
 }) {
   const types = useIssueTypes(projectKey);
   const update = useUpdateIssueType(projectKey, issueNumber);
@@ -70,10 +78,18 @@ export function IssueTypeSelectPopover({
   // 이름까지 들고 있는 이유: 선택지는 대상 유형을 봐야 한다(EPIC 은 「상위 없이 변경」만 — 완료 기준 7).
   const [pendingType, setPendingType] = useState<{ id: number; name: string } | null>(null);
 
+  // WP-2098 — 에픽으로 바꿀 때 하위 태스크 유형 변경 확인 창 상태. null 이면 창 없음.
+  const [convertPending, setConvertPending] = useState<{ id: number; subtasks: IssueResponse[] } | null>(null);
+  // 하위를 읽는 중 — 켜 있는 동안 유형 목록을 잠가 중복 선택·조회를 막는다.
+  const [loadingChildren, setLoadingChildren] = useState(false);
+  // 하위 조회 회차 — 조회 중 팝오버를 닫으면(취소) 회차가 바뀌어, 늦게 온 결과로 저장하지 않는다.
+  const epicFetchSeq = useRef(0);
+
   // 팝오버를 닫으면 부모 입력 단계를 버린다 — 다시 열면 유형 목록부터. 확인 창 상태(pendingType)는 그대로 둔다.
   function onOpenChange(next: boolean) {
     setOpen(next);
     if (!next) {
+      epicFetchSeq.current += 1;
       setSubtaskTypeId(null);
       setParentValue('');
     }
@@ -110,6 +126,38 @@ export function IssueTypeSelectPopover({
 
   // 유형 항목 클릭 — 상위가 풀리는 변경이면 확인 창만 띄우고(저장 전), 아니면 지금처럼 즉시 저장한다.
   function applyTypeChoice(t: { id: number; name: string }) {
+    // 에픽 + 하위 있음 — 하위 태스크가 있는지 전체를 읽어 보고 갈린다(없으면 아래 기존 흐름).
+    if (t.name === 'EPIC' && childCount > 0) {
+      void applyEpicChoice(t);
+      return;
+    }
+    proceedTypeChoice(t);
+  }
+
+  // 하위 전체(열림·닫힘, 모든 페이지)를 읽어 하위 태스크가 있으면 변환 확인 창, 없으면 기존 흐름으로 간다.
+  // 읽기 실패는 알림만 띄우고 저장하지 않는다 — 하위를 모르는 채 보내면 서버가 400 으로 막을 뿐이라 사용자에게 먼저 알린다.
+  async function applyEpicChoice(t: { id: number; name: string }) {
+    setLoadingChildren(true);
+    const seq = ++epicFetchSeq.current;
+    try {
+      const subtasks = subtaskChildrenOf(await fetchAllChildren(projectKey, issueNumber));
+      // 읽는 사이 사용자가 팝오버를 닫았으면(취소) 아무것도 하지 않는다 — 하위 태스크가 없을 때 에픽으로 저장해 버리지 않게.
+      if (seq !== epicFetchSeq.current) return;
+      if (subtasks.length > 0) {
+        setConvertPending({ id: t.id, subtasks });
+        onOpenChange(false);
+      } else {
+        proceedTypeChoice(t);
+      }
+    } catch (e) {
+      if (seq === epicFetchSeq.current) handleApiError(e, '하위 태스크를 불러오지 못했습니다');
+    } finally {
+      setLoadingChildren(false);
+    }
+  }
+
+  // WP-2097 판정 — 상위가 풀리는 변경이면 확인 창, 아니면 즉시 저장.
+  function proceedTypeChoice(t: { id: number; name: string }) {
     if (
       parentLink != null &&
       shouldShowParentLinkChange({ oldTypeName: current.name, newTypeName: t.name, hasParent: true })
@@ -138,6 +186,20 @@ export function IssueTypeSelectPopover({
       relateToReleasedParent: p.relateToReleasedParent,
     });
     setPendingType(null);
+  }
+
+  // 하위 태스크 변환 확인 — 고른 유형과 함께 한 요청으로 보낸다. 상위가 있으면 관련 관계 선택도 함께 싣는다.
+  // 창은 저장이 끝나야 닫는다 — 실패하면(토스트는 훅이 띄운다) 고른 유형·체크를 그대로 두고 다시 누를 수 있게. 보내는 동안 「모두 변경」은 잠긴다.
+  function onConvertConfirm(c: SubtaskConvertChoice) {
+    if (convertPending == null) return;
+    update.mutate(
+      {
+        typeId: convertPending.id,
+        convertSubtasksToTypeId: c.convertSubtasksToTypeId,
+        relateToReleasedParent: parentLink ? c.relateToReleasedParent : undefined,
+      },
+      { onSuccess: () => setConvertPending(null) },
+    );
   }
 
   return (
@@ -216,6 +278,7 @@ export function IssueTypeSelectPopover({
                         checked && SELECTED_ROW_CLASS,
                       )}
                       data-testid={`issue-type-option-${t.id}`}
+                      disabled={loadingChildren}
                       onClick={() => {
                         if (checked) return onOpenChange(false);
                         // SUBTASK 는 부모 없이 될 수 없다 — 부모 번호 단계로 넘어간다.
@@ -240,6 +303,25 @@ export function IssueTypeSelectPopover({
           )}
         </PopoverContent>
       </Popover>
+      {/* WP-2098 「하위 태스크 N개 유형 변경」 창 — 열릴 때마다 새로 마운트해 선택이 초기화된다. Esc·바깥 클릭도 취소로 본다. */}
+      {convertPending != null && (
+        <SubtaskConvertDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setConvertPending(null);
+          }}
+          subtasks={convertPending.subtasks}
+          targetTypes={convertTargetTypes(types.data ?? [])}
+          currentParent={
+            parentLink
+              ? { key: parentLink.parentKey, title: parentLink.parentTitle, typeName: parentLink.parentTypeName }
+              : null
+          }
+          onConfirm={onConvertConfirm}
+          onCancel={() => setConvertPending(null)}
+          pending={update.isPending}
+        />
+      )}
       {/* 「상위 연결 변경」 확인 창 — parentLink 가 있고 지금 열려 있을 때만 그린다. 닫히면 unmount, 열릴 때마다
           새로 마운트해 지난 열림의 라디오·체크 선택이 남지 않는다(선택 초기화는 이 조건부 렌더가 만든다). */}
       {parentLink != null && pendingType != null && (

@@ -3683,6 +3683,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           },
           "type": "array",
         },
+        "convertSubtasksToType": {
+          "description": "에픽으로 바꿀 때 하위 태스크가 있으면 이 옵션으로 함께 바꾼다 — 하위 태스크를 바꿀 유형 이름(예: TASK). 하위의 상위 연결은 그대로",
+          "type": "string",
+        },
         "cycles": {
           "items": {
             "type": "string",
