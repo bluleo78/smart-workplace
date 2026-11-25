@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createCloseGuard,
+  hasAnyOpenMark,
   hasOpenMark,
   type HistoryPlan,
   type HistorySnapshot,
@@ -282,5 +283,17 @@ describe('planUnmarkedEntry', () => {
       { kind: 'replace', search: '', state: null },
       { kind: 'push', search: '?chat=0', state: { [markKey('chat')]: 3 } },
     ])
+  })
+})
+
+describe('hasAnyOpenMark — 키를 모른 채 열림 마크 유무(WP-2083)', () => {
+  it('어느 키든 숫자 마크가 있으면 참 — 시트 표식 push', () => {
+    expect(hasAnyOpenMark({ aiOpen: '1', [markKey('aiOpen')]: 2 })).toBe(true)
+  })
+
+  it('마크가 없거나 숫자가 아니면 거짓 — 링크 push·값만 남은 state', () => {
+    expect(hasAnyOpenMark(null)).toBe(false)
+    expect(hasAnyOpenMark({ aiOpen: '1', ignoredCleared: true })).toBe(false)
+    expect(hasAnyOpenMark({ [markKey('aiOpen')]: '2' })).toBe(false)
   })
 })
