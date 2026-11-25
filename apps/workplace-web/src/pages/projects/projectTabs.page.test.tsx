@@ -98,7 +98,7 @@ describe('프로젝트 탭 — 앱 라우트', () => {
     const project = createProject({ key: KEY, id: workflowDetail.projectId, ownerId: 2, type: 'PERSONAL' })
     const workflowList = gate()
     const path = `/projects/${KEY}/workflow`
-    const { location } = renderPage(path, {
+    const { user, location } = renderPage(path, {
       projectTabs: NO_MEMORY,
       handlers: [
         ...appHandlers(project),
@@ -120,10 +120,13 @@ describe('프로젝트 탭 — 앱 라우트', () => {
       workflowList.release()
     }
 
+    // 처음 열면 그래프 보기라(WP-2090) YAML 보기로 바꿔 게시 YAML 을 읽는다.
+    await user.click(await screen.findByRole('tab', { name: 'YAML' }))
     const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
     expect(yaml).toHaveValue(publishedYaml)
     expect(yaml).toHaveAttribute('readonly')
-    expect(location()).toBe(path)
+    // 보기 전환은 주소의 view 로 남는다 — 워크플로우 주소에서 벗어나지 않았다.
+    expect(location()).toBe(`${path}?view=yaml`)
   })
 
   test('워크플로우 목록 조회에 실패하면 같은 주소에서 다시 불러와 게시 YAML을 읽는다', async () => {
@@ -146,10 +149,13 @@ describe('프로젝트 탭 — 앱 라우트', () => {
     }, { timeout: PAGE_LOAD_TIMEOUT })
     await user.click(within(screen.getByRole('alert')).getByRole('button', { name: '다시 불러오기' }))
 
+    // 처음 열면 그래프 보기라(WP-2090) YAML 보기로 바꿔 게시 YAML 을 읽는다.
+    await user.click(await screen.findByRole('tab', { name: 'YAML' }))
     const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
     expect(yaml).toHaveValue(publishedYaml)
     expect(yaml).toHaveAttribute('readonly')
-    expect(location()).toBe(path)
+    // 보기 전환은 주소의 view 로 남는다 — 워크플로우 주소에서 벗어나지 않았다.
+    expect(location()).toBe(`${path}?view=yaml`)
     expect(getWorkflows).toHaveBeenCalledTimes(2)
   })
 
