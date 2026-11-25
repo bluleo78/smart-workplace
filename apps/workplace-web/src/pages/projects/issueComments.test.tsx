@@ -293,20 +293,25 @@ describe('새로고침 유실 경고 (#620)', () => {
 // 어느 정렬에서도 창 안에 들어와, 작성할 때마다 41행을 전부 다시 그리지 않는다(리뷰 ②).
 
 describe('렌더 윈도우와 방금 쓴 코멘트 (WP-2073)', () => {
-  test('작성 성공 뒤 방금 쓴 코멘트가 보이고 윈도우는 그대로 30건이다', async () => {
+  test('작성 성공 뒤 방금 쓴 코멘트가 보이고 오래된 쪽 경계는 그대로다', async () => {
     const { user, input } = await open(
       Array.from({ length: 40 }, (_, i) =>
         createComment({ id: i + 1, issueId: ISSUE_ID, authorId: ME_ID + 999, authorName: '다른 사용자', body: `기존 코멘트 ${i + 1}` }),
       ),
     )
-    // 처음에는 렌더 윈도우(최신 30건)만큼만 그려진다.
+    // 처음에는 렌더 윈도우(최신 30건)만큼만 그려진다 — 11~40번이 보이고 1~10번은 숨는다.
     await waitFor(() => expect(commentItems()).toHaveLength(30))
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
     setRichText(input, '방금 쓴 코멘트')
     await user.click(screen.getByTestId('issue-comment-submit'))
-    // 작성 성공 → 방금 만든 코멘트(id 90)는 창 안이라 곧 보이고, 창은 41행으로 펼쳐지지 않는다.
+    // 작성 성공 → 방금 만든 코멘트(id 90)는 창 안이라 곧 보이고, 창은 41행으로 전부 펼쳐지지 않는다.
     expect(await screen.findByTestId('issue-comment-header-90')).toBeInTheDocument()
     expect(screen.getByText('방금 쓴 코멘트')).toBeInTheDocument()
-    await waitFor(() => expect(commentItems()).toHaveLength(30))
+    // 새 코멘트는 창에 **더해지고**(30 → 31행) 오래된 쪽 경계(11번)는 그대로다 —
+    // 경계가 밀리면 읽던 11번 행이 사라져 편집 중 내용까지 잃는다(WP-2073 리뷰 후속 ①·③).
+    await waitFor(() => expect(commentItems()).toHaveLength(31))
+    expect(screen.getByTestId('issue-comment-header-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('issue-comment-header-10')).toBeNull()
   })
 })
 

@@ -448,18 +448,55 @@ export const LINKED_COMMENT_HIGHLIGHT_MS = 4000;
 const INITIAL_VISIBLE_COMMENTS = 30;
 /** 「더 보기」 한 번에 늘려 그리는 코멘트 수. */
 const MORE_VISIBLE_COMMENTS = 30;
-/** 「전부 펼침」 — 윈도우 상한을 사실상 없애 화면에 놓인 코멘트를 전부 그린다. */
-const ALL_VISIBLE_COMMENTS = Number.MAX_SAFE_INTEGER;
 
 /**
  * 렌더 윈도우 밖 대상(WP-2073) — 목록에는 있는데 아직 안 그려진 코멘트인지 판정한다.
  *
  * 방금 쓴 코멘트 스크롤·링크로 온 코멘트 두 효과가 같은 판정을 쓴다 — 그대로 두면
- * 「찾을 수 없습니다」 오인·아무 일도 없는 스크롤로 끝나므로, 참이면 목록을 전부 펼쳐야 그 자리에 닿는다.
+ * 「찾을 수 없습니다」 오인·아무 일도 없는 스크롤로 끝나므로, 참이면 그 자리까지 창을 늘려야 한다(WP-2073 리뷰 후속 ⑤).
  * 렌더 바깥 함수라 효과 의존성(ordered·visibleCount) 을 그대로 두고 써도 참조가 흔들리지 않는다.
  */
 const isHiddenByWindow = (id: number, ordered: readonly IssueCommentResponse[], visibleCount: number) =>
   visibleCount < ordered.length && ordered.some((c) => c.id === id);
+
+/**
+ * 대상 코멘트가 창 안에 들어오도록 필요한 창 크기(WP-2073 리뷰 후속 ⑤) — 목록에 있으면 그 자리까지만,
+ * 30단위(한 번에 늘리는 양)로 올린 값이고, 목록에 없으면 null.
+ *
+ * 예전에는 창 밖 대상을 만나면 `전부 펼침`(MAX_SAFE_INTEGER)으로 200행을 한 번에 그려, 이슈 상세가
+ * 이 이슈가 고치려던 성능 문제(일괄 렌더)로 되돌아갔다. 대상까지만 올리면 30건씩 늘어난 결과와 같아
+ * 다른 곳에서 「더 보기」로 펼친 결과와도 겹친다(창은 늘 연속 구간이라).
+ * 렌더 바깥 함수라 두 효과(스크롤·링크) 가 참조해도 exhaustive-deps 가 깨지지 않는다(위 isHiddenByWindow 와 같은 이유).
+ */
+const visibleCountFor = (
+  id: number,
+  ordered: readonly IssueCommentResponse[],
+  order: ActivityOrder,
+  visibleCount: number,
+): number | null => {
+  const pos = ordered.findIndex((c) => c.id === id);
+  if (pos < 0) return null;
+  // 오래된 순은 창이 뒤쪽(최신)을 쥐므로 남은 개수, 최신순은 앞쪽을 쥐므로 위치+1 이 곧 필요한 크기다.
+  const required = order === 'newest' ? pos + 1 : ordered.length - pos;
+  // 30단위로 올리되 목록 길이를 넘지 않는다 — 창이 목록보다 커질 일이 없음을 코드로 드러낸다(렌더는 slice 가 받아쳐 준다).
+  const rounded = Math.min(Math.ceil(required / MORE_VISIBLE_COMMENTS) * MORE_VISIBLE_COMMENTS, ordered.length);
+  return Math.max(visibleCount, rounded);
+};
+
+/**
+ * 창의 **오래된 쪽 경계**가 가리키는 코멘트 id(WP-2073 리뷰 후속 ①~③) — 보이는 행 중 가장 오래된 것이다.
+ *
+ * `comments` 는 늘 오래된 순이라 창(오래된 쪽을 숨기고 최신 쪽을 보여 준다)의 경계는 `length - visibleCount`
+ * 자리에 있다. 목록 길이가 아니라 이 id 로 창을 다시 맞추기 위해 쓴다 — 길이로만 맞추면 숨은 영역의 코멘트가
+ * 지워질 때 경계가 한 칸 밀려 읽던 행이 사라지고(리뷰 후속 ①·③) 초점이 위 행으로 간다(②·WP-832).
+ * 창이 목록보다 크거나 같으면(전부 보이는 상태) 경계는 가장 오래된 코멘트다.
+ */
+const oldestVisibleId = (comments: readonly IssueCommentResponse[], visibleCount: number): number | null => {
+  const first = comments[0];
+  if (first == null) return null;
+  const index = comments.length - visibleCount;
+  return index <= 0 ? first.id : (comments[index]?.id ?? first.id);
+};
 
 export function IssueCommentList({
   projectKey,
@@ -528,15 +565,44 @@ export function IssueCommentList({
   const listRef = useListFocusRescue(comments, commentComposerInput);
 
   // 렌더 윈도우(WP-2073) — 처음 30건만 그리고 「더 보기」를 누를 때마다 30건씩 늘린다.
-  // 코멘트가 200개여도 한 번에 전부 그리면 LCP·INP 가 늘어난다.
+  // 코멘트가 200개여도 한 번에 전부 그리면 LCP·INP 늘어난다.
   const [visibleCount, setVisibleCount] = useState<number>(INITIAL_VISIBLE_COMMENTS);
   // 이슈가 바뀌면 렌더 윈도우를 처음으로 되돌린다 — 앞 이슈에서 펼쳐 둔 창이 다음 이슈로 새면 목록 전체를 다시 그린다(WP-2073).
   // 상세 쿼리가 캐시에 있으면 로딩 화면이 없어 리스트 인스턴스가 그대로 유지되므로(재마운트 없음) 렌더 중에 맞춘다.
   const [prevIssueId, setPrevIssueId] = useState(issueId);
+  // 창의 **오래된 쪽 경계**(숨은 코멘트)를 고정한다(WP-2073 리뷰 후속 ①~③) — 목록 길이가 아니라 경계가
+  // 가리키는 **코멘트 id** 로 창을 다시 맞춘다. 경계가 움직이면
+  // ① 오래된 쪽 행을 편집하는 중 새 코멘트가 오면 그 행이 창 밖으로 밀려 언마운트되고(작성 중 내용이 사라진다)
+  // ② 삭제 뒤 숨은 코멘트가 경계 위로 끼어들어 useListFocusRescue(DOM 인덱스)가 한 칸 위 행으로 초점을 옮긴다(WP-832 회귀)
+  // ③ 읽던 맨 위 행이 새 코멘트마다 사라진다.
+  // 늘어나는 쪽(최신)은 새 코멘트가 창에 그대로 더해지고, 줄어드는 쪽은 지워진 행만큼만 줄어 숨은 것은 그대로 숨는다.
+  const [prevCommentCount, setPrevCommentCount] = useState(comments.length);
+  // 지난 렌더의 경계 id — 목록이 바뀐 지금 그 id 가 어디 있는지로 창 크기를 계산한다(값이 같으면 React 이 다시 그리지 않는다).
+  const [prevAnchorId, setPrevAnchorId] = useState<number | null>(() => oldestVisibleId(comments, INITIAL_VISIBLE_COMMENTS));
+  // 이번 렌더에 적용할 창 크기 — 목록이 바뀔 때만 고친다(사용자의 「더 보기」·창 확장 효과는 그대로 둔다).
+  let nextVisibleCount = visibleCount;
   if (prevIssueId !== issueId) {
+    nextVisibleCount = INITIAL_VISIBLE_COMMENTS;
     setPrevIssueId(issueId);
-    setVisibleCount(INITIAL_VISIBLE_COMMENTS);
+    setPrevCommentCount(comments.length);
+    setVisibleCount(nextVisibleCount);
+  } else if (prevCommentCount !== comments.length) {
+    const anchorIndex = prevAnchorId == null ? -1 : comments.findIndex((c) => c.id === prevAnchorId);
+    if (anchorIndex >= 0) {
+      // 경계 코멘트가 아직 목록에 있으면 그 자리부터 다시 그린다 — 추가·삭제 어느 쪽이든 경계가 밀리지 않는다.
+      nextVisibleCount = comments.length - anchorIndex;
+    } else {
+      // 경계 코멘트 자신이 지워진 경우(또는 아직 목록이 비어 있을 때) — 숨은 개수를 그대로 유지한다.
+      const grown = visibleCount + (comments.length - prevCommentCount);
+      // 창이 목록 길이보다 앞서면(대량 삭제) 전부 보여 준다 — 창이 비는 것을 막는다.
+      nextVisibleCount = grown <= 0 ? comments.length : Math.min(grown, comments.length);
+    }
+    setPrevCommentCount(comments.length);
+    setVisibleCount(nextVisibleCount);
   }
+  // 경계 id 동기화(파생 상태) — 「더 보기」·창 확장 효과가 창을 늘린 뒤에도 경계를 따라가게 한다.
+  const anchorId = oldestVisibleId(comments, nextVisibleCount);
+  if (prevAnchorId !== anchorId) setPrevAnchorId(anchorId);
 
   // 화면 순서(WP-1016) — comments 는 늘 오래된 순으로 오고 order 만 뒤집는다(원본은 뒤집지 않는다).
   // 아래 두 효과(방금 쓴 코멘트 스크롤·링크로 온 코멘트)가 이 값에 의존하므로 목록 맵보다 위에서 계산하고,
@@ -545,7 +611,7 @@ export function IssueCommentList({
 
   // 작성 성공 콜백은 그대로 넘긴다(WP-2073 리뷰 ②) — 렌더 윈도우가 늘 최신 쪽을 잡으므로(아래 `windowed`)
   // 방금 쓴 코멘트(가장 최신)는 어느 정렬에서도 창 안에 들어온다. 예전에는 여기서 전부 펼쳐, 작성할 때마다
-  // 200행을 다시 그려 INP 가 늘었다. 혹시 창 밖에 남으면 위 스크롤 효과가 그때만 전부 펼친다.
+  // 200행을 다시 그려 INP 가 늘었다. 혹시 창 밖에 남으면 아래 스크롤 효과가 그때만 대상까지 늘린다.
   const handleBodyPosted = useCallback(
     (body: string) => {
       onBodyPosted?.(body);
@@ -562,17 +628,18 @@ export function IssueCommentList({
   useEffect(() => {
     const row = scrollToCommentId == null ? null : rowOf(scrollToCommentId);
     if (!row) {
-      // 윈도우 밖이면 전부 펼친다 — 그대로 두면 아무 일도 없는 스크롤로 끝난다(WP-2073).
-      // ordered·visibleCount 가 의존성에 있어야 펼친 뒤 효과가 다시 돈다.
+      // 윈도우 밖이면 대상까지만 늘린다 — 그대로 두면 아무 일도 없는 스크롤로 끝난다(WP-2073).
+      // ordered·visibleCount 가 의존성에 있어야 늘린 뒤 효과가 다시 돈다.
       if (scrollToCommentId != null && isHiddenByWindow(scrollToCommentId, ordered, visibleCount)) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- 전부 펼친 뒤 같은 효과가 다시 돌아 대상을 찾는다(의도된 한 번의 연쇄 렌더).
-        setVisibleCount(ALL_VISIBLE_COMMENTS);
+        const need = visibleCountFor(scrollToCommentId, ordered, order, visibleCount);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 대상까지만 늘린 뒤 같은 효과가 다시 돌아 대상을 찾는다(의도된 한 번의 연쇄 렌더).
+        if (need != null) setVisibleCount(need);
       }
       return;
     }
     scrollIntoViewCentered(row);
     onScrolledToComment?.();
-  }, [scrollToCommentId, comments, onScrolledToComment, ordered, visibleCount]);
+  }, [scrollToCommentId, comments, onScrolledToComment, ordered, order, visibleCount]);
 
   // 코멘트 링크로 열어 온 코멘트(WP-1175) — 목록은 이슈 상세와 함께 한 번에 오므로(접기·페이지 없음) 부모가 최신 상세를 받은 뒤
   // 넘겨 준 id 는 그 목록에 있거나 없거나다. 있으면 가운데로 스크롤하고 잠시 강조, 없으면 지워졌을 수 있다고 알린다.
@@ -595,9 +662,11 @@ export function IssueCommentList({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 행이 그려진 DOM 을 찾은 뒤에야 강조할지 알 수 있어 렌더 중으로 못 옮긴다(링크마다 한 번).
       setHighlightId(linkedCommentId);
     } else if (isHiddenByWindow(linkedCommentId, ordered, visibleCount)) {
-      // 「찾을 수 없습니다」 로 오인하지 않도록 전부 펼치고 그 자리에서 돌아간다
-      // (처리 완료도 알리지 않는다 — 펼친 뒤 다음 렌더에서 다시 찾는다)(WP-2073).
-      setVisibleCount(ALL_VISIBLE_COMMENTS);
+      // 「찾을 수 없습니다」 로 오인하지 않도록 대상까지만(30단위 올림) 늘리고 그 자리에서 돌아간다 —
+      // 전부 펼치면 200행이 한 번에 다시 그려져 이 이슈가 없애려던 성능 문제가 되돌아온다(WP-2073 리뷰 후속 ⑤).
+      // 처리 완료도 알리지 않는다(늘린 뒤 다음 렌더에서 다시 찾는다).
+      const need = visibleCountFor(linkedCommentId, ordered, order, visibleCount);
+      if (need != null) setVisibleCount(need);
       return;
     } else {
       // 목록에 아예 없는 id(삭제됨) — 지금처럼 알리고 처리를 끝낸다.
@@ -605,7 +674,7 @@ export function IssueCommentList({
       toast.info('링크한 코멘트를 찾을 수 없습니다 — 삭제됐을 수 있습니다', { id: 'issue-comment-link-missing' });
     }
     onLinkedCommentHandled?.();
-  }, [linkedCommentId, onLinkedCommentHandled, ordered, visibleCount]);
+  }, [linkedCommentId, onLinkedCommentHandled, ordered, order, visibleCount]);
   useEffect(() => {
     if (highlightId == null) return;
     const t = setTimeout(() => setHighlightId(null), LINKED_COMMENT_HIGHLIGHT_MS);
@@ -667,10 +736,14 @@ export function IssueCommentList({
   // 「더 보기」 단추 — 숨은 코멘트는 늘 더 오래된 쪽이라, 오래된 순(기본)의 창은 위쪽(최신)을 쥐고
   // 아래로 늘어나는 게 아니라 위로 늘어난다 — 단추를 늘어나는 쪽(목록 위)에 둬야 새로 드러난 첫 행이 바로 옆이다.
   // 최신순은 아래로 늘어나니 지금처럼 목록 아래에 둔다(WP-2073 리뷰 ①·④).
+  // 문구(WP-2073 리뷰 후속 ④)는 누르면 실제로 늘어나는 수(한 번에 30건, 남은 개수보다 적으면 남은 만큼)와
+  // 그 뒤에도 남는 수를 함께 적는다 — 「댓글 40개 더 보기」처럼 누르면 늘어나는 30건보다 큰 수를 쓰면
+  // 눌러 보고 10건만 늘어나 글자가 틀린 것처럼 보인다.
+  const revealCount = Math.min(MORE_VISIBLE_COMMENTS, hiddenCount);
   const moreButton = hiddenCount > 0 && (
     <div className="flex justify-center">
       <Button variant="outline" size="sm" data-testid="issue-comment-more" onClick={showMoreComments}>
-        댓글 {hiddenCount}개 더 보기
+        이전 댓글 {revealCount}개 더 보기(남은 {hiddenCount - revealCount}개)
       </Button>
     </div>
   );
