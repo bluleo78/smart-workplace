@@ -1,8 +1,9 @@
 // 「AI 현황 › 개요」 화면(WP-1824) — 서버 개요 응답이 지표 6장·경고 목록(계정 경고는 한 줄)·처리량 막대·작은 그래프 5·종류별 표로
 // 이어지는지, 기간·단위 단추가 화면에 반영되는지, 모바일 폭에서 처리량 재묶음·종류별 목록으로 갈라지는지를 MSW 네트워크 계층에서 본다.
-import { act, screen, waitFor, within } from '@testing-library/react'
+// 데이터가 도착한 뒤 블록이 지표 → 경고 → 처리량 → 작은 그래프 → 종류별 순서로 한 단계씩 늘어나는지(WP-2079) 같은 계층에서 본다(맨 아래).
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { afterAll, beforeAll, expect, test, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 
 import type { AiStatusAlert, AiStatusOverview, KindRow, Throughput } from '@/api/aiStatus'
 import { formatCompactNumber, formatDateTime } from '@/lib/formatters'
@@ -10,11 +11,77 @@ import { stubChartResize } from '@/test/kits/chartResize'
 import { renderScreen } from '@/test/renderScreen'
 import { mockResizableViewport } from '@/test/viewport'
 
+import { CHART_STAGE_MAX_WAIT_MS, isChartStageOpen } from './aiStatusModel'
 import AiStatusOverviewPage from './AiStatusOverviewPage'
 
 /** 차트 축·막대는 jsdom 에서 리사이즈를 받아야 그려진다 — 차트 단언이 있는 이 파일 전체에 적용. */
 beforeAll(() => stubChartResize())
 afterAll(() => vi.unstubAllGlobals())
+
+/**
+ * 같은 태스크(동기 실행) 안에서 지표 계산(statCards)이 몇 번 이어 불렸는지 기록한다 —
+ * 렌더 중 setState 는 컴포넌트 함수를 같은 태스크에 두 번 돌려 본문 계산을 두 번 만든다(WP-2079 2라운드).
+ * 동기 실행이 마이크로태스크 경계에서 끝날 때마다 그 태스크의 호출 횟수를 하나씩 쌓는다.
+ */
+const metricProbe = vi.hoisted(() => {
+  const state = {
+    /** 방금 시작한 태스크에서 statCards 가 불린 횟수 */
+    callsInTask: 0,
+    /** 태스크마다 하나씩 쌓은 호출 횟수(마지막 원소가 방금 확정된 태스크) */
+    taskBatches: [] as number[],
+    /** 지금 태스크의 확정(마이크로태스크)을 예약했는지 */
+    flushScheduled: false,
+  }
+  return {
+    state,
+    /** statCards 호출을 기록하고, 동기 실행이 끝나면 그 태스크의 횟수를 확정한다 */
+    record(): void {
+      state.callsInTask += 1
+      if (state.flushScheduled) return
+      state.flushScheduled = true
+      queueMicrotask(() => {
+        state.taskBatches.push(state.callsInTask)
+        state.callsInTask = 0
+        state.flushScheduled = false
+      })
+    },
+  }
+})
+
+// 지표 계산만 실제 구현 그대로 두고 호출을 기록한다 — 화면 동작은 바꾸지 않고 렌더 횟수만 잡는다(WP-2079 2라운드).
+vi.mock('./aiStatusModel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./aiStatusModel')>()
+  return {
+    ...actual,
+    statCards: vi.fn((metrics: Parameters<typeof actual.statCards>[0]) => {
+      metricProbe.record()
+      return actual.statCards(metrics)
+    }),
+  }
+})
+
+/**
+ * 준비 자리 제어(WP-2079 3라운드) — 준비 완료(onWarmed) 신호 시점을 테스트가 정할 수 있게 하는 가짜 자리.
+ * 기본은 실제 컴포넌트 그대로라 나머지 테스트는 화면을 바꾸지 않고, 신호가 필요한 테스트만 이 플래그를 켠다.
+ */
+const warmupControl = vi.hoisted(() => ({
+  fake: false,
+  /** 가짜 자리가 페이지에 전한 준비 완료 신호 — 테스트가 직접 불러 신호 시점을 만든다 */
+  signal: null as null | (() => void),
+}))
+
+vi.mock('./AiStatusChartWarmup', async () => {
+  const actualWarmup = await vi.importActual<typeof import('./AiStatusChartWarmup')>('./AiStatusChartWarmup')
+  // 가짜 자리 — 차트를 그리는 대신 신호만 받아 둔다(그려지는 시점 대신 신호 시점을 시험하기 위함)
+  function fakeWarmup({ onWarmed }: { onWarmed?: () => void }) {
+    warmupControl.signal = onWarmed ?? null
+    return <div data-testid="ai-status-chart-warmup" aria-hidden="true" />
+  }
+  return {
+    AiStatusChartWarmup: (props: { onWarmed?: () => void }) =>
+      warmupControl.fake ? fakeWarmup(props) : actualWarmup.AiStatusChartWarmup(props),
+  }
+})
 
 /** 데스크톱 폭(1024)에서 시작하는 뷰포트 — 모바일 재묶음 테스트가 390 으로 좁혔다가 되돌린다(파일당 한 뷰포트). */
 const viewport = mockResizableViewport({ width: 1024, height: 768, pointer: 'fine' })
@@ -109,16 +176,33 @@ function throughput24(): Throughput {
 
 /** 개요 화면을 MSW 응답과 함께 띄운다 — 나간 요청 주소를 모아 기간 파라미터를 단언한다(helpMetrics.test.tsx 패턴). */
 function renderOverview(
-  opts: { fail?: boolean; failAfterFirst?: boolean; gateSecond?: Promise<void>; alerts?: AiStatusAlert[]; fixture?: Partial<AiStatusOverview>; path?: string } = {},
+  opts: {
+    fail?: boolean
+    failAfterFirst?: boolean
+    /** 첫 조회는 성공, 두 번째(기간 전환)만 실패 — 그 뒤 다시 시도는 성공해 재시도 흐름을 만든다 */
+    failSecond?: boolean
+    /** 첫 조회는 게이트가 열릴 때까지 응답을 미뤄 「응답 대기 중」 화면을 오래 관찰한다 */
+    gateFirst?: Promise<void>
+    gateSecond?: Promise<void>
+    alerts?: AiStatusAlert[]
+    fixture?: Partial<AiStatusOverview>
+    path?: string
+  } = {},
 ) {
   const urls: URL[] = []
   const handlers = [
     http.get('/api/v1/admin/ai-status/overview', async ({ request }) => {
       urls.push(new URL(request.url))
+      // gateFirst: 첫 요청은 게이트가 열릴 때까지 응답을 미룬다 — 준비 자리(차트 준비)가 데이터보다 먼저 일어나는지를 본다
+      if (opts.gateFirst && urls.length === 1) await opts.gateFirst
       // gateSecond: 두 번째 요청(기간 전환)은 게이트가 열릴 때까지 응답을 미뤄 전환 중 화면을 관찰한다
       if (opts.gateSecond && urls.length > 1) await opts.gateSecond
       // failAfterFirst: 첫 조회만 성공, 그 뒤 재조회는 실패 — 보유 데이터가 있는 중 오류가 난 상황을 만든다
       if (opts.fail || (opts.failAfterFirst && urls.length > 1)) {
+        return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      }
+      // failSecond: 두 번째 요청만 실패 — data 가 없어졌다가 다시 시도로 돌아오는 경로(단계 리셋)를 만든다
+      if (opts.failSecond && urls.length === 2) {
         return HttpResponse.json({ message: 'boom' }, { status: 500 })
       }
       return HttpResponse.json(overviewFixture({
@@ -395,6 +479,8 @@ test('모바일 폭에서는 처리량이 12개 이하 막대로 다시 묶이�
   const chart = await screen.findByRole('group', { name: '24시간 처리량' })
   // 데스크톱 — 구간 24개를 그대로 24 막대
   await waitFor(() => expect(chart.querySelectorAll('.recharts-bar-rectangle')).toHaveLength(24))
+  // 블록이 단계적으로 늘어나므로(WP-2079) 작은 그래프·종류별은 기다려서 본다 — 마지막 단계(종류별)가 나오면 앞 블록도 다 나온 뒤다
+  await screen.findByTestId('ai-status-kinds')
   expect(screen.getByRole('table', { name: '종류별' })).toBeInTheDocument()
   expect(screen.getByTestId('ai-status-small-graphs').className).toContain('xl:grid-cols-3')
   try {
@@ -446,10 +532,10 @@ test('기간에 값이 하나도 없으면 처리량·작은 그래프가 「데
   const throughput = await screen.findByTestId('ai-status-throughput')
   expect(within(throughput).getByText('데이터 없음')).toBeInTheDocument()
   expect(within(throughput).queryByRole('img')).not.toBeInTheDocument()
-  // 작은 그래프 5장 모두 같은 빈 상태
+  // 작은 그래프 5장 모두 같은 빈 상태 — 카드는 단계를 거쳐 한 장씩 나오므로(WP-2079) 기다려서 본다
   const graphIds = ['graph-response', 'graph-failures', 'graph-queue-wait', 'graph-backlog', 'graph-slot']
   for (const testId of graphIds) {
-    const card = screen.getByTestId(testId)
+    const card = await screen.findByTestId(testId)
     expect(within(card).getByText('데이터 없음')).toBeInTheDocument()
     expect(within(card).queryByRole('img')).not.toBeInTheDocument()
   }
@@ -493,6 +579,8 @@ test('처리량 막대를 누르면 그 구간(from 포함 ~ to 미포함)의 �
   // 개요 창의 끝을 두 구간 뒤로 둔다(창 끝에서 자르는 것은 bucketHistoryHref 단위 테스트가 본다)
   const { user, location } = renderOverview({ fixture: { to: '2026-11-22T22:30:00Z' } })
   const chart = await screen.findByRole('group', { name: '24시간 처리량' })
+  // 블록 단계가 끝날 때까지 기다렸다가 막대를 집는다 — 블록이 늘며 차트가 다시 그려지는 중에는 초점이 흐르지 않게(WP-2079)
+  await screen.findByTestId('ai-status-kinds')
   // 키보드로 첫 막대(22:00 구간)를 고른다 — 마우스 클릭과 같은 onBarClick 경로다
   const bars = await within(chart).findAllByRole('button')
   bars[0].focus()
@@ -516,6 +604,8 @@ test('모바일에서 묶인 막대를 누르면 묶인 구간 전체가 이력 
     const { user, location } = renderOverview({ fixture: { throughput } })
     const chart = await screen.findByRole('group', { name: '24시간 처리량' })
     await waitFor(() => expect(chart.querySelectorAll('.recharts-bar-rectangle')).toHaveLength(12))
+    // 블록 단계가 끝날 때까지 기다렸다가 막대를 집는다 — 블록이 늘며 차트가 다시 그려지는 중에는 초점이 흐르지 않게(WP-2079)
+    await screen.findByTestId('ai-status-kinds')
     const bars = within(chart).getAllByRole('button')
     bars[0].focus()
     await user.keyboard('{Enter}')
@@ -532,4 +622,319 @@ test('개요 화면에도 탭이 있고 「처리 이력」 은 기간을 가지
   await screen.findByTestId('ai-status-alert-usage')
   await user.click(screen.getByTestId('ai-status-tab-history'))
   expect(location()).toBe('/settings/ai-status/history?period=7d')
+})
+
+/**
+ * 체인 타이머(0ms setTimeout)를 굴려 조건이 될 때까지 진행한다 — 한 회차에 지금 걸린 타이머를 굴리고,
+ * 약속 체인(응답 → 쿼리 상태 → 렌더)이 act 안에서 흐르게 한 틱 비운다. 네트워크(MSW)·쿼리·setInterval 은
+ * 진짜 타이머로 흘려보내 환경을 적게 바꾼다. 준비 신호가 없어 아무리 굴려도 진행하지 않는 것을 확인하는 데도 쓴다.
+ * `runAllTimers` 라 준비 대기 상한(CHART_STAGE_MAX_WAIT_MS) 타이머까지 함께 굴린다 — 그래서 이 헬퍼를 쓰는 테스트는
+ * 게이트가 「무엇으로」 열렸는지(워밍 신호든 상한이든)를 단언하지 않고, 상한 전/후를 나눠 보는 테스트는
+ * 아래 `rollChain` 을 쓴다(아래 WP-2079 두 절이 함께 쓴다 — 굴리는 방식이 갈리면 단계 판정이 흔들린다).
+ */
+async function rollUntil(done: () => boolean, limit = 50): Promise<void> {
+  for (let i = 0; i < limit && !done(); i++) {
+    await act(async () => {
+      vi.runAllTimers()
+      await Promise.resolve()
+    })
+  }
+}
+
+// ——— 블록 단계 노출(WP-2079) ———
+// 데이터 도착 직후 지표·경고·처리량·작은 그래프·종류별을 한 번에 그리면 메인 스레드가 막히므로, 페이지는
+// 블록을 한 단계씩 늘려 그린다. 체인 타이머(0ms setTimeout)만 가려 두고 테스트가 직접 굴려 단계를 재는데,
+// 네트워크(MSW)·쿼리·setInterval 은 진짜 타이머로 흘려보내 환경을 적게 바꾼다.
+// 데이터 도착에도 응답 전달에 쓰인 타이머가 필요하므로 findBy 대신 타이머를 굴려 기다린다 — 굴리는 동안
+// 단계 타이머는 아직 걸리지 않기 때문에(데이터가 와야 비로소 effect 가 단계 타이머를 건다) 도착 시점이 정해지게 한다.
+describe('블록 단계 노출 (WP-2079)', () => {
+  // 가짜 타이머를 쓰는 테스트가 타임아웃으로 중단돼도, 들고 있은 채 다음 테스트로 새지 않게 다시 한 번 끈다
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /**
+   * 단계 마커 다섯 개 — 지표 카드(0) → 경고 usage(1) → 처리량(2) → 작은 그래프(3) → 종류별 표(4) 순서로 나타난다.
+   * 지표 카드는 data 가 오는 렌더에서 바로 그려지고, 나머지는 각자 자기 태스크(체인 틱)에서 늘어난다.
+   */
+  const STAGE_MARKERS = [
+    'card-runs',
+    'ai-status-alert-usage',
+    'ai-status-throughput',
+    'ai-status-small-graphs',
+    'ai-status-kinds',
+  ] as const
+
+  /** 지금 그려진 단계 수 — 마커가 화면에 있는 개수(0..5). */
+  function drawnStages(): number {
+    return STAGE_MARKERS.filter((id) => screen.queryByTestId(id)).length
+  }
+
+  /** 타이머를 굴려 지표 카드가 나올 때까지 기다린다 — 응답 전달에 쓰인 타이머도 함께 흘려보낸다. */
+  async function runUntilData(): Promise<void> {
+    await rollUntil(() => !!screen.queryByTestId('card-runs'))
+    expect(screen.getByTestId('card-runs')).toBeInTheDocument()
+  }
+
+  /** 타이머를 굴려 오류 안내(다시 시도)가 나올 때까지 기다린다 — 실패 응답도 같은 타이머로 전달된다. */
+  async function runUntilError(): Promise<void> {
+    await rollUntil(() => !!screen.queryByTestId('ai-status-load-error'))
+    expect(screen.getByTestId('ai-status-load-error')).toBeInTheDocument()
+  }
+
+  /**
+   * 블록을 정확히 한 단계 늘릴 때까지 타이머를 굴린다 — runAllTimers 가 지금 걸린 체인 타이머를 굴리고,
+   * act 가 effects 를 플러시할 때 다음 타이머가 다시 걸리므로 한 회차에 한 블록씩만 늘어난다.
+   * 준비(차트 impl 청크 선로딩)가 아직 안 끝나 걸 타이머가 없으면 다음 회차에서 굴린다.
+   */
+  async function stepBlock(): Promise<void> {
+    const before = drawnStages()
+    await rollUntil(() => drawnStages() !== before)
+    expect(drawnStages()).toBe(before + 1)
+  }
+
+  test('데이터가 도착하면 지표 → 경고 → 처리량 → 작은 그래프 → 종류별 순서로 한 단계씩 늘어난다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    renderOverview()
+    // 데이터가 도착해도 아직 타이머를 굴리기 전 — 지표 카드만 있고 경고·차트·종류별은 아직 없다
+    await runUntilData()
+    expect(screen.queryByTestId('ai-status-alert-usage')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 한 단계 — 경고 usage 만, 차트·종류별은 아직 없다
+    await stepBlock()
+    expect(screen.getByTestId('ai-status-alert-usage')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 다음 단계 — 처리량, 작은 그래프·종류별은 아직 없다
+    await stepBlock()
+    expect(screen.getByTestId('ai-status-throughput')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 다음 단계 — 작은 그래프, 종류별은 아직 없다
+    await stepBlock()
+    expect(screen.getByTestId('ai-status-small-graphs')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 마지막 단계 — 종류별 표까지 그려진다
+    await stepBlock()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+  })
+
+  test('타이머를 끝까지 진행하면 지표·경고·처리량·작은 그래프·종류별이 모두 그려진다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    renderOverview()
+    // 데이터 도착 — 지표 카드만 바로 보이고 나머지 블록은 아직 없다
+    await runUntilData()
+    expect(drawnStages()).toBe(1)
+    // 남은 네 단계를 끝까지 진행하면 다섯 블록이 모두 나온다
+    for (let i = 0; i < 4; i++) await stepBlock()
+    expect(drawnStages()).toBe(5)
+    // 도움말 래퍼는 처리량·작은 그래프를 감싼 채 남아 있고, 종류별 표는 래퍼 밖 원래 자리에 있다
+    const wrapper = document.querySelector('div[data-help="ai-status.charts"]')
+    expect(wrapper).toBeInTheDocument()
+    expect(wrapper).toContainElement(screen.getByTestId('ai-status-throughput'))
+    expect(wrapper).toContainElement(screen.getByTestId('ai-status-small-graphs'))
+    expect(wrapper).not.toContainElement(screen.getByTestId('ai-status-kinds'))
+  })
+
+  test('오류로 data 가 없어졌다가 다시 시도로 다시 오면 단계가 처음부터 다시 진행한다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    renderOverview({ failSecond: true })
+    await runUntilData()
+    // 단계를 두 칸 진행해 둔다 — data 가 없어져도 단계가 남아 있으면 복귀 뒤 블록이 한 번에 다 나온다
+    await stepBlock()
+    await stepBlock()
+    expect(screen.getByTestId('ai-status-throughput')).toBeInTheDocument()
+    // 기간 전환(7일) — 두 번째 요청이 실패해 data 가 없어지고 오류(다시 시도)로 바뀐다
+    fireEvent.click(screen.getByRole('button', { name: '7일' }))
+    await runUntilError()
+    // data 가 없어진 동안 단계는 0 으로 되돌아간다 — 오류 화면에는 블록이 없다
+    expect(screen.queryByTestId('card-runs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    // 다시 시도 — 세 번째 요청은 성공해 data 가 다시 온다
+    fireEvent.click(within(screen.getByTestId('ai-status-load-error')).getByRole('button', { name: /다시 시도/ }))
+    await runUntilData()
+    // 단계가 처음부터 다시 — 지표 카드만, 경고·차트·종류별은 아직 없다
+    expect(screen.queryByTestId('ai-status-alert-usage')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 끝까지 진행하면 다섯 블록이 모두 다시 그려진다
+    for (let i = 0; i < 4; i++) await stepBlock()
+    expect(drawnStages()).toBe(5)
+  })
+
+  test('성공하는 기간 전환에서도 이미 그린 블록이 내려가지 않는다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    renderOverview()
+    await runUntilData()
+    // 다섯 블록까지 끝까지 그려 둔다
+    for (let i = 0; i < 4; i++) await stepBlock()
+    expect(drawnStages()).toBe(5)
+    // 7일로 전환 — 새 기간 응답이 성공해 data 참조가 바뀌어도(keepPreviousData) 단계는 유지된다
+    fireEvent.click(screen.getByRole('button', { name: '7일' }))
+    await rollUntil(() => !!screen.queryByRole('group', { name: '7일 처리량' }))
+    // 새 데이터가 반영됐다 — 처리량 제목이 7일로 바뀌었다
+    expect(screen.getByRole('group', { name: '7일 처리량' })).toBeInTheDocument()
+    // 이미 그린 블록이 내려가지 않는다 — 경고 usage · 처리량 · 종류 표가 계속 화면에 있다
+    expect(screen.getByTestId('ai-status-alert-usage')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-throughput')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+    expect(drawnStages()).toBe(5)
+  })
+
+  test('데이터가 처음 도착할 때 본문(지표 카드) 계산은 한 태스크에 한 번만 일어난다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // 이전 테스트가 남긴 기록을 비운다 — 묶음뿐 아니라 방금 시작한 태스크의 카운트·확정 예약도 함께 초기화해
+    // 앞 테스트의 마이크로태스크 드레인 시점에 기대지 않게 한다. 이 테스트는 첫 도착 태스크만 본다.
+    metricProbe.state.taskBatches.length = 0
+    metricProbe.state.callsInTask = 0
+    metricProbe.state.flushScheduled = false
+    renderOverview()
+    // 데이터가 오기 전(스켈레톤)에는 지표 계산이 없다 — 첫 기록이 곧 데이터 도착 태스크다
+    await runUntilData()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // 전제: 지표 계산은 data 가 있는 본문에서만 불리므로(골격 단계에서는 부르지 않는다) 첫 묶음이 곧 도착 태스크이고,
+    // chartsReady 는 마운트 effect 에서 차트 impl 청크를 미리 불러 골격 단계에 풀리므로 도착 태스크와 겹치지 않는다.
+    // 첫 본문 계산 묶음 = 데이터 도착 태스크 — 렌더 중 setState 는 같은 태스크에 두 번 쌓여 이 단언이 깨진다
+    expect(metricProbe.state.taskBatches[0]).toBe(1)
+  })
+
+  test('데이터가 오기 전 골격 자리에서 감춘 차트 준비가 그려지고, 데이터가 오면 화면에서 없어진다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    renderOverview()
+    // 첫 렌더(골격)부터 준비 자리가 함께 그려진다 — Recharts 첫 실행 비용(최초 컴파일)을 데이터보다 먼저 치르기 위함(WP-2079)
+    expect(screen.getByTestId('ai-status-skeleton')).toBeInTheDocument()
+    const warmupSlot = screen.getByTestId('ai-status-chart-warmup')
+    expect(warmupSlot).toBeInTheDocument()
+    // 보조기기·검색에는 드러나지 않는 감친 자리다 — 화면 문구·레이아웃에 끼어들지 않는 것을 속성으로 못 박는다
+    expect(warmupSlot).toHaveAttribute('aria-hidden', 'true')
+    // 본문 흐름에 끼어들지 않는 자리다 — 고정 위치로 화면 밖에 두어야 문구·레이아웃이 밀리지 않는다(WP-2079 리뷰 2)
+    expect(warmupSlot.style.position).toBe('fixed')
+    expect(warmupSlot.style.insetInlineStart).toBe('-10000px')
+    // 데이터가 오면 본문으로 갈아 끼고, 준비가 끝나면(두 차트가 그려지면) 준비 자리는 저절로 없어진다 —
+    // 남아 있으면 실제 차트 자리와 겹쳐 testid 가 중복된다
+    await runUntilData()
+    await rollUntil(() => !screen.queryByTestId('ai-status-chart-warmup'))
+    expect(screen.queryByTestId('ai-status-chart-warmup')).not.toBeInTheDocument()
+  })
+})
+
+// ——— 차트 준비 자리(WP-2079 3라운드) ———
+// 준비 자리가 응답 대기 중에 실제로 그려지는지(자리만 있는 것이 아니라 출력이 나와야 첫 실행 비용을 미리 치른다),
+// 페이지가 그 준비 신호로 차트 단계를 여는지(신호 전에는 닫혀 있고, 청크 로드 실패면 데드락 없이 여는지)를 본다.
+// 신호 시점은 가짜 준비 자리로 정해, 청크 로드 속도 같은 요인에 흔들리지 않게 한다.
+describe('차트 준비 자리 (WP-2079 3라운드)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    warmupControl.fake = false
+    warmupControl.signal = null
+  })
+
+  test('응답이 오기 전 골격 자리에서 준비 차트 출력이 실제로 그려진다', async () => {
+    let releaseFirst: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    renderOverview({ gateFirst: gate })
+    const warmupSlot = screen.getByTestId('ai-status-chart-warmup')
+    // 응답은 아직 없다 — 지금은 골격과 준비 자리뿐이다
+    expect(screen.queryByTestId('card-runs')).not.toBeInTheDocument()
+    // 자리만 있는(스켈레톤) 상태로는 부족하다 — 차트 출력이 실제로 나와야 Recharts 첫 실행 비용을 미리 치른다(WP-2079)
+    await waitFor(() => expect(warmupSlot.querySelectorAll('svg').length).toBeGreaterThan(0))
+    // 두 차트(선·막대)가 모두 그려졌다
+    expect(within(warmupSlot).getAllByRole('img', { hidden: true })).toHaveLength(2)
+    // 그려진 뒤에는 준비가 끝난 것이므로 응답을 기다리지 않고 자리를 저절로 없앤다 —
+    // 두 차트의 출력이 페이지의 준비 완료 신호까지 이어졌다는 증거다(WP-2079 3라운드)
+    await waitFor(() => expect(screen.queryByTestId('ai-status-chart-warmup')).not.toBeInTheDocument())
+    // 그 동안 응답은 계속 대기 중이다 — 준비는 데이터보다 먼저 일어난다
+    expect(screen.queryByTestId('card-runs')).not.toBeInTheDocument()
+    releaseFirst()
+    await waitFor(() => expect(screen.getByTestId('card-runs')).toBeInTheDocument())
+  })
+
+  /**
+   * 0ms 체인 타이머만 한 틱씩 굴린다 — `runAllTimers` 는 4초 대기 상한(CHART_STAGE_MAX_WAIT_MS) 타이머까지
+   * 다 굴려 「상한 전」 창을 만들 수 없다. 1ms 씩만 앞으로 밀어 상한에는 닿지 않게 한다(WP-2079 5라운드).
+   */
+  async function rollChain(limit = 50): Promise<void> {
+    for (let i = 0; i < limit; i++) {
+      await act(async () => {
+        vi.advanceTimersByTime(1)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+    }
+  }
+
+  test('차트 단계는 준비 신호가 오기 전에는 열리지 않고, 신호를 보내면 데드락 없이 열린다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // 준비 신호를 보내지 않는 가짜 자리 — 준비가 끝나기 전의 창을 테스트가 만든다
+    warmupControl.fake = true
+    warmupControl.signal = null
+    renderOverview()
+    await rollChain()
+    expect(screen.getByTestId('card-runs')).toBeInTheDocument()
+    // 준비 신호가 없으니 대기 상한이 오기 전까지는 차트 단계가 열리지 않는다 — 지표·경고 단계는 준비와 무관하게 열린다
+    expect(screen.getByTestId('ai-status-alert-usage')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-small-graphs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 준비 신호 — 그제야 차트 단계가 이어지고 종류별 표까지 데드락 없이 진행한다
+    await act(async () => {
+      warmupControl.signal?.()
+    })
+    await rollChain()
+    expect(screen.getByTestId('ai-status-throughput')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-small-graphs')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+  })
+
+  test('청크가 멈춰 준비 신호가 끝내 안 오면 대기 상한이 지난 뒤에라도 본문이 모두 나온다(WP-2079 5라운드)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // 신호를 보낼 수 없는 가짜 자리 — impl 청크 선로딩이 응답을 내지 못한(멈춘) 상태를 그대로 만든다
+    warmupControl.fake = true
+    warmupControl.signal = null
+    renderOverview()
+    await rollChain()
+    // 상한 전 — 지표·경고만 있고 차트 단계 뒤 블록(처리량·작은 그래프·종류별 표)은 아직 닫혀 있다
+    expect(screen.getByTestId('ai-status-alert-usage')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 상한이 거의 다 될 때까지도 기다린다 — 늦게 여는 것이지 서두르지 않아야 첫 실행 비용이 데이터 뒤로 밀리지 않는다
+    await act(async () => {
+      vi.advanceTimersByTime(CHART_STAGE_MAX_WAIT_MS - 500)
+    })
+    expect(screen.queryByTestId('ai-status-throughput')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-status-kinds')).not.toBeInTheDocument()
+    // 대기 상한 경과 — 신호 없이도 게이트가 열려 끝내 안 나오던 블록이 나온다(본문이 사라지지 않는 것이 목적)
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    await rollChain()
+    expect(screen.getByTestId('ai-status-throughput')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-small-graphs')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-status-kinds')).toBeInTheDocument()
+  })
+
+  test('차트 단계 게이트 — 준비 완료 전에는 닫혀 있고, 청크 로드 실패·대기 상한 경과면 데드락 없이 연다', () => {
+    // 청크는 준비됐고(warmup 이 실제로 그려졌거나) 실패까지 알아차렸지만 아직 준비 전 — 닫혀 있어야 첫 실행 비용이 데이터 뒤로 밀리지 않는다
+    expect(isChartStageOpen({ chartsReady: true, warmed: false, chartsFailed: false, waitTimedOut: false })).toBe(false)
+    // 준비 완료 — 연다
+    expect(isChartStageOpen({ chartsReady: true, warmed: true, chartsFailed: false, waitTimedOut: false })).toBe(true)
+    // 청크 로드 실패(오류 화면엔 그림이 없어 준비가 끝나지 않는다) — 기다려도 끝나지 않으므로 연다(데드락 방지)
+    expect(isChartStageOpen({ chartsReady: true, warmed: false, chartsFailed: true, waitTimedOut: false })).toBe(true)
+    // 청크가 아직 오지도 않았다 — 기존 조건(청크 준비) 그대로 닫혀 있다
+    expect(isChartStageOpen({ chartsReady: false, warmed: true, chartsFailed: false, waitTimedOut: false })).toBe(false)
+    // 대기 상한 경과(청크 선로딩 멈춤) — 준비 신호가 영영 없어도 늦게라도 연다(WP-2079 5라운드)
+    expect(isChartStageOpen({ chartsReady: false, warmed: false, chartsFailed: false, waitTimedOut: true })).toBe(true)
+    expect(isChartStageOpen({ chartsReady: true, warmed: false, chartsFailed: false, waitTimedOut: true })).toBe(true)
+    // 아직 상한 전 — 기존 조건 그대로 닫혀 있다(waitTimedOut 이 false 여도 닫혀 있어야 한다)
+    expect(isChartStageOpen({ chartsReady: true, warmed: false, chartsFailed: false, waitTimedOut: false })).toBe(false)
+  })
 })
