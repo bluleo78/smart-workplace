@@ -827,6 +827,16 @@ class SharedMemoryExtractionTest extends ExternalClientMockedTestBase {
     assertThat(repo.count(pk)).isZero();
   }
 
+  // WP-2111 리뷰 후속 2: 정리 호출 전 마감 확인은 이 세션에 공간 일이 있을 때만 공간 하나 최악을 더한다 — 공간 없는 세션까지 미뤄 회차가 끊기지 않게.
+  @Test
+  void 공간_발화가_있을_때만_단위_최악이_공간_하나_최악이다() {
+    assertThat(participant.unitWorst(input(say("오늘 할 일 정리해줘", null)))).isZero();
+    assertThat(participant.unitWorst(input(say("모든 문서는 존댓말로 쓰자", SpaceKey.of("ORG", null)))))
+        .isZero();
+    assertThat(participant.unitWorst(input(say("우리 프로젝트는 배포를 API 먼저 하기로 했어", pk))))
+        .isEqualTo(participant.spaceWorst());
+  }
+
   @Test
   void 공간_없는_대화는_아무것도_부르지_않는다() {
     run(input(say("오늘 할 일 정리해줘", null)));

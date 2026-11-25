@@ -61,6 +61,12 @@ public class AiMemoryCleanupScheduler {
   static final Duration RESULT_EMBED_WAIT = Duration.ofSeconds(5);
 
   /**
+   * 정리 결과 op 상한 — ai-agent run-memory-cleanup.ts 의 출력 스키마(ops .max(30))와 같은 값. 결과 임베딩 최악(이 수 ×
+   * {@link #RESULT_EMBED_WAIT})을 정리 호출 전 마감 확인에 더한다(WP-2111 리뷰 후속 1).
+   */
+  static final int CLEANUP_MAX_OPS = 30;
+
+  /**
    * 새 세션 시작 마감 — 시작 뒤 이만큼 지나면 새 세션을 시작하지 않고 남은 세션은 다음 회차로 넘긴다. 세션 안의 공용 추출은 공간 수에 상한이 없어 이것만으로는 잠금을
    * 지키지 못하므로, 공간마다 {@link #LOCK_AT_MOST} − 2분 마감도 확인한다(WP-2111, {@link SpaceBudget}).
    */
@@ -95,7 +101,10 @@ public class AiMemoryCleanupScheduler {
   /** AI 호출 실행 상한 표(WP-2111). */
   private final AiCallTimeouts timeouts;
 
-  /** 정리 호출 하나의 최악 — 정리 클라이언트의 읽기 상한(덮어쓴 값 반영). 정리 호출 전 마감 확인에 쓴다(WP-2111 리뷰 후속). */
+  /**
+   * 정리 호출 하나의 최악 — 정리 클라이언트의 읽기 상한(덮어쓴 값 반영) + 결과 임베딩 최악(op 상한 × 5초). 정리 호출 전 마감 확인에 쓴다(WP-2111 리뷰
+   * 후속 1 — 임베딩을 빼면 확인을 지나도 임베딩 뒤 첫 공간에서 걸려 끝난 정리 호출을 버릴 수 있다).
+   */
   private final Duration cleanupWorst;
 
   public AiMemoryCleanupScheduler(
@@ -109,7 +118,9 @@ public class AiMemoryCleanupScheduler {
       PlatformTransactionManager txManager,
       AiCallTimeouts timeouts) {
     this.timeouts = timeouts;
-    this.cleanupWorst = HomeChatConfig.memoryCleanupReadTimeout(timeouts);
+    this.cleanupWorst =
+        HomeChatConfig.memoryCleanupReadTimeout(timeouts)
+            .plus(RESULT_EMBED_WAIT.multipliedBy(CLEANUP_MAX_OPS));
     this.tenantRunner = tenantRunner;
     this.cleanupRepo = cleanupRepo;
     this.collector = collector;
@@ -123,11 +134,13 @@ public class AiMemoryCleanupScheduler {
   /**
    * 5분 간격(앞 회차가 끝난 뒤부터). 첫 실행은 기동 3분 뒤 — 배포 직후 ai-agent 재기동 구간을 피한다. 잠금은 최대 40분(기본 30분보다 길게).
    *
-   * <p>잠금 계산(WP-2111): 새 세션은 {@link #RUN_BUDGET}(20분) 안에서만 시작하고(정리 읽기 상한 기본 90초 + 결과 임베딩), 세션 안의 공용
-   * 추출은 공간마다 시작 전에 「지금 + 공간 최악(추출 90초 + 검사 2×90초 + 임베딩 20×5초 = 370초)」이 회차 마감(잠금 40분 − 2분 = 38분)을
-   * 넘는지 본다(추출·검사 최악은 배경 클라이언트 읽기 상한). 넘으면 그 세션은 다음 회차로 미루고(실패로 세지 않음) 회차를 멈춘다 — 회차의 첫 세션만은 미루지 않고
-   * 처리한 공간까지만 진행한 것으로 기록한다: 경계를 건너뛴 첫 공간의 첫 발화 바로 앞까지만 올려 다음 회차가 남은 공간부터 이어 한다(건너뛴 발화를 잃지 않고, 회차마다
-   * 적어도 한 공간씩 나아간다). 그래서 마지막 공간이 끝나는 시각 ≤ 38분이고, 남는 2분이 적용 트랜잭션 몫이다.
+   * <p>잠금 계산(WP-2111): 새 세션은 {@link #RUN_BUDGET}(20분) 안에서만 시작한다. 회차의 첫 세션이 아니면 정리 호출을 부르기 <b>전에</b>
+   * 「지금 + 정리 최악(정리 읽기 상한 = 실행 상한 기본 60초 + 여유 30초 = 90초, + 결과 임베딩 30×5초) + 그 세션의 공간 하나 최악(공간 발화가 없으면
+   * 0)」이 회차 마감을 넘는지 보고, 넘으면 부르지 않고 미룬다 — 부른 뒤 첫 공간에서 걸려 끝난 호출을 버리지 않게(리뷰 후속). 세션 안의 공용 추출은 공간마다 시작
+   * 전에 「지금 + 공간 최악(추출 90초 + 검사 2×90초 + 임베딩 20×5초 = 370초)」이 회차 마감(잠금 40분 − 2분 = 38분)을 넘는지 본다(추출·검사
+   * 최악은 배경 클라이언트 읽기 상한). 넘으면 그 세션은 다음 회차로 미루고(실패로 세지 않음) 회차를 멈춘다 — 회차의 첫 세션만은 미루지 않고 처리한 공간까지만 진행한
+   * 것으로 기록한다: 경계를 건너뛴 첫 공간의 첫 발화 바로 앞까지만 올려 다음 회차가 남은 공간부터 이어 한다(건너뛴 발화를 잃지 않고, 회차마다 적어도 한 공간씩
+   * 나아간다). 그래서 마지막 공간이 끝나는 시각 ≤ 38분이고, 남는 2분이 적용 트랜잭션 몫이다.
    */
   @Scheduled(initialDelay = 180_000, fixedDelay = 300_000)
   @SchedulerLock(name = "AiMemoryCleanupScheduler.runOnce", lockAtMostFor = LOCK_AT_MOST_FOR)
@@ -224,7 +237,7 @@ public class AiMemoryCleanupScheduler {
     // 미루는 예산(회차 첫 세션이 아님)이면 정리 호출 전에 「정리 최악 + 참여자 단위 하나 최악」이 마감 안인지 본다 — 호출 뒤 첫 공간에서 걸려 미루면
     // 끝난 정리 호출·임베딩을 버리고 다음 회차에 되풀이한다(WP-2111 리뷰 후속). 첫 세션은 미루지 않으므로 보지 않는다(참여자가 처리한 데까지만 기록).
     if (budget.deferOnOverrun()
-        && !budget.deadline().allows(cleanupWorst.plus(participantUnitWorst()))) {
+        && !budget.deadline().allows(cleanupWorst.plus(participantUnitWorst(in)))) {
       throw new DeadlineReached("메모리 정리 — 회차 마감 전에 정리 호출과 공간 하나를 끝낼 수 없음");
     }
     Result result = client.cleanup(request(in));
@@ -234,11 +247,11 @@ public class AiMemoryCleanupScheduler {
     return new Outcome(true, applier.apply(in, result.ops(), vectors, prepared));
   }
 
-  /** 참여자 처리 단위 하나의 최악 중 가장 큰 값(없거나 모르면 0). */
-  private Duration participantUnitWorst() {
+  /** 이 입력에 대한 참여자 처리 단위 하나의 최악 중 가장 큰 값(일이 없거나 모르면 0). */
+  private Duration participantUnitWorst(SessionCleanupInput in) {
     return participants
         .orderedStream()
-        .map(SessionCleanupParticipant::unitWorst)
+        .map(p -> p.unitWorst(in))
         .filter(java.util.Objects::nonNull)
         .max(Duration::compareTo)
         .orElse(Duration.ZERO);

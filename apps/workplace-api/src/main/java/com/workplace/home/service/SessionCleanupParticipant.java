@@ -31,9 +31,9 @@ public interface SessionCleanupParticipant {
   /**
    * 처리 단위(공간) 하나를 끝내는 최악 시간(WP-2111 리뷰 후속). 스케줄러가 개인 정리 호출을 시작하기 <b>전에</b> 「정리 읽기 상한 + 이 값」이 회차 마감
    * 안인지 본다 — 정리 호출 뒤 첫 공간에서 마감에 걸려 세션을 미루면, 이미 끝난 정리 호출·임베딩을 버리고 다음 회차에 같은 호출을 되풀이하기 때문이다. 기본은 0(단위
-   * 없음).
+   * 없음). 그 입력에 처리할 단위가 없으면 0 을 돌려줘야 한다 — 일 없는 세션까지 미뤄 회차가 끊기지 않게(WP-2111 리뷰 후속 2).
    */
-  default Duration unitWorst() {
+  default Duration unitWorst(SessionCleanupInput input) {
     return Duration.ZERO;
   }
 
