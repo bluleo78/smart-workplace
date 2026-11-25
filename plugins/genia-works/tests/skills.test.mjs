@@ -1996,6 +1996,20 @@ test('워크플로우를 끈 뒤 이어 하기는 3번 상태표 아래 한 곳�
   assert.equal(skillBody.split('**워크플로우를 끈 뒤 이어 하기**').length - 1, 1, '원문은 한 곳');
 });
 
+// WP-2129 리뷰 후속(PR #1865) — 노드 bg-job 은 PR 상태와 상관없이 치우고, CLOSED 는 PR 줄을 지워 새 PR, 처리 파일은 역할별,
+// 개발: 줄은 pr-view 로 읽고 PR 줄이 없으면 검토자 확인을 건너뛰며, PAUSED 행은 다시 하라는 글일 때만 이 문단으로 간다.
+test('워크플로우를 끈 뒤 이어 하기 — 리뷰 후속 갈래(bg-job 먼저·CLOSED PR 줄·역할별 처리 파일·개발: 줄·PAUSED 다른 글) (WP-2129)', () => {
+  const p = section(skillBody, '\n**워크플로우를 끈 뒤 이어 하기**', '\n**선행 대기 차단**');
+  const two = lineWith(p, '- ② **이어 할 단계**');
+  includesAll(two, ['PR 상태와 상관없이', '`bg-job clear`', '`gw-repo pr-view <번호>`', 'notes 에 `PR` 줄이 없으면', '`gw-repo pr-list --all --search <이슈 키>`', 'PR 이 없을 때만 (나)·(다)로', '(라)대로'], '② 첫 줄');
+  includesAll(lineWith(p, '- (라) 기획 역할 AI'), ['`plan-issue.md` 1번 표의 값이면', '`plan-issue.md` 2번부터'], '(라) 기획 역할');
+  assertBefore(two, '`bg-job stop`', '`gw-repo pr-view <번호>`');
+  includesAll(lineWith(p, '- (가)'), ['`CLOSED`: notes 의 `PR` 줄을 지우고'], '(가) CLOSED');
+  includesAll(lineWith(p, '- ① **notes 정리**'), ['4번 「역할별 처리 파일」', '`plan-issue.md`'], '① 처리 파일');
+  includesAll(lineWith(skillBody, '| 멈춤(PAUSED) |'), ['「대기 댓글」은 쓰지 않고', '다시 하라는 글일 때', '다시 하라는 글이 아니면 그 밖의 행처럼'], '상태표 PAUSED');
+  includesAll(lineWith(workLoop('plan-issue.md'), '`워크플로우:` 줄'), ['`SKILL.md` 3번 「워크플로우를 끈 뒤 이어 하기」', '덮어쓰기 **전에**'], 'plan-issue 1번 시작');
+});
+
 // WP-2129 process-issue.md 1번 「시작」 — 옛 워크플로우 notes 는 「처리 파일을 읽는다」가 덮어쓰기 전에 SKILL.md 3번 문단으로 고친다.
 test('process-issue.md 1번 「시작」은 옛 워크플로우 notes 를 SKILL.md 「워크플로우를 끈 뒤 이어 하기」로 먼저 고치게 한다 (WP-2129)', () => {
   const start = section(workLoop('process-issue.md'), '\n### 1. 시작\n', '\n### 2. 워크트리\n');
