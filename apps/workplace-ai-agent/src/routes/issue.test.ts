@@ -7,6 +7,11 @@ vi.mock('../agent/run-issue-summary.js', () => ({
   runIssueProgressSummary: vi.fn(),
 }));
 
+vi.mock('../agent/run-issue-classify-ai.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../agent/run-issue-classify-ai.js')>()),
+  runIssueClassify: vi.fn(),
+}));
+
 vi.mock('../agent/run-work-profile.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../agent/run-work-profile.js')>()),
   runWorkProfile: vi.fn(),
@@ -27,6 +32,7 @@ vi.mock('../agent/run-personal-report.js', async (importOriginal) => ({
   runPersonalReport: vi.fn(),
 }));
 
+import { runIssueClassify } from '../agent/run-issue-classify-ai.js';
 import { runWorkProfile } from '../agent/run-work-profile.js';
 import { runProjectStatus } from '../agent/run-project-status.js';
 import { runProjectReport } from '../agent/run-project-report.js';
@@ -305,5 +311,22 @@ describe('POST /issue/personal-report', () => {
     const res = await request(app()).post('/issue/personal-report').send(valid);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'personal_report_failed' });
+  });
+});
+
+describe('WP-2108: /issue/classify 사용 한도', () => {
+  const body = { title: '제목', body: '', projectLabels: [], isPersonalProject: false, assistantAgentId: 3, model: 'm', maxTurns: 8, timeoutMs: 60000 };
+  it('한도 → 503 PROVIDER_LIMIT', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.mocked(runIssueClassify).mockRejectedValue(new Error("Claude Code returned an error result: You've hit your limit · resets 3pm (UTC)"));
+    const res = await request(app()).post('/issue/classify').send(body);
+    expect(res.status).toBe(503);
+    expect(res.body.reason).toBe('PROVIDER_LIMIT');
+  });
+  it('일반 오류 → 502', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.mocked(runIssueClassify).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/issue/classify').send(body);
+    expect(res.status).toBe(502);
   });
 });

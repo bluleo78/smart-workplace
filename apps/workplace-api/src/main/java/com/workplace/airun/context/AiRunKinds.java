@@ -20,35 +20,83 @@ public final class AiRunKinds {
   /** 처리 종류 — 개인 보고(경로 /issue/personal-report 와 같은 값). */
   public static final String PERSONAL_REPORT = "PERSONAL_REPORT";
 
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String HOME_PRIORITY_CLASSIFY = "HOME_PRIORITY_CLASSIFY";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String HOME_SUGGESTIONS = "HOME_SUGGESTIONS";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String HOME_CONTEXT_SUMMARY = "HOME_CONTEXT_SUMMARY";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String HOME_MEMORY_CLEANUP = "HOME_MEMORY_CLEANUP";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String MAIL_ANALYZE_CONTENT = "MAIL_ANALYZE_CONTENT";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String MAIL_CLASSIFY_BATCH = "MAIL_CLASSIFY_BATCH";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String MAIL_ANALYZE_PERSONAL = "MAIL_ANALYZE_PERSONAL";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String MESSAGING_CLASSIFY = "MESSAGING_CLASSIFY";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String MESSAGING_CATCHUP = "MESSAGING_CATCHUP";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String WIKI_SUMMARIZE = "WIKI_SUMMARIZE";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String ISSUE_PROGRESS_SUMMARY = "ISSUE_PROGRESS_SUMMARY";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String ISSUE_CLASSIFY = "ISSUE_CLASSIFY";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String WORK_PROFILE = "WORK_PROFILE";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String PROJECT_STATUS = "PROJECT_STATUS";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String DRIVE_SUMMARIZE = "DRIVE_SUMMARIZE";
+
+  /** 처리 종류 — 경로 표와 같은 값. 건너뜀·한도 대기 기록이 표와 갈라지지 않게 상수로 공개한다(WP-2108). */
+  public static final String DRIVE_SECURITY_CHECK = "DRIVE_SECURITY_CHECK";
+
   private static final Map<String, String> ROUTE_KINDS =
       Map.ofEntries(
           entry("/ai/chat", "AI_CHAT"),
-          entry("/home/priority-classify", "HOME_PRIORITY_CLASSIFY"),
-          entry("/home/context-summary", "HOME_CONTEXT_SUMMARY"),
-          entry("/home/suggestions", "HOME_SUGGESTIONS"),
-          entry("/home/memory-cleanup", "HOME_MEMORY_CLEANUP"),
+          entry("/home/priority-classify", HOME_PRIORITY_CLASSIFY),
+          entry("/home/context-summary", HOME_CONTEXT_SUMMARY),
+          entry("/home/suggestions", HOME_SUGGESTIONS),
+          entry("/home/memory-cleanup", HOME_MEMORY_CLEANUP),
           entry("/home/shared-memory-check", "HOME_SHARED_MEMORY_CHECK"),
           entry("/home/shared-memory-extract", "HOME_SHARED_MEMORY_EXTRACT"),
-          entry("/mail/analyze-content", "MAIL_ANALYZE_CONTENT"),
-          entry("/mail/classify-batch", "MAIL_CLASSIFY_BATCH"),
-          entry("/mail/analyze-personal", "MAIL_ANALYZE_PERSONAL"),
+          entry("/mail/analyze-content", MAIL_ANALYZE_CONTENT),
+          entry("/mail/classify-batch", MAIL_CLASSIFY_BATCH),
+          entry("/mail/analyze-personal", MAIL_ANALYZE_PERSONAL),
           entry("/mail/learn-category", "MAIL_LEARN_CATEGORY"),
           entry("/mail/reply-draft", "MAIL_REPLY_DRAFT"),
           entry("/mail/compose-draft", "MAIL_COMPOSE_DRAFT"),
           entry("/mail/draft-coaching", "MAIL_DRAFT_COACHING"),
           entry("/mail/issue-draft", "MAIL_ISSUE_DRAFT"),
-          entry("/messaging/classify", "MESSAGING_CLASSIFY"),
-          entry("/messaging/catchup", "MESSAGING_CATCHUP"),
-          entry("/wiki/summarize", "WIKI_SUMMARIZE"),
+          entry("/messaging/classify", MESSAGING_CLASSIFY),
+          entry("/messaging/catchup", MESSAGING_CATCHUP),
+          entry("/wiki/summarize", WIKI_SUMMARIZE),
           entry("/wiki/compose", "WIKI_COMPOSE"),
-          entry("/issue/progress-summary", "ISSUE_PROGRESS_SUMMARY"),
-          entry("/issue/classify", "ISSUE_CLASSIFY"),
-          entry("/issue/work-profile", "WORK_PROFILE"),
-          entry("/issue/project-status", "PROJECT_STATUS"),
+          entry("/issue/progress-summary", ISSUE_PROGRESS_SUMMARY),
+          entry("/issue/classify", ISSUE_CLASSIFY),
+          entry("/issue/work-profile", WORK_PROFILE),
+          entry("/issue/project-status", PROJECT_STATUS),
           entry("/issue/project-report", PROJECT_REPORT),
           entry("/issue/personal-report", PERSONAL_REPORT),
-          entry("/drive/summarize", "DRIVE_SUMMARIZE"),
-          entry("/drive/security-check", "DRIVE_SECURITY_CHECK"),
+          entry("/drive/summarize", DRIVE_SUMMARIZE),
+          entry("/drive/security-check", DRIVE_SECURITY_CHECK),
           entry("/drive/overview", "DRIVE_OVERVIEW"));
 
   private AiRunKinds() {}

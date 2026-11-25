@@ -3,6 +3,7 @@ package com.workplace.home.service;
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.RoundDeadline;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.global.ai.TextEmbedder;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
@@ -29,6 +30,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,6 +96,7 @@ public class AiMemoryCleanupScheduler {
   private final AiMemoryCleanupCollector collector;
   private final AiMemoryCleanupApplier applier;
   private final AiAgentMemoryCleanupClient client;
+  private final AssistantLimitGuard limitGuard;
   private final TextEmbedder embedder;
   private final ObjectProvider<SessionCleanupParticipant> participants;
   private final TransactionTemplate tx;
@@ -113,6 +116,7 @@ public class AiMemoryCleanupScheduler {
       AiMemoryCleanupCollector collector,
       AiMemoryCleanupApplier applier,
       AiAgentMemoryCleanupClient client,
+      AssistantLimitGuard limitGuard,
       TextEmbedder embedder,
       ObjectProvider<SessionCleanupParticipant> participants,
       PlatformTransactionManager txManager,
@@ -126,6 +130,7 @@ public class AiMemoryCleanupScheduler {
     this.collector = collector;
     this.applier = applier;
     this.client = client;
+    this.limitGuard = limitGuard;
     this.embedder = embedder;
     this.participants = participants;
     this.tx = new TransactionTemplate(txManager);
@@ -164,8 +169,7 @@ public class AiMemoryCleanupScheduler {
     List<Target> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId ->
-            cleanupRepo
-                .findTargets(now.minus(IDLE), now.minus(WINDOW), SESSIONS_PER_TENANT)
+            selectTargets(now)
                 .forEach(
                     t ->
                         targets.add(
@@ -219,6 +223,32 @@ public class AiMemoryCleanupScheduler {
     return marked;
   }
 
+  /**
+   * 현재 테넌트의 대상 세션(최대 {@link #SESSIONS_PER_TENANT}). 한도 대기 중인 사용자의 세션은 경계를 올리지 않아 매 회차 같은 오래된 세션으로
+   * 다시 뽑히므로, 그대로 두면 슬롯 20개를 다 차지해 대기 아닌 사용자가 굶는다(WP-2108). 그래서 대기 중으로 드러난 사용자는 제외하고 다시 뽑아 슬롯을 채운다 —
+   * 한 번 돌 때마다 제외 사용자가 늘어 끝난다.
+   */
+  private List<AiMemoryCleanupRepository.Target> selectTargets(OffsetDateTime now) {
+    Set<Long> waiting = new HashSet<>();
+    Set<Long> ready = new HashSet<>();
+    while (true) {
+      List<AiMemoryCleanupRepository.Target> found =
+          cleanupRepo.findTargets(now.minus(IDLE), now.minus(WINDOW), SESSIONS_PER_TENANT, waiting);
+      boolean grew = false;
+      for (var t : found) {
+        long uid = t.userId();
+        if (waiting.contains(uid) || ready.contains(uid)) continue;
+        if (collector.isWaiting(uid)) {
+          waiting.add(uid);
+          grew = true;
+        } else {
+          ready.add(uid);
+        }
+      }
+      if (!grew) return found;
+    }
+  }
+
   /** 세션 하나 — 수집 → (건너뛰면 경계만) → ai-agent → 참여자 준비 → 결과 임베딩 → 적용. */
   private Outcome process(Target t, SpaceBudget budget) {
     Collected c = collector.collect(t.tenantId(), t.userId(), t.sessionId(), t.processedId());
@@ -240,7 +270,8 @@ public class AiMemoryCleanupScheduler {
         && !budget.deadline().allows(cleanupWorst.plus(participantUnitWorst(in)))) {
       throw new DeadlineReached("메모리 정리 — 회차 마감 전에 정리 호출과 공간 하나를 끝낼 수 없음");
     }
-    Result result = client.cleanup(request(in));
+    // 한도로 실패하면 그 자격을 대기로 건다(WP-2108) — 실패 처리는 그대로(같은 예외가 올라간다).
+    Result result = limitGuard.call(in.spec(), () -> client.cleanup(request(in)));
     Map<String, float[]> vectors = embedResults(result.ops());
     List<SessionCleanupParticipant.Prepared> prepared =
         participants.orderedStream().map(p -> p.prepare(in, budget)).toList();

@@ -43,7 +43,8 @@ public enum PushCategory {
           WIKI_SHARE_ACCESS_APPROVED,
           PERSONAL_ASSISTANT_REVOKED,
           OAUTH_APP_CONNECTED,
-          MAIL_SEND_FAILED ->
+          MAIL_SEND_FAILED,
+          AI_ASSISTANT_LIMIT_WAIT ->
           MENTION;
       case REMINDER,
           CALENDAR_INVITED,

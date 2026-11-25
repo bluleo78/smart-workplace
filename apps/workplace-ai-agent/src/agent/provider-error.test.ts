@@ -3,7 +3,7 @@
  * 제공자 장애(한도·인증·속도·과부하)만 가려내고, 그 밖의 오류는 null 이어야 한다.
  */
 import { describe, expect, it } from 'vitest';
-import { classifyProviderError, isModelNotFoundError, ModelOutputError } from './provider-error.js';
+import { classifyProviderError, isModelNotFoundError, ModelOutputError, parseResetsAt } from './provider-error.js';
 
 /** opencode 오류 객체를 cause 로 가진 Error 를 만든다. */
 const withCause = (cause: unknown) =>
@@ -87,6 +87,10 @@ describe('classifyProviderError', () => {
       new Error('API Error: 429 You exceeded your current quota, please check your plan'),
       'PROVIDER_LIMIT',
     ],
+    ['WP-2108: hit your limit · resets', new Error("Claude Code returned an error result: You've hit your limit · resets 3pm (UTC)"), 'PROVIDER_LIMIT'],
+    ['WP-2108: 5-hour limit reached', new Error('Claude Code returned an error result: 5-hour limit reached ∙ resets 3pm'), 'PROVIDER_LIMIT'],
+    ['WP-2108: weekly limit reached', new Error('Claude Code returned an error result: weekly limit reached'), 'PROVIDER_LIMIT'],
+    ['WP-2108: 429 rate limit reached 는 여전히 속도', new Error('API Error: 429 rate limit reached'), 'PROVIDER_RATE'],
   ])('%s', (_label, err, expected) => {
     expect(classifyProviderError(err)).toBe(expected);
   });
@@ -158,5 +162,50 @@ describe('isModelNotFoundError', () => {
 
   it('모델 출력 파싱 오류는 거짓', () => {
     expect(isModelNotFoundError(new ModelOutputError('API Error: 404 does not exist or is disabled'))).toBe(false);
+  });
+});
+
+describe('parseResetsAt (WP-2108)', () => {
+  const now = new Date('2026-11-25T12:00:00Z');
+  const e = (m: string) => new Error(m);
+  it.each([
+    ['epoch 초', 'Claude AI usage limit reached|1795618800', now, '2026-11-25T15:00:00.000Z'],
+    ['3pm (UTC)', "Claude Code returned an error result: You've hit your limit · resets 3pm (UTC)", now, '2026-11-25T15:00:00.000Z'],
+    ['지난 시각은 다음 날', '… resets 3pm (UTC)', new Date('2026-11-25T16:00:00Z'), '2026-11-26T15:00:00.000Z'],
+    ['IANA 시간대', '… resets 3:30pm (Asia/Seoul)', new Date('2026-11-25T03:00:00Z'), '2026-11-25T06:30:00.000Z'],
+    ['시간대 없으면 UTC', '… resets 3pm', now, '2026-11-25T15:00:00.000Z'],
+    ['ISO', '… resets at 2026-11-25T15:00Z', now, '2026-11-25T15:00:00.000Z'],
+    ['지난 ISO', '… resets at 2026-11-25T11:00Z', now, null],
+    ['8일 초과', '… resets at 2026-12-05T11:00Z', now, null],
+    ['모르는 시간대', '… resets 3pm (Mars/Base)', now, null],
+    ['시각 없음', 'usage limit', now, null],
+    // 주간 한도 — 날짜가 적힌 문구
+    ['날짜+시각 (UTC)', '… resets Nov 28 at 3pm (UTC)', now, '2026-11-28T15:00:00.000Z'],
+    ['날짜+시각 시간대', '… resets Nov 28 at 3pm (Asia/Seoul)', now, '2026-11-28T06:00:00.000Z'],
+    ['날짜 쉼표 표기·시간대 없음', '… resets Nov 28, 3:30pm', now, '2026-11-28T15:30:00.000Z'],
+    ['연말→연초 넘김', '… resets Jan 2 at 3pm (UTC)', new Date('2026-12-30T12:00:00Z'), '2027-01-02T15:00:00.000Z'],
+    ['지난 날짜는 다음 해로 가 8일 초과 → null', '… resets Nov 20 at 3pm (UTC)', now, null],
+    ['모르는 월 이름', '… resets Foo 28 at 3pm (UTC)', now, null],
+    // DST — 오프셋은 "지금"이 아니라 재설정 시각에서 구한다
+    [
+      'DST 종료 넘김(날짜)',
+      '… resets Nov 2 at 3pm (America/New_York)',
+      new Date('2026-10-30T12:00:00Z'),
+      '2026-11-02T20:00:00.000Z',
+    ],
+    [
+      'DST 종료 넘김(시각만, 내일)',
+      '… resets 3pm (America/New_York)',
+      new Date('2026-10-31T20:00:00Z'),
+      '2026-11-01T20:00:00.000Z',
+    ],
+    [
+      'DST 시작 넘김(시각만, 내일)',
+      '… resets 3pm (America/New_York)',
+      new Date('2026-03-07T20:00:00Z'),
+      '2026-03-08T19:00:00.000Z',
+    ],
+  ])('%s', (_l, msg, n, expected) => {
+    expect(parseResetsAt(e(msg), n)).toBe(expected);
   });
 });

@@ -1,5 +1,6 @@
 package com.workplace.mail.service;
 
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import java.util.Optional;
@@ -15,6 +16,7 @@ final class MailClassifierProbe {
   private final AssistantResolver assistantResolver;
   private final long userId;
   private Optional<AssistantSpec> workspace;
+  private boolean workspaceExists;
   private Optional<AssistantSpec> personal;
 
   MailClassifierProbe(AssistantResolver assistantResolver, long userId) {
@@ -25,9 +27,13 @@ final class MailClassifierProbe {
   /** 이 사용자의 계정(개인 비서 사용 여부 {@code aiEnabled})을 분류할 비서. 없으면 빈 값. */
   Optional<AssistantSpec> classifier(boolean aiEnabled) {
     if (workspace == null) {
-      workspace = assistantResolver.resolveWorkspaceOrEmpty();
+      // 공통 비서가 있으면(한도 대기 중이어도) 분류는 그 몫이다 — 대기 중이면 빈 값이지 개인 비서로 넘어가지 않는다(WP-2108).
+      // 해석 한 번으로 「있는가」 와 사양을 함께 얻는다 — 대기 중이면 비서는 있고(none 아님) 사양만 비어 있다.
+      AssistantResolution resolution = assistantResolver.workspaceResolution();
+      workspaceExists = !resolution.isNone();
+      workspace = resolution.readySpec();
     }
-    if (workspace.isPresent() || !aiEnabled) {
+    if (workspaceExists || !aiEnabled) {
       return workspace;
     }
     if (personal == null) {

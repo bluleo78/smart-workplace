@@ -2,6 +2,8 @@ package com.workplace.mail.service;
 
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
@@ -53,6 +55,10 @@ public class MailIssueService {
   private final EmailMessageRepository messageRepo;
   private final AiAgentMailClient mailClient;
   private final AssistantResolver assistantResolver;
+
+  /** 직접 요청이 한도 503 을 받으면 그 비서 자격을 대기로 건다(WP-2108) — 다음 요청부터 즉답한다. */
+  private final AssistantLimitGuard limitGuard;
+
   private final ProjectService projectService;
   private final MailChangeNotifier notifier;
 
@@ -82,6 +88,7 @@ public class MailIssueService {
       EmailMessageRepository messageRepo,
       AiAgentMailClient mailClient,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       ProjectService projectService,
       MailChangeNotifier notifier,
       PlatformTransactionManager txManager,
@@ -96,6 +103,7 @@ public class MailIssueService {
     this.messageRepo = messageRepo;
     this.mailClient = mailClient;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.projectService = projectService;
     this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -206,24 +214,27 @@ public class MailIssueService {
     // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
     SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(callerId, null, null));
     MailAiMessages.IssueDraftResult r =
-        mailClient.issueDraft(
-            new MailAiMessages.IssueDraftRequest(
-                nz(ctx.subject()),
-                nz(body),
-                aiCandidates,
-                spec.agentUserId(),
-                spec.model(),
-                MAX_TURNS,
-                timeouts.timeoutMs(AiCall.MAIL_ISSUE_DRAFT),
-                // WP-383: 메일 제목으로 관련 메모리를 고른다(비면 고정 + 최신).
-                memoryReader.readForEntry(
-                    callerId,
-                    AiMemoryReader.MAIL,
-                    ctx.subject() == null || ctx.subject().isBlank()
-                        ? null
-                        : ctx.subject().strip()),
-                shared.items(),
-                shared.moreCount()));
+        limitGuard.call(
+            spec,
+            () ->
+                mailClient.issueDraft(
+                    new MailAiMessages.IssueDraftRequest(
+                        nz(ctx.subject()),
+                        nz(body),
+                        aiCandidates,
+                        spec.agentUserId(),
+                        spec.model(),
+                        MAX_TURNS,
+                        timeouts.timeoutMs(AiCall.MAIL_ISSUE_DRAFT),
+                        // WP-383: 메일 제목으로 관련 메모리를 고른다(비면 고정 + 최신).
+                        memoryReader.readForEntry(
+                            callerId,
+                            AiMemoryReader.MAIL,
+                            ctx.subject() == null || ctx.subject().isBlank()
+                                ? null
+                                : ctx.subject().strip()),
+                        shared.items(),
+                        shared.moreCount())));
 
     // AI 추천 projectKey 가 후보에 없으면 무시(null) — 프론트가 개인 프로젝트로 폴백.
     String suggested =
@@ -252,6 +263,9 @@ public class MailIssueService {
   private AssistantSpec requireSpec(long userId) {
     try {
       return assistantResolver.resolve(userId);
+    } catch (AssistantLimitWaitingException e) {
+      // 한도 대기는 「비서 미설정」 이 아니다 — 사용자에게 한도 안내(503)로 그대로 답한다(WP-2108).
+      throw e;
     } catch (Exception e) {
       throw MailAiUnavailableException.assistantNotConfigured();
     }

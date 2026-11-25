@@ -80,6 +80,21 @@ describe('POST /messaging/classify', () => {
   });
 });
 
+describe('WP-2108: /messaging/classify 사용 한도', () => {
+  const valid = {
+    messages: [{ authorName: '김PM', body: 'x' }],
+    members: [{ userId: 1, displayName: '양동희' }],
+    assistantAgentId: 7, model: 'm', maxTurns: 4, timeoutMs: 30000,
+  };
+  it('한도 → 503 PROVIDER_LIMIT', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.mocked(runMessagingClassify).mockRejectedValue(new Error("Claude Code returned an error result: You've hit your limit · resets 3pm (UTC)"));
+    const res = await request(app()).post('/messaging/classify').send(valid);
+    expect(res.status).toBe(503);
+    expect(res.body.reason).toBe('PROVIDER_LIMIT');
+  });
+});
+
 describe('catchup 스키마 — 읽기 전용 메모리 (WP-381)', () => {
   it('memories 를 받아 모양 틀린 항목만 버리고, 없으면 빈 배열', () => {
     const base = { messages: [{ id: 1, authorName: 'a', body: 'b' }], assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 1000 };

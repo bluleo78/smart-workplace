@@ -54,12 +54,13 @@ public class FileSecurityCheckScheduler {
   @Scheduled(fixedRate = 180_000)
   @SchedulerLock(name = "FileSecurityCheckScheduler.runOnce")
   public void runOnce() {
-    // ① 수집 — AI 없는 테넌트는 건너뛴다(파이프라인이 어차피 NO_AI 로 손대지 않는다).
+    // ① 수집 — AI 없는 테넌트는 건너뛴다(파이프라인이 어차피 NO_AI 로 손대지 않는다). 한도 대기 중인 테넌트는 거르지 않는다(WP-2108) —
+    // 파이프라인이 행을 선점하지 않고 SKIPPED(limit_wait)만 한 번 남겨, 대기를 기록하고 풀리면 곧 이어 점검한다.
     List<TenantFile> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId -> {
           List<Long> resumable = repo.findResumable(BATCH);
-          if (resumable.isEmpty() || assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) return;
+          if (resumable.isEmpty() || !assistantResolver.hasWorkspaceAssistant()) return;
           for (long fileId : resumable) {
             targets.add(new TenantFile(tenantId, fileId));
           }

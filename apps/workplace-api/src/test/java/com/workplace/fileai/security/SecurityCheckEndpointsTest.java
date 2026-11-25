@@ -110,6 +110,7 @@ class SecurityCheckEndpointsTest extends ExternalClientMockedTestBase {
   void setUp() {
     TenantContext.set(T);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
   }
 
   @AfterEach
@@ -190,6 +191,7 @@ class SecurityCheckEndpointsTest extends ExternalClientMockedTestBase {
   @Test
   void noAi_postReturnsNoAiReason() throws Exception {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     long owner = user();
     long df = driveFile(owner, "page.html", "text/html");
 
@@ -403,6 +405,7 @@ class SecurityCheckEndpointsTest extends ExternalClientMockedTestBase {
   @Test
   void mailAttachment_whenNoAi_postDoesNotFetchOrCopy() throws Exception {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     MailSeed m = mailSeed("page.html", "text/html");
     String url = "/api/v1/mail/attachments/" + m.attachmentId() + "/security-check";
 

@@ -4,6 +4,7 @@
 /** 사유 코드별 화면 이름 — AI 서버(원인 코드)와 API(503·타임아웃 등)가 남기는 코드를 모두 담는다. */
 export const AI_RUN_REASON_LABELS: Record<string, string> = {
   provider_limit: '사용 한도 초과',
+  limit_wait: '한도 대기(건너뜀)', // WP-2108 — 한도 대기 중이라 호출하지 않고 건너뜀
   provider_auth: '계정 인증 실패',
   provider_rate: '요청 속도 제한',
   provider_overloaded: '모델 서버 과부하',

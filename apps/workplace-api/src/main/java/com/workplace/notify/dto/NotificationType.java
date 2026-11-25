@@ -36,6 +36,10 @@ public enum NotificationType {
   // 보낼 대기열의 메일 발송 실패(WP-1786) — 보낸 본인 1명, 계정 알림이라 설정 없이 늘 보냄, message=메일 제목, mail_draft_id=그 임시보관.
   // 행위자는 없다(null). 발송 중 멈춰 결과를 모르면 mail_send_unknown=true 로 「보냈는지 확인하지 못함」 변형을 표시한다
   MAIL_SEND_FAILED,
+  // AI 사용 한도 대기(WP-2108) — AI 가 사용 한도에 걸려 쉬기 시작함. 수신자는 scope 별(개인 비서=주인, 공통 비서=관리자, AI 계정=계정 관리자).
+  // 계정 알림이라 설정 없이 늘 보냄. status_name=scope(PERSONAL_ASSISTANT|WORKSPACE_ASSISTANT|AGENT_ACCOUNT),
+  // message=서버가 만든 본문
+  AI_ASSISTANT_LIMIT_WAIT,
   // 워크플로우 실행이 한 노드에 되돌림이 아닌 방문으로 maxVisits 번 이상 들어감(WP-1985, 설계 §10) — 이동은 그대로 하고 프로젝트의 활성 사람
   // OWNER(행위자 제외)에게 알린다. 설정 줄·푸시 분류는 AI_WORK_FAILED 와 같다(「내가 맡긴 AI 작업이 막혔다」는 같은 성격)
   WORKFLOW_VISIT_LIMIT,

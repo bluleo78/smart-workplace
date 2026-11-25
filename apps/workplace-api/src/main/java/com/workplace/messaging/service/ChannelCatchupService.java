@@ -2,6 +2,9 @@ package com.workplace.messaging.service;
 
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
@@ -54,6 +57,7 @@ public class ChannelCatchupService {
   private final AiAgentCatchupClient catchupClient;
   private final CatchupSummaryCache cache;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
 
   /** WP-381: 요약에 싣는 요청자의 읽기 전용 메모리(공통 + 메신저). */
   private final AiMemoryReader memoryReader;
@@ -79,6 +83,7 @@ public class ChannelCatchupService {
       AiAgentCatchupClient catchupClient,
       CatchupSummaryCache cache,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiMemoryReader memoryReader,
       PlatformTransactionManager txManager,
       SharedAiMemoryReader sharedReader,
@@ -90,6 +95,7 @@ public class ChannelCatchupService {
     this.catchupClient = catchupClient;
     this.cache = cache;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
     this.mentionHydrator = mentionHydrator;
@@ -118,7 +124,15 @@ public class ChannelCatchupService {
     if (ai == null) {
       // caller 의 비서(개인 → 공용, 토큰 보유)로 요약한다. 예전엔 id 2 를 하드코딩해 운영에서 HUMAN 계정을 가리켜
       // 토큰 발급 400 → 매 진입 502 였다(WP-110). 캐시 적중이면 해석하지 않는다.
-      AssistantSpec spec = assistantResolver.resolveOrEmpty(callerId).orElse(null);
+      // WP-2108: 한도 대기면 건너뛰고 기록 — 「비서 없음」 처럼 AI 요약만 생략한다.
+      AssistantSpec spec =
+          limitGuard
+              .specOrSkip(
+                  assistantResolver.resolution(callerId),
+                  AiRunKinds.MESSAGING_CATCHUP,
+                  new AiRunContext(
+                      "CHANNEL", String.valueOf(channelId), null, "USER", callerId, null))
+              .orElse(null);
       // 비서가 없으면 AI 요약만 생략하고 "내 차례" 는 그대로 준다.
       if (spec == null) {
         return new ChannelCatchupResponse(
@@ -136,7 +150,8 @@ public class ChannelCatchupService {
               memories,
               shared.items(),
               shared.moreCount());
-      ai = catchupClient.summarize(req);
+      ai =
+          limitGuard.call(spec, () -> catchupClient.summarize(req)); // 한도 실패면 그 자격을 대기로 건다(WP-2108)
       cache.put(memories, shared, channelId, since, snap.maxId(), ai);
     }
 

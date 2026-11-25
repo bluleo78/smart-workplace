@@ -25,7 +25,9 @@ const SESSION_CREATE_FAILED_LC = OPENCODE_SESSION_CREATE_FAILED.toLowerCase();
  * 한도 소진 문구(소문자 비교). 상태 코드(429 등)보다 우선한다.
  * 'quota' 단독은 메일 본문·사서함 용량 등 건별 실패까지 장애로 오판해 좁혔다(WP-1347).
  */
-const LIMIT_PHRASES = ['spend limit', 'usage limit', 'credit balance', 'monthly limit', 'exceeded your quota', 'exceeded your current quota', 'quota exceeded'];
+const LIMIT_PHRASES = ['spend limit', 'usage limit', 'credit balance', 'monthly limit', 'exceeded your quota', 'exceeded your current quota', 'quota exceeded',
+  // WP-2108: Claude 구독 한도 문구. 'rate limit reached'(속도)와 갈리게 단독 'limit reached' 는 넣지 않는다.
+  "you've hit your limit", 'hour limit reached', 'weekly limit reached', 'usage limit reached'];
 const AUTH_PHRASES = ['invalid api key', 'authentication_error', 'oauth token'];
 const RATE_PHRASES = ['rate limit', 'rate_limit_error'];
 const OVERLOADED_PHRASES = ['overloaded'];
@@ -153,4 +155,95 @@ export function isModelNotFoundError(e: unknown): boolean {
   };
   if (isOpencode404(cause) || isOpencode404(e)) return true;
   return RUNNER_MARKERS.some((p) => text.includes(p));
+}
+
+/** 재설정 시각으로 인정하는 최대 앞날(8일) — 이보다 먼 값은 오파싱으로 보고 버린다. */
+const MAX_RESET_AHEAD_MS = 8 * 24 * 60 * 60 * 1000;
+
+/** IANA 시간대 tz 의 시각 t(UTC ms) 에서의 UTC 오프셋(ms). 모르는 시간대면 RangeError. */
+function tzOffsetMs(tz: string, t: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(t));
+  const g = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second'));
+  return asUtc - Math.floor(t / 1000) * 1000;
+}
+
+/** 월 이름 앞 3글자 → 0 기반 월. */
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+/**
+ * tz 의 현지 시각(y-m-d h:min)을 UTC ms 로 바꾼다. 오프셋은 "지금"이 아니라 그 후보 시각에서 구한다(DST 경계 보정):
+ * now 의 오프셋으로 1차 추정 → 추정 시각의 오프셋으로 재계산 → 한 번 더 수렴시킨다.
+ */
+function localToUtc(tz: string, y: number, m: number, d: number, h: number, min: number, nowMs: number): number {
+  const wall = Date.UTC(y, m, d, h, min)
+  let t = wall - tzOffsetMs(tz, nowMs)
+  t = wall - tzOffsetMs(tz, t)
+  t = wall - tzOffsetMs(tz, t)
+  return t
+}
+
+/**
+ * 오류 문구에서 한도 재설정 시각을 읽어 ISO-8601(UTC) 로 돌려준다. 못 읽거나 과거·8일 초과면 null (WP-2108).
+ * 왜: API 가 이 시각까지 비서 작업을 미뤄 두었다가 다시 돌린다. 순서: ① `usage limit reached|<epoch 초>` ② `resets [at] <ISO>` ③ `resets [at] 3pm [(tz)]`.
+ */
+export function parseResetsAt(e: unknown, now: Date = new Date()): string | null {
+  const cause = e instanceof Error ? (e as { cause?: unknown }).cause : undefined;
+  const raw = `${messageOf(e)}\n${messageOf(cause)}`;
+  const nowMs = now.getTime();
+  let at: number | null = null;
+
+  // ③ `resets [at] [Nov 28 [at]] 3pm [(tz)]` — 날짜가 있으면 주간 한도(며칠 뒤), 없으면 오늘/내일 시각.
+  const clock =
+    /resets(?: at)? (?:([A-Za-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,?(?: at)? )?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?: \(([^)]+)\))?/i.exec(
+      raw,
+    )
+  const epoch = /usage limit reached\|(\d{10})\b/i.exec(raw)
+  const iso = /resets(?: at)? (\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:?\d{2}))/i.exec(raw)
+  if (epoch) {
+    at = Number(epoch[1]) * 1000
+  } else if (iso) {
+    const t = Date.parse(iso[1])
+    at = Number.isNaN(t) ? null : t
+  } else if (clock) {
+    const h12 = Number(clock[3])
+    const min = clock[4] ? Number(clock[4]) : 0
+    if (h12 < 1 || h12 > 12 || min > 59) return null
+    const hour = (h12 % 12) + (clock[5].toLowerCase() === 'pm' ? 12 : 0)
+    const tz = clock[6]?.trim() || 'UTC'
+    try {
+      // 그 지역의 "오늘" 날짜(now 기준)를 구한다.
+      const nowLocal = new Date(nowMs + tzOffsetMs(tz, nowMs))
+      const y = nowLocal.getUTCFullYear()
+      const m = nowLocal.getUTCMonth()
+      const d = nowLocal.getUTCDate()
+      if (clock[1]) {
+        // 날짜가 적힌 경우 — 월 이름(앞 3글자)과 일을 읽고, 이미 지난 날짜면 다음 해로 넘긴다(12월→1월 경계).
+        const mon = MONTHS.indexOf(clock[1].slice(0, 3).toLowerCase())
+        const day = Number(clock[2])
+        if (mon < 0 || day < 1 || day > 31) return null
+        let cand = localToUtc(tz, y, mon, day, hour, min, nowMs)
+        if (cand <= nowMs) cand = localToUtc(tz, y + 1, mon, day, hour, min, nowMs)
+        at = cand
+      } else {
+        // 시각만 — 오늘 그 시각이 지났으면 내일(달력상 하루 뒤라 DST 날에도 시각이 맞는다).
+        let cand = localToUtc(tz, y, m, d, hour, min, nowMs)
+        if (cand <= nowMs) cand = localToUtc(tz, y, m, d + 1, hour, min, nowMs)
+        at = cand
+      }
+    } catch {
+      return null
+    }
+  }
+  if (at === null || at <= nowMs || at > nowMs + MAX_RESET_AHEAD_MS) return null;
+  return new Date(at).toISOString();
 }

@@ -71,6 +71,7 @@ class ProjectOverviewStatusSummaryTest extends ExternalClientMockedTestBase {
   private void aiAvailable() {
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
   }
 
   /** 요약 한 번을 만든 상태 — 실행권(다음 16:00)을 잡고 요약 글을 저장한다. */
@@ -122,6 +123,7 @@ class ProjectOverviewStatusSummaryTest extends ExternalClientMockedTestBase {
   void overviewHidesSummaryWhenAiUnavailable() {
     savedSummary();
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
 
     assertThat(service.overview(owner, project.key(), NOW).statusSummary()).isNull();
   }

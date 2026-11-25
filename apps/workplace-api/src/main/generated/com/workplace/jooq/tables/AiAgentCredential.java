@@ -7,6 +7,8 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AssistantLimitWait.AssistantLimitWaitPath;
+import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AiAgentCredentialRecord;
 
@@ -222,6 +224,27 @@ public class AiAgentCredential extends TableImpl<AiAgentCredentialRecord> {
             _aiAgentCredentialUserIdFkey = new UserPath(this, Keys.AI_AGENT_CREDENTIAL__AI_AGENT_CREDENTIAL_USER_ID_FKEY, null);
 
         return _aiAgentCredentialUserIdFkey;
+    }
+
+    private transient AssistantLimitWaitPath _assistantLimitWait;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.assistant_limit_wait</code> table
+     */
+    public AssistantLimitWaitPath assistantLimitWait() {
+        if (_assistantLimitWait == null)
+            _assistantLimitWait = new AssistantLimitWaitPath(this, null, Keys.ASSISTANT_LIMIT_WAIT__ASSISTANT_LIMIT_WAIT_CREDENTIAL_ID_FKEY.getInverseKey());
+
+        return _assistantLimitWait;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.tenant</code>
+     * table
+     */
+    public TenantPath tenant() {
+        return assistantLimitWait().tenant();
     }
 
     @Override

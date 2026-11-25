@@ -39,6 +39,7 @@ public class WorkspaceAssistantService {
   private final SuggestionModelPolicy suggestionModelPolicy;
   private final AgentRuntimePolicy agentRuntimePolicy;
   private final AiAgentCredentialService credentialService;
+  private final AssistantLimitWaitService limitWaitService;
   private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
 
@@ -150,7 +151,7 @@ public class WorkspaceAssistantService {
   public WorkspaceAssistantResponse get() {
     var agentIdOpt = workspaceRepo.findAgentId();
     if (agentIdOpt.isEmpty()) {
-      return new WorkspaceAssistantResponse(null, null, false, null, null, null, null, null);
+      return new WorkspaceAssistantResponse(null, null, false, null, null, null, null, null, null);
     }
     long agentId = agentIdOpt.get();
     String name = userRepository.findById(agentId).map(UserResponse::name).orElse(null);
@@ -176,6 +177,11 @@ public class WorkspaceAssistantService {
         thinkingDepth,
         cur.suggestionModel(),
         suggestionModelAuto,
-        credentialService.findModelVision(agentId, model));
+        credentialService.findModelVision(agentId, model),
+        // WP-2108: 활성 자격이 사용 한도 대기 중이면 풀리는 시각(웹 「한도 대기」 배지) — 없으면 null.
+        credential
+            .map(AiAgentCredentialRow::id)
+            .flatMap(limitWaitService::activeUntil)
+            .orElse(null));
   }
 }

@@ -35,6 +35,7 @@ public class PersonalAssistantService {
   private final RoleRepository roleRepository;
   private final AssistantSettingsWriter settingsWriter;
   private final SuggestionModelPolicy suggestionModelPolicy;
+  private final AssistantLimitWaitService limitWaitService;
   private final ApplicationEventPublisher publisher;
 
   /**
@@ -109,7 +110,7 @@ public class PersonalAssistantService {
     var agentOpt = personalRepo.findAgentId(callerId);
     if (agentOpt.isEmpty()) {
       return new AssistantStatusResponse(
-          false, null, null, null, null, null, null, null, null, null, null);
+          false, null, null, null, null, null, null, null, null, null, null, null);
     }
     long agentId = agentOpt.get();
 
@@ -130,6 +131,8 @@ public class PersonalAssistantService {
     // WP-139: 자동일 때 실제로 쓸 모델 — 토큰 메타가 있을 때만(연결 없음이면 null).
     String suggestionModelAuto =
         suggestionModelPolicy.autoModel(metaOpt.isPresent(), provider, model);
+    // WP-2108: 서버가 부를 수 있는 활성 자격이 사용 한도 대기 중이면 풀리는 시각(웹 「한도 대기」 배지) — 없으면 null.
+    var limitWaitUntil = limitWaitService.activeUntilForAgent(agentId).orElse(null);
     return new AssistantStatusResponse(
         true,
         label,
@@ -141,7 +144,8 @@ public class PersonalAssistantService {
         baseUrl,
         c.suggestionModel(),
         suggestionModelAuto,
-        credentialService.findModelVision(agentId, model));
+        credentialService.findModelVision(agentId, model),
+        limitWaitUntil);
   }
 
   /**

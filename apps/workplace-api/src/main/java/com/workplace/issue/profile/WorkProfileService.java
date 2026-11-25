@@ -2,6 +2,10 @@ package com.workplace.issue.profile;
 
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -83,6 +87,7 @@ public class WorkProfileService {
 
   static final String ERROR_NO_ASSISTANT = "AI 비서가 설정되지 않아 분석할 수 없어요";
   static final String ERROR_AI_DISABLED = "AI 연동이 꺼져 있어 분석할 수 없어요";
+  static final String ERROR_LIMIT_WAIT = "AI 사용 한도에 걸려 분석을 쉬고 있어요. 잠시 후 다시 분석해 주세요";
   static final String ERROR_ANALYZE = "분석하지 못했어요. 잠시 후 다시 분석해 주세요";
   static final String ERROR_BUSY = "분석이 몰려 있어요. 잠시 후 다시 분석해 주세요";
 
@@ -91,6 +96,7 @@ public class WorkProfileService {
   private final WorkProfileInputRepository inputRepository;
   private final IssueLabelRepository labelRepository;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiAgentIssueClient client;
   private final Executor executor;
   private final AiAgentProperties aiAgentProperties;
@@ -112,6 +118,7 @@ public class WorkProfileService {
       WorkProfileInputRepository inputRepository,
       IssueLabelRepository labelRepository,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiAgentIssueClient client,
       @Qualifier("workProfileExecutor") Executor executor,
       PlatformTransactionManager txManager,
@@ -122,6 +129,7 @@ public class WorkProfileService {
     this.inputRepository = inputRepository;
     this.labelRepository = labelRepository;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.client = client;
     this.executor = executor;
     this.aiAgentProperties = aiAgentProperties;
@@ -357,7 +365,9 @@ public class WorkProfileService {
     if (prepared.done() != null) return prepared.done();
 
     // tx 밖 — AI HTTP 는 커넥션을 붙잡지 않는다.
-    WorkProfileAiResult result = client.analyzeWorkProfile(prepared.request());
+    // 한도로 실패하면 그 자격을 대기로 건다(WP-2108) — 같은 예외가 올라가 runAnalysis 가 FAILED 로 닫는다.
+    WorkProfileAiResult result =
+        limitGuard.call(prepared.spec(), () -> client.analyzeWorkProfile(prepared.request()));
     if (result == null || result.summary() == null || result.summary().isBlank()) {
       throw new IllegalStateException("AI 가 빈 요약을 반환했어요");
     }
@@ -419,12 +429,18 @@ public class WorkProfileService {
       boolean ok = repository.markFailed(userId, period, token, snap.range(), ERROR_AI_DISABLED);
       return Prepared.done(written(ok, RunResult.FAILED, userId, period));
     }
-    Optional<AssistantSpec> spec = assistantResolver.resolveOrEmpty(userId);
+    AssistantResolution resolution = assistantResolver.resolution(userId);
+    // WP-2108: 한도 대기면 건너뛰고 기록.
+    Optional<AssistantSpec> spec =
+        limitGuard.specOrSkip(
+            resolution, AiRunKinds.WORK_PROFILE, AiRunContext.auto("USER", String.valueOf(userId)));
     if (spec.isEmpty()) {
-      boolean ok = repository.markFailed(userId, period, token, snap.range(), ERROR_NO_ASSISTANT);
+      // 대기 중이면 「비서 없음」 이 아니라 한도 문구로 닫는다 — 이전 내용은 유지된다.
+      String error = resolution.isWaiting() ? ERROR_LIMIT_WAIT : ERROR_NO_ASSISTANT;
+      boolean ok = repository.markFailed(userId, period, token, snap.range(), error);
       return Prepared.done(written(ok, RunResult.FAILED, userId, period));
     }
-    return new Prepared(snap, toRequest(period, snap, spec.get()), null);
+    return new Prepared(snap, toRequest(period, snap, spec.get()), null, spec.get());
   }
 
   /** 대상 이슈의 라벨·구성요소·마지막 코멘트를 종류마다 한 번에 읽어 AI 요청을 만든다(닫힌 시각 내림차순 유지). */
@@ -546,11 +562,12 @@ public class WorkProfileService {
   /**
    * 워커 1단계 결과 — AI 를 불러야 할 때의 스냅숏과 요청. AI 없이 끝났으면 snapshot·request 는 null 이고 {@code done} 에 결과가 있다.
    */
-  private record Prepared(Snapshot snapshot, WorkProfileAiRequest request, RunResult done) {
+  private record Prepared(
+      Snapshot snapshot, WorkProfileAiRequest request, RunResult done, AssistantSpec spec) {
 
     /** AI 없이 끝난 경우. */
     static Prepared done(RunResult result) {
-      return new Prepared(null, null, result);
+      return new Prepared(null, null, result, null);
     }
   }
 }

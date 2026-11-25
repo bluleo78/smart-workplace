@@ -1,6 +1,7 @@
 package com.workplace.mail.exception;
 
 import com.workplace.global.outbound.AgentOutageGuard;
+import com.workplace.global.outbound.ProviderLimitSignal;
 
 /** ai-agent 메일 호출 실패(IO/4xx/5xx) — 502 로 매핑. */
 public class MailAiException extends RuntimeException {
@@ -22,7 +23,8 @@ public class MailAiException extends RuntimeException {
    * 장애다. 그 외는 메일 단위 실패. 배치 루프(재분석·선제 분석)가 "연속 N회 불가면 멈춤"을 정할 때 같은 기준을 쓰도록 한곳에 둔다(WP-166).
    */
   public static boolean isAgentUnavailable(Throwable e) {
-    return e instanceof MailAiUnavailableException
+    // 한도 503(PROVIDER_LIMIT)은 한 사용자 비서의 한도라 agent 장애가 아니다(WP-2108) — 연속 불가 멈춤이 한 사람 때문에 배치를 세우지 않게.
+    return (e instanceof MailAiUnavailableException && ProviderLimitSignal.detect(e).isEmpty())
         || (e instanceof MailAiException ai && ai.isTransient());
   }
 }

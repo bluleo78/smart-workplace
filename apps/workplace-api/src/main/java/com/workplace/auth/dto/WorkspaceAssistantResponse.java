@@ -1,5 +1,7 @@
 package com.workplace.auth.dto;
 
+import java.time.Instant;
+
 /**
  * 공용 비서 상태. 미지정이면 agentUserId=null. suggestionModel — 추천 질문 전용 모델(WP-139, null=자동),
  * suggestionModelAuto — 자동일 때 실제로 쓸 모델(연결 없음=null), vision — 지금 모델의 이미지 입력 수동 지정(WP-250, null=자동
@@ -13,4 +15,6 @@ public record WorkspaceAssistantResponse(
     String thinkingDepth,
     String suggestionModel,
     String suggestionModelAuto,
-    Boolean vision) {}
+    Boolean vision,
+    /** 사용 한도 대기가 풀리는 시각(WP-2108) — 대기 중이 아니면 null. */
+    Instant limitWaitUntil) {}

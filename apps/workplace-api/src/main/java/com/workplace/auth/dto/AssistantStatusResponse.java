@@ -22,4 +22,6 @@ public record AssistantStatusResponse(
      */
     String suggestionModelAuto,
     /** 지금 모델의 이미지 입력 수동 지정(WP-250) — true/false, null 이면 자동 감지(opencode 연결이 아니어도 null). */
-    Boolean vision) {}
+    Boolean vision,
+    /** 사용 한도 대기가 풀리는 시각(WP-2108) — 대기 중이 아니면 null. 웹이 「한도 대기」 배지를 띄운다. */
+    Instant limitWaitUntil) {}

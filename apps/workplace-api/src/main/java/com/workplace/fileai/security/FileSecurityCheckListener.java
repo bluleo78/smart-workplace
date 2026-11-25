@@ -48,7 +48,10 @@ public class FileSecurityCheckListener {
     var meta = repo.findFileMeta(e.fileId()).orElse(null);
     if (meta == null || meta.internal()) return;
     if (!HtmlScriptRules.isHtml(meta.mime(), meta.originalName())) return;
-    if (assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) return;
+    // 한도 대기 중에도 행은 만든다(WP-2108) — resolve*OrEmpty 는 대기를 빈 값으로 보므로 hasWorkspaceAssistant 로 비서 유무만
+    // 본다.
+    // 행이 없으면 대기가 끝나도 스케줄러가 줍지 못해 그 파일은 영영 점검되지 않는다(FileSecurityCheckService.aiAvailable 과 같은 기준).
+    if (!assistantResolver.hasWorkspaceAssistant()) return;
     if (!repo.insertPendingIfAbsent(e.fileId())) return;
     long fileId = e.fileId();
     // 커밋 뒤 실행기로 — 서비스가 제출·실패 로그를 맡는다(TenantContextTaskDecorator 가 테넌트를 워커로 옮긴다).

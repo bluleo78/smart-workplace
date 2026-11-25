@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import type { NotificationResponse } from '@/types/notification'
 
 import {
+  aiLimitWaitPath,
+  isAiLimitWaitType,
   isMailSendFailedType,
   isMentionLike,
   isOAuthAppConnectedType,
@@ -188,5 +190,45 @@ describe('메일 보내기 실패 알림', () => {
     expect(notifLabel(failed({ message: '' }))).toBe('(제목 없음)')
     expect(isMailSendFailedType(failed())).toBe(true)
     expect(isMailSendFailedType(notif({ type: 'OAUTH_APP_CONNECTED' }))).toBe(false)
+  })
+})
+
+// WP-2108 — 비서 사용 한도 대기: 알림 행의 statusName(범위)·actorId(비서 AGENT)로 이동 경로를 확정한다. 이슈 키는 없다.
+describe('AI 사용 한도 알림', () => {
+  const limit = (over: Partial<NotificationResponse> = {}) =>
+    notif({
+      type: 'AI_ASSISTANT_LIMIT_WAIT',
+      projectKey: '',
+      issueNumber: 0,
+      issueTitle: '',
+      message: '개인 비서가 사용 한도에 걸렸어요',
+      ...over,
+    })
+
+  it('개인 비서는 내 비서 설정으로 연다', () => {
+    expect(notifTarget(limit({ statusName: 'PERSONAL_ASSISTANT', actorId: 7 }))).toBe('/settings/assistant')
+  })
+
+  it('공통 비서는 그 비서(AGENT) 상세로, 비서 id 가 없으면 에이전트 목록으로 연다', () => {
+    expect(notifTarget(limit({ statusName: 'WORKSPACE_ASSISTANT', actorId: 42 }))).toBe('/settings/agents/42')
+    expect(notifTarget(limit({ statusName: 'WORKSPACE_ASSISTANT', actorId: null }))).toBe('/settings/agents')
+  })
+
+  it('작업 AI 계정은 AI 계정 화면으로 연다', () => {
+    expect(notifTarget(limit({ statusName: 'AGENT_ACCOUNT', actorId: null }))).toBe('/settings/agents/accounts')
+  })
+
+  it('범위를 모르면 내 비서 설정으로, 이슈 키가 남아 있어도 이슈 상세로 새지 않는다', () => {
+    expect(notifTarget(limit({ statusName: null }))).toBe('/settings/assistant')
+    expect(notifTarget(limit({ statusName: 'AGENT_ACCOUNT', projectKey: 'WP', issueNumber: 3 }))).toBe(
+      '/settings/agents/accounts',
+    )
+    expect(aiLimitWaitPath(limit({ statusName: 'PERSONAL_ASSISTANT' }))).toBe('/settings/assistant')
+  })
+
+  it('제목 라벨은 「AI 사용 한도」, 종류 판정은 이 종류만 true', () => {
+    expect(notifLabel(limit())).toBe('AI 사용 한도')
+    expect(isAiLimitWaitType(limit())).toBe(true)
+    expect(isAiLimitWaitType(notif({ type: 'PERSONAL_ASSISTANT_REVOKED' }))).toBe(false)
   })
 })

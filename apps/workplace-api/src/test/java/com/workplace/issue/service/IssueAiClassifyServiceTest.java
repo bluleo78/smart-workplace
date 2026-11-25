@@ -10,11 +10,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.service.AssistantLimitWaitService;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
 import com.workplace.issue.exception.IssueAiDisabledException;
+import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
@@ -25,11 +31,21 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.support.AiAgentSwitch;
 import com.workplace.support.ExternalClientMockedTestBase;
+import com.workplace.support.LimitWaitFixtures;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.web.client.HttpServerErrorException;
 
 /** IssueAiClassifyService 통합 테스트 — ai-agent 클라이언트 목. 접근 검사·라벨 조회는 공통 spy 를 스텁한다. */
 class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
@@ -43,6 +59,74 @@ class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
   @Autowired private LabelRepository labelRepository;
 
   @Autowired private AssistantResolver assistantResolver;
+
+  @Autowired private AssistantLimitWaitService waitService;
+
+  @Autowired private AiAgentCredentialRepository credentialRepo;
+
+  @Autowired private PlatformTransactionManager txManager;
+
+  @Autowired private org.jooq.DSLContext dsl;
+
+  private LimitWaitFixtures fixtures;
+
+  @BeforeEach
+  void limitFixtures() {
+    fixtures = new LimitWaitFixtures(txManager, dsl, credentialRepo);
+  }
+
+  @AfterEach
+  void cleanLimitFixtures() {
+    fixtures.cleanup();
+  }
+
+  private static ProjectRow teamProject() {
+    return new ProjectRow(
+        10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null, false, "H2");
+  }
+
+  /** 한도 대기 시험(WP-2108): ai-agent 가 503 PROVIDER_LIMIT 를 내면 그 비서 자격이 대기에 들어간다. */
+  @Test
+  void classify_한도_503이면_비서_자격이_대기에_들어간다() {
+    var f = fixtures.create();
+    doReturn(teamProject()).when(accessGuard).assertIssueCreatable("TEST", 1L);
+    doReturn(List.of()).when(labelRepository).findByProject(10L);
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(f.spec()));
+    Instant resets = Instant.now().plus(Duration.ofHours(2));
+    String body = "{\"reason\":\"PROVIDER_LIMIT\",\"resetsAt\":\"" + resets + "\"}";
+    when(aiClient.classify(any()))
+        .thenThrow(
+            new IssueAiException(
+                "AI 분류에 실패했어요.",
+                new HttpServerErrorException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "",
+                    new HttpHeaders(),
+                    body.getBytes(StandardCharsets.UTF_8),
+                    StandardCharsets.UTF_8)));
+    TenantContext.set(1L);
+    try {
+      assertThatThrownBy(() -> classifyService.classify(1L, "TEST", "제목", "본문"))
+          .isInstanceOf(IssueAiException.class);
+      assertThat(waitService.activeUntil(f.credentialId())).isPresent();
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  /** 직접 요청(분류 버튼)은 대기 중이면 곧바로 한도 안내로 거절한다 — 「비서 없음」 이 아니다. */
+  @Test
+  void classify_대기중이면_즉시_한도안내() {
+    doReturn(teamProject()).when(accessGuard).assertIssueCreatable("TEST", 1L);
+    doReturn(List.of()).when(labelRepository).findByProject(10L);
+    doReturn(AssistantResolution.waiting(950L, Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .workspaceResolution();
+
+    assertThatThrownBy(() -> classifyService.classify(1L, "TEST", "제목", "본문"))
+        .isInstanceOf(AssistantLimitWaitingException.class);
+    verify(aiClient, never()).classify(any());
+  }
 
   @Test
   void classify_팀프로젝트_정상분류() {

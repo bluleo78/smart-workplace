@@ -59,8 +59,11 @@ class MailPersonalCategoryTest extends ExternalClientMockedTestBase {
   @BeforeEach
   void personalAssistant() {
     when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(PERSONAL));
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(true);
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(PERSONAL));
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(true);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(WORKSPACE));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     when(memoryReader.readAppScope(anyLong(), anyString())).thenReturn(List.of(RULE));
   }
 
@@ -143,7 +146,9 @@ class MailPersonalCategoryTest extends ExternalClientMockedTestBase {
   @Test
   void personalAnalysis_skipsPersonalCategory_whenOnlyWorkspaceAssistant() {
     when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(WORKSPACE));
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(true);
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.empty());
+    when(assistantResolver.hasPersonalAssistant(anyLong())).thenReturn(false);
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long env = seed(box, "원티드 주간 소식", "업무");
     when(mailClient.analyzePersonal(any())).thenReturn(result("뉴스레터"));

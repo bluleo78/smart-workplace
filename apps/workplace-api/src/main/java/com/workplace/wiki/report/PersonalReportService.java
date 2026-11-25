@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.util.AfterCommit;
@@ -114,7 +115,10 @@ public class PersonalReportService {
     long id =
         tx.execute(
             s -> {
-              if (assistantResolver.resolveOrEmpty(userId).isEmpty()) {
+              AssistantResolution resolution = assistantResolver.resolution(userId);
+              // 직접 요청은 한도 대기 중이면 곧바로 한도 안내로 거절한다(WP-2108) — 「비서 없음」 409 가 아니다.
+              resolution.throwIfWaiting();
+              if (!resolution.isReady()) {
                 throw PersonalReportConflictException.noAssistant();
               }
               // 세기 전에 이 사람의 잠금을 잡는다 — 동시 요청이 둘 다 19번을 세고 함께 넣어 상한을 넘지 않게(예약 insert 까지 같은 트랜잭션).

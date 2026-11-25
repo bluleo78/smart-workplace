@@ -18,12 +18,21 @@ public class MailAiUnavailableException extends RuntimeException {
   private final String code;
 
   public MailAiUnavailableException(String message) {
-    this(message, null);
+    this(message, (String) null);
   }
 
   public MailAiUnavailableException(String message, String code) {
     super(message);
     this.code = code;
+  }
+
+  /**
+   * 일시 불가(코드 없음) + 원인 — ai-agent 의 503 응답 예외를 원인으로 싣는다. 한도 도우미(WP-2108)가 원인 체인의 본문(PROVIDER_LIMIT)을
+   * 읽어 비서 자격을 대기로 건다.
+   */
+  public MailAiUnavailableException(String message, Throwable cause) {
+    super(message, cause);
+    this.code = null;
   }
 
   /** 계정 AI 꺼짐(503, AI_DISABLED). */

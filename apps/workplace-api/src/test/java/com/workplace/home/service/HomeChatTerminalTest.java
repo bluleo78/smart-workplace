@@ -157,9 +157,9 @@ class HomeChatTerminalTest extends ExternalClientMockedTestBase {
     doAnswer(
             inv -> {
               Consumer<String> onDelta = inv.getArgument(1);
-              Consumer<String> onError = inv.getArgument(3);
+              Consumer<AiAgentChatClient.ChatError> onError = inv.getArgument(3);
               onDelta.accept("반쯤 쓴 답");
-              onError.accept("AI 구성 요청에 실패했어요.");
+              onError.accept(AiAgentChatClient.ChatError.plain("AI 구성 요청에 실패했어요."));
               return null;
             })
         .when(chatClient)

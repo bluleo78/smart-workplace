@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { sendIfProviderLimit } from './provider-failure.js';
 import { logRunFailure } from '../ai-run/model-output-failure.js';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
@@ -37,6 +38,8 @@ function handler<T>(
     try {
       res.status(200).json(await run(parsed.data, deps));
     } catch (e) {
+      // WP-2108: 사용 한도 소진은 503 + resetsAt 으로 알린다(다른 장애는 502 그대로).
+      if (sendIfProviderLimit(res, tag, e)) return;
       // 모델 출력 파싱 실패는 사유·원문 앞부분과 함께 기록한다(WP-2105).
       logRunFailure(tag, e);
       res.status(502).json({ error: `${tag}_failed` });

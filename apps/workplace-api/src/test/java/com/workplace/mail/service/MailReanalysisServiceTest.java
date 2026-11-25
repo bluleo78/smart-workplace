@@ -7,12 +7,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
@@ -25,6 +27,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.ExternalClientMockedTestBase;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -125,6 +128,25 @@ class MailReanalysisServiceTest extends ExternalClientMockedTestBase {
     assertThat(row(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
     assertThat(row(b).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse(); // 규칙 덮어쓰기
     assertThat(row(c).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
+  }
+
+  /** 비서 자격이 사용 한도 대기 중이면(WP-2108) 계정을 선점하지 않는다 — 버전을 헛되이 소진하지 않고, AI 도 부르지 않는다. */
+  @Test
+  void 재분석_대기중이면_버전을_선점하지_않는다() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    legacyEnvelope(box, content, "minsu@acme.com", box.address(), false);
+    int before = version(box.accountId());
+    doReturn(
+            AssistantResolution.waiting(
+                940_000_000L + box.userId(), Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .resolution(anyLong());
+
+    assertThat(reanalysis.reanalyzeAccountNow(box.userId(), box.accountId())).isFalse();
+
+    assertThat(version(box.accountId())).isEqualTo(before);
+    verify(mailClient, never()).analyzePersonal(any());
   }
 
   @Test

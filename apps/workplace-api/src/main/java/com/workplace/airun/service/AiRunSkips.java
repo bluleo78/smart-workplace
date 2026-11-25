@@ -34,6 +34,9 @@ public final class AiRunSkips {
   /** 건너뜀 사유 — 보고할 한 일이 없다. */
   public static final String EMPTY = "empty";
 
+  /** 건너뜀 사유 — 비서 자격이 사용 한도 대기 중이다(WP-2108). */
+  public static final String LIMIT_WAIT = "limit_wait";
+
   private AiRunSkips() {}
 
   /**

@@ -6,9 +6,12 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.outbound.AiAgentPriorityClient;
@@ -84,9 +87,12 @@ class PriorityClassificationSchedulerUnitTest {
             messagingSummaryService,
             aiClient,
             assistantResolver,
+            new AssistantLimitGuard(null, null), // 준비됨·없음 해석만 쓰므로 의존은 필요 없다
             repo,
             txManager,
             com.workplace.airun.AiCallTimeouts.defaults());
+    // 해석 결과 기본값 — 비서 없음(스텁하지 않은 목은 null 을 돌려 NPE 가 난다).
+    lenient().when(assistantResolver.resolution(anyLong())).thenReturn(AssistantResolution.none());
 
     // forEachActiveTenant(consumer) 가 테넌트 1개(TENANT_ID)에 대해 콜백을 실행하도록.
     doAnswer(

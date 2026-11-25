@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
@@ -25,6 +27,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.WikiHtmlScriptsCheckRecord;
 import com.workplace.support.ExternalClientMockedTestBase;
+import com.workplace.support.LimitWaitFixtures;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.service.WikiHtmlScriptSources;
@@ -39,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -80,6 +84,10 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
   @Autowired AiAgentDriveClient driveClient;
   @Autowired AssistantResolver assistantResolver;
 
+  @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired AssistantLimitWaitService waitService;
+  private LimitWaitFixtures limitFixtures;
+
   private long ownerId;
   private long outsiderId;
   private long spaceId;
@@ -90,6 +98,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
   void seed() {
     TenantContext.set(1L);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     ownerId = withMembership(TestFixtures.createHuman(dsl));
     outsiderId = withMembership(TestFixtures.createHuman(dsl));
     spaceId = spaceService.createTeamSpace(ownerId, "점검-" + UUID.randomUUID()).id();
@@ -97,6 +106,38 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
     siblingId = page(null, "형제");
     setBody(rootId, BODY);
     setBody(siblingId, BODY);
+  }
+
+  @AfterEach
+  void cleanLimitFixtures() {
+    if (limitFixtures != null) {
+      limitFixtures.cleanup();
+    }
+  }
+
+  /** 사용 한도 503(WP-2108)은 페이지 탓이 아니라 시도를 소진하지 않는다 — 상한을 넘겨 반복돼도 PENDING 이고 그 자격은 대기에 든다. */
+  @Test
+  void providerLimit_doesNotConsumeAttempts() throws Exception {
+    limitFixtures = new LimitWaitFixtures(txManager, dsl, credentialRepo);
+    var f = limitFixtures.create();
+    TenantContext.set(1L);
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(f.spec()));
+    when(driveClient.securityCheck(any()))
+        .thenThrow(
+            new com.workplace.fileai.exception.FileAiException(
+                "보안 점검 실패", LimitWaitFixtures.providerLimit503()));
+    JsonNode res = json(call(post(path(rootId)), ownerId).andExpect(status().isOk()));
+    String hash = res.get("hash").asString();
+
+    for (int i = 0;
+        i < com.workplace.fileai.security.FileSecurityCheckPipeline.MAX_ATTEMPTS + 1;
+        i++) {
+      assertThat(pipeline.check(rootId, hash)).isEqualTo(Outcome.ATTEMPT_FAILED);
+    }
+
+    assertThat(row(rootId, hash).getStatus()).isEqualTo("PENDING");
+    assertThat(row(rootId, hash).getAttempts()).isZero();
+    assertThat(waitService.activeUntil(f.credentialId())).isPresent();
   }
 
   // ── 앱 조회·요청 ─────────────────────────────────────────────────────────
@@ -194,6 +235,7 @@ class WikiHtmlScriptsCheckTest extends ExternalClientMockedTestBase {
   @Test
   void no_ai_creates_no_row() throws Exception {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     JsonNode res = json(call(post(path(rootId)), ownerId).andExpect(status().isOk()));
     assertThat(res.get("hash").isNull()).isFalse();
     assertThat(res.get("view").get("status").isNull()).isTrue();

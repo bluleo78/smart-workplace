@@ -24,6 +24,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class AssistantSettingsWriterTest {
 
   @Mock AssistantConfigRepository configRepo;
+  @Mock AiAgentCredentialService credentialService;
+  @Mock AssistantLimitWaitService limitWaitService;
   @InjectMocks AssistantSettingsWriter writer;
 
   @Test

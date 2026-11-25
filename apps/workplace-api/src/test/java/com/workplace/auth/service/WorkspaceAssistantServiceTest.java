@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
+import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.repository.AssistantLimitWaitRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +21,9 @@ class WorkspaceAssistantServiceTest extends IntegrationTestBase {
 
   @Autowired WorkspaceAssistantService service;
   @Autowired AiAgentCredentialService credentialService;
+  @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired AssistantLimitWaitRepository waitRepo;
+  @Autowired AssistantResolver resolver;
   @Autowired DSLContext dsl;
 
   @Test
@@ -39,6 +46,59 @@ class WorkspaceAssistantServiceTest extends IntegrationTestBase {
 
     service.updateSettings(admin, settings("claude-opus-4-8", "MAX"));
     assertThat(service.get().model()).isEqualTo("claude-opus-4-8");
+  }
+
+  /** 자격 있는 AGENT 를 공용 비서로 지정하고 활성 자격 id 를 돌려준다. */
+  private long assignWithCredential(long admin) {
+    long agent = withMembership(TestFixtures.createAgentNoToken(dsl));
+    long credId = credentialRepo.insert(agent, "anthropic", "iv:ct", "t", admin);
+    service.setAgent(admin, agent);
+    return credId;
+  }
+
+  @Test
+  void 대기중이면_limitWaitUntil_을_돌려준다() {
+    long admin = TestFixtures.createHuman(dsl);
+    long credId = assignWithCredential(admin);
+    Instant until = Instant.now().plus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MILLIS);
+    waitRepo.upsert(credId, service.get().agentUserId(), until, null);
+
+    assertThat(service.get().limitWaitUntil()).isEqualTo(until);
+  }
+
+  @Test
+  void 대기가_없으면_limitWaitUntil_은_null() {
+    long admin = TestFixtures.createHuman(dsl);
+    assignWithCredential(admin);
+
+    assertThat(service.get().limitWaitUntil()).isNull();
+  }
+
+  @Test
+  void 모델을_바꾸면_대기가_풀린다() {
+    long admin = TestFixtures.createHuman(dsl);
+    long credId = assignWithCredential(admin);
+    waitRepo.upsert(
+        credId, service.get().agentUserId(), Instant.now().plus(2, ChronoUnit.HOURS), null);
+    assertThat(resolver.resolveWorkspaceOrEmpty()).isEmpty();
+
+    service.updateSettings(admin, settings("claude-opus-4-8", "MAX"));
+
+    assertThat(service.get().limitWaitUntil()).isNull();
+    assertThat(resolver.resolveWorkspaceOrEmpty()).isPresent();
+  }
+
+  @Test
+  void 모델이_같으면_대기는_그대로() {
+    long admin = TestFixtures.createHuman(dsl);
+    long credId = assignWithCredential(admin);
+    service.updateSettings(admin, settings("claude-opus-4-8", "MAX"));
+    waitRepo.upsert(
+        credId, service.get().agentUserId(), Instant.now().plus(2, ChronoUnit.HOURS), null);
+
+    service.updateSettings(admin, settings("claude-opus-4-8", "HIGH"));
+
+    assertThat(service.get().limitWaitUntil()).isNotNull();
   }
 
   /** 컨트롤러와 같은 부분 갱신 요청 — 모델·생각 깊이 두 키를 보낸 것과 같다. */

@@ -4,6 +4,8 @@ import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.SharedAiMemoryReader;
@@ -26,10 +28,12 @@ import com.workplace.home.outbound.ChatMessages.ChatAttachment;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.outbound.ChatMessages.CurrentSpace;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -133,6 +137,9 @@ public class HomeChatService {
    */
   private final Duration generationTimeout;
 
+  /** WP-2108: 채팅 중 사용 한도 실패면 그 비서 자격을 대기로 건다. */
+  private final AssistantLimitGuard limitGuard;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -151,7 +158,8 @@ public class HomeChatService {
       SharedMemorySpaces sharedSpaces,
       SharedAiMemoryReader sharedReader,
       HelpGapRecorder helpGapRecorder,
-      AiCallTimeouts timeouts) {
+      AiCallTimeouts timeouts,
+      AssistantLimitGuard limitGuard) {
     this.timeouts = timeouts;
     this.generationTimeout = AiAgentChatClient.requestTimeout(timeouts);
     this.sessionService = sessionService;
@@ -171,6 +179,7 @@ public class HomeChatService {
     this.sharedSpaces = sharedSpaces;
     this.sharedReader = sharedReader;
     this.helpGapRecorder = helpGapRecorder;
+    this.limitGuard = limitGuard;
   }
 
   /** 화면 컨텍스트의 도움말 절 id — 어느 단계든 null 이면 null. */
@@ -483,7 +492,8 @@ public class HomeChatService {
                     }
                   }),
           // error(진짜 오류만 — 취소는 아래 마감·catch 로 별도 처리): 누적분 FAILED 저장 → 반납 → home.chat.error.
-          turn::fail,
+          // 사용 한도 실패면 그 자격을 대기로 걸고 한도 문구로 끝낸다(WP-2108).
+          err -> onChatError(turn, spec, tenantId, err),
           // progress: 위임 라벨 누적 + 발행.
           label -> {
             turn.blocks.onStep(turn.steps.size());
@@ -523,6 +533,28 @@ public class HomeChatService {
         turn.fail(Objects.requireNonNullElse(e.getMessage(), "채팅 처리 중 오류가 발생했습니다"));
       }
     }
+  }
+
+  /**
+   * 채팅 오류 종결(WP-2108). 사용 한도 실패면 그 비서 자격을 대기로 걸고 {@code turn.fail} 을 한도 문구(「사용 한도에 걸렸어요(○시 이후 …)」)로
+   * 끝낸다 — 일반 실패 문구로는 사용자가 언제 다시 해야 하는지 모른다. 펌프 스레드에 테넌트가 없으면 요청 스레드에서 잡아 둔 tenantId 로 잠깐 씌워 표시한다. 그
+   * 밖의 오류는 문구 그대로.
+   */
+  private void onChatError(
+      HomeChatTurn turn, AssistantSpec spec, Long tenantId, AiAgentChatClient.ChatError err) {
+    if (!err.isLimit()) {
+      turn.fail(err.message());
+      return;
+    }
+    Optional<Instant> until =
+        TenantContext.get() == null && tenantId != null
+            ? TenantContext.callAs(tenantId, () -> limitGuard.markLimit(spec, err.resetsAt()))
+            : limitGuard.markLimit(spec, err.resetsAt());
+    // 대기를 못 걸었어도(테넌트·자격 모름) 일반 문구로 끝낸다 — 한도 시각을 모르는데 지어내지 않는다.
+    turn.fail(
+        until
+            .map(u -> AssistantLimitWaitService.waitingMessage(u, Instant.now()))
+            .orElse(err.message()));
   }
 
   /** tool 이벤트 — 표시 가능 도구는 영속 단계에 추가(숨김 도구는 발행만), show_* 는 위젯 블록, result 는 단계 상태 갱신. */

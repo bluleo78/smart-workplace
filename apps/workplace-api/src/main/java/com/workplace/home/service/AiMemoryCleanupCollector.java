@@ -1,5 +1,9 @@
 package com.workplace.home.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.MemoryTextNormalizer;
@@ -84,6 +88,7 @@ public class AiMemoryCleanupCollector {
   private final AiMemoryRepository memoryRepo;
   private final AiPreferenceService preferences;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final AiMemorySelector selector;
   private final AiMemoryClock clock;
   private final ObjectMapper objectMapper;
@@ -94,6 +99,7 @@ public class AiMemoryCleanupCollector {
       AiMemoryRepository memoryRepo,
       AiPreferenceService preferences,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       AiMemorySelector selector,
       AiMemoryClock clock,
       ObjectMapper objectMapper,
@@ -102,11 +108,17 @@ public class AiMemoryCleanupCollector {
     this.memoryRepo = memoryRepo;
     this.preferences = preferences;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.selector = selector;
     this.clock = clock;
     this.objectMapper = objectMapper;
     this.tx = new TransactionTemplate(txManager);
     this.tx.setReadOnly(true);
+  }
+
+  /** 이 사용자의 비서가 지금 사용 한도 대기 중인가(WP-2108) — 대상 선정이 그 사용자의 세션을 슬롯에서 뺀다. 현재 테넌트 문맥이 필요하다. */
+  public boolean isWaiting(long userId) {
+    return assistantResolver.isWaiting(userId);
   }
 
   /** 한 세션 수집. */
@@ -137,7 +149,17 @@ public class AiMemoryCleanupCollector {
     Message last = raw.messages().get(raw.messages().size() - 1);
     long upto = last.id();
     if (!raw.enabled()) return new Skip(upto, "메모리 꺼짐");
-    AssistantSpec spec = assistantResolver.resolveOrEmpty(userId).orElse(null);
+    AssistantResolution resolution = assistantResolver.resolution(userId);
+    AssistantSpec spec =
+        limitGuard
+            .specOrSkip(
+                resolution,
+                AiRunKinds.HOME_MEMORY_CLEANUP,
+                AiRunContext.auto("USER", String.valueOf(userId)))
+            .orElse(null);
+    // 한도 대기 중이면 경계를 올리지 않는다(Nothing) — 풀린 뒤 다음 회차가 이 세션을 이어 정리한다. 「비서 없음」 처럼 Skip 으로 경계를 올리면 정리가 영영
+    // 빠진다.
+    if (spec == null && resolution.isWaiting()) return new Nothing();
     if (spec == null) return new Skip(upto, "비서 없음");
     if (userChars(raw.messages()) < MIN_USER_CHARS) return new Skip(upto, "짧은 대화");
 

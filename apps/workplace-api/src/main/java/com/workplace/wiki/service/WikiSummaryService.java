@@ -2,6 +2,10 @@ package com.workplace.wiki.service;
 
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.util.Texts;
@@ -46,6 +50,7 @@ public class WikiSummaryService {
   private final WikiPageRepository pages;
   private final WikiPermissions perms;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final WikiAiAgentSummaryClient agent;
 
   /** 노트 요약 실행 상한 표(WP-2111). */
@@ -62,12 +67,14 @@ public class WikiSummaryService {
       WikiPageRepository pages,
       WikiPermissions perms,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       WikiAiAgentSummaryClient agent,
       PlatformTransactionManager txManager,
       AiCallTimeouts timeouts) {
     this.pages = pages;
     this.perms = perms;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.agent = agent;
     this.timeouts = timeouts;
     this.readTx = new TransactionTemplate(txManager);
@@ -126,21 +133,39 @@ public class WikiSummaryService {
                           .findSummaryState(pageId)
                           .orElseThrow(() -> new WikiPageNotFoundException(pageId)));
               WikiSummaryStatus status = e.state().status();
+              if (status == WikiSummaryStatus.UNAVAILABLE) {
+                // 직접 누른 「다시 요약」 — 비서가 한도 대기 중이라 막힌 것이면 「비서 없음」 이 아니라 한도 안내로 답한다(WP-2108).
+                // UNAVAILABLE 은 evaluate 가 방금 조회한 해석 결과를 그대로 쓴다(다시 조회하지 않는다).
+                e.resolution().throwIfWaiting();
+              }
               if (!status.needsGeneration()) {
                 return new Target(e.state(), null, Optional.empty());
               }
               WikiPageDetail page =
                   pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
               // MISSING 은 evaluate 가 이미 비서를 조회했으므로 재사용하고, STALE 일 때만 여기서 조회한다.
-              Optional<AssistantSpec> assistant =
-                  status == WikiSummaryStatus.MISSING
-                      ? e.assistant()
-                      : assistantResolver.resolveWorkspaceOrEmpty();
+              Optional<AssistantSpec> assistant = e.assistant();
+              if (status != WikiSummaryStatus.MISSING) {
+                AssistantResolution resolution = assistantResolver.workspaceResolution();
+                assistant = workspaceAssistant(resolution);
+                if (assistant.isEmpty()) {
+                  resolution.throwIfWaiting(); // STALE 인데 대기 때문에 비서가 비면 한도 안내(WP-2108)
+                }
+              }
               return new Target(e.state(), page, assistant);
             });
     return target.page() == null
         ? target.state()
         : summarizeAndSave(pageId, target.page(), target.assistant());
+  }
+
+  /**
+   * 공용 비서 — 한도 대기 중이면 SKIPPED(limit_wait)를 남기고 빈 값(WP-2108). 요약은 보는 모든 사람이 공유하므로 공용 비서만 쓰고, 대기 중에는
+   * 새로 만들지 않는다. 해석 결과는 호출부가 한 번 조회해 넘긴다 — 한도 안내 판정에 같은 결과를 다시 쓰려고.
+   */
+  private Optional<AssistantSpec> workspaceAssistant(AssistantResolution resolution) {
+    return limitGuard.specOrSkip(
+        resolution, AiRunKinds.WIKI_SUMMARIZE, AiRunContext.actorFromSecurity());
   }
 
   /** 트랜잭션 밖에서 ai-agent 를 불러 요약을 만들고 조건부로 저장한 뒤 최신 상태를 돌려준다. */
@@ -151,15 +176,19 @@ public class WikiSummaryService {
         assistant.orElseThrow(
             () -> new WikiSummaryFailedException("공용 AI 비서가 없어 요약을 새로 만들 수 없습니다.", null));
     // 트랜잭션 밖 AI 호출 — 본문은 글자만(WP-1243: 태그·페이지 스타일 CSS·HTML 블록 소스는 요약할 내용이 아니고 입력 상한만 먹는다) 상한까지 보낸다.
+    // 한도로 실패하면 그 자격을 대기로 건다(WP-2108) — 같은 예외가 그대로 올라간다.
     WikiAiAgentSummaryClient.Res res =
-        agent.summarize(
-            new WikiAiAgentSummaryClient.Req(
-                page.title(),
-                capInput(WikiPlainText.fromMarkdownKeepingLines(page.body())),
-                spec.agentUserId(),
-                spec.model(),
-                MAX_TURNS,
-                timeouts.timeoutMs(AiCall.WIKI_SUMMARIZE)));
+        limitGuard.call(
+            spec,
+            () ->
+                agent.summarize(
+                    new WikiAiAgentSummaryClient.Req(
+                        page.title(),
+                        capInput(WikiPlainText.fromMarkdownKeepingLines(page.body())),
+                        spec.agentUserId(),
+                        spec.model(),
+                        MAX_TURNS,
+                        timeouts.timeoutMs(AiCall.WIKI_SUMMARIZE))));
     // 응답이 없거나 공백뿐이면 실패 — 빈 카드를 저장하지 않는다.
     String summary =
         Optional.ofNullable(res)
@@ -206,8 +235,14 @@ public class WikiSummaryService {
     return row;
   }
 
-  /** 상태 계산 결과 — 계산 중 공용 비서를 조회했다면(요약 없음 + 본문 충분) 그 결과도 함께 둬 generate 가 다시 조회하지 않게 한다. */
-  private record Evaluated(WikiPageSummaryState state, Optional<AssistantSpec> assistant) {}
+  /**
+   * 상태 계산 결과 — 계산 중 공용 비서를 조회했다면(요약 없음 + 본문 충분) 그 해석 결과·사양도 함께 둬 generate 가 다시 조회하지 않게 한다. 조회하지
+   * 않았으면 resolution 은 null 이고 assistant 는 빈 값이다.
+   */
+  private record Evaluated(
+      WikiPageSummaryState state,
+      AssistantResolution resolution,
+      Optional<AssistantSpec> assistant) {}
 
   /** 리더가 고정한 생성 대상 — page 가 null 이면 생성 대상이 아니어서 state 를 그대로 돌려준다. */
   private record Target(
@@ -226,8 +261,10 @@ public class WikiSummaryService {
     if (row.bodyLength() <= MIN_BODY_CHARS) {
       return new Evaluated(
           new WikiPageSummaryState(null, WikiSummaryStatus.TOO_SHORT, null, row.version(), null),
+          null,
           Optional.empty());
     }
+    AssistantResolution resolution = null;
     Optional<AssistantSpec> assistant = Optional.empty();
     WikiSummaryStatus status;
     if (row.summary() != null) {
@@ -236,12 +273,14 @@ public class WikiSummaryService {
               ? WikiSummaryStatus.READY
               : WikiSummaryStatus.STALE;
     } else {
-      assistant = assistantResolver.resolveWorkspaceOrEmpty();
+      resolution = assistantResolver.workspaceResolution();
+      assistant = workspaceAssistant(resolution);
       status = assistant.isPresent() ? WikiSummaryStatus.MISSING : WikiSummaryStatus.UNAVAILABLE;
     }
     return new Evaluated(
         new WikiPageSummaryState(
             row.summary(), status, row.summaryVersion(), row.version(), row.summarizedAt()),
+        resolution,
         assistant);
   }
 }

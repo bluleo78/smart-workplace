@@ -13,6 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import {
+  isAiLimitWaitType,
   isCalendarType,
   isMailSendFailedType,
   isOAuthAppConnectedType,
@@ -50,6 +51,7 @@ import { useListFocusRescue } from "@/hooks/useListFocusRescue";
 import { focusLost } from "@/hooks/useRestoreFocusOnExit";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
 import {
+  AI_LIMIT_WAIT_FALLBACK,
   notificationAction,
   PERSONAL_ASSISTANT_REVOKED_NO_ACTOR,
 } from "@/lib/notifText";
@@ -473,6 +475,11 @@ export function InboxList({
                             {PERSONAL_ASSISTANT_REVOKED_NO_ACTOR}
                           </span>
                         )
+                      ) : isAiLimitWaitType(n) ? (
+                        // AI 사용 한도(WP-2108) — 서버가 만든 완성 문장(message)을 행위자 이름 접두 없이 그대로. 대상이 비서·AI 계정이라 이슈 줄도 없다.
+                        <span className="font-medium">
+                          {n.message ?? AI_LIMIT_WAIT_FALLBACK}
+                        </span>
                       ) : isOAuthAppConnectedType(n) ? (
                         // 새 앱 연결(WP-1686) — 행위자·이슈 줄 없이 앱 이름(message)과 끊기 안내만. 내가 한 일이 아니면 바로 끊게 한다.
                         <>

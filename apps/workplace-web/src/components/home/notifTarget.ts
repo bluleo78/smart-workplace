@@ -52,6 +52,28 @@ export const PERSONAL_ASSISTANT_LABEL = '개인 비서'
 export const PERSONAL_ASSISTANT_SETTINGS_PATH = '/settings/assistant'
 
 /**
+ * 비서·작업 AI 계정 사용 한도 알림 판별(WP-2108) — 이슈·일정·노트 id 없이 온다. 서버가 범위를 statusName 에, 비서 AGENT 를 actorId 에 싣는다.
+ */
+export function isAiLimitWaitType(n: NotificationResponse): boolean {
+  return n.type === 'AI_ASSISTANT_LIMIT_WAIT'
+}
+
+/** AI 사용 한도 알림의 행 제목(WP-2108) — 대상 객체가 없어 고정값을 쓴다. */
+export const AI_LIMIT_WAIT_LABEL = 'AI 사용 한도'
+
+/**
+ * AI 사용 한도 알림의 이동 주소(WP-2108) — 서버 푸시 url(PushContentService)과 같은 규칙.
+ * 공통 비서는 그 비서 상세(`/settings/agents/{id}`, 비서 id 가 없으면 에이전트 목록), 작업 AI 계정은 AI 계정 화면, 그 밖(개인 비서·모르는 범위)은 내 비서 설정.
+ */
+export function aiLimitWaitPath(n: NotificationResponse): string {
+  if (n.statusName === 'WORKSPACE_ASSISTANT') {
+    return n.actorId != null ? `/settings/agents/${n.actorId}` : '/settings/agents'
+  }
+  if (n.statusName === 'AGENT_ACCOUNT') return '/settings/agents/accounts'
+  return PERSONAL_ASSISTANT_SETTINGS_PATH
+}
+
+/**
  * 새 앱 연결 알림 판별(WP-1686) — 내 계정에 OAuth 앱(Claude 커넥터 등)이 연결됐다. 행위자·이슈·일정·노트 id 없이 온다.
  * 내가 한 일이 아니면 끊을 수 있도록 설정 › API 토큰의 「연결된 앱」 절로 연다(WP-1687).
  */
@@ -93,12 +115,15 @@ export function mailSendFailedLabel(n: NotificationResponse): string {
  * 공유 화면으로 보낸다. 접근 요청은 공유한 사람(스페이스 편집자)이 받으므로 공유 창을 연 채로(`?share=1`).
  *
  * 개인 비서 연결 해제 알림(WP-1170)은 다시 연결하는 곳인 내 비서 설정(`/settings/assistant`)으로 간다.
+ * AI 사용 한도 알림(WP-2108)은 범위에 따라 내 비서 설정·공통 비서 상세·AI 계정 화면으로 간다(aiLimitWaitPath).
  * 새 앱 연결 알림(WP-1686)은 연결을 끊을 수 있는 설정 › API 토큰의 「연결된 앱」 절(`/settings/tokens#connected-apps`, WP-1687)로 간다.
  * 메일 보내기 실패 알림(WP-1786)은 그 임시보관을 메인 창 쓰기 창으로 여는 `/mail?draftId=N`(MailDraftDeepLink 가 받는다)으로,
  * id 가 없으면 메일 첫 화면으로 간다.
  */
 export function notifTarget(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_SETTINGS_PATH
+  // WP-2108: 이슈 키가 남아 있어도 이슈 상세로 새지 않게 이슈 분기보다 먼저 본다.
+  if (isAiLimitWaitType(n)) return aiLimitWaitPath(n)
   // WP-1686: 이슈 키가 남아 있어도 이슈 상세로 새지 않게 이슈 분기보다 먼저 본다.
   if (isOAuthAppConnectedType(n)) return CONNECTED_APPS_PATH
   // WP-1786: 이슈 분기보다 먼저 — 계정 알림이라 이슈 키가 없다.
@@ -120,6 +145,7 @@ export function notifTarget(n: NotificationResponse): string {
 /** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 노트 공유 알림은 노트 제목, 개인 비서 연결 해제는 「개인 비서」(WP-1170), 새 앱 연결은 「앱 연결」(WP-1686), 메일 보내기 실패는 메일 제목(WP-1786), 그 외는 이슈 제목. */
 export function notifLabel(n: NotificationResponse): string {
   if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL
+  if (isAiLimitWaitType(n)) return AI_LIMIT_WAIT_LABEL // WP-2108
   if (isOAuthAppConnectedType(n)) return OAUTH_APP_LABEL // WP-1686
   if (isMailSendFailedType(n)) return mailSendFailedLabel(n) // WP-1786
   if (isWikiShareType(n)) return n.wikiPageTitle ?? '노트'

@@ -157,7 +157,8 @@ class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
         mock(SharedMemorySpaces.class),
         sharedReader,
         mock(com.workplace.help.service.HelpGapRecorder.class),
-        com.workplace.airun.AiCallTimeouts.defaults());
+        com.workplace.airun.AiCallTimeouts.defaults(),
+        mock(com.workplace.auth.service.AssistantLimitGuard.class));
   }
 
   private void stubAssistant() {

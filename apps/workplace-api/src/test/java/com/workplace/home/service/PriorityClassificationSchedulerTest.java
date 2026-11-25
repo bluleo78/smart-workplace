@@ -1,23 +1,28 @@
 package com.workplace.home.service;
 
 import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
+import static com.workplace.jooq.Tables.AI_RUN;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.auth.service.AssistantLimitWaitService;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.PriorityItemRow;
@@ -51,7 +56,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
 /**
@@ -74,12 +82,13 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
   @Autowired private WorkspaceAssistantRepository workspaceAssistantRepo;
   @Autowired private AiAgentCredentialService credentialService;
   @Autowired private AssistantConfigRepository configRepo;
+  @Autowired private AssistantLimitWaitService waitService;
 
   @MockitoBean private AiAgentPriorityClient aiClient;
 
   private final long tenantId = 1L;
 
-  /** setUp 이 시드한 공용 비서 — 비서 설정(timeout_ms) 시드에 쓴다. */
+  /** setUp 이 시드한 공용 비서 AGENT — 비서 설정(timeout_ms) 시드와 한도 대기 시험(그 자격)에 쓴다. */
   private long wsAgentId;
 
   private final List<Long> usersToDelete = new ArrayList<>();
@@ -91,6 +100,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     long admin = TestFixtures.createHuman(dsl);
     wsAgentId = TestFixtures.createAgentWithToken(dsl, credentialService, admin);
     workspaceAssistantRepo.upsert(wsAgentId, admin);
+    this.wsAgentId = wsAgentId;
     usersToDelete.add(admin);
     usersToDelete.add(wsAgentId);
   }
@@ -115,6 +125,18 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     cleanupInTenant(
         tenantId,
         () -> {
+          // 한도 대기 알림(WP-2108)이 만든 알림·건너뜀 기록 — 사용자 삭제(FK) 전에 지운다. 대기 행은 자격 삭제로 함께 지워진다.
+          dsl.deleteFrom(NOTIFICATION)
+              .where(
+                  NOTIFICATION
+                      .RECIPIENT_ID
+                      .in(usersToDelete)
+                      .or(NOTIFICATION.ACTOR_ID.in(usersToDelete)))
+              .execute();
+          dsl.deleteFrom(AI_RUN)
+              .where(AI_RUN.KIND.eq("HOME_PRIORITY_CLASSIFY"))
+              .and(AI_RUN.ERROR_REASON.eq("limit_wait"))
+              .execute();
           for (long id : usersToDelete) {
             dsl.deleteFrom(AI_AGENT_CREDENTIAL)
                 .where(AI_AGENT_CREDENTIAL.USER_ID.eq(id).or(AI_AGENT_CREDENTIAL.CREATED_BY.eq(id)))
@@ -236,6 +258,46 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     assertThat(row.importanceScore()).isEqualTo(77);
     assertThat(row.urgencyScore()).isEqualTo(88);
     assertThat(row.reason()).isEqualTo("테스트 근거");
+  }
+
+  @Test
+  @DisplayName("한도 503 이면 비서 자격을 대기로 표시하고 다음 회차는 ai-agent 를 부르지 않는다(WP-2108)")
+  void 한도_503이면_대기를_표시하고_다음회차는_호출하지_않는다() {
+    seedUserWithOverdueIssue("aaa-limit");
+    String resets = java.time.Instant.now().plus(java.time.Duration.ofHours(2)).toString();
+    String body = "{\"reason\":\"PROVIDER_LIMIT\",\"resetsAt\":\"" + resets + "\"}";
+    var http =
+        new HttpServerErrorException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "",
+            new HttpHeaders(),
+            body.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            java.nio.charset.StandardCharsets.UTF_8);
+    when(aiClient.classify(any()))
+        .thenThrow(new PriorityAiException("AI 우선순위 분류 요청에 실패했어요.", http));
+
+    scheduler.runOnce();
+
+    Long credId =
+        callInTenant(
+            tenantId, () -> credentialService.findServerUsableActive(wsAgentId).orElseThrow().id());
+    assertThat(callInTenant(tenantId, () -> waitService.activeUntil(credId))).isPresent();
+
+    // 다음 회차 — 대기 중이라 호출이 나가지 않고 건너뜀이 한 번 기록된다.
+    clearInvocations(aiClient);
+    scheduler.runOnce();
+    verifyNoInteractions(aiClient);
+    long skipped =
+        callInTenant(
+            tenantId,
+            () ->
+                (long)
+                    dsl.fetchCount(
+                        dsl.selectFrom(AI_RUN)
+                            .where(AI_RUN.KIND.eq("HOME_PRIORITY_CLASSIFY"))
+                            .and(AI_RUN.STATUS.eq("SKIPPED"))
+                            .and(AI_RUN.ERROR_REASON.eq("limit_wait"))));
+    assertThat(skipped).isEqualTo(1);
   }
 
   @Test

@@ -5,12 +5,26 @@ package com.workplace.auth.service;
  * 모델(WP-139, 해석 완료: 설정값 → Anthropic 이면 API 기본값 → opencode 면 null 이라 ai-agent 가 비서 연결 모델을 쓴다).
  *
  * <p>실행 상한(timeoutMs)은 비서별 값이 아니라 호출 종류별 상한 표({@code AiCallTimeouts})가 정한다(WP-2111) — 사양에 싣지 않는다.
+ *
+ * <p>credentialId — 이 사양이 쓰는 활성 자격(ai_agent_credential.id). 사용 한도 대기(WP-2108)를 자격 단위로 걸 때 쓰며, 모르면
+ * null.
  */
 public record AssistantSpec(
-    long agentUserId, String model, String thinkingDepth, int maxTurns, String suggestionModel) {
+    long agentUserId,
+    String model,
+    String thinkingDepth,
+    int maxTurns,
+    String suggestionModel,
+    Long credentialId) {
+
+  /** 자격 id 이전의 5인자 생성(기존 호출부·테스트 호환) — 자격 id 미지정(null). */
+  public AssistantSpec(
+      long agentUserId, String model, String thinkingDepth, int maxTurns, String suggestionModel) {
+    this(agentUserId, model, thinkingDepth, maxTurns, suggestionModel, null);
+  }
 
   /** 추천 모델 이전의 4인자 생성(기존 호출부·테스트 호환) — 추천 모델 미지정(null). */
   public AssistantSpec(long agentUserId, String model, String thinkingDepth, int maxTurns) {
-    this(agentUserId, model, thinkingDepth, maxTurns, null);
+    this(agentUserId, model, thinkingDepth, maxTurns, null, null);
   }
 }

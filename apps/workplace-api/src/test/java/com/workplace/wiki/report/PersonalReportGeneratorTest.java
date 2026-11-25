@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.airun.context.AiRunContext;
 import com.workplace.airun.context.AiRunScope;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
@@ -40,6 +41,7 @@ import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.report.PersonalReportGenerator.Outcome;
 import com.workplace.wiki.report.PersonalReportSettingRepository.SettingRow;
 import com.workplace.wiki.service.WikiSystemPageWriter;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -1053,6 +1055,57 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
 
     assertThat(reportRows()).isZero();
     assertThat(setting().consecutiveFailures()).isZero();
+    verify(client, never()).writePersonalReport(any());
+  }
+
+  /**
+   * 비서 자격이 사용 한도 대기 중이면(WP-2108) 예약을 풀고 SKIPPED_LIMIT_WAIT — 행 없음, 앞선 실패 수는 그대로, AI 는 부르지 않고, 건너뜀은
+   * limit_wait 한 행으로 남는다. 대기가 풀리면 같은 날을 다시 잡아 만든다(점유가 밀어 둔 다음 시각을 대기가 풀리는 시각으로 되돌린다).
+   */
+  @Test
+  void 대기중이면_예약을_풀고_실패수를_지우지_않는다() {
+    closedYesterday("DONE");
+    // 앞선 시도가 한 번 실패한 상태 — 30분 뒤 재시도(= 때가 됨)로 남아 있다.
+    settings.recordFailure(me, NOW, "앞선 실패");
+    long credentialId = 900_000_000L + me;
+    Instant until = NOW.toInstant().plusSeconds(30 * 60);
+    doReturn(AssistantResolution.waiting(credentialId, until))
+        .when(assistantResolver)
+        .resolution(me);
+
+    assertThat(generator.runDaily(me, NOW)).isEqualTo(Outcome.SKIPPED_LIMIT_WAIT);
+
+    assertThat(reportRows()).isZero();
+    assertThat(setting().consecutiveFailures()).isEqualTo(1);
+    assertThat(setting().nextRunAt().toInstant()).isEqualTo(until);
+    verify(client, never()).writePersonalReport(any());
+    var rows = aiRuns();
+    assertThat(rows).hasSize(1);
+    assertThat(rows.get(0).get(AI_RUN.STATUS)).isEqualTo("SKIPPED");
+    assertThat(rows.get(0).get(AI_RUN.ERROR_REASON)).isEqualTo("limit_wait");
+
+    // 대기가 풀린 뒤 다시 돌면 같은 날을 만든다.
+    doReturn(AssistantResolution.ready(new AssistantSpec(ai, "m", "low", 4)))
+        .when(assistantResolver)
+        .resolution(me);
+    assertThat(generator.runDaily(me, NOW.plusHours(1))).isEqualTo(Outcome.GENERATED);
+    assertThat(reportRows()).isEqualTo(1);
+  }
+
+  /** 수동인데 대기 중이면 회차를 한도 문구로 닫는다 — AI 는 부르지 않는다. */
+  @Test
+  void 수동_대기중이면_회차를_한도문구로_닫는다() {
+    long credentialId = 910_000_000L + me;
+    doReturn(AssistantResolution.waiting(credentialId, Instant.now().plusSeconds(3600)))
+        .when(assistantResolver)
+        .resolution(me);
+    long id = reserveManual(YESTERDAY);
+
+    assertThat(generator.runManual(id, NOW)).isEqualTo(Outcome.SKIPPED_LIMIT_WAIT);
+
+    var row = reports.findById(id).orElseThrow();
+    assertThat(row.status()).isEqualTo("FAILED");
+    assertThat(row.error()).contains("사용 한도");
     verify(client, never()).writePersonalReport(any());
   }
 

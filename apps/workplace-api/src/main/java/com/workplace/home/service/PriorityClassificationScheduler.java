@@ -3,6 +3,9 @@ package com.workplace.home.service;
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
 import com.workplace.airun.RoundDeadline;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.config.SchedulerLockConfig;
@@ -91,6 +94,7 @@ public class PriorityClassificationScheduler {
   private final MessagingSummaryService messagingSummaryService;
   private final AiAgentPriorityClient aiClient;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final PriorityItemRepository repo;
   private final TransactionTemplate txTemplate;
 
@@ -106,6 +110,7 @@ public class PriorityClassificationScheduler {
       MessagingSummaryService messagingSummaryService,
       AiAgentPriorityClient aiClient,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       PriorityItemRepository repo,
       PlatformTransactionManager txManager,
       AiCallTimeouts timeouts) {
@@ -118,6 +123,7 @@ public class PriorityClassificationScheduler {
     this.messagingSummaryService = messagingSummaryService;
     this.aiClient = aiClient;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.repo = repo;
     this.txTemplate = new TransactionTemplate(txManager);
   }
@@ -250,9 +256,16 @@ public class PriorityClassificationScheduler {
     List<PriorityCandidate> candidates = collected.items();
     // 사용자 단위 배치이므로 개인 비서 우선(없으면 공용 비서로 폴백) — resolveWorkspaceOrEmpty() 는 개인 비서를
     // 무시해 개인화가 깨지므로 부적합(브리핑 Step1 확인 결과, resolveOrEmpty(userId) 로 교체).
-    AssistantSpec spec = assistantResolver.resolveOrEmpty(userId).orElse(null);
+    // WP-2108: 한도 대기면 건너뛰고 기록 — 호출 없이 이번 회차를 건너뛴다.
+    AssistantSpec spec =
+        limitGuard
+            .specOrSkip(
+                assistantResolver.resolution(userId),
+                AiRunKinds.HOME_PRIORITY_CLASSIFY,
+                AiRunContext.auto("USER", String.valueOf(userId)))
+            .orElse(null);
     if (spec == null) {
-      log.debug("비서 없음 — 우선순위 분류 생략 user={}", userId);
+      log.debug("비서 없음 또는 한도 대기 — 우선순위 분류 생략 user={}", userId);
       return false;
     }
     PriorityClassifyRequest req =
@@ -267,8 +280,8 @@ public class PriorityClassificationScheduler {
             spec.model(),
             spec.maxTurns(),
             timeouts.timeoutMs(AiCall.HOME_PRIORITY_CLASSIFY));
-    PriorityClassifyResult result =
-        aiClient.classify(req); // 실패 시 RuntimeException — 상위(runOnce)에서 격리
+    // 실패 시 RuntimeException — 상위(runOnce)에서 격리. 한도로 실패하면 그 자격을 대기로 건다(WP-2108).
+    PriorityClassifyResult result = limitGuard.call(spec, () -> aiClient.classify(req));
 
     // ai-agent 는 "후보 0건"과 "LLM 응답 파싱 실패"를 구분하지 않고 둘 다 HTTP 200 + results:[] 로 반환한다
     // (/issue/classify 와 동일한 기존 컨벤션, ai-agent 쪽에서 고치지 않음 — Task 4 리뷰에서 확인된 알려진 모호함).

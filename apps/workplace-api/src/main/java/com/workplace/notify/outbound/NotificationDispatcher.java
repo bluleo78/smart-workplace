@@ -1,5 +1,6 @@
 package com.workplace.notify.outbound;
 
+import com.workplace.auth.outbound.AiLimitWaitNoticeEvent;
 import com.workplace.auth.outbound.OAuthConnectionCreatedEvent;
 import com.workplace.auth.outbound.PersonalAssistantCredentialRevokedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
@@ -422,6 +423,25 @@ public class NotificationDispatcher {
     } catch (Exception ex) {
       // 알림 실패로 이미 커밋된 회수를 되돌리지 않는다 — 로그만 남긴다.
       log.warn("[notify] 개인 비서 연결 회수 알림 실패 ownerId={}: {}", e.ownerId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * AI 가 사용 한도에 걸려 쉬기 시작함(WP-2108) → 수신자 인박스에 AI_ASSISTANT_LIMIT_WAIT. 커밋 뒤 비동기 스레드라 이벤트의 tenantId
+   * 로 테넌트를 다시 세워 RLS 가 통하게 한다.
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onAiLimitWaitNotice(AiLimitWaitNoticeEvent e) {
+    try {
+      TenantContext.runAs(
+          e.tenantId(),
+          () ->
+              service.createAiLimitWaitAndFanOut(
+                  e.recipientIds(), e.actorId(), e.scope(), e.message()));
+    } catch (Exception ex) {
+      // 알림 실패로 이미 커밋된 대기 표시를 되돌리지 않는다 — 로그만 남긴다.
+      log.warn("[notify] AI 사용 한도 대기 알림 실패 scope={}: {}", e.scope(), ex.getMessage());
     }
   }
 

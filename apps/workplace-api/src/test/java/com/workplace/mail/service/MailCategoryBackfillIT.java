@@ -60,10 +60,14 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
   @Autowired AiAgentMailClient mailClient;
   @Autowired AssistantResolver assistantResolver;
+  @Autowired com.workplace.auth.repository.AiAgentCredentialRepository credentialRepo;
+  @Autowired org.springframework.transaction.PlatformTransactionManager ptm;
+  @Autowired com.workplace.auth.service.AssistantLimitWaitService waitService;
 
   @BeforeEach
   void workspaceAssistant() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(WORKSPACE));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
   }
 
   /** 에이전트가 요청 id 마다 같은 분류를 돌려주게 한다. */
@@ -112,6 +116,45 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
   private void assertNoRetryRecorded(long contentId) {
     assertThat(retryState(contentId).value1()).isEqualTo((short) 0);
     assertThat(retryState(contentId).value2()).isNull();
+  }
+
+  /** 한도 503(WP-2108) — 첫 실패에서 그 계정의 남은 후보 호출을 멈추고, 메일별 실패 기록도 남기지 않는다. */
+  @Test
+  void providerLimit_stopsAccountLoop_withoutRecordingFailures() {
+    var fixtures = new com.workplace.support.LimitWaitFixtures(ptm, dsl, credentialRepo);
+    try {
+      var f = fixtures.create();
+      when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(f.spec()));
+      Box a = MailAnalysisFixtures.mailbox(dsl, false);
+      long[] contents = new long[3];
+      for (int i = 0; i < contents.length; i++) {
+        contents[i] =
+            MailAnalysisFixtures.content(
+                dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+        long env =
+            MailAnalysisFixtures.envelope(dsl, a, contents[i], "boss@corp.com", a.address(), null);
+        MailAnalysisFixtures.receivedDaysAgo(dsl, env, 30);
+        MailAnalysisFixtures.markSeen(dsl, env);
+      }
+      when(mailClient.classifyBatch(any()))
+          .thenThrow(
+              new MailAiException(
+                  "분류 실패", com.workplace.support.LimitWaitFixtures.providerLimit503()));
+
+      service.classifyAccountNow(
+          a.userId(),
+          a.accountId(),
+          new AgentOutageGuard(),
+          MailCategoryBackfillService.MAX_BATCHES);
+
+      verify(mailClient, times(1)).classifyBatch(any());
+      for (long c : contents) {
+        assertNoRetryRecorded(c);
+      }
+      assertThat(waitService.activeUntil(f.credentialId())).isPresent();
+    } finally {
+      fixtures.cleanup();
+    }
   }
 
   @Test
@@ -329,6 +372,7 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
   @Test
   void noAssistant_skipsCall() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     Box a = MailAnalysisFixtures.mailbox(dsl, false);
     long c =
         MailAnalysisFixtures.content(
@@ -344,8 +388,10 @@ class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
   @Test
   void personalAssistant_usedWhenNoWorkspace_andAiEnabled() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
     Box a = MailAnalysisFixtures.mailbox(dsl, true);
     when(assistantResolver.resolvePersonalOrEmpty(a.userId())).thenReturn(Optional.of(PERSONAL));
+    when(assistantResolver.hasPersonalAssistant(a.userId())).thenReturn(true);
     long c =
         MailAnalysisFixtures.content(
             dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);

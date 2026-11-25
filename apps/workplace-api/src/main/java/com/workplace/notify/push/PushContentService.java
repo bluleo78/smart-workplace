@@ -44,6 +44,28 @@ public class PushContentService {
           "normal",
           INBOX_TTL);
     }
+    // AI 사용 한도 대기(WP-2108) — 가리킬 이슈·일정이 없다. 본문은 서버가 만든 message(eventTitle 칸), scope(statusName 칸)로
+    // 이동 주소를 고른다:
+    // 개인 비서→내 비서 설정, 공통 비서→그 AI 상세(actor 가 AI 사용자, 없으면 AI 목록), AI 계정→AI 계정 화면.
+    if (e.type() == NotificationType.AI_ASSISTANT_LIMIT_WAIT) {
+      String scope = e.statusName() == null ? "" : e.statusName();
+      String url =
+          switch (scope) {
+            case "WORKSPACE_ASSISTANT" ->
+                e.actorId() == null ? "/settings/agents" : "/settings/agents/" + e.actorId();
+            case "AGENT_ACCOUNT" -> "/settings/agents/accounts";
+            default -> "/settings/assistant";
+          };
+      return new PushMessage(
+          e.tenantId(),
+          category,
+          "AI 사용 한도",
+          e.eventTitle() == null ? "AI 비서가 사용 한도에 걸렸어요" : e.eventTitle(),
+          url,
+          "ai-limit-wait",
+          "normal",
+          INBOX_TTL);
+    }
     // 새 앱 연결(WP-1686) — 행위자 없는 계정 알림. 앱 이름은 eventTitle 칸에 실려 온다(없으면 「앱」).
     // 모르는 연결이면 바로 끊을 수 있게 설정 › API 토큰의 「연결된 앱」 절로 보낸다(WP-1687).
     // 이동 주소는 웹 CONNECTED_APPS_PATH(apps/workplace-web/src/lib/connectedApps.ts)와 같은 글자여야 한다.
@@ -252,6 +274,8 @@ public class PushContentService {
       case OAUTH_APP_CONNECTED -> "새 앱이 연결됐어요";
       // 메일 발송 실패(WP-1786)도 forInbox 가 전용 문구를 쓴다 — switch 를 빠짐없이 두려고 채운다.
       case MAIL_SEND_FAILED -> "메일을 보내지 못했어요";
+      // AI 사용 한도 대기(WP-2108)도 forInbox 가 전용 문구를 쓴다 — switch 를 빠짐없이 두려고 채운다.
+      case AI_ASSISTANT_LIMIT_WAIT -> "AI 가 사용 한도에 걸렸어요";
       // 워크플로우 되돌림 한도(WP-1985) — 행위자는 그 노드로 다시 넘긴 사람. 노드 종류(AI·사람 작업·decision)를 알림에 싣지 않아 모든 노드에 맞는
       // 한 문구. 웹 notifText 의 ACTION_LABEL 과 같은 문구.
       case WORKFLOW_VISIT_LIMIT -> "님이 넘긴 워크플로우 단계가 되돌림 한도에 이르렀습니다";

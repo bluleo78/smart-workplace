@@ -30,6 +30,9 @@ export interface NotificationResponse {
     // WP-1170: 다른 사람(관리자)이 내 개인 비서의 AI 연결을 해제함 — 비서 주인이 받는다. 일회성 정리가 해제한 경우 actor 가 null.
     // 이슈·일정·노트 id 없이 온다. 클릭하면 다시 연결할 내 비서 설정(/settings/assistant)으로 간다.
     | "PERSONAL_ASSISTANT_REVOKED"
+    // WP-2108: 비서(개인·공통)나 작업 AI 계정이 사용 한도에 걸려 대기에 들어감 — 주인(개인)·관리자(공통·계정)가 한 번 받는다. 이슈·일정·노트 id 없이 온다.
+    // statusName 이 범위(PERSONAL_ASSISTANT/WORKSPACE_ASSISTANT/AGENT_ACCOUNT), actorId 가 비서 AGENT(계정 범위는 null), message 가 완성 문장.
+    | "AI_ASSISTANT_LIMIT_WAIT"
     // WP-1686: 내 계정에 새 앱(OAuth 클라이언트, 예: Claude 커넥터)이 연결됨 — 본인이 받는다. 행위자 없음(actorId null),
     // 이슈·일정·노트 id 없이 온다. 앱 이름은 message. 클릭하면 끊을 수 있는 설정 › API 토큰의 「연결된 앱」 절
     // (/settings/tokens#connected-apps, WP-1687)로 간다.

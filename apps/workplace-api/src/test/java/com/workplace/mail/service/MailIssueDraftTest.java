@@ -178,6 +178,19 @@ class MailIssueDraftTest extends ExternalClientMockedTestBase {
   }
 
   /** draftIssue: 타 사용자의 메시지 접근 시 404. */
+  /** WP-2108: 비서가 한도 대기 중이면 「비서 미설정」 이 아니라 한도 대기 예외 그대로 올린다(503 즉답). */
+  @Test
+  void draftIssue_한도_대기_중이면_대기_예외를_그대로_올린다() {
+    long messageId = seedMailMessage(callerId);
+    when(assistantResolver.resolve(callerId))
+        .thenThrow(
+            new com.workplace.auth.exception.AssistantLimitWaitingException(
+                java.time.Instant.now().plusSeconds(3600)));
+
+    assertThatThrownBy(() -> mailIssueService.draftIssue(callerId, messageId))
+        .isInstanceOf(com.workplace.auth.exception.AssistantLimitWaitingException.class);
+  }
+
   @Test
   void draftIssue_notOwnedMessage_rejected() {
     long otherUser = TestFixtures.createHuman(dsl);

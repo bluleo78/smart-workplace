@@ -103,3 +103,10 @@ describe('메일 보내기 실패 문구 (WP-1786)', () => {
     );
   });
 });
+
+// WP-2108 — 비서 사용 한도 대기: 행위자 없는 완성 문장(message)이 본문이라 종류 라벨만 있으면 된다.
+describe('AI 사용 한도 문구 (WP-2108)', () => {
+  it('종류 라벨은 「AI 사용 한도」', () => {
+    expect(notificationAction(n({ type: 'AI_ASSISTANT_LIMIT_WAIT' }))).toBe('AI 사용 한도');
+  });
+});

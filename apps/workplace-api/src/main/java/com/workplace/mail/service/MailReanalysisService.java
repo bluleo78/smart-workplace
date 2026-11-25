@@ -1,5 +1,8 @@
 package com.workplace.mail.service;
 
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.service.AssistantLimitGuard;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.mail.exception.MailAiException;
@@ -45,6 +48,7 @@ public class MailReanalysisService {
   private final EmailMessageRepository messageRepo;
   private final MailAnalysisService analysis;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final TransactionTemplate txTemplate;
 
   public MailReanalysisService(
@@ -52,11 +56,13 @@ public class MailReanalysisService {
       EmailMessageRepository messageRepo,
       MailAnalysisService analysis,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.analysis = analysis;
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -67,7 +73,13 @@ public class MailReanalysisService {
    */
   public boolean reanalyzeAccountNow(long userId, long accountId) {
     // 비서가 없으면 ④ 가 전부 건너뛰므로 선점하지 않는다 — 버전을 헛되이 소진하지 않게
-    if (assistantResolver.resolveOrEmpty(userId).isEmpty()) {
+    // 한도 대기 중에도 선점하지 않는다 — 대기 동안 ④ 가 전부 건너뛰어 버전만 소진된다(WP-2108, specOrSkip 이 limit_wait 를 한 번 남긴다).
+    if (limitGuard
+        .specOrSkip(
+            assistantResolver.resolution(userId),
+            AiRunKinds.MAIL_ANALYZE_PERSONAL,
+            AiRunContext.auto("USER", String.valueOf(userId)))
+        .isEmpty()) {
       return false;
     }
     Boolean claimed =

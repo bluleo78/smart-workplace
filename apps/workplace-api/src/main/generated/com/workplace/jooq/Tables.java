@@ -30,6 +30,7 @@ import com.workplace.jooq.tables.AiMemoryChange;
 import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AiRun;
 import com.workplace.jooq.tables.AssistantConfig;
+import com.workplace.jooq.tables.AssistantLimitWait;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
 import com.workplace.jooq.tables.CalendarDeletedMeeting;
@@ -343,6 +344,11 @@ public class Tables {
      * The table <code>public.assistant_config</code>.
      */
     public static final AssistantConfig ASSISTANT_CONFIG = AssistantConfig.ASSISTANT_CONFIG;
+
+    /**
+     * 비서 자격의 사용 한도 대기 — until_at 까지 비서 호출을 건너뛰고, 대기가 시작될 때 한 번만 알린다
+     */
+    public static final AssistantLimitWait ASSISTANT_LIMIT_WAIT = AssistantLimitWait.ASSISTANT_LIMIT_WAIT;
 
     /**
      * 사용자 행위 감사 로그

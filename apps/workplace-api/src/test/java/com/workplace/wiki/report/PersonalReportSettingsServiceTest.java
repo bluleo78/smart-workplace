@@ -63,6 +63,7 @@ class PersonalReportSettingsServiceTest extends ExternalClientMockedTestBase {
     grantUserRole(me);
     when(assistantResolver.resolveOrEmpty(anyLong()))
         .thenReturn(Optional.of(new AssistantSpec(me, "m", "low", 4)));
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(true);
   }
 
   private static UpdatePersonalReportSettingsRequest req(
@@ -209,6 +210,7 @@ class PersonalReportSettingsServiceTest extends ExternalClientMockedTestBase {
   @Test
   void update_enableWithoutAssistant_allowed_assistantAvailableFalse() {
     when(assistantResolver.resolveOrEmpty(me)).thenReturn(Optional.empty());
+    when(assistantResolver.hasAssistant(me)).thenReturn(false);
 
     PersonalReportSettingsResponse res = service.update(me, req(true, "09:00", true), NOW);
 

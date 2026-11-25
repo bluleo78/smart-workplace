@@ -2,6 +2,11 @@ package com.workplace.issue.outbound;
 
 import com.workplace.airun.AiCall;
 import com.workplace.airun.AiCallTimeouts;
+import com.workplace.airun.context.AiRunContext;
+import com.workplace.airun.context.AiRunKinds;
+import com.workplace.auth.exception.AssistantLimitWaitingException;
+import com.workplace.auth.service.AssistantLimitGuard;
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -78,6 +83,7 @@ public class IssueAiSummaryService {
   private final AiAgentIssueClient client;
   private final TransactionTemplate txTemplate;
   private final AssistantResolver assistantResolver;
+  private final AssistantLimitGuard limitGuard;
   private final ProjectRepository projectRepo;
   private final IssueChatExcerptReader chatReader;
   private final IssueRelationService relationService;
@@ -97,6 +103,7 @@ public class IssueAiSummaryService {
       AiAgentIssueClient client,
       PlatformTransactionManager txManager,
       AssistantResolver assistantResolver,
+      AssistantLimitGuard limitGuard,
       ProjectRepository projectRepo,
       IssueChatExcerptReader chatReader,
       IssueRelationService relationService,
@@ -109,6 +116,7 @@ public class IssueAiSummaryService {
     this.client = client;
     this.txTemplate = new TransactionTemplate(txManager);
     this.assistantResolver = assistantResolver;
+    this.limitGuard = limitGuard;
     this.projectRepo = projectRepo;
     this.chatReader = chatReader;
     this.relationService = relationService;
@@ -191,12 +199,13 @@ public class IssueAiSummaryService {
     // ── 단계 2: 프로젝트 유형별 비서 해석 ───────────────────────────────────────────
     // PERSONAL → 소유자 개인 비서 우선(공용 폴백), TEAM → 테넌트 공용 비서.
     // AssistantResolver 메서드들은 @Transactional(readOnly)으로 자체 GUC 주입.
-    AssistantSpec spec = resolveAssistant(gathered.project());
+    AssistantSpec spec = resolveAssistant(gathered.project(), issueId);
 
     // ── 단계 3: ai-agent HTTP 요청(트랜잭션 밖) ─────────────────────────────────────
     // 최대 90s — 커넥션 비점유.
     IssueSummaryRequest req = toRequest(gathered, spec);
-    IssueSummaryResult result = client.summarizeProgress(req); // 실패 시 IssueAiException 전파
+    // 실패 시 IssueAiException 전파 — 한도로 실패하면 그 자격을 대기로 건다(WP-2108).
+    IssueSummaryResult result = limitGuard.call(spec, () -> client.summarizeProgress(req));
 
     // ── 단계 4: 빈 가드 ──────────────────────────────────────────────────────────────
     if (result == null || result.summary() == null || result.summary().isBlank()) {
@@ -227,7 +236,9 @@ public class IssueAiSummaryService {
     }
     try {
       generateInternal(issueId);
-    } catch (IssueAiAssistantUnavailableException | IssueAiException ex) {
+    } catch (IssueAiAssistantUnavailableException
+        | AssistantLimitWaitingException
+        | IssueAiException ex) {
       log.warn("이슈 요약 자동 갱신 실패 issueId={}: {}", issueId, ex.getMessage());
     }
   }
@@ -255,10 +266,19 @@ public class IssueAiSummaryService {
    *
    * 토큰 보유 agent 없으면 {@link IssueAiAssistantUnavailableException}.
    */
-  private AssistantSpec resolveAssistant(ProjectRow project) {
-    return assistantResolver
-        .resolveForProject(project.isPersonal(), project.ownerId())
-        .orElseThrow(IssueAiAssistantUnavailableException::new);
+  private AssistantSpec resolveAssistant(ProjectRow project, long issueId) {
+    AssistantResolution resolution =
+        assistantResolver.projectResolution(project.isPersonal(), project.ownerId());
+    // 한도 대기 중이면 specOrSkip 이 SKIPPED(limit_wait)를 한 번 남긴다(WP-2108) — 비서가 없는 것과 달리 사용자에게는 한도 안내를
+    // 던진다.
+    var spec =
+        limitGuard.specOrSkip(
+            resolution,
+            AiRunKinds.ISSUE_PROGRESS_SUMMARY,
+            new AiRunContext("ISSUE", String.valueOf(issueId), null, null, null, null));
+    if (spec.isPresent()) return spec.get();
+    resolution.throwIfWaiting();
+    throw new IssueAiAssistantUnavailableException();
   }
 
   /** {@link #selectNewestWithinBudget} 결과 — 시간 오름차순으로 보낼 줄과, 합계 예산 때문에 통째로 빠진 오래된 항목 수. */

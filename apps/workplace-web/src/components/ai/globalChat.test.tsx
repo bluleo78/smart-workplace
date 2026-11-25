@@ -29,7 +29,7 @@ const sse = (frames: Frame[], correlationId: string) =>
  * POST /api/v1/ai/chat 시작(correlationId 그대로 반환) + 통합 SSE 로 frames 를 흘린다 — E2E mockHomeChatGeneration 자리.
  * 시작 요청 본문은 bodies 에 모인다. frames 는 응답을 돌려준 다음 틱에 열린 스트림으로 보낸다(전송 뒤에 도착하게).
  */
-function homeChat(frames: Frame[], { status = 200 }: { status?: number } = {}) {
+function homeChat(frames: Frame[], { status = 200, message = 'AI agent internal error' }: { status?: number; message?: string } = {}) {
   const events = controllableEvents()
   const bodies: StartBody[] = []
   const handlers = [
@@ -37,7 +37,7 @@ function homeChat(frames: Frame[], { status = 200 }: { status?: number } = {}) {
     http.post('/api/v1/ai/chat', async ({ request }) => {
       const body = (await request.json()) as StartBody
       bodies.push(body)
-      if (status !== 200) return HttpResponse.json({ message: 'AI agent internal error' }, { status })
+      if (status !== 200) return HttpResponse.json({ message }, { status })
       setTimeout(() => void events.push(sse(frames, body.correlationId)), 0)
       return HttpResponse.json({ correlationId: body.correlationId })
     }),
@@ -179,6 +179,16 @@ test('AI 응답 시작이 5xx 면 실패 안내 버블이 남고 입력창이 �
   const panel = screen.getByTestId('chat-panel')
   await waitFor(() => expect(within(panel).getAllByTestId('chat-turn').at(-1)).toHaveTextContent('응답 생성에 실패했습니다'))
   expect(panel).toHaveTextContent('현재 진행 중인 프로젝트 목록 알려줘')
+  expect(screen.getByTestId('chat-input')).toBeEnabled()
+})
+
+// WP-2108 — 비서가 사용 한도 대기 중이면 서버가 503 + 한도 문구로 즉답한다. 일반 실패 문구 대신 그 문구가 토스트로 보인다.
+test('AI 채팅 시작이 한도 대기 503 이면 서버의 한도 문구가 화면에 보인다 (WP-2108)', async () => {
+  const limit = '사용 한도에 걸렸어요(15:30 이후 다시 시도해 주세요)'
+  const chat = homeChat([], { status: 503, message: limit })
+  const { user, chip } = await openApp('/', { handlers: chat.handlers })
+  await sendFromSide(user, chip, '오늘 일정 알려줘')
+  expect(await screen.findByText(limit)).toBeInTheDocument()
   expect(screen.getByTestId('chat-input')).toBeEnabled()
 })
 

@@ -80,7 +80,8 @@ public class AiAgentMailClient {
       String b = e.getResponseBodyAsString();
       if (e.getStatusCode().value() == 503) {
         log.warn("ai-agent mail 미설정/불가: {}", b); // 재기동 중에도 난다 — 배치가 연속 횟수로 판단(WP-166)
-        throw new MailAiUnavailableException("AI 비서를 사용할 수 없어요. 잠시 후 다시 시도해주세요.");
+        // 원인에 503 응답 예외를 싣는다 — 한도 도우미(WP-2108)가 본문의 PROVIDER_LIMIT 을 읽는다.
+        throw new MailAiUnavailableException("AI 비서를 사용할 수 없어요. 잠시 후 다시 시도해주세요.", e);
       }
       log.error("ai-agent mail 실패: status={} body={}", e.getStatusCode(), b);
       throw new MailAiException("AI 요청에 실패했어요. 잠시 후 다시 시도해주세요.", e);

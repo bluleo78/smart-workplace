@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.repository.AssistantLimitWaitRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.repository.PermissionRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.tenant.repository.MembershipRepository;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Set;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +32,8 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
   @Autowired AiAgentCredentialRepository credentialRepo;
   @Autowired MembershipRepository membershipRepository;
   @Autowired PermissionRepository permissionRepository;
+  @Autowired AssistantLimitWaitRepository waitRepo;
+  @Autowired AssistantResolver resolver;
   @Autowired DSLContext dsl;
 
   private static final String TOKEN = "sk-ant-oat-" + "x".repeat(40);
@@ -91,6 +96,57 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
     var status = service.getStatus(human);
     assertThat(status.model()).isEqualTo("claude-opus-4-8");
     assertThat(status.thinkingDepth()).isEqualTo("MAX");
+  }
+
+  /** 대기를 거는 도우미 — 활성 자격에 until 까지 대기를 적고 자격 id 를 돌려준다. */
+  private long markWait(long human, Instant until) {
+    long agentId = personalRepo.findAgentId(human).orElseThrow();
+    long credId = credentialRepo.findActive(agentId).orElseThrow().id();
+    waitRepo.upsert(credId, agentId, until, null);
+    return credId;
+  }
+
+  @Test
+  void 대기중이면_limitWaitUntil_을_돌려준다() {
+    long human = TestFixtures.createHuman(dsl);
+    service.registerCredential(human, "anthropic", TOKEN, "t", null);
+    Instant until = Instant.now().plus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MILLIS);
+    markWait(human, until);
+
+    assertThat(service.getStatus(human).limitWaitUntil()).isEqualTo(until);
+  }
+
+  @Test
+  void 대기가_없으면_limitWaitUntil_은_null() {
+    long human = TestFixtures.createHuman(dsl);
+    service.registerCredential(human, "anthropic", TOKEN, "t", null);
+
+    assertThat(service.getStatus(human).limitWaitUntil()).isNull();
+  }
+
+  @Test
+  void 모델을_바꾸면_대기가_풀린다() {
+    long human = TestFixtures.createHuman(dsl);
+    service.registerCredential(human, "anthropic", TOKEN, "t", null);
+    markWait(human, Instant.now().plus(2, ChronoUnit.HOURS));
+    assertThat(resolver.resolveOrEmpty(human)).isEmpty();
+
+    service.updateSettings(human, settings("claude-opus-4-8", "MAX"));
+
+    assertThat(service.getStatus(human).limitWaitUntil()).isNull();
+    assertThat(resolver.resolveOrEmpty(human)).isPresent();
+  }
+
+  @Test
+  void 모델이_같으면_대기는_그대로() {
+    long human = TestFixtures.createHuman(dsl);
+    service.registerCredential(human, "anthropic", TOKEN, "t", null);
+    service.updateSettings(human, settings("claude-opus-4-8", "MAX"));
+    markWait(human, Instant.now().plus(2, ChronoUnit.HOURS));
+
+    service.updateSettings(human, settings("claude-opus-4-8", "HIGH"));
+
+    assertThat(service.getStatus(human).limitWaitUntil()).isNotNull();
   }
 
   @Test

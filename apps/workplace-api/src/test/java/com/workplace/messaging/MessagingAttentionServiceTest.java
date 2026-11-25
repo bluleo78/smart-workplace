@@ -3,11 +3,13 @@ package com.workplace.messaging;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.service.AssistantResolution;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
@@ -20,6 +22,8 @@ import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessagingClassifyWatermarkRepository;
 import com.workplace.messaging.service.MessagingAttentionService;
 import com.workplace.support.ExternalClientMockedTestBase;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -185,5 +189,31 @@ class MessagingAttentionServiceTest extends ExternalClientMockedTestBase {
     verifyNoInteractions(aiClient);
     // 이름필터 skip 과 동일하게 전진 — 비서 설정 후 과거 배치를 몰아 재분류하지 않는다.
     assertThat(wmRepo.get(ch)).isEqualTo(mid);
+  }
+
+  /** WP-2108 최종 검토 2: 한도 대기 중에는 watermark 를 올리지 않고 AI 도 부르지 않으며, 풀리면 같은 메시지를 분류한다. */
+  @Test
+  void 한도_대기_중에는_watermark를_올리지_않고_풀리면_같은_메시지를_분류한다() {
+    long ch = seedChannelWithMembers(List.of("양동희"));
+    seedMessage(ch, "김PM", "동희 봤어?", List.of());
+    long before = wmRepo.get(ch);
+    doReturn(AssistantResolution.waiting(5L, Instant.now().plus(1, ChronoUnit.HOURS)))
+        .when(assistantResolver)
+        .workspaceResolution();
+
+    svc.onChannelMessageSync(ch);
+
+    verifyNoInteractions(aiClient);
+    assertThat(wmRepo.get(ch)).isEqualTo(before);
+
+    // 대기가 끝났다 — 같은 메시지가 분류되고 그제야 watermark 가 오른다.
+    doReturn(AssistantResolution.ready(new AssistantSpec(777L, "test-model", "NORMAL", 8)))
+        .when(assistantResolver)
+        .workspaceResolution();
+    when(aiClient.classify(any())).thenReturn(new MessagingClassifyResult(List.of()));
+    svc.onChannelMessageSync(ch);
+
+    verify(aiClient, times(1)).classify(any());
+    assertThat(wmRepo.get(ch)).isGreaterThan(before);
   }
 }

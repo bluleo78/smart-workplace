@@ -61,6 +61,7 @@ class PersonalReportControllerTest extends ExternalClientMockedTestBase {
     other = human();
     when(assistantResolver.resolveOrEmpty(anyLong()))
         .thenReturn(Optional.of(new AssistantSpec(1L, "m", "low", 4)));
+    when(assistantResolver.hasAssistant(anyLong())).thenReturn(true);
   }
 
   @Test

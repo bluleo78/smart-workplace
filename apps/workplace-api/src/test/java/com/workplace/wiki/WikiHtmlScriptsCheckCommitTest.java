@@ -136,6 +136,7 @@ class WikiHtmlScriptsCheckCommitTest extends ExternalClientMockedTestBase {
 
   private void stubAi() {
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
     when(driveClient.securityCheck(any()))
         .thenReturn(new SecurityCheckRes("LOW", "안전해요", List.of()));
   }

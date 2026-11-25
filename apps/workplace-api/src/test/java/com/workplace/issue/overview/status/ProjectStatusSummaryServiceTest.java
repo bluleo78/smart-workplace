@@ -74,6 +74,7 @@ class ProjectStatusSummaryServiceTest extends ExternalClientMockedTestBase {
             owner, new CreateProjectRequest("PS" + suffix, "상태-" + suffix, "x", "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);
   }
 
   /** 담당자 없는 열린 이슈 — 생성 시각을 비교 기간 밖으로 둔다. */
@@ -246,6 +247,7 @@ class ProjectStatusSummaryServiceTest extends ExternalClientMockedTestBase {
   void noWorkspaceAssistantSkipsWithoutAi() {
     openIssue();
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    when(assistantResolver.hasWorkspaceAssistant()).thenReturn(false);
 
     // 비서가 없는 것은 실패가 아니라 건너뜀 — 회차 로그의 「실패」를 부풀리지 않는다.
     assertThat(service.refresh(project.id(), NOW)).isEqualTo(Outcome.SKIPPED);
