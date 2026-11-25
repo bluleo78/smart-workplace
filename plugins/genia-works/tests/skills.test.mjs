@@ -1006,7 +1006,7 @@ test('SKILL.md: 분류 역할 AI 는 project.md 설정이 있을 때만 켜지�
   const line = lineWith(text, '**분류 역할 AI**');
   assert.ok(line.includes('「분류 역할 AI」 절의 username'));
   assert.ok(line.includes('절이 없거나 username 이 내가 아니면 이 갈래는 없다'));
-  assert.ok(lineWith(text, '끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**').includes('분류를 마치고 담당에서 빠질 때 하나다'));
+  assert.ok(lineWith(text, '끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**').includes('예외는 분류를 마치고 담당에서 빠질 때 하나다'));
   assert.ok(text.includes('분류를 마치고 담당에서 빠짐'));
 });
 
@@ -1914,32 +1914,27 @@ test('켜진 워크플로우 프로젝트의 실행 없는 할당은 대기 댓�
 
 test('대기 댓글은 add_comment 로 한 번만 남기고 보고를 보내지 않으며, 게시본·끝난 실행·wf-wait 정리를 정한다', () => {
   const c = lineWith(wfSec, '- **대기 댓글**');
-  includesAll(c, ['`add_comment`', '**한 번만**', '`waiting`', '`ended <runId>`', '종류나 `runId` 가 다르면', '`gw-status`·`report_agent_work` 는 보내지 않고', '`publishedYaml`', '`draftYaml`', '2-1번 정리',
-    '워크플로우 실행이 끝난 이슈라 새로 처리하지 않습니다', '`COMPLETED`·`CANCELED`'], '대기 댓글');
+  includesAll(c, ['`add_comment`', '**한 번만**', '`waiting`', '`ended <runId>`', '종류나 `runId` 가 다르면', '`PAUSED` 말고는', '`publishedYaml`', '`draftYaml`', '2-1번 정리'], '대기 댓글');
   // wf-wait 파일을 먼저 읽고, 새로 남길 때만 get_workflow 로 조회한다.
   assertBefore(c, '`wf-wait` 파일을 먼저 읽는 것이다', '새로 남길 때만 조회한다');
   assert.ok(section(skillBody, '\n### 2-1. 끝난 이슈 정리\n', '\n### 3. ').includes('state/wf-wait/<키>'));
 });
 
 test('대기 이슈는 ⑤⑥ 새 작업 후보에서 빠지고 상한·HOLD·요약에 세지 않으며 멈출 지점이다', () => {
-  includesAll(lineWith(wfSec, '- **대기 이슈**'), ['⑤⑥ 새 작업 후보가 아니다', '대기 댓글을 남기고', '후보에서 뺀다', '「시작하지 않은 이슈」 요약에는 넣지 않는다'], '대기 이슈');
-  assert.ok(lineWith(wfSec, '- **후보 고르기**').includes('대기 이슈(위)는 이 후보 가운데서 대기 댓글을 남기고 뺀다'));
+  includesAll(lineWith(wfSec, '- **대기 이슈**'), ['⑤⑥ 새 작업 후보가 아니다', '대기 처리를 하고', '후보에서 뺀다', '「시작하지 않은 이슈」 요약에는 넣지 않는다'], '대기 이슈');
+  assert.ok(lineWith(wfSec, '- **후보 고르기**').includes('대기 이슈(위)는 이 후보 가운데서 대기 처리를 하고 뺀다'));
   assert.ok(lineWith(skillBody, '- **시작 전 후보**').includes('⑤⑥ 새 작업에도 넣지 않는다'));
   assert.ok(lineWith(skillBody, '- **보이기**').includes('대기 이슈는 세지 않는다'));
-  assert.ok(/멈출 지점:[^\n]*대기 댓글을 남긴 대기 이슈/.test(s4));
+  assert.ok(/멈출 지점:[^\n]*대기 처리를 한 대기 이슈/.test(s4));
 });
 
 // WP-1993 재리뷰 반영 — get_workflow 실패 때 진행 중 이슈·wf-wait 종류 구분·대기 이슈의 새 글 답·취소된 실행의 WORKING 행.
 test('대기 이슈에 새 글·멘션이 오면 ①② 로 골라 답만 하고, 대기 댓글은 3번 후보 거르기 한 곳에서만 남긴다', () => {
   const w = lineWith(wfSec, '- **대기 이슈**');
-  includesAll(w, ['①·②', '답만 한다', '3번 `seen` 파일', '3번 후보 거르기 한 곳'], '대기 이슈 새 글');
+  includesAll(w, ['①·②', '답만 한다', '3번 `seen` 파일', '대기 처리를 하고'], '대기 이슈 새 글');
   const g = lineWith(wfSec, '- **가르기**');
   assert.ok(!g.includes('대기 댓글만 한 번 남기고'), '가르기 (1)에 대기 댓글을 남기는 자리가 겹쳐 있다');
-  assert.ok(g.includes('3번 후보 거르기에서만'));
-});
-
-test('실행이 CANCELED 인데 내 행이 WORKING 인 이슈는 끝난 실행 안내를 남기고 내 행을 PAUSED 로 바꾼다', () => {
-  includesAll(lineWith(wfSec, '- **대기 댓글**'), ['`CANCELED` 인데 내 행이 WORKING', '`PAUSED`', '워크플로우 실행이 취소돼 멈춤'], '취소된 실행');
+  assert.ok(g.includes('대기 처리를 한다'));
 });
 
 test('진행 중이던 이슈 판정은 서버에서 보이는 것(내 행·검토자 PR·차례로 맡는 부모)으로 넓고, 워크플로우: 줄이 있거나 끝난 실행은 뺀다', () => {
@@ -1961,4 +1956,18 @@ test('대기 이슈는 동시 진행 상한·HOLD 의 시작 전 후보로 세�
   const line = skillBody.split('\n').find((l) => l.startsWith('- **시작 전 후보**'));
   assert.ok(line, '「시작 전 후보」 정의가 없다');
   assert.ok(line.includes('대기') && line.includes('상한·`HOLD` 를 쓰지 않는다'), '대기 이슈 제외 문장이 없다');
+});
+
+// WP-1993 반려 후속 — 대기 처리(대기 댓글·끝난 실행 안내·PAUSED)는 「대기 댓글」 한 곳에만 풀어 적고, 가르기 (1)·대기 이슈 등은 가리킨다.
+test('대기 처리는 「대기 댓글」에만 풀어 적고 가르기 (1)·프로젝트 판정·후보 고르기는 가리키기만 한다', () => {
+  const w = lineWith(wfSec, '- **대기 댓글**');
+  includesAll(w, ['「대기 처리」', '(가) 실행이 없음', '(나) 실행이 끝남', '워크플로우 실행이 끝난 이슈라 새로 처리하지 않습니다', '`ended <runId>`', '`PAUSED`', '워크플로우 실행이 끝나 멈춤', '`wf-wait`'], '대기 댓글');
+  const g = lineWith(wfSec, '- **가르기**');
+  includesAll(g, ['그 밖(시작 전·끝난 실행)은', '「대기 댓글」대로 대기 처리를 한다'], '가르기 (1)');
+  assert.ok(!g.includes('워크플로우 실행이 끝난 이슈라 새로 처리하지 않습니다') && !g.includes('끝나 멈춤'), '가르기 (1)에 안내·PAUSED 규칙을 풀어 쓰지 않는다');
+  assert.ok(lineWith(wfSec, '- **프로젝트 판정**').includes('실행이 없는 이슈는 가르기 (1)대로 한다'));
+  includesAll(lineWith(wfSec, '- **후보 고르기**'), ['상태표 PAUSED 행대로'], '후보 고르기');
+  const r = lineWith(workLoopSkill, '끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는');
+  includesAll(r, ['워크플로우 실행이 끝났는데 내 행이 WORKING 이면 `PAUSED`', '「대기 댓글」'], 'PAUSED 예외');
+  assert.equal(skillBody.split('워크플로우 실행이 끝난 이슈라 새로 처리하지 않습니다').length - 1, 1, '안내 원문은 한 곳');
 });
