@@ -1,5 +1,5 @@
 // 메시징 AI 라우트 테스트 — classify 400/200/502 검증. mail.test.ts 미러.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
@@ -8,6 +8,9 @@ vi.mock('../agent/run-messaging-ai.js', async (importOriginal) => {
   return { ...actual, runMessagingClassify: vi.fn() };
 });
 
+import { aiRunScopeMiddleware } from '../middleware/ai-run-scope.js';
+import { currentAiRunScope } from '../ai-run/scope.js';
+import type { AiRunRecord } from '../ai-run/types.js';
 import { catchupSchema, createMessagingRouter } from './messaging.js';
 import { runMessagingClassify } from '../agent/run-messaging-ai.js';
 
@@ -19,6 +22,34 @@ function app() {
 }
 
 beforeEach(() => vi.clearAllMocks());
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('모델 출력 파싱 실패 기록 (WP-2105)', () => {
+  it('/messaging/classify SyntaxError 도 같은 사유로 기록하고 502', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const records: AiRunRecord[] = [];
+    vi.mocked(runMessagingClassify).mockImplementation(async () => {
+      const s = currentAiRunScope()!;
+      s.runnerStarted('m', 'c');
+      s.runnerFinished({ ok: true, usage: null });
+      s.noteOutput('not json', 1);
+      throw new SyntaxError('Unexpected token');
+    });
+    const a = express();
+    a.use(express.json());
+    a.use(aiRunScopeMiddleware({ enqueue: (r) => void records.push(r) }));
+    a.use(createMessagingRouter({ client: {} as never }));
+    const res = await request(a).post('/messaging/classify').send({
+      messages: [{ authorName: 'a', body: 'b' }],
+      members: [{ userId: 1, displayName: 'x' }],
+      assistantAgentId: 7, model: 'm', maxTurns: 4, timeoutMs: 30000,
+    });
+    expect(res.status).toBe(502);
+    expect(records[1]).toMatchObject({ errorReason: 'model_output_invalid' });
+    expect(records[1].errorDetail).toContain('not json');
+  });
+});
 
 describe('POST /messaging/classify', () => {
   const valid = {

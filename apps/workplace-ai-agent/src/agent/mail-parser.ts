@@ -7,6 +7,7 @@ import { MAIL_CATEGORIES } from '@smart-workplace/mcp-tools-shared';
 
 import { normalizePriority } from './issue-priority.js';
 import { oneLine } from './memory-block.js';
+import { parseJsonLenient, topLevelJsonObjectSpans } from './json-extract.js';
 import { ModelOutputError } from './provider-error.js';
 
 /** 메일 분류 5종 — 공용 정의(mcp-tools-shared, API EmailMessageRepository.CATEGORIES 와 같은 순서) 하나를 쓴다(WP-1346). */
@@ -66,59 +67,34 @@ export function parseIssueDraftJson(text: string): {
 // ───────────────────────────── WP-149 원본/개인 분석 파서 ─────────────────────────────
 
 /**
- * 모델 출력에서 JSON 객체 하나를 꺼낸다. 코드펜스·앞뒤 잡설을 걷고 첫 '{' ~ 마지막 '}' 를 읽는다(요약 안의 중괄호 허용).
+ * 모델 출력에서 JSON 객체 하나를 꺼낸다. 코드펜스·앞뒤 잡설을 걷고, 각 '{' 에서 짝 맞는 '}' 까지(문자열 안 중괄호는 무시)를
+ * 순서대로 읽어 처음 파싱되는 객체를 돌려준다 — 모델이 객체를 이어 붙여 내도({..}{..}) 첫 완결 객체를 읽는다(WP-2105).
  * 모델이 문자열 안에 날 줄바꿈을 넣으면 JSON.parse 가 실패하므로 문자열 안 제어문자만 이스케이프해 한 번 더 읽는다 —
  * 그렇지 않으면 같은 메일이 매 백필마다 실패·재시도된다.
  */
 export function extractJsonObject(text: string): Record<string, unknown> {
-  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new ModelOutputError(`분석 JSON 없음: ${text.slice(0, 120)}`);
-  const raw = cleaned.slice(start, end + 1);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    parsed = JSON.parse(escapeControlCharsInStrings(raw));
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new ModelOutputError(`분석 JSON 이 객체가 아님: ${text.slice(0, 120)}`);
-  }
-  return parsed as Record<string, unknown>;
-}
-
-/** JSON 문자열 리터럴 안의 \n·\r·\t 만 이스케이프한다(바깥 공백은 그대로). */
-function escapeControlCharsInStrings(s: string): string {
-  let out = '';
-  let inString = false;
-  let escaped = false;
-  for (const ch of s) {
-    if (!inString) {
-      if (ch === '"') inString = true;
-      out += ch;
+  // 바깥을 감싼 코드펜스만 걷는다(맨 앞 ```json·맨 뒤 ```) — 문자열 값 안의 코드펜스(예: body 의 코드 예시)는 본문이므로 지우지 않는다.
+  const s = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  // 최상위 후보만 훑는다(json-extract) — 잘려서 짝 없는 '{' 이후의 중첩 객체는 후보로 나오지 않는다.
+  let firstError = '';
+  let sawCandidate = false;
+  let sawNonObject = false;
+  for (const span of topLevelJsonObjectSpans(s)) {
+    sawCandidate = true;
+    let parsed: unknown;
+    try {
+      parsed = parseJsonLenient(span.text);
+    } catch (e) {
+      // 이 후보는 JSON 이 아니다 — 첫 후보의 오류만 사유로 남기고 다음 최상위 후보로 넘어간다.
+      if (!firstError) firstError = (e as Error).message;
       continue;
     }
-    if (escaped) {
-      out += ch;
-      escaped = false;
-    } else if (ch === '\\') {
-      out += ch;
-      escaped = true;
-    } else if (ch === '"') {
-      out += ch;
-      inString = false;
-    } else if (ch === '\n') {
-      out += '\\n';
-    } else if (ch === '\r') {
-      out += '\\r';
-    } else if (ch === '\t') {
-      out += '\\t';
-    } else {
-      out += ch;
-    }
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    sawNonObject = true;
   }
-  return out;
+  if (!sawCandidate) throw new ModelOutputError(`분석 JSON 없음: ${text.slice(0, 120)}`);
+  if (sawNonObject) throw new ModelOutputError(`분석 JSON 이 객체가 아님: ${text.slice(0, 120)}`);
+  throw new ModelOutputError(`분석 JSON 파싱 실패: ${firstError}`);
 }
 
 /**
@@ -194,7 +170,7 @@ export function parseClassifyBatchJson(
 ): { id: number; category: string | null }[] {
   const obj = extractJsonObject(text);
   if (!Array.isArray(obj.results)) {
-    throw new Error('classify-batch 응답에 results 배열이 없습니다');
+    throw new ModelOutputError('classify-batch 응답에 results 배열이 없습니다');
   }
   const byId = new Map<number, string | null>();
   for (const r of obj.results as unknown[]) {
@@ -207,7 +183,7 @@ export function parseClassifyBatchJson(
     }
   }
   if (ids.length > 0 && !ids.some((id) => byId.has(id))) {
-    throw new Error('classify-batch 응답에 요청한 id 가 하나도 없습니다');
+    throw new ModelOutputError('classify-batch 응답에 요청한 id 가 하나도 없습니다');
   }
   return ids.map((id) => ({ id, category: byId.get(id) ?? null }));
 }
@@ -278,20 +254,20 @@ export function parseLearnCategoryJson(text: string, memoryIds: number[]): Learn
   const obj = extractJsonObject(text);
   const action = obj.action;
   if (typeof action !== 'string' || !LEARN_ACTIONS.includes(action)) {
-    throw new Error(`learn-category: 알 수 없는 action: ${text.slice(0, 120)}`);
+    throw new ModelOutputError(`learn-category: 알 수 없는 action: ${text.slice(0, 120)}`);
   }
   if (action === 'NONE') return { action: 'NONE', memoryId: null, content: null };
   // 기억은 한 줄로 저장·표시되므로 줄바꿈·연속 공백을 한 칸으로 접는다.
   const content = typeof obj.content === 'string' ? oneLine(obj.content) : '';
   const length = [...content].length;
   if (length < 1 || length > LEARN_CONTENT_MAX) {
-    throw new Error(`learn-category: content 길이 ${length}자(1~${LEARN_CONTENT_MAX}자)`);
+    throw new ModelOutputError(`learn-category: content 길이 ${length}자(1~${LEARN_CONTENT_MAX}자)`);
   }
   if (action === 'CREATE') return { action: 'CREATE', memoryId: null, content };
   const raw = obj.memoryId;
   const memoryId = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
   if (typeof memoryId !== 'number' || !memoryIds.includes(memoryId)) {
-    throw new Error(`learn-category: 요청에 없는 기억 id: ${String(raw)}`);
+    throw new ModelOutputError(`learn-category: 요청에 없는 기억 id: ${String(raw)}`);
   }
   return { action: 'UPDATE', memoryId, content };
 }

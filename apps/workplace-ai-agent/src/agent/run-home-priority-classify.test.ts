@@ -80,3 +80,27 @@ describe('parsePriorityClassifyJson', () => {
     })
   })
 })
+
+describe('parsePriorityClassifyJson — 이어 붙은 출력 (WP-2105)', () => {
+  it('객체가 이어 붙으면 첫 객체를 읽는다(경고 없이)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(parsePriorityClassifyJson('{"results":[]}{"results":[{"sourceType":"ISSUE","sourceId":"1","importanceScore":1,"urgencyScore":2,"reason":"r"}]}')).toEqual({ results: [] });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+  it('결과 객체 뒤에 잡설 } 가 붙어도 읽는다', () => {
+    const o = '{"results":[{"sourceType":"ISSUE","sourceId":"1","importanceScore":1,"urgencyScore":2,"reason":"r"}]}';
+    expect(parsePriorityClassifyJson(o + ' 끝}').results).toHaveLength(1);
+  });
+  it('잘려서 짝 없는 바깥 객체 안의 중첩 객체는 읽지 않고 빈 결과', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const inner = '{"sourceType":"ISSUE","sourceId":"1","importanceScore":1,"urgencyScore":2,"reason":"r"}';
+    expect(parsePriorityClassifyJson(`{"results":[${inner}],"x":{"a":1}`)).toEqual({ results: [] });
+    expect(warn).toHaveBeenCalledWith('[home-priority-classify] JSON 없음·파싱 실패:', expect.stringContaining('분석 JSON 없음'));
+    warn.mockRestore();
+  });
+  it('문자열 안 날 줄바꿈이 있어도 읽는다', () => {
+    const o = '{"results":[{"sourceType":"ISSUE","sourceId":"1","importanceScore":1,"urgencyScore":2,"reason":"가\n나"}]}';
+    expect(parsePriorityClassifyJson(o).results[0].reason).toBe('가\n나');
+  });
+});

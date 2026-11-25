@@ -6,7 +6,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { aiRunScopeMiddleware } from './ai-run-scope.js';
-import { currentAiRunScope } from '../ai-run/scope.js';
+import { currentAiRunScope, markScopeFailed } from '../ai-run/scope.js';
 import type { AiRunRecord } from '../ai-run/types.js';
 
 /** X-AI-Run 헤더 값(base64url(JSON))을 만드는 테스트용 보조 함수(WP-1828). */
@@ -111,6 +111,31 @@ describe('aiRunScopeMiddleware', () => {
     await request(app).post('/ai/chat').send({});
     expect(records.map((r) => r.status)).toEqual(['RUNNING', 'FAILED']);
     expect(records[1].errorReason).toBe('http_500');
+  });
+
+  it('라우트가 markScopeFailed 하고 502 를 내면 기록 사유는 그 사유 (WP-2105)', async () => {
+    const { records, sink } = sinkOf();
+    const app = express();
+    app.use(aiRunScopeMiddleware(sink));
+    app.post('/ai/chat', (_req, res) => {
+      fakeRun();
+      markScopeFailed('model_output_invalid', 'detail');
+      res.status(502).json({});
+    });
+    await request(app).post('/ai/chat').send({});
+    expect(records[1]).toMatchObject({ errorReason: 'model_output_invalid', errorDetail: 'detail' });
+  });
+
+  it('강제 실패 없이 502 면 http_502 그대로 (WP-2105)', async () => {
+    const { records, sink } = sinkOf();
+    const app = express();
+    app.use(aiRunScopeMiddleware(sink));
+    app.post('/ai/chat', (_req, res) => {
+      fakeRun();
+      res.status(502).json({});
+    });
+    await request(app).post('/ai/chat').send({});
+    expect(records[1].errorReason).toBe('http_502');
   });
 
   it('잘못된 X-AI-Run 이어도 200 이고 새 runId 로 기록', async () => {

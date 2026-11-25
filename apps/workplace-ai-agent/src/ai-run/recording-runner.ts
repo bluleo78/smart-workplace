@@ -1,5 +1,5 @@
 import type { AgentRunner, RunnerInput, RunnerStreamHandle } from '../agent/agent-runner.js';
-import type { RunnerEvent } from '../agent/runner-events.js';
+import { answerChunks, finalText, type RunnerEvent } from '../agent/runner-events.js';
 import type { RunnerUsage } from '../agent/runner-events.js';
 import { currentAiRunScope, swallowRecording, type AiRunScope } from './scope.js';
 
@@ -61,6 +61,8 @@ export function recordingRunner(inner: AgentRunner, credentialLabel: string): Ag
       }
       const result = events.find((e): e is Extract<RunnerEvent, { type: 'result' }> => e.type === 'result');
       reportResult(scope, result);
+      // 파싱 실패 진단용으로 최종 텍스트 앞부분을 남긴다(WP-2105).
+      safe(() => scope.noteOutput(finalText(events), answerChunks(events).length));
       return events;
     },
   };

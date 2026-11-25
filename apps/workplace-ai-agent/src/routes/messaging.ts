@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { logRunFailure } from '../ai-run/model-output-failure.js';
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
@@ -36,7 +37,8 @@ function handler<T>(
     try {
       res.status(200).json(await run(parsed.data, deps));
     } catch (e) {
-      console.error(`[${tag}] 실패:`, e instanceof Error ? e.message : String(e));
+      // 모델 출력 파싱 실패는 사유·원문 앞부분과 함께 기록한다(WP-2105).
+      logRunFailure(tag, e);
       res.status(502).json({ error: `${tag}_failed` });
     }
   };
