@@ -186,6 +186,37 @@ const SIDE_GAP_PADDING = 24
 const SIDE_GAP_MIN = 48
 /** 왕복하는 두 선이 겹치지 않게 가운데 줄에서 위·아래로 비키는 거리(WP-2123). */
 const SIDE_LINE_OFFSET = 6
+/** 좌표 점. */
+type Pt = { x: number; y: number }
+
+/**
+ * 선분이 상자 안쪽(경계에서 0.5px 들어간 곳)을 지나는지 — Liang–Barsky 로 잘라 남는 길이가 있으면 지난다.
+ * 왜: 옆 질문 노드를 예약한 노드의 끝 구간 후보 중 다른 노드 카드를 지나지 않는 것을 고르는 데 쓴다(WP-2123 리뷰).
+ */
+function segmentEntersBox(p: Pt, q: Pt, b: { x: number; y: number; w: number; h: number }): boolean {
+  const dx = q.x - p.x
+  const dy = q.y - p.y
+  let t0 = 0
+  let t1 = 1
+  // 한 축의 경계 하나로 선분을 자른다 — 완전히 바깥이면 false
+  const clip = (pp: number, qq: number) => {
+    if (pp === 0) return qq >= 0
+    const t = qq / pp
+    if (pp < 0) {
+      if (t > t1) return false
+      if (t > t0) t0 = t
+    } else {
+      if (t < t0) return false
+      if (t < t1) t1 = t
+    }
+    return true
+  }
+  const inside = clip(-dx, p.x - (b.x + 0.5)) && clip(dx, b.x + b.w - 0.5 - p.x) && clip(-dy, p.y - (b.y + 0.5)) && clip(dy, b.y + b.h - 0.5 - p.y)
+  return inside && t1 - t0 > 1e-6
+}
+
+/** 넓힌 묻는 노드 상자에 닿는 다른 선이 실제 노드 가운데로 가로 꺾는 높이 — 상자 위·아래 변에서 바깥으로 이만큼, 단 이웃 점까지 거리의 절반을 넘지 않게(WP-2123). */
+const SNAP_BEND_OFFSET = 12
 
 /**
  * 옆에 붙일 질문 노드 계획(WP-2123) — 묻는 노드 키 → 그 옆에 놓을 질문 노드 키들(입력 순서).
@@ -336,6 +367,79 @@ function layoutUncached(view: VisibleGraph): GraphLayoutResult {
     lower.forEach((l, i) => place(l, total - 1 - i, upper.length + i))
   }
 
+  // 모든 노드의 실제 상자(옆 질문 노드 포함) — 끝 구간을 고를 때 선이 다른 노드를 지나는지 센다
+  const realBoxes = [...positions].map(([key, p]) => ({ key, x: p.x, y: p.y, w: sizes.get(key)!.width, h: sizes.get(key)!.height }))
+
+  /**
+   * 뒤쪽 끝(arr 의 마지막 점)이 묻는 노드(plan)의 넓힌 dagre 상자에 닿은 선을 실제 노드 위·아래 변 가운데로 다시 낸다(WP-2123).
+   * shift = 0: dagre 가 낸 점은 모두 두고, 넓힌 상자 위(아래) 변 바로 바깥(층 사이 빈 공간) 높이에서만 가로로 꺾어 가운데 x 로 들어간다.
+   *   꺾는 점 P 는 dagre 의 마지막 선분(이웃 점 → 상자 경계 끝점) 위라 그 앞까지는 dagre 선 그대로다. 상자 높이 안에서 꺾으면
+   *   가로 구간이 질문 카드·묻는 노드를 가로지르므로(WP-2123 리뷰 ②) 꺾는 높이를 상자 밖으로 묶는다.
+   * shift = -1: 이웃 점 높이에서 가로로 꺾는다(이웃 점이 넓힌 상자 밖일 때만, 아니면 null) — dagre 의 마지막 비스듬한 선분이
+   *   옆 노드의 질문 카드를 지나는 경우 그 선분을 쓰지 않는 후보다.
+   * shift = k(≥1): 끝점 바로 앞에서 끝점과 같은 x(넓힌 상자 가운데)로 이어진 점 k 개를 가운데 x 로 옮긴다 — 이웃 층의 가짜 점이
+   *   넓힌 상자 가운데 위에 있어 그대로 두면 비스듬한 dagre 선이 옆 카드를 지날 때 쓰는 후보다. 여러 층을 건너는 긴 세로 구간을
+   *   통째로 옮기면 옮긴 x 의 다른 카드를 지날 수 있어(WP-2123 리뷰 ①) 어떤 k 를 쓸지는 호출하는 곳이 겹침을 세어 고른다.
+   * 어느 후보든 끝 구간은 실제 노드 가운데 x 의 세로 선이다. 라벨이 옮긴 점 위에 있었으면 함께 옮겨 선에서 떨어지지 않게 한다.
+   */
+  const snapEnd = (arr: Pt[], key: string, shift: number, lp: Pt | null): { pts: Pt[]; labelPos: Pt | null } | null => {
+    const last = arr.length - 1
+    const end = arr[last]
+    const nb = arr[last - 1]
+    const pos = positions.get(key)!
+    const size = sizes.get(key)!
+    const wide = dagreSize.get(key)!
+    const cy = pos.y + size.height / 2
+    // 이웃 점은 넓힌 상자 밖이라 끝점이 옆 변에 붙어 있어도 위·아래를 바르게 가른다
+    const above = nb.y < cy
+    const x = pos.x + (shapeKeys.has(key) ? SHAPE_SIZE / 2 : size.width / 2)
+    const realEnd = { x, y: above ? pos.y : pos.y + size.height }
+    if (shift > 0) {
+      const moved = arr.slice(last - shift, last)
+      const ys = [...moved.map((p) => p.y), end.y]
+      const onMoved = lp !== null && Math.abs(lp.x - end.x) < 0.5 && lp.y >= Math.min(...ys) - 0.5 && lp.y <= Math.max(...ys) + 0.5
+      return {
+        pts: [...arr.slice(0, last - shift), ...moved.map((p) => ({ x, y: p.y })), realEnd],
+        labelPos: onMoved ? { x, y: lp.y } : lp,
+      }
+    }
+    const edgeY = above ? cy - wide.height / 2 : cy + wide.height / 2
+    if (shift < 0) {
+      // 이웃 점이 상자 높이 안이면 그 높이의 가로 구간이 상자(질문 카드·묻는 노드)를 가로지른다 — 후보에서 뺀다
+      if (above ? nb.y >= edgeY : nb.y <= edgeY) return null
+      return { pts: [...arr.slice(0, last), { x, y: nb.y }, realEnd], labelPos: lp }
+    }
+    const bend = Math.min(SNAP_BEND_OFFSET, Math.abs(nb.y - edgeY) / 2)
+    const bendY = above ? edgeY - bend : edgeY + bend
+    // 이웃 점 → 끝점 선분이 꺾는 높이를 지나는 점(이웃 점이 상자 높이 안에 있는 방어적 경우는 선분 양 끝으로 묶는다)
+    const dy = end.y - nb.y
+    const t = dy === 0 ? 1 : Math.max(0, Math.min(1, (bendY - nb.y) / dy))
+    const route = [{ x: nb.x + (end.x - nb.x) * t, y: bendY }, { x, y: bendY }, realEnd]
+    // 같은 자리의 점(이미 가운데 x 로 들어오는 선)은 하나로 줄인다
+    const tail = route.filter((p, i) => i === 0 || Math.abs(p.x - route[i - 1].x) >= 0.5 || Math.abs(p.y - route[i - 1].y) >= 0.5)
+    return { pts: [...arr.slice(0, last), ...tail], labelPos: lp }
+  }
+  /** 뒤쪽 끝에서 끝점과 같은 x 로 이어진 점의 수(첫 점은 빼고) — snapEnd 의 shift 후보 범위. */
+  const sameXRun = (arr: Pt[]) => {
+    let k = 0
+    while (arr.length - 2 - k >= 1 && Math.abs(arr[arr.length - 2 - k].x - arr[arr.length - 1].x) < 0.5) k++
+    return k
+  }
+  /** 선이 양 끝이 아닌 노드(실제 상자)를 지나는 수 + 라벨이 노드와 겹치는 수 — 끝 구간 후보를 고르는 점수(작을수록 좋다). */
+  const routeCost = (pts: Pt[], from: string, to: string, label: string, lp: Pt | null) => {
+    let cost = 0
+    for (const b of realBoxes) {
+      if (b.key !== from && b.key !== to) {
+        for (let i = 0; i + 1 < pts.length; i++) if (segmentEntersBox(pts[i], pts[i + 1], b)) cost++
+      }
+      if (lp) {
+        const w = labelWidth(label)
+        if (lp.x - w / 2 < b.x + b.w && b.x < lp.x + w / 2 && lp.y - EDGE_LABEL_HEIGHT / 2 < b.y + b.h && b.y < lp.y + EDGE_LABEL_HEIGHT / 2) cost++
+      }
+    }
+    return cost
+  }
+
   const edges: LaidEdge[] = groups.map((group) => {
     const label = labels.get(group) ?? ''
     const kindDashed = group.members.some((m) => DASHED_KINDS.has(m.kind))
@@ -368,39 +472,39 @@ function layoutUncached(view: VisibleGraph): GraphLayoutResult {
       }
     }
     const laid = g.edge(group.from, group.to)
-    // WP-2123: 옆 질문 노드를 예약해 넓어진 dagre 상자에 닿은 끝점은 실제 노드 위·아래 변 가운데로 옮긴다(상자 경계는 노드 밖이라 화살표가 어긋난다)
-    const pts: { x: number; y: number }[] = (laid?.points ?? []).map((pt: { x: number; y: number }) => ({ x: pt.x, y: pt.y }))
-    let labelPos = label && laid?.x !== undefined && laid?.y !== undefined ? { x: laid.x as number, y: laid.y as number } : null
-    const snapToReal = (key: string, end: number) => {
-      if (!plan.has(key) || pts.length < 2) return
-      const pos = positions.get(key)!
-      const size = sizes.get(key)!
-      const above = pts[end].y < pos.y + size.height / 2
-      const oldX = pts[end].x
-      const x = pos.x + (shapeKeys.has(key) ? SHAPE_SIZE / 2 : size.width / 2)
-      pts[end] = { x, y: above ? pos.y : pos.y + size.height }
-      // 끝점에서 이어지는 같은 x(넓힌 상자 가운데)의 점을 모두 같은 dx 로 옮긴다 — 세로 구간이 기울지 않고 꺾은 점이 넓힌 상자 가운데에 남지 않게(WP-2123 리뷰)
-      const step = end === 0 ? 1 : -1
-      let minY = pts[end].y
-      let maxY = pts[end].y
-      for (let i = end + step; i >= 0 && i < pts.length && Math.abs(pts[i].x - oldX) < 0.5; i += step) {
-        pts[i] = { x, y: pts[i].y }
-        minY = Math.min(minY, pts[i].y)
-        maxY = Math.max(maxY, pts[i].y)
-      }
-      // 이웃 점이 넓힌 상자 가운데 x 가 아니면(상자 모서리 쪽에서 닿음) 이웃 점 높이에서 가로로 꺾어 내려온다 —
-      // 비스듬히 이으면 묻는 노드보다 높은 질문 묶음 카드를 가로지를 수 있다(이웃 점은 넓힌 상자 밖이라 가로 구간은 카드 위·아래를 지난다)
-      const nb = end + step
-      if (nb >= 0 && nb < pts.length && Math.abs(pts[nb].x - x) >= 0.5) {
-        pts.splice(end === 0 ? 1 : pts.length - 1, 0, { x, y: pts[nb].y })
-      }
-      // 라벨이 옮긴 세로 구간 위에 있었으면 같은 dx 로 옮겨 선에서 떨어지지 않게 한다
-      if (labelPos && Math.abs(labelPos.x - oldX) < 0.5 && labelPos.y >= minY - 0.5 && labelPos.y <= maxY + 0.5) {
-        labelPos = { x, y: labelPos.y }
-      }
+    const raw: Pt[] = (laid?.points ?? []).map((pt: Pt) => ({ x: pt.x, y: pt.y }))
+    const rawLabel = label && laid?.x !== undefined && laid?.y !== undefined ? { x: laid.x as number, y: laid.y as number } : null
+    // WP-2123: 옆 질문 노드를 예약해 넓어진 dagre 상자에 닿은 끝은 실제 노드 위·아래 변 가운데로 다시 낸다(상자 경계는 노드 밖이라 화살표가 어긋난다).
+    // 끝마다 후보(snapEnd 의 shift: 0 → -1 → 1..같은 x 로 이어진 점 수, 앞일수록 dagre 선을 더 지킨다)를 모두 만들어,
+    // 다른 노드를 지나는 수(routeCost)가 가장 적고 같으면 앞 후보끼리의 조합을 쓴다.
+    let pts = raw
+    let labelPos = rawLabel
+    const fromHost = raw.length >= 2 && plan.has(group.from)
+    const toHost = raw.length >= 2 && plan.has(group.to)
+    if (fromHost || toHost) {
+      // 묻는 노드가 아닌 끝은 [0] 하나(snapEnd 를 부르지 않는다)
+      const shifts = (host: boolean, run: number) => (host ? [0, -1, ...Array.from({ length: run }, (_, i) => i + 1)] : [0])
+      const fromShifts = shifts(fromHost, fromHost ? sameXRun([...raw].reverse()) : 0)
+      const toShifts = shifts(toHost, toHost ? sameXRun(raw) : 0)
+      let best: { pts: Pt[]; labelPos: Pt | null; cost: number; order: number } | null = null
+      fromShifts.forEach((kf, fi) => {
+        toShifts.forEach((kt, ti) => {
+          // 두 끝이 옮기는 점이 겹치지 않게(첫·끝 점을 뺀 가운데 점 수 이내)
+          if (Math.max(kf, 0) + Math.max(kt, 0) > raw.length - 2) return
+          let cand: { pts: Pt[]; labelPos: Pt | null } | null = { pts: raw, labelPos: rawLabel }
+          if (toHost) cand = snapEnd(cand.pts, group.to, kt, cand.labelPos)
+          if (cand && fromHost) {
+            const r = snapEnd([...cand.pts].reverse(), group.from, kf, cand.labelPos)
+            cand = r ? { pts: r.pts.reverse(), labelPos: r.labelPos } : null
+          }
+          if (!cand) return
+          const cost = routeCost(cand.pts, group.from, group.to, label, cand.labelPos)
+          if (!best || cost < best.cost || (cost === best.cost && fi + ti < best.order)) best = { ...cand, cost, order: fi + ti }
+        })
+      })
+      pts = best!.pts
+      labelPos = best!.labelPos
     }
-    snapToReal(group.from, 0)
-    snapToReal(group.to, pts.length - 1)
     const back = (rank.get(group.to) ?? 0) < (rank.get(group.from) ?? 0)
     return {
       id: group.members[0].id,
@@ -488,7 +592,7 @@ export function drawnEdge(
   positions: Map<string, { x: number; y: number }>,
   layout: Pick<GraphLayoutResult, 'positions' | 'sizes'>,
 ): { back: boolean; dashed: boolean; sourceHandle: string; targetHandle: string } {
-  // layout.sizes 의 값은 dagre 가 같은 객체에 x·y 를 덧씌워 두므로 통째로 펼치지 않고 width·height 만 꺼낸다
+  // layout.sizes 는 dagre 에 넘기지 않은 실제 크기 객체라(dagre 에는 따로 만든 dagreSize 를 넘긴다, WP-2123) x·y 가 붙지 않는다 — 자리는 지금 그리는 positions 에서 꺼낸다
   const box = (key: string): Box => {
     const { x, y } = positions.get(key) ?? { x: 0, y: 0 }
     const { width, height } = layout.sizes.get(key) ?? { width: 0, height: 0 }
