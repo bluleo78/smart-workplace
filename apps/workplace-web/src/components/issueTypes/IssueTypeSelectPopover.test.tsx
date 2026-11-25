@@ -145,3 +145,59 @@ test('하위 태스크를 EPIC 으로 바꾸면 「상위 없이 변경」만 �
   await user.click(within(dialog).getByTestId('parent-link-confirm'))
   await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 6, relateToReleasedParent: true }]))
 })
+
+// (WP-2131) 읽을 수 없는 상위 — 가린 모드 창을 띄우고, 확인 시 { typeId } 만 보낸다.
+
+test('가린 상위: 확인 창이 뜨고 확인하면 { typeId } 만 PATCH 된다', async () => {
+  const requests = recordRequests()
+  const { user } = renderScreen(
+    <IssueTypeSelectPopover projectKey="WP" issueNumber={7} current={makeSubtaskType()} parentLink={{ hidden: true }} />,
+    { handlers: pickerHandlers() },
+  )
+  await user.click(screen.getByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-1'))
+  await screen.findByTestId('parent-link-dialog')
+  expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
+  await user.click(screen.getByTestId('parent-link-confirm'))
+  await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 1 }]))
+})
+
+test('가린 상위: 취소하면 PATCH 없이 창이 닫힌다', async () => {
+  const requests = recordRequests()
+  const { user } = renderScreen(
+    <IssueTypeSelectPopover projectKey="WP" issueNumber={7} current={makeSubtaskType()} parentLink={{ hidden: true }} />,
+    { handlers: pickerHandlers() },
+  )
+  await user.click(screen.getByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-1'))
+  const dialog = await screen.findByTestId('parent-link-dialog')
+  await user.click(within(dialog).getByRole('button', { name: '취소' }))
+  await waitFor(() => expect(screen.queryByTestId('parent-link-dialog')).toBeNull())
+  expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
+})
+
+test('가린 상위: EPIC 으로 바꿔도 라디오 없는 가린 모드 창이 뜬다', async () => {
+  const requests = recordRequests()
+  const { user } = renderScreen(
+    <IssueTypeSelectPopover projectKey="WP" issueNumber={7} current={makeSubtaskType()} parentLink={{ hidden: true }} />,
+    { handlers: pickerHandlers() },
+  )
+  await user.click(screen.getByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-6'))
+  const dialog = await screen.findByTestId('parent-link-dialog')
+  expect(within(dialog).getByTestId('parent-link-hidden-notice')).toBeInTheDocument()
+  expect(within(dialog).queryByRole('radio')).toBeNull()
+  expect(requests.count('PATCH', TYPE_PATCH)).toBe(0)
+})
+
+test('가린 상위여도 상위를 풀지 않는 변경은 창 없이 바로 { typeId } 로 저장된다', async () => {
+  const requests = recordRequests()
+  const { user } = renderScreen(
+    <IssueTypeSelectPopover projectKey="WP" issueNumber={7} current={makeTaskType()} parentLink={{ hidden: true }} />,
+    { handlers: pickerHandlers() },
+  )
+  await user.click(screen.getByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-2'))
+  expect(screen.queryByTestId('parent-link-dialog')).toBeNull()
+  await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 2 }]))
+})

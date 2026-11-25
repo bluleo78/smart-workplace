@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils';
 import { AgentWorkCard } from '../../components/issue/agentWork/AgentWorkCard';
 import { InlineEditableBody } from '../../components/issue/InlineEditableBody';
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
-import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
+import { IssueTypeSelectPopover, type ParentLink } from '../../components/issueTypes/IssueTypeSelectPopover';
 import { MobileSheetShell } from '../../components/mobile/MobileSheetShell';
 import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useIssueAiClassify } from '../../hooks/queries/useIssueAiClassify';
@@ -275,9 +275,10 @@ export default function IssueDetailPage() {
   const isSubtask = summary.type?.name === 'SUBTASK';
   // EPIC 여부 — 부모 슬롯 숨김(EPIC 은 부모를 가질 수 없음) 분기에 사용 (EPIC 계층 확장).
   const isEpic = summary.type?.name === 'EPIC';
-  // WP-2097 — 「상위 연결 변경」 확인 창용 지금 상위 요약. 부모가 가려지지 않고(다른 프로젝트 부모를 읽을 수 없음)
-  // 유형·제목까지 응답에 있으면 넘긴다 — 값이 모자라면 호출부가 parentLink 없이 그려 창을 띄우지 않고 기존 저장 경로로 간다
-  // (서버 미리보기 API 없이 상세 데이터만 쓴다).
+  // WP-2097 — 「상위 연결 변경」 확인 창용 지금 상위 요약. 부모가 보이면 상위 정보를 넘기고,
+  // 부모가 가려졌으면(다른 프로젝트 부모를 읽을 수 없음) 키·제목 없이 { hidden: true } 만 넘겨 「권한 없음」 안내 창을 띄운다(WP-2131).
+  // 보이는 부모의 제목·유형이 응답에서 비어도 창은 띄운다(WP-2131) — 제목은 '(제목 없음)', 유형은 빈 이름(창이 배지를 생략)으로 폴백해
+  // 확인 없이 상위가 풀리지 않게 한다. 부모가 없을 때만 parentLink 없이 그려 기존 저장 경로로 간다(서버 미리보기 API 없이 상세 데이터만 쓴다).
   const parentSummary = summary.parent;
   // 할아버지 에픽 — 서버가 에픽일 때만 싣고(WP-1692) 가려지면 번호 0·제목 없음이므로 없음으로 친다.
   const grandparentEpic =
@@ -288,12 +289,13 @@ export default function IssueDetailPage() {
           status: parentSummary.epic.status,
         }
       : null;
-  const parentLink =
-    parentSummary && !parentSummary.hidden && parentSummary.title && parentSummary.type
+  const parentLink: ParentLink | undefined = parentSummary?.hidden
+    ? { hidden: true }
+    : parentSummary
       ? {
           parentKey: `${parentSummary.projectKey ?? key}-${parentSummary.number}`,
-          parentTypeName: parentSummary.type.name,
-          parentTitle: parentSummary.title,
+          parentTypeName: parentSummary.type?.name,
+          parentTitle: parentSummary.title || '(제목 없음)',
           grandparent: grandparentEpic,
           issueStatus: summary.status,
         }

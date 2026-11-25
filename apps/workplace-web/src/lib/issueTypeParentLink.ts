@@ -16,14 +16,15 @@ export function releasesParentType(oldTypeName: string, newTypeName: string): bo
 
 /**
  * 상위 변경 확인 대화상자를 열지 — 서버의 `issue.parentIssueId() != null` 에 해당하는
- * parentKey 가 있어야(상위가 있어야) releases 여부를 묻는다(Review Focus 4).
+ * 상위가 있어야(hasParent) releases 여부를 묻는다(Review Focus 4).
+ * (WP-2131) 읽을 수 없는 상위는 키가 없어도 상위가 있으므로 parentKey 대신 hasParent 로 판정한다.
  */
 export function shouldShowParentLinkChange(input: {
   oldTypeName: string
   newTypeName: string
-  parentKey: string | null
+  hasParent: boolean
 }): boolean {
-  return input.parentKey != null && releasesParentType(input.oldTypeName, input.newTypeName)
+  return input.hasParent && releasesParentType(input.oldTypeName, input.newTypeName)
 }
 
 /**
