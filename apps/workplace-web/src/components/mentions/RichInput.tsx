@@ -264,9 +264,12 @@ export function RichInput({
   // 코멘트·채팅 수정 중 Esc 양보(WP-2082)가 읽음. 코멘트·채팅 키 가드는 아래 mentionCandidatesVisible), dismissed: 이번 자동완성에서
   // Esc 로 닫았는가(닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
   // 맞는 멤버가 없는 @단어(@Override·@media·@zzzz)에도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음) 후보가 보일 때만 키를 팝업에 넘긴다.
-  const bodyPopupRef = useRef<{ live: boolean; dismissed: boolean; hide: (() => void) | null }>({
+  // query: 목록(live)이 마지막으로 따라온 검색어(onStart·onUpdate 의 props.query — 팝업이 없으면 null). 지금 플러그인 상태의 검색어와 다르면
+  // 목록 갱신(비동기 onUpdate)이 아직 남은 것이다(WP-2107 리뷰 후속).
+  const bodyPopupRef = useRef<{ live: boolean; dismissed: boolean; query: string | null; hide: (() => void) | null }>({
     live: false,
     dismissed: false,
+    query: null,
     hide: null,
   });
   // MentionList 가 알려 주는 활성 후보 순번(WP-2061). Esc 로 숨긴 뒤(dismissed)에도 suggestion 은 onExit 까지 살아 있어
@@ -279,10 +282,14 @@ export function RichInput({
   // live 와 뜻은 같지만 live 는 비동기인 render.onUpdate(@tiptap/suggestion 이 items() 를 await)에서야 갱신된다. 한글 조합을 끝내는
   // Enter 는 확정 글자가 같은 keydown 안에서 막 반영된 직후라 live 가 확정 전 검색어('@ㄱ' → 0건) 기준이다 — 그래서 코멘트·채팅의
   // 키 가드는 트랜잭션 apply 에서 동기로 갱신되는 플러그인 상태의 검색어로 이것을 다시 판정한다(WP-2107).
+  // 목록이 지금 검색어를 이미 따라왔으면 목록(live)을 그대로 믿는다 — 멤버 목록이 늦게 와 지금 거르면 맞지만 목록은 빈 채로 남은 때,
+  // 「보인다」고 해 Enter 를 삼키면 다음 키까지 Enter 가 아무 일도 하지 않는다(WP-2107 리뷰 후속). 목록 갱신이 남았을 때만 지금 검색어로 다시 거른다.
   function mentionCandidatesVisible(state: EditorState): boolean {
-    if (bodyPopupRef.current.dismissed) return false;
+    const popup = bodyPopupRef.current;
+    if (popup.dismissed) return false;
     const suggestion = mentionPluginKey.getState(state);
     if (!suggestion?.active) return false;
+    if (suggestion.query === popup.query) return popup.live;
     return membersRef.current.some(mentionMatcher(suggestion.query));
   }
 
@@ -467,6 +474,7 @@ export function RichInput({
                 bodyPopupRef.current = {
                   live: props.items.length > 0,
                   dismissed: false,
+                  query: props.query,
                   hide: () => {
                     popup?.hide();
                     // 숨긴 목록을 편집칸이 가리키지 않게 aria 속성을 걷고, 다시 오는 활성 순번도 받지 않는다(reportMentionActive).
@@ -496,6 +504,7 @@ export function RichInput({
               onUpdate: (props: SuggestionProps<MentionCandidate>) => {
                 const bodyPopup = bodyPopupRef.current;
                 bodyPopup.live = !bodyPopup.dismissed && props.items.length > 0;
+                bodyPopup.query = props.query;
                 component?.updateProps(listProps(props));
                 popup?.setProps({ getReferenceClientRect: props.clientRect as () => DOMRect });
               },
@@ -519,7 +528,7 @@ export function RichInput({
               },
               onExit: () => {
                 setMentionActive(null);
-                bodyPopupRef.current = { live: false, dismissed: false, hide: null };
+                bodyPopupRef.current = { live: false, dismissed: false, query: null, hide: null };
                 popup?.destroy();
                 component?.destroy();
                 popup = null;
@@ -628,8 +637,9 @@ export function RichInput({
           if (isImeComposing(event)) return false;
           // 멘션 후보가 보이는 중이면 Esc 는 팝업만 닫는다(WP-2082). editorProps 는 플러그인보다 먼저 불려
           // 여기서 취소해 버리면 suggestion 의 Esc 처리가 돌지 않아 수정 전체가 날아간다 — 양보하고, 닫힌 뒤 두 번째 Esc 부터 취소한다.
-          // 맞는 멤버가 없어 아무것도 안 보이는 팝업(live=false)은 양보하지 않는다 — 보이는 변화 없이 Esc 를 삼키지 않게.
-          if (bodyPopupRef.current.live && !bodyPopupRef.current.dismissed) return false;
+          // 맞는 멤버가 없어 아무것도 안 보이는 팝업은 양보하지 않는다 — 보이는 변화 없이 Esc 를 삼키지 않게.
+          // Enter 가드와 같은 판정(mentionCandidatesVisible — 목록 갱신이 남았으면 지금 검색어로)을 쓴다(WP-2107 리뷰 후속).
+          if (mentionCandidatesVisible(view.state)) return false;
           event.preventDefault();
           onCancel();
           return true;
