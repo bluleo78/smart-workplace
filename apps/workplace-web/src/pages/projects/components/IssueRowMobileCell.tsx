@@ -17,6 +17,7 @@ export function IssueRowMobileCell({
   projectKey,
   to,
   selected,
+  menuOpen,
   hideEpic,
   colSpan,
   onOpenMenu,
@@ -25,6 +26,8 @@ export function IssueRowMobileCell({
   projectKey: string;
   to: string;
   selected: boolean;
+  /** 모바일 작업 시트가 열린 행 — 강조 배경 위 종료 제목의 대비를 유지한다. */
+  menuOpen: boolean;
   hideEpic: boolean;
   /** 표 컬럼 수 — IssueListRow 가 넘긴다(상수를 여기서 import 하면 순환 참조). */
   colSpan: number;
@@ -51,6 +54,8 @@ export function IssueRowMobileCell({
             className={cn(
               'line-clamp-2 break-words text-sm font-medium leading-snug [-webkit-touch-callout:none]',
               issueClosedTitleClass(it.status),
+              // 선택 배경 위에서도 종료 제목을 전경색으로 보여 대비를 지킨다.
+              (selected || menuOpen) && 'text-foreground',
             )}
           >
             {it.title}

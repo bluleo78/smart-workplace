@@ -759,6 +759,32 @@ test('보드의 종료 제목은 흐리고 취소에 삭선이 있으며 카드 
   await expect(doneTitle).toHaveCSS('color', muted);
 });
 
+test('모바일 보드에서 취소 카드 작업 시트를 열면 카드 제목이 전경색으로 읽힌다', { tag: '@input' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubProjectMeta(page);
+  const canceled = createIssue({ id: 22, number: 22, title: '취소한 모바일 작업', status: 'CANCELED' });
+  await routeIssueSearch(page, (route, url) => {
+    const status = columnStatusOf(url);
+    const items = !status || status === canceled.status ? [canceled] : [];
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createIssueSearchResponse(items)),
+    });
+  });
+  await page.goto(`/projects/${PROJECT_KEY}?view=board&closed=all`);
+  await page.getByTestId(`board-tab-${canceled.statusId}`).click();
+
+  const title = page.getByTestId(`issue-card-${canceled.number}-title`);
+  await expect(title).toBeVisible();
+  await expect(title).toHaveCSS('text-decoration-line', 'line-through');
+  await page.getByTestId(`issue-card-${canceled.number}-menu`).click();
+  await expect(page.getByTestId('mobile-action-sheet')).toBeVisible();
+  await expect(title).toHaveCSS('color', await tokenColor(page, '--foreground'));
+});
+
 // #876 — 활성 사이클 밖 종료(완료·취소) 이슈 숨김 + 「완료 모두 보기」 토글.
 test.describe('종료 이슈 숨김 (#876)', () => {
   test('보드 기본 검색은 hideInactiveClosed 를 보내고, 토글을 켜면 URL closed=all 로 숨김을 해제한다', { tag: '@wiring' }, async ({

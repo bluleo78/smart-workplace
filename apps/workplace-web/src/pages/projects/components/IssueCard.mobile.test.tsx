@@ -6,6 +6,7 @@ import { MOBILE_VIEWPORT, mockViewport } from '@/test/viewport';
 
 import { createIssue } from '../../../../e2e/factories/issue.factory';
 import { IssueCard } from './IssueCard';
+import { IssueCardMenuContext } from './issueCardMenuContext';
 
 mockViewport(MOBILE_VIEWPORT);
 
@@ -25,5 +26,20 @@ describe('모바일 보드 카드 본문', () => {
     } else {
       expect(title).not.toHaveClass('line-through');
     }
+  });
+
+  it.each(['DONE', 'CANCELED'] as const)('%s 카드에서 작업 메뉴가 열리면 제목을 전경색으로 보인다', (status) => {
+    const issue = createIssue({ status });
+
+    renderWithProviders(
+      <IssueCardMenuContext.Provider value={{ openMenu: () => {}, menuIssueNumber: issue.number }}>
+        <IssueCard projectKey="WP" issue={issue} />
+      </IssueCardMenuContext.Provider>,
+    );
+
+    const title = screen.getByTestId(`issue-card-${issue.number}-title`);
+    expect(title).toHaveClass('text-foreground');
+    expect(title).not.toHaveClass('text-muted-foreground');
+    expect(title).toHaveClass(status === 'CANCELED' ? 'line-through' : 'font-medium');
   });
 });

@@ -174,7 +174,15 @@ export function IssueCard({
       )}
 
       {/* 모바일 본문(WP-195) — 드래그 고스트(asOverlay)는 데스크톱 본문 그대로. */}
-      {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showType={showType} onOpenMenu={onOpenMenu} />}
+      {mobileBody && (
+        <MobileCardBody
+          issue={issue}
+          projectKey={projectKey}
+          showType={showType}
+          onOpenMenu={onOpenMenu}
+          menuOpen={menuOpen}
+        />
+      )}
       {!mobileBody && (
         <>
       {/* 데스크톱 본문(WP-460 시안 C) — 모바일 카드와 같은 구성: 제목은 카드 폭 전체에서 최대 2줄, 키는 아래 메타 줄(nowrap).
@@ -318,12 +326,15 @@ function MobileCardBody({
   projectKey,
   showType,
   onOpenMenu,
+  menuOpen,
 }: {
   issue: IssueResponse;
   projectKey: string;
   showType: boolean;
   /** 「⋯」 → 액션 시트(WP-273 시안 M1). 전면 링크 위로 올려(z-10) 탭이 상세 이동으로 새지 않게 한다. */
   onOpenMenu?: OpenRowMenu;
+  /** 모바일 액션 시트가 열린 카드도 목록 행과 같은 종료 제목 대비를 유지한다. */
+  menuOpen: boolean;
 }) {
   return (
     <>
@@ -337,6 +348,7 @@ function MobileCardBody({
           className={cn(
             'line-clamp-2 min-w-0 flex-1 break-words font-medium leading-snug',
             issueClosedTitleClass(issue.status),
+            menuOpen && 'text-foreground',
           )}
           data-testid={`issue-card-${issue.number}-title`}
         >
