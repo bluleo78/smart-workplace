@@ -44,6 +44,8 @@ describe('graphA11y', () => {
     expect(panelActionFromKeyDown('a', 'a', real)).toBeNull()
     expect(panelActionFromKeyDown('Enter', null, real)).toBeNull()
     expect(panelActionFromKeyDown('Enter', 'a_ask', real)).toBeNull()
+    // 가상 노드 위 Space 는 패널을 열지 않고 스크롤만 막는다
+    expect(panelActionFromKeyDown(' ', 'a_ask', real)).toEqual({ swallow: true })
   })
   it('ariaLabelConfig_isKorean', () => {
     const c = GRAPH_ARIA_LABEL_CONFIG
