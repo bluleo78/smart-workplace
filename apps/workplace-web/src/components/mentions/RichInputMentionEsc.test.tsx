@@ -168,6 +168,30 @@ describe('RichInput 멘션 Esc 로 숨긴 뒤 키', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
+  it('수정 중(onCancel) 팝업이 뜨기 전(onStart 전)에 온 Esc 도 수정을 취소하지 않는다(WP-2124 반려)', async () => {
+    const onCancel = vi.fn()
+    const el = renderEdit(onCancel, 'mention-esc-cancel-before-start')
+    const editor = editorOf(el)
+    // @김 입력과 Esc 를 await 없이 잇달아 보내 — suggestion 의 onStart(팝업 띄우기)가 돌기 전에 Esc 가 닿는다.
+    // (mentionPopupOpenForEsc 만 보면 hide 가 없어 양보하지 않고 onCancel 이 불려 실패한다.)
+    await act(async () => {
+      editor.commands.focus('end')
+      editor.commands.insertContent('@김')
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+    // 그 Esc 는 팝업을 닫은 것이다 — onStart 뒤에도 후보 목록이 뜨지 않는다(Esc 가 아무 일도 안 하고 팝업이 뜨지 않게).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // 다음 Esc 는 수정을 취소한다(팝업을 닫은 뒤 두 번째 Esc — 열린 팝업의 Esc 와 같은 순서).
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
   it('수정 중(onCancel) 맞는 멤버가 없어 후보가 안 보이면 Esc 한 번에 취소한다(WP-2082)', async () => {
     const onCancel = vi.fn()
     const el = renderEdit(onCancel, 'mention-esc-cancel-empty')
@@ -310,6 +334,24 @@ describe('낡은 후보 목록의 Enter (WP-2124)', () => {
     const picked = JSON.stringify(editor.getJSON())
     expect(picked).toContain('강기획')
     expect(picked).not.toContain('김개발')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  // WP-2124 리뷰 후속 — 낡은 목록 가드는 수정 키 없는 Enter 만 삼킨다. Shift+Enter 는 목록(낡은 항목)에 넘기지 않고 줄바꿈으로 간다.
+  it('검색어가 바뀐 직후 Shift+Enter 는 삼켜지지 않고 줄바꿈하며, 낡은 항목을 넣지 않는다', async () => {
+    const onSubmit = vi.fn()
+    const el = renderComment(onSubmit, 'mention-shift-enter-stale')
+    const editor = editorOf(el)
+    await typeAtEnd(editor, '@k')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await act(async () => {
+      editor.commands.insertContent('a')
+      fireEvent.keyDown(el, { key: 'Enter', shiftKey: true })
+    })
+    const after = JSON.stringify(editor.getJSON())
+    expect(after).not.toContain('김개발')
+    expect(after).not.toContain('mention')
+    expect(after).toContain('hardBreak') // 삼키지 않고 편집기의 Shift+Enter(줄바꿈)로 갔다
     expect(onSubmit).not.toHaveBeenCalled()
   })
 })
