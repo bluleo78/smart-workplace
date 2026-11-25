@@ -701,7 +701,7 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     UUID first = conversation(uid, Duration.ofDays(6).plusHours(23), "USER", LONG + a);
     UUID second = conversation(uid, Duration.ofDays(6).plusHours(22), "USER", LONG + b);
     MutableClock clock = new MutableClock(Instant.now());
-    when(participant.unitWorst()).thenReturn(Duration.ofMinutes(18));
+    when(participant.unitWorst(any())).thenReturn(Duration.ofMinutes(18));
     when(client.cleanup(argThat(r -> carries(r, a))))
         .thenAnswer(
             inv -> {
@@ -717,9 +717,8 @@ class AiMemoryCleanupSchedulerTest extends IntegrationTestBase {
     assertThat(failures(second)).isZero();
   }
 
-  // WP-2111 리뷰 후속 1: 첫 세션이 마감으로 경계를 줄이면(uptoLimit) 그 뒤 발화는 다음 회차가 개인 정리를 다시 돌린다 — 그 발화를 근거로 한 개인 op
-  // 를
-  // 지금 적용하면 같은 ADD 가 두 번 들어갈 수 있으므로, 경계 안 발화를 근거로 한 op 만 적용한다.
+  // WP-2111 리뷰 후속 1: 첫 세션이 마감으로 경계를 줄이면(uptoLimit) 그 뒤 발화는 다음 회차가 개인 정리를 다시 돌린다.
+  // 그 발화를 근거로 한 개인 op 를 지금 적용하면 같은 ADD 가 두 번 들어갈 수 있으므로, 경계 안 발화를 근거로 한 op 만 적용한다.
   @Test
   void 참여자가_경계를_줄이면_그_뒤_발화를_근거로_한_개인_op_는_적용하지_않는다() {
     long uid = user();

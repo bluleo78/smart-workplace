@@ -113,10 +113,19 @@ public class SharedMemoryExtractionParticipant implements SessionCleanupParticip
     return spaceWorst;
   }
 
-  /** 처리 단위 = 공간 하나 — 스케줄러가 정리 호출 전에 마감을 볼 때 쓴다(WP-2111 리뷰 후속). */
+  /**
+   * 처리 단위 = 공간 하나 — 스케줄러가 정리 호출 전에 마감을 볼 때 쓴다(WP-2111 리뷰 후속). 이 세션에 추출할 공간 발화가 없으면 0 이다 — 공간 없는
+   * 세션까지 spaceWorst 를 더하면 일 없는 세션도 미뤄 회차가 끊긴다. 공간 묶기(DB 읽기)가 실패해도 0 이다 — 그때 {@link #prepare} 도 할 일
+   * 없음으로 끝난다.
+   */
   @Override
-  public Duration unitWorst() {
-    return spaceWorst;
+  public Duration unitWorst(SessionCleanupInput input) {
+    try {
+      Map<SpaceKey, List<Utterance>> bySpace = readTx.execute(s -> group(input));
+      return bySpace == null || bySpace.isEmpty() ? Duration.ZERO : spaceWorst;
+    } catch (RuntimeException e) {
+      return Duration.ZERO;
+    }
   }
 
   private static Duration computeSpaceWorst(AiCallTimeouts timeouts) {
