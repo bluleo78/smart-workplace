@@ -23,10 +23,10 @@ import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
 import { type IssueConditionChip, issueConditionChips, type IssueConditionKey, withoutCondition } from '../../../lib/issueConditionChips';
-import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
   carrySort,
   carryViewOptions,
+  filterOnlyKey,
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
@@ -86,8 +86,7 @@ export interface IssueFilterControls {
   facets: FacetDef[];
   filterValue: FilterValue;
   onFilterChange: (next: FilterValue) => void;
-  activeFilterCount: number; // 값이 있는 facet 수(q 제외)
-  hasActiveFilters: boolean; // q 포함
+  hasActiveFilters: boolean; // filterOnlyKey(filters) !== '' — q 포함·정렬 제외, 빈 상태 단추와 같은 기준(WP-2115)
   setView: (v: IssueView) => void;
   setGroupBy: (g: IssueGroupBy | null) => void;
   visibleGroupOptions: { value: IssueGroupBy | null; label: string }[];
@@ -95,7 +94,6 @@ export interface IssueFilterControls {
   showClosedToggle: boolean;
   closedHidingOverridden: boolean;
   toggleShowAllClosed: () => void;
-  clearFacets: () => void; // q·view·group 유지, facet 값만 비움
   quickChips: readonly string[]; // 빠른 필터 기본 칩
   quickFilterStorageKey: string | undefined; // 칩 고정·숨김 저장 키(화면·사용자별). 로그인 정보가 없으면 undefined(기억 안 함)
   showSort: boolean; // 정렬 칩 노출(WP-1238)
@@ -184,6 +182,9 @@ export function useIssueFilterControls(
       if (groupParam) p.set('group', groupParam);
       return carryViewOptions(carrySort(p, prev), prev);
     }, { replace: true });
+    // 검색 입력 직후(300ms debounce 대기 중)에 눌러도 예약된 q 쓰기가 URL 을 되살리지 않게 draft 를 비운다 —
+    // draft 가 바뀌면 debounce 효과가 정리돼 예약된 쓰기가 사라지고, 새 타이머는 '' 를 비운 URL 과 비교해 쓰지 않는다(WP-2115).
+    setQDraft('');
   }
 
   // 셀렉트에 보일 그룹 옵션 — 사이클 그룹은 사이클을 쓰는 화면의 목록 뷰에서만 고를 수 있다.
@@ -194,29 +195,10 @@ export function useIssueFilterControls(
   // 명시 필터가 이미 종료 이슈 숨김을 해제했는지 — 토글 표시 상태에 반영(#876).
   const closedHidingOverridden = overridesClosedHiding(filters);
 
-  // 적용된 필터(검색어 포함)가 하나라도 있을 때만 데스크톱 「필터 지우기」를 노출 — 평소엔 숨겨 툴바를 깔끔하게.
-  const hasActiveFilters =
-    filters.q !== '' ||
-    filters.statuses.length > 0 ||
-    filters.statusIds.length > 0 ||
-    filters.priorities.length > 0 ||
-    filters.labelIds.length > 0 ||
-    filters.cycleIds.length > 0 ||
-    filters.componentIds.length > 0 ||
-    filters.componentNone ||
-    filters.fixVersionIds.length > 0 ||
-    filters.fixVersionNone ||
-    filters.affectsVersionIds.length > 0 ||
-    filters.affectsVersionNone ||
-    filters.typeIds.length > 0 ||
-    filters.assigneeIds.length > 0 ||
-    filters.includeUnassigned ||
-    filters.closedIn != null ||
-    // 조건 칩(WP-1478) — 개요 링크가 실어 온 오래 멈춤·기다리는 중·마감 기간도 「필터 지우기」로 풀 수 있게.
-    !!filters.stale ||
-    !!filters.waiting ||
-    filters.dueFrom != null ||
-    filters.dueTo != null;
+  // 적용된 필터(검색어 포함, 정렬 제외)가 하나라도 있을 때만 「필터 지우기」를 노출 — 평소엔 숨겨 툴바를 깔끔하게.
+  // 필드를 나열하면 칩 없는 필터(마일스톤·에픽 범위·blocked·closed=all 등)가 빠져 단추가 안 뜬다 —
+  // 0건 빈 상태 단추(IssueListView)와 같은 기준 filterOnlyKey 를 쓴다(WP-2115).
+  const hasActiveFilters = filterOnlyKey(filters) !== '';
 
   // URL filters → 범용 FilterValue. 상태 범주/우선순위는 문자열, 상태/라벨/사이클/유형/담당자는 숫자 id.
   const filterValue: FilterValue = useMemo(
@@ -376,12 +358,8 @@ export function useIssueFilterControls(
     );
   }
 
-  // 활성 facet 수(q 제외) — 필터 시트 「전체 해제」 활성 판정용(MobileFilterControls 를 타임라인과 같은 모양으로 맞춘다).
-  // 담당자 「미지정」은 assignee facet 값('none')에 담기므로 담당자 facet 하나로 센다.
   // 조건 칩(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 라벨 기준일은 완료일 프리셋과 같은 KST 오늘 정오.
   const conditionChips = useMemo(() => issueConditionChips(filters, todayNoon), [filters, todayNoon]);
-  // 조건 칩도 하나씩 센다.
-  const activeFilterCount = countActiveFacets(filterValue, filters.includeUnassigned) + conditionChips.length;
 
   // 조건 칩 하나 지우기 — 그 조건만 빼고 다시 쓴다.
   function removeCondition(key: IssueConditionKey) {
@@ -391,12 +369,6 @@ export function useIssueFilterControls(
   // 「완료 모두 보기」 토글 — 데스크톱 버튼과 모바일 뷰 시트가 공유.
   function toggleShowAllClosed() {
     writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupParam);
-  }
-
-  // facet 값만 비운다 — 필터 시트 「전체 해제」 모양(MobileFilterControls)에 맞춘 것. 검색어·view·group·에픽 범위는 유지.
-  // 모바일 칩 줄 「필터 지우기」는 데스크탑처럼 reset 을 쓴다(WP-2086).
-  function clearFacets() {
-    writeFilters(clearFacetFilters(filters), view, groupParam);
   }
 
   return {
@@ -409,7 +381,6 @@ export function useIssueFilterControls(
     facets,
     filterValue,
     onFilterChange,
-    activeFilterCount,
     hasActiveFilters,
     setView,
     setGroupBy,
@@ -418,7 +389,6 @@ export function useIssueFilterControls(
     showClosedToggle,
     closedHidingOverridden,
     toggleShowAllClosed,
-    clearFacets,
     quickChips,
     quickFilterStorageKey,
     showSort,
