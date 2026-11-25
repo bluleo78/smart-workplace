@@ -1,9 +1,8 @@
 // 첫 주소가 이슈 상세일 때 셸이 상세 데이터를 미리 요청하는지(WP-2074).
-import { QueryClient } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { act, lazy, Suspense, useEffect, useState } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Link, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { DriveUploadProvider } from '@/components/drive/upload/DriveUploadProvider'
@@ -12,6 +11,7 @@ import { useIssue } from '@/hooks/queries/useIssue'
 import { issueKeys } from '@/hooks/queries/useIssues'
 import { resetInitialIssuePrefetchForTest, startInitialIssuePrefetch } from '@/hooks/useInitialIssuePrefetch'
 import { shellHandlers } from '@/test/msw/baseHandlers'
+import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
@@ -98,14 +98,31 @@ describe('AppLayout 이슈 상세 미리 요청 (WP-2074)', () => {
   })
 
   it('appLayout_skipsPrefetchWhenAlreadyStarted', async () => {
-    // 토큰 직후 경로(AuthContext)가 이미 요청했다면 셸 훅은 다시 요청하지 않는다 — 같은 주소에서 먼저 한 번 부른 뒤 셸을 띄운다.
+    // 토큰 직후 경로(AuthContext)가 이미 요청했다면 셸 훅은 다시 요청하지 않는다.
+    // 핸들러를 먼저 등록하고, 렌더에 쓴 QueryClient 로 먼저 한 번 부른 뒤 셸을 띄운다.
     const { counter, handlers } = detailApi()
-    window.history.pushState({}, '', '/projects/WP/issues/7')
-    startInitialIssuePrefetch(new QueryClient())
+    server.use(...handlers)
+    const early = renderScreen(<div />, { path: '/projects/WP/issues/7' })
+    startInitialIssuePrefetch(early.queryClient)
+    await waitFor(() => expect(counter.calls).toBe(1))
+    early.unmount()
     renderScreen(shell(Never), { path: '/projects/WP/issues/7', handlers })
     expect((await screen.findAllByRole('navigation')).length).toBeGreaterThan(0)
     await new Promise(r => setTimeout(r, 50))
     expect(counter.calls).toBe(1)
+  })
+
+  it('appLayout_firstCallOffDetailConsumesPrefetch', async () => {
+    // 처음 열린 주소가 이슈 상세가 아니면 그 첫 호출이 「첫 진입」을 소비한다 — 나중에 상세로 옮겨 가도 미리 요청하지 않는다.
+    const { counter, handlers } = detailApi()
+    function ToDetail() {
+      return <Link to="/projects/WP/issues/7">go-detail</Link>
+    }
+    const { user } = renderScreen(shell(ToDetail), { path: '/projects/WP', handlers })
+    await user.click(await screen.findByText('go-detail'))
+    await new Promise(r => setTimeout(r, 50))
+    expect(window.location.pathname).toBe('/projects/WP/issues/7')
+    expect(counter.calls).toBe(0)
   })
 
   it('셸이 다시 마운트돼도 다시 요청하지 않는다', async () => {
