@@ -1629,8 +1629,8 @@ describe('runAiChatStream — 한도 도달 마무리', () => {
     const scope = new AiRunScope({ kind: 'AI_CHAT' }, { enqueue: (r) => records.push(r) });
     const base = limitRunner([], { toolResult: 'r' });
     streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
-      scope.runnerStarted('m', 'c');
-      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns') });
+      const s = scope.runnerStarted('m', 'c', i);
+      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns'), startSeq: s });
       return base(i, onEvent);
     });
     collectSpy.mockImplementation(async () => {
@@ -1648,8 +1648,8 @@ describe('runAiChatStream — 한도 도달 마무리', () => {
     const scope = new AiRunScope({ kind: 'AI_CHAT' }, { enqueue: (r) => records.push(r) });
     const base = limitRunner([], { toolResult: 'r' });
     streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
-      scope.runnerStarted('m', 'c');
-      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns') });
+      const s = scope.runnerStarted('m', 'c', i);
+      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns'), startSeq: s });
       return base(i, onEvent);
     });
     collectSpy.mockImplementation(async () => {
@@ -1660,6 +1660,29 @@ describe('runAiChatStream — 한도 도달 마무리', () => {
     await withAiRunScope(scope, () => runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal));
     scope.close({ ok: true });
     expect(records.at(-1)?.status).toBe('FAILED');
+  });
+
+  // WP-2126: 마무리 용서는 한도로 끝난 그 호출의 실패만 지운다 — 겹쳐 돈 다른 러너의 한도 실패는 남는다.
+  it('WP-2126: 겹쳐 돈 다른 러너의 한도 실패는 마무리 용서로 지워지지 않아 provider_limit/FAILED 로 남는다', async () => {
+    const records: Array<{ status: string; errorReason?: string | null }> = [];
+    const scope = new AiRunScope({ kind: 'AI_CHAT' }, { enqueue: (r) => records.push(r) });
+    const base = limitRunner([], { toolResult: 'r' });
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      const s = scope.runnerStarted('m', 'c', i);
+      scope.runnerFinished({ ok: false, usage: null, error: new Error('max turns'), startSeq: s });
+      // 겹쳐 돈 다른 호출의 계정 한도 실패 — 마지막 실패가 되지만 마무리 용서 대상이 아니다.
+      const o = scope.runnerStarted('m', 'c', {});
+      scope.runnerFinished({ ok: false, usage: null, error: new Error("API Error: You've hit your org's monthly spend limit"), startSeq: o });
+      return base(i, onEvent);
+    });
+    collectSpy.mockImplementation(async () => {
+      scope.runnerStarted('m', 'c');
+      scope.runnerFinished({ ok: true, usage: null });
+      return [{ type: 'result', ok: true, text: '마무리 답', usage: null }];
+    });
+    await withAiRunScope(scope, () => runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal));
+    scope.close({ ok: true });
+    expect(records.at(-1)).toMatchObject({ status: 'FAILED', errorReason: 'provider_limit' });
   });
 
   it('시간 한도도 같은 방식으로 마무리', async () => {

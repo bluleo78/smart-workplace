@@ -132,6 +132,23 @@ describe('streamWithEffortFallback', () => {
     expect(got).toEqual([pre, DELTA]);
   });
 
+  it('핸들 input 은 재시도가 없으면 넘긴 input 그대로다 (WP-2126)', async () => {
+    const { runner } = fakeRunner([{ events: [OK] }]);
+    const i = input();
+    const h = streamWithEffortFallback(runner, i, () => {}, { logArea: 't' });
+    await h.done;
+    expect(h.input).toBe(i);
+  });
+
+  it('핸들 input 은 effort 재시도 뒤에는 재시도에 넘긴 input 이다 (WP-2126)', async () => {
+    const { runner, inputs } = fakeRunner([{ events: [FAIL], error: REJECT }, { events: [OK] }]);
+    const i = input();
+    const h = streamWithEffortFallback(runner, i, () => {}, { logArea: 't' });
+    await h.done;
+    expect(h.input).toBe(inputs[1]);
+    expect(h.input).not.toBe(i);
+  });
+
   it('성공하면 모아 둔 이벤트를 끝에 흘린다', async () => {
     const { runner } = fakeRunner([{ events: [OK] }]);
     const got: RunnerEvent[] = [];
