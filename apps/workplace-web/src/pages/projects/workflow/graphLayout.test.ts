@@ -6,11 +6,13 @@ import { describe, expect, it } from 'vitest'
 import {
   commonErrorTarget,
   computeGraphLayout,
+  drawnEdge,
   flowHandles,
   type GraphLayoutResult,
   isAtLayoutPosition,
   isShapeNode,
   labelWidth,
+  nodeSize,
   pickHandles,
   questionNodeKeys,
   routedPoints,
@@ -452,5 +454,335 @@ nodes:
     expect(back).toHaveLength(1)
     expect(back[0].label).toContain(' · ')
     expect(back[0].kindDashed).toBe(true)
+  })
+})
+
+describe('질문 노드 옆 배치 (WP-2123)', () => {
+  const mk = (from: string, to: string, kind: GraphEdge['kind'], label = ''): GraphEdge => ({ id: `${from}->${to}`, from, to, kind, label })
+  const node = (key: string, type = 'agent_task'): GraphNode => ({ key, name: key, type }) as GraphNode
+  const graphOf = (nodes: GraphNode[], edges: GraphEdge[]): WorkflowGraph => ({ nodes, edges, roles: [], shared: [] })
+  const layoutOf = (g: WorkflowGraph, showAsk = true) => computeGraphLayout(visibleGraph(g, { showAsk }))
+  const box = (l: GraphLayoutResult, key: string) => {
+    const p = l.positions.get(key)!
+    const s = l.sizes.get(key)!
+    return { left: p.x, right: p.x + s.width, top: p.y, bottom: p.y + s.height, cy: p.y + s.height / 2 }
+  }
+  /** start → dev·docs → review → end 흐름에 dev 가 질문 노드 q... 를 갖는 그래프. */
+  function askGraph(qs: string[] = ['q'], devType = 'agent_task'): WorkflowGraph {
+    const nodes = [node('start', 'start'), node('dev', devType), node('docs'), node('review'), node('end', 'end'), ...qs.map((q) => node(q, 'human_task'))]
+    const edges = [
+      mk('start', 'dev', 'outcome'), mk('start', 'docs', 'outcome'), mk('dev', 'review', 'outcome'), mk('docs', 'review', 'outcome'), mk('review', 'end', 'outcome'),
+      ...qs.flatMap((q) => [mk('dev', q, 'ask', '질문'), mk(q, 'dev', 'returnTo', '돌아가기')]),
+    ]
+    return graphOf(nodes, edges)
+  }
+
+  it('sideAsk_centerYMatchesAsker', () => {
+    const l = layoutOf(askGraph())
+    expect(Math.abs(box(l, 'q').cy - box(l, 'dev').cy)).toBeLessThan(0.5)
+    expect(box(l, 'q').left).toBeGreaterThan(box(l, 'dev').right)
+  })
+
+  it('sideAsk_gapAtLeastLabelWidth', () => {
+    const l = layoutOf(askGraph())
+    const widest = Math.max(labelWidth('돌아가기'), labelWidth('질문'))
+    const gap = box(l, 'q').left - box(l, 'dev').right
+    expect(gap).toBeGreaterThanOrEqual(widest)
+    // 간격 = 가장 넓은 라벨 + 24, 단 최소 48
+    expect(gap).toBeCloseTo(Math.max(48, widest + 24), 5)
+  })
+
+  it('sideAsk_noOverlapWithSiblings', () => {
+    expect(findOverlaps(layoutOf(askGraph()))).toEqual([])
+  })
+
+  it('sideAsk_mainRanksStableWhenToggled', () => {
+    const g = askGraph()
+    const on = layoutOf(g, true)
+    const off = layoutOf(g, false)
+    for (const key of ['start', 'dev', 'docs', 'review', 'end']) {
+      expect(Math.abs(box(on, key).cy - box(off, key).cy)).toBeLessThan(0.5)
+    }
+  })
+
+  it('sideAsk_sharedQuestionNode_notSide', () => {
+    const g = graphOf(
+      [node('start', 'start'), node('a'), node('b'), node('end', 'end'), node('q', 'human_task')],
+      [
+        mk('start', 'a', 'outcome'), mk('start', 'b', 'outcome'), mk('a', 'end', 'outcome'), mk('b', 'end', 'outcome'),
+        mk('a', 'q', 'ask', '질문'), mk('b', 'q', 'ask', '질문'), mk('q', 'a', 'returnTo', '돌아가기'), mk('q', 'b', 'returnTo', '돌아가기'),
+      ],
+    )
+    const l = layoutOf(g)
+    expect(Math.abs(box(l, 'q').cy - box(l, 'a').cy)).toBeGreaterThan(1)
+    expect(Math.abs(box(l, 'q').cy - box(l, 'b').cy)).toBeGreaterThan(1)
+    expect(findOverlaps(l)).toEqual([])
+  })
+
+  it('sideAsk_multipleStackedVertically', () => {
+    const l = layoutOf(askGraph(['q1', 'q2']))
+    const [q1, q2, dev] = [box(l, 'q1'), box(l, 'q2'), box(l, 'dev')]
+    expect(q1.left).toBeGreaterThan(dev.right)
+    expect(q1.left).toBe(q2.left)
+    const [upper, lower] = q1.top < q2.top ? [q1, q2] : [q2, q1]
+    expect(lower.top - upper.bottom).toBeGreaterThanOrEqual(24)
+    expect(Math.abs((upper.top + lower.bottom) / 2 - dev.cy)).toBeLessThan(0.5)
+    expect(findOverlaps(l)).toEqual([])
+  })
+
+  it('sideAsk_shapeAsker_rightOfLabel', () => {
+    const g = askGraph(['q'], 'decision')
+    const l = layoutOf(g)
+    const dev = g.nodes.find((n) => n.key === 'dev')!
+    expect(box(l, 'q').left).toBeGreaterThan(l.positions.get('dev')!.x + nodeSize(dev).width)
+  })
+
+  it('sideAsk_shapeAsker_roundTripLeavesFromRightSide', () => {
+    // 마름모가 묻는 노드여도 그릴 점(routedPoints)이 도형 위·아래로 옮겨지지 않고 이름 오른쪽에서 나간다(코드 리뷰)
+    const g = askGraph(['q'], 'decision')
+    const l = layoutOf(g)
+    const dev = g.nodes.find((n) => n.key === 'dev')!
+    const devRight = l.positions.get('dev')!.x + nodeSize(dev).width
+    const shapeKeys = new Set(g.nodes.filter(isShapeNode).map((n) => n.key))
+    const side = l.edges.filter((e) => (e.from === 'dev' && e.to === 'q') || (e.from === 'q' && e.to === 'dev'))
+    expect(side).toHaveLength(2)
+    for (const e of side) {
+      const pts = routedPoints(e, l, shapeKeys)
+      for (const p of pts) expect(p.x).toBeGreaterThanOrEqual(devRight - 0.5)
+      expect(new Set(pts.map((p) => Math.round(p.y))).size).toBe(1)
+    }
+  })
+
+  it('sideAsk_questionWithOtherEdge_fallsBackToDagre', () => {
+    // 질문 노드로 묻는 노드 말고 다른 선도 들어오면 옆에 두지 않고 dagre 에 맡긴다 — 배치가 깨지지 않는다(코드 리뷰)
+    const base = askGraph()
+    // 가상 질문 노드(ask 줄임 표기)는 들어오는 선 종류와 상관없이 질문 노드로 본다 — 그 경우가 문제였다
+    const g = graphOf(base.nodes.map((n) => (n.key === 'q' ? { ...n, virtual: true } : n)), [...base.edges, mk('review', 'q', 'onError', '오류')])
+    const l = layoutOf(g)
+    for (const p of l.positions.values()) {
+      expect(Number.isFinite(p.x)).toBe(true)
+      expect(Number.isFinite(p.y)).toBe(true)
+    }
+    expect(l.positions.has('q')).toBe(true)
+    expect(Math.abs(box(l, 'q').cy - box(l, 'dev').cy)).toBeGreaterThan(0.5)
+    // 오류 선 끝이 실제 질문 노드 상자에 닿는다(dagre 에 없는 노드로 이으면 엉뚱한 자리에서 끝난다)
+    const err = l.edges.find((e) => e.from === 'review' && e.to === 'q')!
+    const end = err.points[err.points.length - 1]
+    const q = box(l, 'q')
+    expect(end.x).toBeGreaterThanOrEqual(q.left - 1)
+    expect(end.x).toBeLessThanOrEqual(q.right + 1)
+  })
+
+  it('sideAsk_gapFitsMergedParallelLabels', () => {
+    // 같은 두 끝을 잇는 선이 여럿이면 합친 라벨 폭으로 간격을 잡는다(코드 리뷰)
+    const base = askGraph()
+    const g = graphOf(base.nodes, [...base.edges, mk('dev', 'q', 'ask', '추가 확인 요청')])
+    const l = layoutOf(g)
+    const merged = l.edges.find((e) => e.from === 'dev' && e.to === 'q')!.label
+    const gap = box(l, 'q').left - box(l, 'dev').right
+    expect(gap).toBeGreaterThanOrEqual(labelWidth(merged))
+  })
+
+  it('sideAsk_layoutCacheKeyedByVirtual', () => {
+    // 같은 키·크기·간선이라도 가상 질문 노드(옆 배치)와 실제 노드(dagre)는 배치가 다르다 — 캐시가 낡은 배치를 돌려주지 않는다(리뷰)
+    const base = [node('start', 'start'), node('dev'), node('end', 'end')]
+    const edges = [mk('start', 'dev', 'outcome'), mk('dev', 'end', 'outcome'), mk('dev', 'q', 'ask', '질문')]
+    const real = layoutOf(graphOf([...base, node('q', 'human_task')], edges))
+    const virt = layoutOf(graphOf([...base, { ...node('q', 'human_task'), virtual: true } as GraphNode], edges))
+    expect(Math.abs(box(real, 'q').cy - box(real, 'dev').cy)).toBeGreaterThan(0.5)
+    expect(Math.abs(box(virt, 'q').cy - box(virt, 'dev').cy)).toBeLessThan(0.5)
+  })
+
+  it('sideAsk_labeledEdgeIntoAsker_labelStaysOnLine', () => {
+    // 묻는 노드로 드나드는 라벨 있는 선 — 끝점을 실제 노드로 옮길 때 라벨·꺾은 점도 함께 옮겨 라벨이 선 위에 남는다(리뷰)
+    const base = askGraph()
+    const g = graphOf(base.nodes, base.edges.map((e) => (e.from === 'start' && e.to === 'dev' ? { ...e, label: '시작 확인' } : e)))
+    const l = layoutOf(g)
+    const e = l.edges.find((x) => x.from === 'start' && x.to === 'dev')!
+    expect(e.labelPos).not.toBeNull()
+    const dist = (p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const t = dx === 0 && dy === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)))
+      return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+    const nearest = Math.min(...e.points.slice(1).map((b, i) => dist(e.labelPos!, e.points[i], b)))
+    expect(nearest).toBeLessThan(1)
+    // 들어가는 끝점은 실제 dev 상자 위 변 가운데
+    const end = e.points[e.points.length - 1]
+    const dev = box(l, 'dev')
+    expect(Math.abs(end.x - (dev.left + dev.right) / 2)).toBeLessThan(0.5)
+  })
+
+  it('sideAsk_edgesIntoAskerEndVertically', () => {
+    // 질문 묶음이 묻는 노드보다 높아도 묻는 노드로 드나드는 다른 선의 끝 구간은 세로 — 비스듬히 질문 카드를 가로지르지 않는다(리뷰)
+    // b 는 넓힌 상자 오른쪽(질문 열 위)에서 dev 로 들어온다 — dagre 끝점이 상자 가운데 x 가 아니다
+    const qs = ['q1', 'q2', 'q3']
+    const g = graphOf(
+      [node('start', 'start'), node('a'), node('b'), node('dev'), node('c'), node('end', 'end'), ...qs.map((q) => node(q, 'human_task'))],
+      [
+        mk('start', 'a', 'outcome'), mk('start', 'b', 'outcome'), mk('start', 'c', 'outcome'), mk('start', 'dev', 'outcome', '진행'),
+        mk('a', 'end', 'outcome'), mk('b', 'dev', 'outcome'), mk('c', 'dev', 'outcome'), mk('dev', 'end', 'outcome'),
+        ...qs.flatMap((q) => [mk('dev', q, 'ask', '질문'), mk(q, 'dev', 'returnTo', '돌아가기')]),
+      ],
+    )
+    const l = layoutOf(g)
+    const others = l.edges.filter((e) => !e.side && (e.from === 'dev' || e.to === 'dev'))
+    expect(others.length).toBeGreaterThan(0)
+    for (const e of others) {
+      const [a, b] = e.to === 'dev' ? [e.points[e.points.length - 2], e.points[e.points.length - 1]] : [e.points[1], e.points[0]]
+      expect(Math.abs(a.x - b.x), `${e.from}->${e.to}`).toBeLessThan(0.5)
+    }
+  })
+
+  it('sideAsk_aiDevFlow_expanded', () => {
+    const g = aiDevGraph()
+    const l = layoutOf(g)
+    const qKeys = questionNodeKeys(g)
+    let checked = 0
+    for (const q of qKeys) {
+      const askers = new Set(g.edges.filter((e) => e.to === q && e.kind === 'ask').map((e) => e.from))
+      if (askers.size !== 1) continue
+      const asker = [...askers][0]
+      if (qKeys.has(asker) || !l.positions.has(asker)) continue
+      checked++
+      expect(Math.abs(box(l, q).cy - box(l, asker).cy), q).toBeLessThan(0.5)
+    }
+    expect(checked).toBeGreaterThan(0)
+    expect(findOverlaps(l)).toEqual([])
+  })
+  // --- 왕복 선·다른 선 끝점 보정(WP-2123 Task 2) ---
+  type Pt = { x: number; y: number }
+  const edgeOf = (l: GraphLayoutResult, from: string, to: string) => l.edges.find((e) => e.from === from && e.to === to)!
+  const rectOfKey = (l: GraphLayoutResult, key: string): Rect => {
+    const p = l.positions.get(key)!
+    const s = l.sizes.get(key)!
+    return { x: p.x, y: p.y, w: s.width, h: s.height }
+  }
+  /** 두 선분이 한 점 이상 겹치거나 교차하는지(끝점만 닿는 경우도 교차로 본다). */
+  function segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
+    const cross = (o: Pt, p: Pt, q: Pt) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x)
+    const d1 = cross(c, d, a)
+    const d2 = cross(c, d, b)
+    const d3 = cross(a, b, c)
+    const d4 = cross(a, b, d)
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true
+    const on = (p: Pt, q: Pt, r: Pt) => cross(p, q, r) === 0 && Math.min(p.x, q.x) <= r.x && r.x <= Math.max(p.x, q.x) && Math.min(p.y, q.y) <= r.y && r.y <= Math.max(p.y, q.y)
+    return on(c, d, a) || on(c, d, b) || on(a, b, c) || on(a, b, d)
+  }
+  const polylinesCross = (p: Pt[], q: Pt[]) => {
+    for (let i = 0; i + 1 < p.length; i++) for (let j = 0; j + 1 < q.length; j++) if (segmentsIntersect(p[i], p[i + 1], q[j], q[j + 1])) return true
+    return false
+  }
+  const labelRect = (e: { label: string; labelPos: Pt | null }): Rect => {
+    const w = labelWidth(e.label)
+    return { x: e.labelPos!.x - w / 2, y: e.labelPos!.y - 9, w, h: 18 }
+  }
+
+  it('sideAsk_edgesUseLeftRightHandles', () => {
+    const g = askGraph()
+    const l = layoutOf(g)
+    const ask = edgeOf(l, 'dev', 'q')
+    const ret = edgeOf(l, 'q', 'dev')
+    expect(drawnEdge(ask, l.positions, l)).toMatchObject({ sourceHandle: 's-right', targetHandle: 's-left', back: false })
+    expect(drawnEdge(ret, l.positions, l)).toMatchObject({ sourceHandle: 's-left', targetHandle: 's-right', back: false })
+  })
+
+  it('sideAsk_edgesParallelNotCrossing', () => {
+    const l = layoutOf(askGraph())
+    const dev = box(l, 'dev')
+    const q = box(l, 'q')
+    const ask = edgeOf(l, 'dev', 'q').points
+    const ret = edgeOf(l, 'q', 'dev').points
+    expect(ask[0].x).toBe(dev.right)
+    expect(ask[ask.length - 1].x).toBe(q.left)
+    expect(ret[0].x).toBe(q.left)
+    expect(ret[ret.length - 1].x).toBe(dev.right)
+    for (const pts of [ask, ret]) for (let i = 0; i + 1 < pts.length; i++) expect(pts[i].y).toBe(pts[i + 1].y)
+    expect(ask[0].y).toBeCloseTo(q.cy - 6, 5)
+    expect(ret[0].y).toBeCloseTo(q.cy + 6, 5)
+    expect(polylinesCross(ask, ret)).toBe(false)
+  })
+
+  it('sideAsk_labelsNotOverlapNodes', () => {
+    const l = layoutOf(askGraph())
+    expect(findOverlaps(l)).toEqual([])
+    const a = labelRect(edgeOf(l, 'dev', 'q'))
+    const r = labelRect(edgeOf(l, 'q', 'dev'))
+    expect(overlaps(a, r)).toBe(false)
+    // ask 라벨은 선 위, 돌아가기 라벨은 선 아래
+    expect(edgeOf(l, 'dev', 'q').labelPos!.y).toBeLessThan(edgeOf(l, 'dev', 'q').points[0].y)
+    expect(edgeOf(l, 'q', 'dev').labelPos!.y).toBeGreaterThan(edgeOf(l, 'q', 'dev').points[0].y)
+  })
+
+  it('sideAsk_otherEdgesSnapToAskerCenter', () => {
+    const l = layoutOf(askGraph())
+    const cx = (box(l, 'dev').left + box(l, 'dev').right) / 2
+    const into = edgeOf(l, 'start', 'dev').points
+    const out = edgeOf(l, 'dev', 'review').points
+    expect(Math.abs(into[into.length - 1].x - cx)).toBeLessThan(0.5)
+    expect(Math.abs(out[0].x - cx)).toBeLessThan(0.5)
+    // 끝점과 같은 x 였던 이웃 점도 함께 옮겨 기울어진 선이 생기지 않는다
+    if (into.length > 2 && Math.abs(into[into.length - 2].x - cx) < 20) expect(into[into.length - 2].x).toBeCloseTo(cx, 5)
+    if (out.length > 2 && Math.abs(out[1].x - cx) < 20) expect(out[1].x).toBeCloseTo(cx, 5)
+  })
+
+  /** 모든 간선이 양 끝이 아닌 노드 상자를 지나지 않고, 옆 질문 선은 묻는 노드·질문 노드 상자도 지나지 않는다. */
+  function crossingsOf(g: WorkflowGraph): string[] {
+    const view = visibleGraph(g, { showAsk: true })
+    const l = computeGraphLayout(view)
+    const keys = [...l.positions.keys()]
+    const bad: string[] = []
+    for (const e of l.edges) {
+      for (let i = 0; i + 1 < e.points.length; i++) {
+        for (const k of keys) {
+          // 양 끝 노드는 기존 규칙(routedPoints 검사)에 맡기고, 옆 질문 선은 양 끝도 포함해 검사한다
+          const isEnd = k === e.from || k === e.to
+          const side = (e.from === 'dev' || e.to === 'dev') && (e.label === '질문' || e.label === '돌아가기')
+          if (isEnd && !side) continue
+          if (segmentEntersRect(e.points[i], e.points[i + 1], rectOfKey(l, k))) bad.push(`${e.from}→${e.to} 선분 ${i} 이 ${k} 를 지남`)
+        }
+      }
+    }
+    return bad
+  }
+
+  it('sideAsk_noEdgeCrossesAskerOrQuestion', () => {
+    expect(crossingsOf(askGraph())).toEqual([])
+    expect(crossingsOf(askGraph(['q1', 'q2']))).toEqual([])
+    expect(findCrossingEdges(aiDevGraph(), true)).toEqual([])
+  })
+
+  it('sideAsk_stackedRoundTripsLeaveAskerWithinItsHeight', () => {
+    for (const qs of [['q1', 'q2'], ['q1', 'q2', 'q3']]) {
+      const l = layoutOf(askGraph(qs))
+      const dev = box(l, 'dev')
+      const lines: { name: string; pts: Pt[]; q: string }[] = []
+      for (const q of qs) {
+        const qb = box(l, q)
+        const ask = edgeOf(l, 'dev', q).points
+        const ret = edgeOf(l, q, 'dev').points
+        lines.push({ name: `ask ${q}`, pts: ask, q }, { name: `ret ${q}`, pts: ret, q })
+        // 묻는 노드 오른쪽 변에서 묻는 노드 높이 안으로 나가고 들어온다
+        expect(ask[0].x).toBe(dev.right)
+        expect(ask[0].y).toBeGreaterThanOrEqual(dev.top)
+        expect(ask[0].y).toBeLessThanOrEqual(dev.bottom)
+        expect(ret[ret.length - 1].x).toBe(dev.right)
+        expect(ret[ret.length - 1].y).toBeGreaterThanOrEqual(dev.top)
+        expect(ret[ret.length - 1].y).toBeLessThanOrEqual(dev.bottom)
+        expect(ask[ask.length - 1].x).toBe(qb.left)
+        expect(ret[0].x).toBe(qb.left)
+        // 가로-세로-가로 꺾음 — 모든 선분이 가로 또는 세로
+        for (const pts of [ask, ret]) for (let i = 0; i + 1 < pts.length; i++) expect(pts[i].x === pts[i + 1].x || pts[i].y === pts[i + 1].y).toBe(true)
+      }
+      // 같은 질문의 두 선뿐 아니라 서로 다른 질문의 선끼리도 교차·겹침이 없다
+      for (let i = 0; i < lines.length; i++) {
+        for (let j = i + 1; j < lines.length; j++) {
+          // 같은 노드에서 같은 줄로 시작하는 한 점(묻는 노드 쪽 끝점)은 서로 달라야 한다
+          expect(polylinesCross(lines[i].pts, lines[j].pts), `${lines[i].name} x ${lines[j].name}`).toBe(false)
+        }
+      }
+      expect(crossingsOf(askGraph(qs))).toEqual([])
+    }
   })
 })
