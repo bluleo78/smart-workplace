@@ -71,7 +71,7 @@ export function MobileClosedEpicsFooter({
                 className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1')}
               >
                 <EpicColorDot epic={ep} className={CLOSED_EPIC_DIM} />
-                <span className={cn('min-w-0 flex-1 truncate', closedEpicTitleClass(ep.status, selected))}>
+                <span className={cn('min-w-0 flex-1 truncate', closedEpicTitleClass(ep.status, selected, false))}>
                   {ep.title}
                 </span>
                 <ClosedStatusBadge status={ep.status} />

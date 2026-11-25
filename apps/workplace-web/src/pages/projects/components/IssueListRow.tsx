@@ -14,7 +14,7 @@ import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
-import { issueClosedTitleClass } from '../../../lib/issueClosedTitle';
+import { CLOSED_TITLE_HOVER_DECORATION, issueClosedTitleClass } from '../../../lib/issueClosedTitle';
 import { isDirectEpicParent } from '../../../lib/issueGrouping';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
@@ -183,7 +183,7 @@ export const IssueRow = memo(function IssueRow({
                   'min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring @max-[14rem]:min-w-0',
                   issueClosedTitleClass(it.status),
                   // 제목 링크에 밑줄이 생겨도 취소 삭선이 덮이지 않도록 두 장식을 함께 적용한다.
-                  'hover:[&.line-through]:[text-decoration-line:underline_line-through]',
+                  CLOSED_TITLE_HOVER_DECORATION,
                 )}
               >
                 {it.title}

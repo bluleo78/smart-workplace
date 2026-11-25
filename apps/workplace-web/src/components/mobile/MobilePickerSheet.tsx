@@ -16,6 +16,8 @@ export interface PickerOption {
   icon?: ReactNode;
   /** 오른쪽 보조 정보(개수·진행률 등). */
   hint?: ReactNode;
+  /** 이름 글자에 더할 클래스 — 끝난 에픽의 흐림·삭선처럼 행마다 이름 모양이 다를 때(WP-2101). */
+  labelClassName?: string;
   /** 행 끝 「›」 보조 버튼(예: 에픽 상세 열기, WP-227) — 행 탭(선택)과 별개로 동작한다. 누르면 시트를 닫고 실행. */
   detail?: { label: string; onOpen: () => void };
 }
@@ -98,7 +100,7 @@ export function MobilePickerSheet({
               className={cn(MOBILE_SHEET_ROW, wrapLabels && 'py-2', hasDetail && 'min-w-0 flex-1', selected && !hasDetail && SELECTED_ROW_CLASS)}
             >
               {o.icon}
-              <span className={cn('min-w-0 flex-1', wrapLabels ? 'line-clamp-2 wrap-break-word break-keep' : 'truncate')}>{o.label}</span>
+              <span className={cn('min-w-0 flex-1', wrapLabels ? 'line-clamp-2 wrap-break-word break-keep' : 'truncate', o.labelClassName)}>{o.label}</span>
               {/* hint 는 선택 줄(font-semibold)에서도 보통 굵기 — 굵기가 바뀌면 ch 폭이 달라져 줄마다 위치가 어긋난다. */}
               {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
               {selected ? <Check className="text-primary" aria-hidden /> : reserveCheck && <span className="size-5 shrink-0" aria-hidden />}

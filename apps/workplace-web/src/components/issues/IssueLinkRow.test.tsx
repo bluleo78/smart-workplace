@@ -20,6 +20,37 @@ const link = {
   type: { id: 1, name: 'BUG', colorToken: 'RED', icon: 'Bug' } as const,
 }
 
+// WP-2101 — 관계·차단 줄의 끝난 이슈 제목은 목록·카드와 같은 규칙(WP-2099)으로 흐리게, 취소는 삭선까지.
+describe('IssueLinkRow — 끝난 이슈 제목 흐림·삭선', () => {
+  beforeEach(() => {
+    coarse.value = false
+  })
+
+  const titleLink = (status: string) => {
+    renderWithProviders(<IssueLinkRow projectKey="WP" link={{ ...link, status, statusName: undefined }} />)
+    return screen.getByRole('link', { name: link.title })
+  }
+
+  it('완료 줄은 흐리고 호버 때 원래 색이며 삭선은 없다', () => {
+    const a = titleLink('DONE')
+    expect(a).toHaveClass('text-muted-foreground', 'group-hover:text-foreground')
+    expect(a).not.toHaveClass('line-through')
+  })
+
+  it('취소 줄은 흐리고 삭선도 있다', () => {
+    const canceled = titleLink('CANCELED')
+    expect(canceled).toHaveClass('text-muted-foreground', 'group-hover:text-foreground', 'line-through')
+    // 호버 밑줄이 삭선을 덮지 않게 둘을 함께 그리는 규칙이 붙는다
+    expect(canceled).toHaveClass('hover:[&.line-through]:[text-decoration-line:underline_line-through]')
+  })
+
+  it('열린 줄은 흐리지도 삭선되지도 않는다', () => {
+    const a = titleLink('TODO')
+    expect(a).not.toHaveClass('text-muted-foreground')
+    expect(a).not.toHaveClass('line-through')
+  })
+})
+
 describe('IssueLinkRow — 상태 표시', () => {
   beforeEach(() => {
     coarse.value = false

@@ -16,8 +16,10 @@ import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu';
 import { IconHint } from '@/components/overlay/IconHint';
 import { Button } from '@/components/ui/button';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { CLOSED_TITLE_HOVER_DECORATION, issueClosedTitleClass } from '@/lib/issueClosedTitle';
 import { statusLabel } from '@/lib/issueGrouping';
 import { relatedIssueKey } from '@/lib/issueRelations';
+import { cn } from '@/lib/utils';
 
 import type { IssueStatus } from '../../types/issue';
 import type { IssueTypeSummary } from '../../types/issueType';
@@ -84,7 +86,9 @@ export function IssueLinkRow({
       <span className="shrink-0 font-mono text-xs text-muted-foreground">{displayKey}</span>
       <Link
         to={`/projects/${projectKey}/issues/${link.number}`}
-        className="min-w-0 flex-1 truncate hover:underline"
+        // 완료·취소 이슈는 제목을 흐리게(취소는 삭선까지) — li 의 group 으로 호버 때 원래 색(WP-2099 표시 규칙, WP-2101).
+        // hover:underline 이 삭선을 덮지 않게 취소 제목은 호버 때 밑줄·삭선을 함께 둔다(목록 행 IssueListRow 와 같은 규칙).
+        className={cn('min-w-0 flex-1 truncate hover:underline', CLOSED_TITLE_HOVER_DECORATION, issueClosedTitleClass(link.status))}
         // 레일이 좁아 제목이 자주 잘린다 — 마우스를 올리면 전체 제목.
         title={link.title}
       >

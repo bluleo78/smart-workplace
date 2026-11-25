@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { failedWithoutData } from '@/lib/queryFailure';
+import { cn } from '@/lib/utils';
 
 import { issuesApi } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
@@ -34,6 +35,7 @@ import { projectOverviewKey } from '../../../hooks/queries/useProjectOverview';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
+import { CLOSED_TITLE_HOVER_DECORATION, issueClosedTitleClass } from '../../../lib/issueClosedTitle';
 import { isClosedStatus } from '../../../lib/issueGrouping';
 import { formatIssueKey } from '../../../lib/issueKey';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
@@ -78,7 +80,8 @@ function ChildRow({ it, projectKey }: { it: IssueResponse; projectKey: string })
   const issueKey = formatIssueKey(childKey, it.number);
   return (
     <li
-      className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
+      // group: 끝난 하위 제목이 행에 마우스를 올리면 원래 색으로 돌아오게 한다(group-hover, WP-2099 표시 규칙).
+      className="group flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
       data-testid={otherProject ? `child-row-${issueKey}` : `child-row-${it.number}`}
     >
       <span className="text-muted-foreground">└</span>
@@ -89,7 +92,9 @@ function ChildRow({ it, projectKey }: { it: IssueResponse; projectKey: string })
       </span>
       <Link
         to={`/projects/${childKey}/issues/${it.number}`}
-        className="min-w-0 flex-1 truncate hover:underline"
+        // 완료·취소 하위는 목록·카드와 같이 제목을 흐리게(취소는 삭선까지) — 상태 범주로만 정한다(WP-2101).
+        // hover:underline 이 삭선을 덮지 않게 취소 제목은 호버 때 밑줄·삭선을 함께 둔다(목록 행 IssueListRow 와 같은 규칙).
+        className={cn('min-w-0 flex-1 truncate hover:underline', CLOSED_TITLE_HOVER_DECORATION, issueClosedTitleClass(it.status))}
       >
         {it.title}
       </Link>

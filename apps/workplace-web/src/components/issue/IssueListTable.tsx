@@ -7,7 +7,7 @@ import { Fragment } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { EMPTY_GLYPH, formatListDueDate } from '@/lib/formatters'
-import { issueClosedTitleClass } from '@/lib/issueClosedTitle'
+import { CLOSED_TITLE_HOVER_DECORATION, issueClosedTitleClass } from '@/lib/issueClosedTitle'
 import { isOverdue } from '@/lib/issueOverdue'
 import { LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS } from '@/lib/listStyles'
 import { splitByProject } from '@/lib/projectRuns'
@@ -106,7 +106,7 @@ function IssueTableRow({ it, tid, showAssignee }: { it: IssueResponse; tid: stri
                 'min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 issueClosedTitleClass(it.status),
                 // 취소 삭선이 hover 밑줄에 덮이지 않도록 두 장식을 함께 적용한다.
-                'hover:[&.line-through]:[text-decoration-line:underline_line-through]',
+                CLOSED_TITLE_HOVER_DECORATION,
               )}
             >
               {it.title}
