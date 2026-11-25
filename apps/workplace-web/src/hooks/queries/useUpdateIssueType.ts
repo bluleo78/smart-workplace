@@ -23,12 +23,20 @@ export function useUpdateIssueType(
       parentNumber,
       parentKey,
       relateToReleasedParent,
+      convertSubtasksToTypeId,
     }: {
       typeId: number;
       parentNumber?: number;
       parentKey?: string;
       relateToReleasedParent?: boolean;
-    }) => updateIssueTypeOf(projectKey, issueNumber, typeId, parentNumber, { parentKey, relateToReleasedParent }),
+      // 에픽으로 바꿀 때 딸린 하위 태스크를 바꿀 유형(WP-2098).
+      convertSubtasksToTypeId?: number;
+    }) =>
+      updateIssueTypeOf(projectKey, issueNumber, typeId, parentNumber, {
+        parentKey,
+        relateToReleasedParent,
+        convertSubtasksToTypeId,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });

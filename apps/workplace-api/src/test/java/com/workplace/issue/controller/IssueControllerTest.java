@@ -258,6 +258,26 @@ class IssueControllerTest extends WebMvcSliceTestBase {
         .andExpect(status().isBadRequest());
   }
 
+  /** WP-2098 — 하위 태스크가 달린 이슈를 에픽으로 바꾸는데 변환 유형이 없으면 400 + code·issueKeys 를 싣는다. */
+  @Test
+  void updateType_subtask_conversion_required_returns_code_and_keys() throws Exception {
+    mockAuthentication("issue:write");
+    when(issueService.setType(anyLong(), eq("WP"), eq(1), eq(9L), any(), any(), eq(false), any()))
+        .thenThrow(
+            new com.workplace.issue.exception.SubtaskConversionRequiredException(
+                List.of("WP-3", "WP-4", "WP-5")));
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP/issues/1/type")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("typeId", 9))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("SUBTASK_CONVERT_REQUIRED"))
+        .andExpect(jsonPath("$.errors.issueKeys").value("WP-3,WP-4,WP-5"));
+  }
+
   /**
    * 5단계(WP-886) 밖의 우선순위(FOO·URGENT·소문자)는 생성·수정 모두 서비스에 닿기 전에 400 이다. 새 두 단계가 DB 까지 통과하는지는
    * IssuePriorityFiveLevelsTest(실 DB)가 지킨다.

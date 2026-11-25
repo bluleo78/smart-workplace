@@ -87,6 +87,16 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/type', { typeId: 2 });
   });
 
+  it('WP-2098: setIssueType 의 convertSubtasksToTypeId 는 본문에 그 필드로 싣고, 안 주면 키 자체를 싣지 않는다', async () => {
+    const { http, client } = mockHttp();
+    await client.setIssueType('WP-12', 5, undefined, { convertSubtasksToTypeId: 1 });
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/type', { typeId: 5, convertSubtasksToTypeId: 1 });
+    expect('convertSubtasksToTypeId' in vi.mocked(http.patch).mock.lastCall![1]).toBe(true);
+
+    await client.setIssueType('WP-12', 5);
+    expect(vi.mocked(http.patch).mock.lastCall![1]).not.toHaveProperty('convertSubtasksToTypeId');
+  });
+
   it('updateIssueContent 는 이슈 경로로 PATCH', async () => {
     const { http, client } = mockHttp();
     await client.updateIssueContent('WP-12', { title: 't' });

@@ -717,6 +717,28 @@ describe('buildSharedIssueTools', () => {
     expect(plain).toEqual({ ok: true, results: { type: 'ok' } });
   });
 
+  it('WP-2098: update_issue 는 convertSubtasksToType 이름을 type 과 같이 id 로 바꿔 setIssueType 옵션으로 보낸다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    // 프로젝트 유형 목록에 EPIC(1)·TASK(3)을 둬서 이름 → id 변환이 type 과 같은 경로인지 본다.
+    vi.mocked(c.getProjectTypes).mockResolvedValue([
+      { id: 1, name: 'EPIC' },
+      { id: 3, name: 'TASK' },
+    ]);
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', type: 'EPIC', convertSubtasksToType: 'TASK' })));
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 1, undefined, { convertSubtasksToTypeId: 3 });
+    expect(out).toEqual({ ok: true, results: { type: 'ok' } });
+
+    // 없는 유형 이름이면 type 과 같은 오류로 실패하고 아무것도 쓰지 않는다.
+    vi.mocked(c.setIssueType).mockClear();
+    await expect(t.handler({ issueKey: 'WP-12', type: 'EPIC', convertSubtasksToType: '없는유형' })).rejects.toThrow();
+    expect(c.setIssueType).not.toHaveBeenCalled();
+
+    // type 없이 주면 무시한다(오류 없음, 유형 요청도 없다).
+    await t.handler({ issueKey: 'WP-12', convertSubtasksToType: 'TASK' });
+    expect(c.setIssueType).not.toHaveBeenCalled();
+  });
+
   it('WP-394: update_issue 는 담당자 이름이 틀리면 라벨을 포함해 아무것도 쓰지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

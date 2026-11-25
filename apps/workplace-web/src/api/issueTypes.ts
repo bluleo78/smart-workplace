@@ -52,14 +52,20 @@ export async function updateIssueTypeOf(
   number: number,
   typeId: number,
   parentNumber?: number,
-  opts?: { parentKey?: string; relateToReleasedParent?: boolean },
+  opts?: { parentKey?: string; relateToReleasedParent?: boolean; convertSubtasksToTypeId?: number },
 ): Promise<IssueDetailResponse> {
-  const body: { typeId: number; parentNumber?: number; parentKey?: string; relateToReleasedParent?: boolean } = {
-    typeId,
-  };
+  const body: {
+    typeId: number;
+    parentNumber?: number;
+    parentKey?: string;
+    relateToReleasedParent?: boolean;
+    convertSubtasksToTypeId?: number;
+  } = { typeId };
   if (parentNumber !== undefined) body.parentNumber = parentNumber;
   if (opts?.parentKey !== undefined) body.parentKey = opts.parentKey;
   if (opts?.relateToReleasedParent !== undefined) body.relateToReleasedParent = opts.relateToReleasedParent;
+  // convertSubtasksToTypeId(WP-2098): 에픽으로 바꿀 때 딸린 하위 태스크를 이 유형으로 함께 바꾼다.
+  if (opts?.convertSubtasksToTypeId !== undefined) body.convertSubtasksToTypeId = opts.convertSubtasksToTypeId;
   const { data } = await client.patch<IssueDetailResponse>(`/projects/${projectKey}/issues/${number}/type`, body);
   return data;
 }

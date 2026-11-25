@@ -14,6 +14,7 @@ import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.IssueRelationException;
 import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
+import com.workplace.issue.exception.SubtaskConversionRequiredException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.repository.IssueHistoryRepository;
@@ -288,7 +289,7 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
         new CreateIssueRequest("sub", null, null, null, null, subId, story.number(), null));
 
     assertThatThrownBy(() -> issueService.setType(owner, p.key(), story.number(), epicId))
-        .isInstanceOf(SubtaskParentCannotBeEpicException.class);
+        .isInstanceOf(SubtaskConversionRequiredException.class);
 
     // 거부 후 원래 유형 그대로 유지되어야 한다(변경 없음).
     var unchanged = issueRepository.findById(story.id()).orElseThrow();

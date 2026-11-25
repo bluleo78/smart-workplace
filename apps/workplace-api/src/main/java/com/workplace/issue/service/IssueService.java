@@ -43,6 +43,7 @@ import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.RequestedStatusNotFoundException;
+import com.workplace.issue.exception.SubtaskConversionRequiredException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.outbound.IssueAssigneesReplacedEvent;
@@ -82,6 +83,8 @@ import com.workplace.version.repository.VersionRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -1507,6 +1510,32 @@ public class IssueService {
       Integer parentNumber,
       String parentKey,
       boolean relateToReleasedParent) {
+    return setType(
+        callerId,
+        projectKey,
+        number,
+        newTypeId,
+        parentNumber,
+        parentKey,
+        relateToReleasedParent,
+        null);
+  }
+
+  /**
+   * {@link #setType(Long, String, int, Long, Integer, String, boolean)} 에 하위 태스크 일괄 변환 옵션(WP-2098)을
+   * 더한 것 — 하위 태스크가 달린 이슈를 에픽으로 바꿀 때 convertSubtasksToTypeId(이 프로젝트의 EPIC·SUBTASK 가 아닌 유형)를 주면 그 하위
+   * 태스크들을 그 유형으로 먼저 바꾼 뒤 에픽이 된다. 같은 트랜잭션이라 하나라도 못 바꾸면 전부 되돌아간다. 옵션 없이 하위 태스크가 있으면 {@link
+   * SubtaskConversionRequiredException}.
+   */
+  public IssueDetailResponse setType(
+      Long callerId,
+      String projectKey,
+      int number,
+      Long newTypeId,
+      Integer parentNumber,
+      String parentKey,
+      boolean relateToReleasedParent,
+      Long convertSubtasksToTypeId) {
     var project = accessGuard.assertMember(projectKey, callerId);
     ParentTarget parentTarget = ParentTarget.of(parentNumber, parentKey, project.key());
     // 행을 잠근 채 읽는다(setParent 와 같은 이유).
@@ -1566,6 +1595,12 @@ public class IssueService {
       } else if (!"EPIC".equals(newType.name()) && !parentIsEpic) {
         throw new ParentNotAllowedException();
       }
+    }
+
+    // WP-2098 에픽으로 바꾸는데 하위 태스크 자식이 있으면, 옵션이 없을 땐 막고 있을 땐 먼저 일반 유형으로 바꾼다.
+    // 아래 자식 검증이 변환 뒤 자식을 다시 읽으므로, 변환에서 놓친 하위 태스크가 있어도 그대로 걸러진다.
+    if ("EPIC".equals(newType.name())) {
+      convertSubtaskChildren(callerId, project, issue, convertSubtasksToTypeId);
     }
 
     // 최종 리뷰 발견사항 1 — 이 이슈의 활성 자식들이 새 유형 아래에서도 유효한지 검증한다(Case A, C).
@@ -1638,6 +1673,85 @@ public class IssueService {
             ? releasedParentKeyOf(oldParentRow)
             : null;
     return get(callerId, projectKey, number).withReleasedParentKey(releasedParentKey);
+  }
+
+  /**
+   * 에픽 전환 전 하위 태스크 자식을 정리한다(WP-2098) — 하위 태스크 자식이 없으면 아무것도 하지 않는다. 있으면 convertTypeId 가 없을 때 {@link
+   * SubtaskConversionRequiredException}(번호 순 키 전체), 있으면 그 유형(이 프로젝트의 EPIC·SUBTASK 가 아닌 유형)으로 바꾼다.
+   * 하위 태스크가 다른 프로젝트에 있으면 그 프로젝트 멤버여야 하고, 같은 이름의 그 프로젝트 유형으로 바꾼다 — 없으면 400 으로 전체를 되돌린다. 상위 이슈는 그대로
+   * 둔다(유형만 바뀐다).
+   */
+  private void convertSubtaskChildren(
+      Long callerId, ProjectRow project, IssueRow issue, Long convertTypeId) {
+    // 대상 유형은 하위 태스크 유무와 상관없이 먼저 본다 — 하위 태스크가 있을 때만 400 이면 같은 잘못된 요청이 이슈에 따라 200·400 으로 갈린다.
+    IssueTypeRow target = null;
+    if (convertTypeId != null) {
+      target =
+          typeRepository.findById(convertTypeId).orElseThrow(InvalidTypeForProjectException::new);
+      if (!target.projectId().equals(project.id())
+          || "EPIC".equals(target.name())
+          || "SUBTASK".equals(target.name())) {
+        throw new InvalidTypeForProjectException();
+      }
+    }
+    // 자식 행·유형을 묶어서 한 번씩 읽는다(자식마다 두 번 읽지 않게).
+    var children = issueRepository.findByIds(issueRepository.findActiveChildIds(issue.id()));
+    if (children.isEmpty()) return;
+    var childTypes =
+        typeRepository.findByIds(children.stream().map(IssueRow::typeId).distinct().toList());
+    var subtasks = new ArrayList<IssueRow>();
+    for (var child : children) {
+      var childType = childTypes.get(child.typeId());
+      if (childType != null && "SUBTASK".equals(childType.name())) subtasks.add(child);
+    }
+    if (subtasks.isEmpty()) return;
+    // 프로젝트가 섞여도 키 순서가 일정하도록 (프로젝트 키, 번호) 순으로 정렬한다.
+    var projectKeys = new HashMap<Long, String>();
+    for (var child : subtasks) {
+      projectKeys.computeIfAbsent(
+          child.projectId(),
+          pid -> projectRepository.findById(pid).map(ProjectRow::key).orElseThrow());
+    }
+    subtasks.sort(
+        Comparator.<IssueRow, Integer>comparing(c -> c.projectId().equals(project.id()) ? 0 : 1)
+            .thenComparing(c -> projectKeys.get(c.projectId()))
+            .thenComparing(IssueRow::number));
+    if (convertTypeId == null) {
+      // 읽을 수 없는 프로젝트의 하위 태스크 키는 드러내지 않고 개수로만 센다(releasedParentKey 와 같은 canRead 규칙).
+      var readable =
+          subtasks.stream().filter(c -> accessGuard.canRead(c.projectId(), callerId)).toList();
+      throw new SubtaskConversionRequiredException(
+          readable.stream().map(c -> projectKeys.get(c.projectId()) + "-" + c.number()).toList(),
+          subtasks.size() - readable.size());
+    }
+    for (var child : subtasks) {
+      // 변환 중 다른 요청이 같은 행을 바꾸지 못하게 잠근 뒤, 잠근 시점의 행을 다시 읽어 그 값으로 처리한다.
+      // 그 사이 지워졌거나 하위 태스크가 아니게 됐거나 상위가 바뀐 행은 건너뛴다(아래 자식 검증이 남은 자식을 다시 본다).
+      if (issueRepository.lockActiveByIdForUpdate(child.id()).isEmpty()) continue;
+      var fresh = issueRepository.findById(child.id()).orElse(null);
+      if (fresh == null || !issue.id().equals(fresh.parentIssueId())) continue;
+      var oldType = typeRepository.findById(fresh.typeId()).orElseThrow();
+      if (!"SUBTASK".equals(oldType.name())) continue;
+      boolean sameProject = child.projectId().equals(project.id());
+      var childProject =
+          sameProject
+              ? project
+              : accessGuard.assertMember(projectKeys.get(child.projectId()), callerId);
+      var childTarget =
+          sameProject
+              ? target
+              : typeRepository
+                  .findByProjectAndName(childProject.id(), target.name())
+                  .orElseThrow(InvalidTypeForProjectException::new);
+      issueRepository.updateType(child.id(), childTarget.id());
+      historyRecorder.recordTypeChanged(
+          callerId,
+          child.id(),
+          new IssueTypeSummary(oldType.id(), oldType.name(), oldType.colorToken(), oldType.icon()),
+          new IssueTypeSummary(
+              childTarget.id(), childTarget.name(), childTarget.colorToken(), childTarget.icon()));
+      changeNotifier.updatedWithoutTouch(childProject, child.number(), child.id(), callerId);
+    }
   }
 
   /**

@@ -23,6 +23,8 @@ import {
 } from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CHILDREN_PAGE_SIZE } from '@/lib/fetchAllChildren';
+import { convertTargetTypes } from '@/lib/issueTypeSubtaskConvert';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { failedWithoutData } from '@/lib/queryFailure';
 import { cn } from '@/lib/utils';
@@ -42,9 +44,6 @@ import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
 import type { ChildrenState, IssueResponse } from '../../../types/issue';
 import { IssueStatusBadge } from './IssueStatusBadge';
-
-/** 하위 목록 한 페이지 크기 — 예전 하위 태스크 검색과 같은 100건(WP-1684). */
-const CHILDREN_PAGE_SIZE = 100;
 
 /**
  * 하위 목록 한 갈래(열린/끝난)를 100건씩 받는 무한 조회(WP-1684).
@@ -145,9 +144,7 @@ export function IssueChildrenSection({
   const subtaskTypeId =
     (types.data ?? []).find((t) => t.name === 'SUBTASK')?.id ?? null;
   // EPIC 부모 — 하위 이슈로 선택 가능한 유형(SUBTASK/EPIC 제외, 2단 초과 금지).
-  const epicChildTypes = (types.data ?? []).filter(
-    (t) => t.name !== 'SUBTASK' && t.name !== 'EPIC',
-  );
+  const epicChildTypes = convertTargetTypes(types.data ?? []);
   const [epicChildTypeId, setEpicChildTypeId] = useState<number | null>(null);
 
   // EPIC 유형 목록 로드 시 첫 항목(TASK 우선 정렬) 기본 선택.

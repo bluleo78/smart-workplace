@@ -317,7 +317,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         LINK_RULE_AUTOLINK,
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, status, type, parent, relateToReleasedParent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, relateToReleasedParent, convertSubtasksToType, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -325,7 +325,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
         const parentRef = parent === undefined || parent === null ? parent : parentRefOf(parent, projectKey);
         // WP-2097: 옵션은 줬을 때만 setIssueType 에 넘긴다 — 안 주면 인자 자리도 비워 기존 호출(3개 인자)과 똑같이 보낸다.
-        const typeOpts = relateToReleasedParent === undefined ? undefined : { relateToReleasedParent };
+        // WP-2098: 하위 태스크 함께 바꾸기 — 유형 이름을 type 과 같게 id 로 바꿔 옵션에 싣는다(쓰기 전, 아래 Promise.all 앞에서 따로 한 번 조회). type 없이 오면 무시한다.
+        const convertSubtasksToTypeId =
+          type && convertSubtasksToType ? await resolveTypeId(client, projectKey, convertSubtasksToType) : undefined;
+        const typeOpts =
+          relateToReleasedParent === undefined && convertSubtasksToTypeId === undefined
+            ? undefined
+            : {
+                ...(relateToReleasedParent === undefined ? {} : { relateToReleasedParent }),
+                ...(convertSubtasksToTypeId === undefined ? {} : { convertSubtasksToTypeId }),
+              };
         const fieldEntries = fields ? Object.entries(fields) : [];
         //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
         const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
