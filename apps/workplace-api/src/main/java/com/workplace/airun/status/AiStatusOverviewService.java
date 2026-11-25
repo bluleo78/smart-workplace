@@ -126,7 +126,9 @@ public class AiStatusOverviewService {
                 latest.map(p -> new Slot(p.raw().slotUsed(), p.raw().slotLimit())).orElse(null),
                 prevEnd == null
                     ? null
-                    : new Slot(prevEnd.raw().slotUsed(), prevEnd.raw().slotLimit())));
+                    : new Slot(prevEnd.raw().slotUsed(), prevEnd.raw().slotLimit())),
+            cur.limited(),
+            repo.limitedCredentials(from, now));
 
     List<KindTotals> kindCur = repo.kindTotals(from, now);
     List<KindTotals> kindPrev = repo.kindTotals(prevFrom, from);
@@ -324,7 +326,8 @@ public class AiStatusOverviewService {
               t.outputTokens(),
               k.lastFailureAt() == null
                   ? null
-                  : new LastFailure(k.lastFailureAt(), k.lastFailureReason())));
+                  : new LastFailure(k.lastFailureAt(), k.lastFailureReason()),
+              t.limited()));
     }
     if (d.count() > 0) {
       rows.add(
@@ -336,7 +339,8 @@ public class AiStatusOverviewService {
               ms(d.p95()),
               null,
               null,
-              null));
+              null,
+              0));
     }
     rows.sort(
         Comparator.comparing(

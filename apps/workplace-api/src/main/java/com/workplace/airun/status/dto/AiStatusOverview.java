@@ -48,14 +48,21 @@ public record AiStatusOverview(
   /** 작업 칸 사용(최근 표본, 없으면 null 두 개). */
   public record Slot(Integer used, Integer limit) {}
 
-  /** 지표 6종. */
+  /**
+   * 지표 6종 + 사용 한도 초과.
+   *
+   * @param limited 현재 기간에 사용 한도 초과(provider_limit)로 끝난 건수 — failureRate 에서는 빠진다
+   * @param limitedCredentials 한도 초과가 난 자격 증명 라벨(최근 순·중복 없음·최대 3)
+   */
   public record Metrics(
       Pair<Long> runCount,
       Pair<Tokens> tokens,
       Pair<Double> failureRate,
       Pair<Latency> responseTime,
       Pair<Wait> waitTime,
-      Pair<Slot> slotUsage) {}
+      Pair<Slot> slotUsage,
+      long limited,
+      List<String> limitedCredentials) {}
 
   /** 처리량 한 칸(토큰 합·건수). */
   public record Cell(Long tokens, Long count) {}
@@ -89,7 +96,7 @@ public record AiStatusOverview(
   /** 종류별 마지막 실패. */
   public record LastFailure(Instant at, String reason) {}
 
-  /** 종류별 표 한 행(토큰·실패율 등이 없으면 null). */
+  /** 종류별 표 한 행(토큰·실패율 등이 없으면 null). limited 는 사용 한도 초과 건수(실패율에서 빠진 것). */
   public record KindRow(
       String kind,
       long count,
@@ -98,7 +105,8 @@ public record AiStatusOverview(
       Long p95,
       Long inputTokens,
       Long outputTokens,
-      LastFailure lastFailure) {}
+      LastFailure lastFailure,
+      long limited) {}
 
   /** 계정 한 줄의 현재 사용률과 초기화 시각. */
   public record AccountUsage(
