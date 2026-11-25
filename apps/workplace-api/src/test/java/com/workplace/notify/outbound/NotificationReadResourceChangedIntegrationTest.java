@@ -2,6 +2,7 @@ package com.workplace.notify.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
@@ -10,12 +11,15 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.chat.service.ChatFixtures;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.UserAudienceResolver;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,7 +61,9 @@ class NotificationReadResourceChangedIntegrationTest extends ExternalClientMocke
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    verify(registry, timeout(2000)).fanOut(ids.capture(), eq("resource.changed"), any());
+    // WP-2117: 이 수신자의 알림 변경 호출만 잡는다(assigneeNotificationChange). 수신자 집합은 containsExactly 로 확인한다.
+    verify(registry, timeout(2000))
+        .fanOut(ids.capture(), eq("resource.changed"), assigneeNotificationChange());
     assertThat(ids.getValue()).containsExactly(s.assigneeId());
   }
 
@@ -66,6 +72,21 @@ class NotificationReadResourceChangedIntegrationTest extends ExternalClientMocke
   void markAllRead_noop_whenNothingToRead() {
     clearInvocations(registry);
     assertThat(service.markAllRead(s.assigneeId())).isZero();
-    verify(registry, after(500).never()).fanOut(any(), eq("resource.changed"), any());
+    // WP-2117: 이 수신자의 알림 변경만 본다(assigneeNotificationChange).
+    verify(registry, after(500).never())
+        .fanOut(any(), eq("resource.changed"), assigneeNotificationChange());
+  }
+
+  /**
+   * 이 테스트 수신자의 알림 변경 payload 매처 (WP-2117) — resource=notification, USER 스코프 scopeId=수신자. 공유 mock
+   * registry 에 섞이는 다른 테스트의 늦은 발행이나 같은 사람에게 가는 다른 리소스의 resource.changed 를 제외한다.
+   */
+  private Map<String, Object> assigneeNotificationChange() {
+    return argThat(
+        (Map<String, Object> p) ->
+            p != null
+                && NotificationChangeNotifier.RESOURCE_NOTIFICATION.equals(p.get("resource"))
+                && UserAudienceResolver.SCOPE.equals(p.get("scopeType"))
+                && Objects.equals(s.assigneeId(), p.get("scopeId")));
   }
 }
