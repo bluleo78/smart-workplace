@@ -44,6 +44,15 @@ export function hasOpenMark(state: unknown, key: string): boolean {
   return typeof asState(state)?.[markKey(key)] === 'number'
 }
 
+/**
+ * 어느 화면이든 「열기」(push)로 연 항목인가 — 키를 모르는 쪽이 state 에 열림 마크가 하나라도 있는지 본다.
+ * 같은 주소에 표식만 단 시트·오버레이 push(state 모드)를 링크로 같은 주소에 다시 들어온 push 와 가를 때 쓴다(WP-2083 — 이슈 목록 기억).
+ */
+export function hasAnyOpenMark(state: unknown): boolean {
+  const prefix = markKey('')
+  return Object.entries(asState(state) ?? {}).some(([k, v]) => k.startsWith(prefix) && typeof v === 'number')
+}
+
 /** URLSearchParams → location.search 문자열(비면 '' — `?` 만 남지 않게). */
 export function toSearch(params: URLSearchParams): string {
   const s = params.toString()

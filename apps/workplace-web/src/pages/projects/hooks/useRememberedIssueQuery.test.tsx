@@ -1,32 +1,35 @@
 // useRememberedIssueQuery(WP-1035) — 프로젝트 이슈 화면의 필터·보기·그룹 기억과 되살리기 규칙을 지킨다.
 // 무엇을: 주소에 조건이 없을 때만 되살림·주소 조건 우선과 기억 갱신·화면 안에서 조건을 모두 지우면 기억도 지움·
 //        같은 프로젝트 링크로 다시 들어오면 되살림·앱의 다른 replace(AI 대화 링크·모바일 뒤로 가기)로 들어와도 되살림·
-//        프로젝트·사용자별 분리·목록 열과 다른 쿼리는 기억하지 않음.
+//        프로젝트·사용자별 분리·목록 열과 다른 쿼리는 기억하지 않음·알 수 없는 값을 지운 목록은 같은 화면의 이동(replace·시트 표식 PUSH·시트 닫는 POP·aiChat PUSH)에 그대로임.
 // 왜: 조건은 URL 이 단일 원본이라, 되살리기가 주소의 조건을 덮으면 공유 링크·에픽 링크가 엉뚱한 조건으로 열린다.
 import { act, render, renderHook, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { AuthContext } from '@/hooks/auth-context-value'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { settleHistory } from '@/test/history'
 import { memoryStorage } from '@/test/memoryStorage'
 import { testAuthValue } from '@/test/renderWithProviders'
 
-import { rememberedIssueQuery, useRememberedIssueQuery } from './useRememberedIssueQuery'
+import { IGNORED_CLEARED_STATE, rememberedIssueQuery, useRememberedIssueQuery } from './useRememberedIssueQuery'
 
-// AI 대화 링크가 기대는 패널·대화 세션 — 열기 동작은 이 테스트의 관심 밖이라 끊는다.
+// AI 대화 링크가 기대는 패널·대화 세션 — 패널 열기는 끊고, 대화 열기(openSession)는 불렸는지만 본다(대화 링크 처리가 덮이지 않았는지).
+const openSession = vi.hoisted(() => vi.fn((id: string) => Promise.resolve(id ? 'ok' : 'not-found')))
 vi.mock('@/components/ai/AIAssistantContext', () => ({ useAssistant: () => ({ mode: 'side', open: vi.fn() }) }))
 vi.mock('@/hooks/chat-session-context', () => ({
-  useChatSessionContext: () => ({ openSession: vi.fn(() => Promise.resolve('ok')) }),
+  useChatSessionContext: () => ({ openSession }),
 }))
 
 // 테스트 사용자(id 1)·워크스페이스(1)의 저장 키 — userScopedKey 규칙 `<base>:<userId>:<tenantId>`.
 const keyOf = (project: string) => `issue-list-query:${project}:1:1`
 
 /** @param withDeepLink 앱 셸(AppLayout)처럼 AI 대화 링크 처리기를 함께 띄운다 — 화면보다 바깥이라 effect 가 화면 뒤에 돈다. */
-function renderAt(url: string, project = 'WP', enabled = true, withDeepLink = false) {
+function renderAt(url: string | { pathname: string; search: string; state: unknown }, project = 'WP', enabled = true, withDeepLink = false) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthContext.Provider value={testAuthValue}>
       <MemoryRouter initialEntries={[url]}>
@@ -48,6 +51,9 @@ const searchOf = (r: { current: { location: { search: string } } }) => new URLSe
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage())
+  openSession.mockClear()
+  // 실제 세션 히스토리(BrowserRouter)를 쓰는 테스트가 남긴 항목·state(idx)를 걷는다 — 뒤 테스트의 모바일 뒤로 가기가 idx 를 읽는다.
+  window.history.replaceState(null, '', '/')
 })
 
 describe('rememberedIssueQuery', () => {
@@ -144,6 +150,174 @@ describe('useRememberedIssueQuery', () => {
     localStorage.setItem(keyOf('WP'), 'priority=NOPE&label=abc')
     const { result } = renderAt('/projects/WP')
     expect(result.current.location.search).toBe('')
+  })
+
+  describe('알 수 없는 필터 값(WP-2083)', () => {
+    it('기억이 있어도 알 수 없는 값만 든 주소는 되살리지 않고, 기억도 그대로 둔다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      expect(result.current.restoring).toBe(false)
+      expect(result.current.location.search).toBe('?status=BOGUS')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('기억이 없으면 알 수 없는 값만 든 주소로 기억을 만들지 않는다', () => {
+      renderAt('/projects/WP?status=BOGUS')
+      expect(localStorage.getItem(keyOf('WP'))).toBeNull()
+    })
+
+    it('알 수 없는 값을 지워 조건 없는 주소가 돼도(표지 state) 기억을 되살리지도 지우지도 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지우고 남은 조건이 있으면(표지 state) 그 조건을 기억한다', () => {
+      const { result } = renderAt('/projects/WP?priority=HIGH,BOGUS')
+      // 진입 때 쓴 기억을 되돌려 놓고, 지우기 뒤에 다시 쓰이는지 본다.
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      act(() => result.current.setParams(new URLSearchParams('priority=HIGH'), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('?priority=HIGH')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    })
+
+    it('지운 뒤 같은 화면에 상관없는 상태 없는 replace 가 와도 보이는 조건을 바꾸지 않고 기억도 지우지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      act(() => result.current.setParams((prev) => { prev.set('aiChat', '1'); return prev }, { replace: true }))
+      expect(searchOf(result)).toEqual(new URLSearchParams('aiChat=1'))
+      act(() => result.current.setParams((prev) => { prev.delete('aiChat'); return prev }, { replace: true }))
+      expect(result.current.location.search).toBe('')
+      expect(result.current.restoring).toBe(false)
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지운 뒤 AI 대화 링크(aiChat 을 replace 로 지움)가 와도 보이는 조건을 바꾸지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS', 'WP', true, true)
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      // AI 답 안의 대화 링크가 같은 화면 주소에 aiChat 을 replace 로 단다 → 처리기가 다시 replace 로 지운다.
+      act(() => result.current.setParams(new URLSearchParams('aiChat=bad'), { replace: true }))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지운 뒤 검색의 AI 대화 결과(지금 주소에 aiChat 만 더해 PUSH)로 와도 보이는 조건을 바꾸지 않고 대화 링크 처리를 덮지 않는다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS', 'WP', true, true)
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      // 검색 팔레트는 화면을 그대로 두고 지금 쿼리에 aiChat 만 더해 push 한다 → 처리기가 대화를 열고 replace 로 지운다.
+      act(() => result.current.navigate('/projects/WP?aiChat=11111111-1111-1111-1111-111111111111'))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+      // 처리기가 aiChat 을 지운 뒤 그 대화를 열었다 — 되살리기 replace 가 지우기를 덮었으면 열지 못한다.
+      expect(openSession).toHaveBeenCalledTimes(1)
+      expect(openSession).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
+    })
+
+    it('지운 뒤 history 표식을 PUSH 하는 시트(useHistoryParam state 모드)를 열고 닫아도 조건 없는 목록 그대로이고 표식도 지우지 않는다', async () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      // 시트 표식은 브라우저 history 를 읽으므로(useHistoryParam.snapshot) 실제 세션 히스토리(BrowserRouter)로 띄운다.
+      window.history.replaceState(null, '', '/projects/WP?status=BOGUS')
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <AuthContext.Provider value={testAuthValue}>
+          <BrowserRouter>{children}</BrowserRouter>
+        </AuthContext.Provider>
+      )
+      const { result } = renderHook(() => {
+        useRememberedIssueQuery('WP', true)
+        // 모바일 AI 시트(AIAssistantContext)·useSheetHistory 와 같은 state 모드 표식.
+        const sheet = useHistoryParam('aiOpen', { mode: 'state' })
+        return { sheet, location: useLocation(), setParams: useSearchParams()[1] }
+      }, { wrapper })
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('')
+      // 시트 열기 — 같은 주소에 표식만 단 PUSH.
+      act(() => result.current.sheet.open('1'))
+      expect(result.current.location.search).toBe('')
+      expect(result.current.sheet.value).toBe('1')
+      // 시트 닫기 — 표식 항목을 되돌리는 POP.
+      act(() => result.current.sheet.close())
+      await act(settleHistory)
+      expect(result.current.sheet.value).toBeNull()
+      expect(result.current.location.search).toBe('')
+      expect(window.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지운 뒤 같은 주소에 표식을 단 PUSH 와 그 항목을 닫는 뒤로(POP)에서도 조건 없는 목록 그대로다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      // 시트 열기와 같은 모양 — 지금 state 를 이어받고 값·열림 마크를 더한다(historyParam.planOpen).
+      act(() => result.current.navigate('/projects/WP', { state: { ...IGNORED_CLEARED_STATE, sheet: '1', 'historyParam:sheet': 1 } }))
+      expect(result.current.location.search).toBe('')
+      expect(result.current.location.state).toMatchObject({ sheet: '1' })
+      act(() => result.current.navigate(-1))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('표지가 남은 항목에서 state 를 이어받는 replace(AI 대화 링크 처리기)가 와도 표지를 다시 따르지 않고 기억을 되살린다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      // 표지가 history.state 에 남은 항목을 새로고침 — 주소에 대화 링크(aiChat)가 있어 처리기가 state 를 이어받아 replace 로 지운다.
+      const { result } = renderAt(
+        { pathname: '/projects/WP', search: '?aiChat=11111111-1111-1111-1111-111111111111', state: IGNORED_CLEARED_STATE },
+        'WP', true, true,
+      )
+      const s = searchOf(result)
+      expect(s.get('aiChat')).toBeNull()
+      expect(s.get('status')).toBe('TODO')
+    })
+
+    it('지운 뒤에도 같은 프로젝트 링크(PUSH)로 조건 없이 다시 들어오면 평소처럼 되살린다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      act(() => result.current.navigate('/projects/WP'))
+      expect(result.current.location.search).toBe('?status=TODO')
+    })
+
+    it('지운 뒤 화면에서 조건을 골랐다가 모두 지우면 평소처럼 기억도 지운다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      act(() => result.current.setParams(new URLSearchParams('priority=HIGH'), { replace: true }))
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true }))
+      expect(result.current.location.search).toBe('')
+      expect(localStorage.getItem(keyOf('WP'))).toBeNull()
+    })
+
+    it('표지가 history.state 에 남은 채 새로고침(POP 진입)하면 평소처럼 기억을 되살린다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      // 새로고침 = 같은 주소·같은 state 로 POP 진입(브라우저가 history.state 를 되돌려 준다).
+      const { result } = renderAt({ pathname: '/projects/WP', search: '', state: IGNORED_CLEARED_STATE })
+      expect(result.current.location.search).toBe('?status=TODO')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('지운 뒤 다른 화면에 갔다가 뒤로(POP) 돌아와도 평소처럼 기억을 되살리고, 앞으로 갔다 다시 뒤로 와도 같다', () => {
+      localStorage.setItem(keyOf('WP'), 'status=TODO')
+      const { result } = renderAt('/projects/WP?status=BOGUS')
+      act(() => result.current.setParams(new URLSearchParams(), { replace: true, state: IGNORED_CLEARED_STATE }))
+      expect(result.current.location.search).toBe('')
+      act(() => result.current.navigate('/projects/WP/issues/5'))
+      act(() => result.current.navigate(-1))
+      expect(result.current.location.search).toBe('?status=TODO')
+      act(() => result.current.navigate(1))
+      act(() => result.current.navigate(-1))
+      expect(result.current.location.search).toBe('?status=TODO')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('status=TODO')
+    })
+
+    it('알 수 없는 값이 섞여도 알려진 값은 기억한다', () => {
+      renderAt('/projects/WP?priority=HIGH,BOGUS')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    })
   })
 
   describe('앱의 다른 replace 로 조건 없이 들어와도 지우지 않고 되살린다', () => {

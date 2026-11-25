@@ -341,7 +341,8 @@ function hasNoneToken(raw: string | null): boolean {
   return csv(raw).some((t) => t.toLowerCase() === 'none');
 }
 
-function csv(v: string | null): string[] {
+/** 쉼표 목록 값을 나눈다 — 공백을 다듬고 빈 토큰은 버린다(parseFilters 와 같은 규칙). */
+export function csv(v: string | null): string[] {
   if (!v) return [];
   return v
     .split(',')
