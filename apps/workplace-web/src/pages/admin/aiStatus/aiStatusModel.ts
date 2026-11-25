@@ -611,3 +611,35 @@ export function updatedAgoLabel(generatedAt: string, nowMs: number): string {
   if (minutes < 60) return `갱신 ${minutes}분 전`
   return `갱신 ${Math.floor(minutes / 60)}시간 전`
 }
+
+/**
+ * 차트 준비 대기 상한(WP-2079 5라운드) — 데이터가 도착해도 준비 신호가 오지 않으면 여기서 지난 시간만큼만
+ * 기다린다. 청크 선로딩이 멈추어(응답이 끝내 오지 않아) 신호가 영영 없으면 그 뒤로는 처리량·작은 그래프·
+ * 종류별 표가 한 번도 안 나오기 때문이다. 값은 4초 — 정상 준비(마운트 때 시작한 워밍업)는 데이터보다 먼저
+ * 끝나 이 상한에 걸리지 않고, 멈춘 청크를 재기동 없이 기다릴 한계로 충분한 값이다.
+ */
+export const CHART_STAGE_MAX_WAIT_MS = 4000
+
+/** 차트 단계 게이트 입력(WP-2079 3라운드) — 페이지가 단계 효과에 넘기는 준비 상태 세 가지와 대기 상한 경과. */
+export type ChartStageGate = {
+  /** 차트 impl 청크 선로딩이 끝났는지(실패해도 끝난 것으로 친다 — 껍데기가 각자 오류 화면을 맡는다) */
+  chartsReady: boolean
+  /** 감춘 준비 자리의 두 차트가 실제로 그려졌는지(첫 실행 비용을 미리 치렀는지) */
+  warmed: boolean
+  /** 청크 로드가 실패했는지 — 오류 화면엔 그림이 없어 준비가 끝나지 않으므로 기다리지 않는다(데드락 방지) */
+  chartsFailed: boolean
+  /** 대기 상한(CHART_STAGE_MAX_WAIT_MS)을 넘겨 더 기다리지 않기로 한 건지 — 청크 멈춤 대비(데드락 방지). 항상 넘긴다 */
+  waitTimedOut: boolean
+}
+
+/**
+ * 차트 단계(2 이상)를 열어도 되는가(WP-2079 3라운드) — 청크가 준비됐고, 준비 자리가 실제로 그려졌거나
+ * (혹은 청크가 실패해 기다릴 이유가 없어) 다음 단계로 넘어간다. 준비가 끝나기 전에 열면 Recharts 첫 실행
+ * 비용(~200ms)이 데이터 도착 뒤로 다시 밀리므로, 신호가 오기 전에는 닫아 둔다.
+ * 다만 대기 상한이 지났으면 연다(WP-2079 5라운드) — 준비 신호가 끝내 오지 않아(청크 멈춤) 본문이 영영
+ * 안 나오는 것보다는 늦게라도 나오는 쪽이 낫다.
+ */
+export function isChartStageOpen({ chartsReady, warmed, chartsFailed, waitTimedOut }: ChartStageGate): boolean {
+  if (waitTimedOut) return true
+  return chartsReady && (warmed || chartsFailed)
+}
