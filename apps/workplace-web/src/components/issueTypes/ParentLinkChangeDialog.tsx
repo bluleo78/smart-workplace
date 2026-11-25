@@ -3,7 +3,7 @@
 // 표시 조건·선택지는 부모의 부모가 에픽인지에 따라 호출부가 정한다(순수 함수 issueTypeParentLink).
 // 배치는 시안 compare-2097.png 순서 — 지금 상위 → 이동 선택지 → 상위 없이 변경 → 관련 관계 유지 → 단추.
 
-import { useState } from "react";
+import { useState } from 'react';
 
 import {
   AlertDialog,
@@ -14,13 +14,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Checkbox } from "@/components/ui/checkbox";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { cn } from "@/lib/utils";
-import type { IssueTypeSummary } from "@/types/issueType";
+} from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { cn } from '@/lib/utils';
+import type { IssueTypeSummary } from '@/types/issueType';
 
-import { IssueTypeBadge } from "./IssueTypeBadge";
+import { IssueTypeBadge } from './IssueTypeBadge';
 
 /** 「유형 변경」 단추가 돌려주는 선택 — moveToEpic(에픽 아래 이동)과 옛 상위 관련 관계 유지 여부. */
 export interface ParentLinkChangeChoice {
@@ -33,7 +33,7 @@ export interface ParentLinkChangeChoice {
  * GRAY·Circle 폴백(IssueTypeBadge 설계)으로 그린다. id 는 배지 testid 가 겹치지 않게 음수로 둔다.
  */
 function badgeSummary(typeName: string, id: number): IssueTypeSummary {
-  return { id, name: typeName, colorToken: "GRAY", icon: "Circle" };
+  return { id, name: typeName, colorToken: 'GRAY', icon: 'Circle' };
 }
 
 /** (WP-2131) 가린 모드 본문 — 읽을 수 없는 상위라 선택지 없이 「상위 없이 변경」 안내만 보인다. */
@@ -67,64 +67,57 @@ function VisibleParentChoices({
   return (
     <div className="space-y-3">
       <RadioGroup
-        value={moveToEpic ? "move" : "detach"}
-        onValueChange={(v) => onMoveToEpicChange(v === "move")}
+        value={moveToEpic ? 'move' : 'detach'}
+        onValueChange={(v) => onMoveToEpicChange(v === 'move')}
         aria-label="상위 연결 방식"
         className="gap-2.5"
       >
         {epic != null && (
           <>
-          <div className="flex items-start gap-2">
-            {/* 막혔을 때만 안내 문구와 잇는다 — 스크린리더가 비활성 이유를 함께 읽게 한다(WP-2132). */}
-            <RadioGroupItem
-              value="move"
-              id="parent-link-move"
-              className="mt-0.5"
-              disabled={moveBlocked}
-              aria-describedby={moveBlocked ? "parent-link-move-blocked-hint" : undefined}
-            />
-            <label
-              htmlFor="parent-link-move"
-              className={cn(
-                "flex flex-1 flex-wrap items-center gap-1.5 text-sm",
-                moveBlocked ? "text-muted-foreground" : "cursor-pointer",
-              )}
-            >
-              <span>상위의 에픽 아래로 이동</span>
-              <IssueTypeBadge type={badgeSummary("EPIC", -2)} size="sm" />
-              <span className="text-muted-foreground break-words">
-                {epic.key} · {epic.title}
-              </span>
-            </label>
-          </div>
-          {moveBlocked && (
-            <p id="parent-link-move-blocked-hint" data-testid="parent-link-move-blocked" className="pl-6 text-xs text-muted-foreground">
-              완료된 에픽이라 옮길 수 없습니다 — 에픽을 다시 열면 옮길 수 있어요
-            </p>
-          )}
+            <div className="flex items-start gap-2">
+              {/* 막혔을 때만 안내 문구와 잇는다 — 스크린리더가 비활성 이유를 함께 읽게 한다(WP-2132). */}
+              <RadioGroupItem
+                value="move"
+                id="parent-link-move"
+                className="mt-0.5"
+                disabled={moveBlocked}
+                aria-describedby={moveBlocked ? 'parent-link-move-blocked-hint' : undefined}
+              />
+              <label
+                htmlFor="parent-link-move"
+                className={cn(
+                  'flex flex-1 flex-wrap items-center gap-1.5 text-sm',
+                  moveBlocked ? 'text-muted-foreground' : 'cursor-pointer',
+                )}
+              >
+                <span>상위의 에픽 아래로 이동</span>
+                <IssueTypeBadge type={badgeSummary('EPIC', -2)} size="sm" />
+                <span className="text-muted-foreground break-words">
+                  {epic.key} · {epic.title}
+                </span>
+              </label>
+            </div>
+            {moveBlocked && (
+              <p
+                id="parent-link-move-blocked-hint"
+                data-testid="parent-link-move-blocked"
+                className="pl-6 text-xs text-muted-foreground"
+              >
+                완료된 에픽이라 옮길 수 없습니다 — 에픽을 다시 열면 옮길 수 있어요
+              </p>
+            )}
           </>
         )}
         <div className="flex items-start gap-2">
-          <RadioGroupItem
-            value="detach"
-            id="parent-link-detach"
-            className="mt-0.5"
-          />
-          <label
-            htmlFor="parent-link-detach"
-            className="text-sm cursor-pointer"
-          >
+          <RadioGroupItem value="detach" id="parent-link-detach" className="mt-0.5" />
+          <label htmlFor="parent-link-detach" className="text-sm cursor-pointer">
             상위 없이 변경
           </label>
         </div>
       </RadioGroup>
       {/* 관련 관계 유지 — 기본 켬. 두 선택지 모두에 적용된다(요청 본문의 relateToReleasedParent). */}
       <div className="flex items-center gap-2">
-        <Checkbox
-          id="parent-link-relate"
-          checked={relate}
-          onCheckedChange={(v) => onRelateChange(v === true)}
-        />
+        <Checkbox id="parent-link-relate" checked={relate} onCheckedChange={(v) => onRelateChange(v === true)} />
         <label htmlFor="parent-link-relate" className="text-sm cursor-pointer">
           관련 관계 유지
         </label>
@@ -173,21 +166,14 @@ export function ParentLinkChangeDialog({
           <AlertDialogDescription>
             {currentParent == null ? (
               <span data-testid="parent-link-hidden-notice">
-                지금 상위를 볼 권한이 없습니다(다른 프로젝트의 상위 등). 유형을
-                바꾸면 상위 연결이 풀립니다.
+                지금 상위를 볼 권한이 없습니다(다른 프로젝트의 상위 등). 유형을 바꾸면 상위 연결이 풀립니다.
               </span>
             ) : (
-              <span
-                data-testid="parent-link-current"
-                className="inline-flex flex-wrap items-center gap-1"
-              >
+              <span data-testid="parent-link-current" className="inline-flex flex-wrap items-center gap-1">
                 <span className="font-medium text-foreground">지금 상위</span>
                 {/* 유형 이름을 모르면(응답에 유형 없음, WP-2131) 이름 없는 배지 대신 생략하고 키·제목만 보인다. */}
                 {currentParent.typeName != null && (
-                  <IssueTypeBadge
-                    type={badgeSummary(currentParent.typeName, -1)}
-                    size="sm"
-                  />
+                  <IssueTypeBadge type={badgeSummary(currentParent.typeName, -1)} size="sm" />
                 )}
                 <span>{currentParent.key}</span>
                 <span className="break-words">{currentParent.title}</span>
