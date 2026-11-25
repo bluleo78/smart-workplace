@@ -1,6 +1,8 @@
 // RichInput 멘션 후보 Esc 로 숨긴 뒤의 키 경로(WP-2062) — Esc 로 숨긴 팝업(dismissed)에는 방향키·Enter·Shift+Enter 가 목록에 넘어가지 않아야
 // 보이지 않는 후보가 멘션으로 삽입되지 않고, Enter 는 전송으로 가는지 본다. Esc 없이 는 후보를 고르는 기존 동작과
 // 본문 모드 Esc 후 Enter 가 줄바꿈인 기존 동작도 함께 고정한다(회귀).
+// 메시지 수정(onCancel) 중 Esc(WP-2082) — 후보가 보이면 첫 Esc 는 팝업만 닫고 두 번째 Esc 가 수정을 취소한다. 후보 0건은 Esc 한 번에 취소,
+// 한글 조합 중 Esc 는 취소하지 않는다(조합 가드는 ProseMirror 가 조합 중 키를 대부분 걸러 주는 위에 둔 방어 장치).
 import { act, fireEvent, screen } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
 import { describe, expect, it, vi } from 'vitest'
@@ -24,6 +26,21 @@ function renderComment(onSubmit: () => void, testId = 'mention-esc-input') {
       inputTestId={testId}
       submitTestId={`${testId}-submit`}
       onSubmit={onSubmit}
+    />,
+  )
+  return screen.getByTestId(testId)
+}
+
+/** 메시지 수정 칸(onCancel 있음)을 그린다 — Esc 로 수정 취소가 도는 경로(WP-2082). */
+function renderEdit(onCancel: () => void, testId: string) {
+  renderWithProviders(
+    <RichInput
+      members={MEMBERS}
+      ariaLabel="메시지 수정"
+      inputTestId={testId}
+      submitTestId={`${testId}-submit`}
+      onSubmit={vi.fn()}
+      onCancel={onCancel}
     />,
   )
   return screen.getByTestId(testId)
@@ -129,5 +146,51 @@ describe('RichInput 멘션 Esc 로 숨긴 뒤 키', () => {
     expect(el.hasAttribute('aria-controls')).toBe(false)
     // Esc 후 Enter 는 줄바꿈 — 한 문단이 둘로 갈라졌다.
     expect(editorOf(el).getJSON().content).toHaveLength(2)
+  })
+
+  it('수정 중(onCancel) 후보 팝업이 열려 있으면 Esc 는 팝업만 닫고, 다시 Esc 하면 취소한다(WP-2082)', async () => {
+    const onCancel = vi.fn()
+    const el = renderEdit(onCancel, 'mention-esc-cancel')
+    await typeAtEnd(editorOf(el), '@')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(onCancel).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('수정 중(onCancel) 맞는 멤버가 없어 후보가 안 보이면 Esc 한 번에 취소한다(WP-2082)', async () => {
+    const onCancel = vi.fn()
+    const el = renderEdit(onCancel, 'mention-esc-cancel-empty')
+    await typeAtEnd(editorOf(el), '@zzzz')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('수정 중(onCancel) 한글 조합 중 Esc 는 수정을 취소하지 않는다(WP-2082)', async () => {
+    const onCancel = vi.fn()
+    const el = renderEdit(onCancel, 'mention-esc-cancel-ime')
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape', isComposing: true })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+    // Safari 는 조합 중 키를 isComposing 대신 keyCode 229 로 알린다 — 그것도 취소하지 않는다.
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape', keyCode: 229 })
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+    // 조합이 끝난 뒤 Esc 는 지금처럼 취소한다.
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Escape' })
+    })
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
