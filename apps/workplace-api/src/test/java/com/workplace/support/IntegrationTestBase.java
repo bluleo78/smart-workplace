@@ -23,9 +23,11 @@ import com.workplace.home.repository.SharedAiMemoryRepository;
 import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.SharedAiMemoryChangeLog;
 import com.workplace.issue.outbound.ImplicitChatAgents;
+import com.workplace.issue.outbound.RecurringQuestionAnswers;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueClock;
+import com.workplace.issue.workflow.repository.WorkflowRunRepository;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -128,6 +130,8 @@ import org.springframework.transaction.support.TransactionTemplate;
       PersonalContextRepository.class,
       ProjectAccessGuard.class,
       ProjectRepository.class,
+      // WP-2093: 사람 챗 글이 워크플로우 답으로 소비되면 반복 질문 답 판정을 부르지 않는지 확인.
+      RecurringQuestionAnswers.class,
       SenderRelationResolver.class,
       SharedAiMemoryChangeLog.class,
       SharedAiMemoryReader.class,
@@ -136,7 +140,9 @@ import org.springframework.transaction.support.TransactionTemplate;
       UserRepository.class,
       WikiBodyHistoryRepository.class,
       WikiShareClock.class,
-      WikiHtmlLockClock.class
+      WikiHtmlLockClock.class,
+      // WP-2093: 챗 답 이동 끝에서 실패 주입(세이브포인트가 이동을 되돌리고 사람 글은 남기는지).
+      WorkflowRunRepository.class
     })
 public abstract class IntegrationTestBase {
 

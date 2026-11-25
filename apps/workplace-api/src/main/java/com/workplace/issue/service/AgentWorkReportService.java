@@ -236,7 +236,8 @@ public class AgentWorkReportService {
    * 줄에 든 멘션만 조회한다.
    */
   private String firstLine(String message) {
-    String raw = message.strip().lines().findFirst().orElse("").strip();
+    String first = Texts.firstLine(message);
+    String raw = first == null ? "" : first;
     // 토큰이 없으면 asMentionResponses 가 조회 없이 빈 목록을 돌려 그대로 남는다.
     String line =
         MentionParser.replaceWithNames(

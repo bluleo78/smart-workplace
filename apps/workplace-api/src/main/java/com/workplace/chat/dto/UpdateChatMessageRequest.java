@@ -1,6 +1,7 @@
 package com.workplace.chat.dto;
 
 import com.workplace.global.util.PersonNames;
+import com.workplace.issue.outbound.IssueChatPoster;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -17,7 +18,7 @@ import java.util.List;
  * 첨부·드라이브 링크가 모두 비는지는 메시지 상태를 봐야 해서 서비스가 판정한다.
  */
 public record UpdateChatMessageRequest(
-    @Size(max = 4000) String body,
+    @Size(max = IssueChatPoster.BODY_MAX) String body,
     // 원소 null 은 400. 한 메시지 첨부 상한(10)보다 넉넉한 50 — 그 이상은 잘못된 요청.
     @Size(max = 50) List<@NotNull Long> keepFileIds) {
 

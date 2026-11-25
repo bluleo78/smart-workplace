@@ -6,7 +6,7 @@
 // 서버 errors 칸(MoveViolation: currentNode·revision·keys·role·candidates)에는 숫자 사용자 id 가 없다(candidates 는 username 쉼표 목록) — 가공할 칸이 없다.
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
-import { resolveMentionTokens } from './messaging-tools.js';
+import { linkMentions, resolveMentionTokens } from './messaging-tools.js';
 import { describeApiError, parseIssueKey } from './parse.js';
 import { type AssigneeResolverClient, resolveAssigneeIds } from './resolve.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -53,6 +53,25 @@ export const updateWorkflowInput = z.object({
   // get_workflow 가 준 draftUpdatedAt — 주면 그사이 남이 초안을 바꿨을 때 서버가 409 WORKFLOW_DRAFT_CONFLICT 로 덮어쓰기를 막는다.
   expectedDraftUpdatedAt: nullAsOmitted(z.string().min(1)),
 });
+
+/** 질문 결과 이름 — 서버가 이 결과의 의견을 이슈 챗 질문으로 올린다(WP-2093). */
+const ASK_OUTCOME = 'ask';
+
+/** 질문 의견 상한 — 서버 이슈 챗 본문 상한(IssueChatPoster.BODY_MAX)과 같은 값. */
+const QUESTION_MAX_CHARS = 4000;
+
+/**
+ * 멘션 토큰으로 바꾼 질문 의견이 상한을 넘으면 몇 자인지 담아 던진다 — 도구 설명의 「바뀐 뒤 글자로 잰다」와 서버 판정(코드포인트)이 같은 기준이 되게.
+ * 서버를 부르기 전에 던져 이동이 일어나지 않는다.
+ */
+function assertQuestionLength(linked: string): void {
+  const length = [...linked].length;
+  if (length > QUESTION_MAX_CHARS) {
+    throw new Error(
+      `질문 의견이 ${length}자입니다(@username 을 <@id> 멘션 토큰으로 바꾼 뒤 기준) — ${QUESTION_MAX_CHARS}자 이하로 줄여 다시 보내세요.`,
+    );
+  }
+}
 
 /** 실행이 없을 때의 안내 — 다음 행동(start_issue_workflow)을 이름으로 알려 준다. */
 const NO_RUN_HINT = '진행 중인 워크플로우가 없습니다 — start_issue_workflow 로 시작하세요.';
@@ -277,7 +296,9 @@ async function saveOrCreate(
 }
 
 /** 워크플로우 도구 — 이슈 실행 3종(issue 앱)과 정의 3종(project 앱). */
-export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolverClient & Pick<MemberToolClient, 'getMember'>): SharedTool[] {
+export function buildWorkflowTools(
+  client: WorkflowToolClient & AssigneeResolverClient & Pick<MemberToolClient, 'getMember' | 'searchMembers'>,
+): SharedTool[] {
   return [
     {
       name: 'get_issue_workflow',
@@ -315,11 +336,18 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
       // 노드를 앞으로 보낼 뿐 값을 덮거나 지우지 않아 destructive 가 아니다.
       hints: { destructive: false, idempotent: true },
       description:
-        'Moves the issue from its current node (fromNode) by an outcome from get_issue_workflow. Give the required outputs, comment if required, ' +
-        'next assignees (usernames) when asked, and expectedRevision and runId from get_issue_workflow. Refused with code WORKFLOW_STALE if it changed meanwhile.',
+        'Moves the issue from fromNode by an outcome. Give required outputs, comment, next assignees (usernames) when asked, ' +
+        'and expectedRevision, runId from get_issue_workflow. WORKFLOW_STALE if changed. ' +
+        "On ask, the comment becomes an issue chat question (max 4000 chars after @username→<@id>); a person's chat reply returns the run via answered (read via get_issue_chat; never move answered yourself).",
       inputSchema: moveIssueWorkflowInput,
       async handler(args) {
         const { issueKey, fromNode, outcome, outputs, assignees, comment, expectedRevision, runId } = moveIssueWorkflowInput.parse(args);
+        // 의견의 @username 은 <@id> 멘션 토큰으로 바꿔 보낸다(report_agent_work 의 message 와 같은 linkMentions) — 결과 ask 의 의견은
+        // 이슈 챗 질문이 되므로(WP-2093) 토큰이어야 @owner 멘션이 알림으로 간다. 일반 이동의 의견 댓글도 같은 토큰 표기를 쓴다.
+        const linkedComment = comment != null && comment.trim() !== '' ? await linkMentions(client, comment) : undefined;
+        // 서버는 바뀐 뒤 글자로 질문 상한을 잰다(토큰이 @username 보다 길 수 있다) — 같은 기준으로 먼저 재서, 422 대신 몇 자인지 알려 줄인 뒤
+        // 다시 보내게 한다. 서버처럼 코드포인트로 센다.
+        if (outcome === ASK_OUTCOME && linkedComment !== undefined) assertQuestionLength(linkedComment);
         // 담당을 모두 id 로 푼 뒤에 서버를 부른다(me 별칭·프로젝트 멤버 확인은 다른 이슈 도구와 같은 resolveAssigneeIds).
         // 일부만 풀린 채 이동하면 담당이 조용히 빠지므로, 못 찾으면 서버를 부르기 전에 던진다.
         const assigneeIds = assignees?.length ? await resolveAssigneeIds(client, parseIssueKey(issueKey).projectKey, assignees) : undefined;
@@ -328,7 +356,7 @@ export function buildWorkflowTools(client: WorkflowToolClient & AssigneeResolver
           outcome,
           ...(outputs != null && { outputs }),
           ...(assigneeIds && { assigneeIds }),
-          ...(comment != null && comment.trim() !== '' && { comment }),
+          ...(linkedComment !== undefined && { comment: linkedComment }),
           expectedRevision,
           // 같은 노드·revision·결과의 재시도를 한 번의 이동으로 만든다(Global Constraints 규칙 그대로).
           idempotencyKey: `${issueKey}:${fromNode}:${expectedRevision}:${outcome}`,

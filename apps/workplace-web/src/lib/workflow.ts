@@ -28,6 +28,8 @@ export interface WorkflowNodeView {
   enteredAt: string | null
   nodeRunStatus: 'ACTIVE' | 'BLOCKED' | 'COMPLETED' | 'FAILED'
   instructions: string | null
+  /** 질문 경로 노드(returnTo 가 있는 사람 노드)면 돌아갈 노드 키 — 이 노드는 결과 단추 대신 이슈 챗에서 답한다(WP-2093) */
+  returnTo?: string | null
 }
 
 export interface WorkflowOutcomeView {
@@ -100,6 +102,37 @@ export function isRunStatusEnded(status: RunStatus): boolean {
 /** 실행이 없거나 끝났는가(완료·취소) — 새로 시작을 권해도 되는 때. */
 export function isRunEnded(run: Pick<IssueWorkflowView, 'runId' | 'status'>): boolean {
   return run.runId == null || (run.status != null && isRunStatusEnded(run.status))
+}
+
+/** 질문 대기 노드에서 질문한 AI 노드로 돌아가는 결과 키 — 서버 WorkflowRunService.ANSWERED 와 같다(WP-2093). 사람 챗 글이 이 결과로 옮긴다. */
+export const ANSWERED_OUTCOME = 'answered'
+
+/** 배너에 보일 결과 — 질문 노드(returnTo 있음)의 `answered` 는 이슈 챗 답으로만 고르므로 뺀다(WP-2093). */
+export function bannerOutcomes<T extends { key: string }>(returnTo: string | null | undefined, outcomes: readonly T[]): T[] {
+  return returnTo ? outcomes.filter((o) => o.key !== ANSWERED_OUTCOME) : [...outcomes]
+}
+
+/**
+ * 지금 AI 의 질문에 사람 답만 기다리는가(WP-2093) — 사람 차례(WAITING)이고 지금 노드가 결과가 `answered` 뿐인 질문 노드일 때.
+ * 이때는 결과 단추 대신 이슈 챗에서 답하고, 사람 챗 글이 실행을 `answered` 로 움직인다.
+ */
+export function isAskWaiting(view: IssueWorkflowView): boolean {
+  const cur = view.currentNode
+  return view.runId != null && !!cur && isAskWaitingState(view.status, cur.type, cur.returnTo, view.outcomes.map((o) => o.key))
+}
+
+/**
+ * 질문 대기 판정의 낮은 층 — 실행 상태·노드 종류·returnTo·결과 키만으로 가른다(WP-2093). 실행 상세(WorkflowRunDetail)도 같은 조건을 쓴다.
+ * 사람 차례(WAITING)의 human_task 이고 returnTo 가 있으며 결과가 `answered` 뿐인 노드 — 표준 질문 경로(expandAsk)가 만드는 모양이다.
+ * 이 노드는 챗 답 글이 실행을 움직이므로 결과 단추가 필요 없어 배너를 그리지 않는다. 다른 결과가 있으면 배너는 보이되 `answered` 만 뺀다.
+ */
+export function isAskWaitingState(
+  status: string | null | undefined,
+  nodeType: string | null | undefined,
+  returnTo: string | null | undefined,
+  outcomeKeys: readonly string[],
+): boolean {
+  return status === 'WAITING' && nodeType === 'human_task' && !!returnTo && outcomeKeys.every((k) => k === ANSWERED_OUTCOME)
 }
 
 export function useIssueWorkflow(issueId: number | undefined) {

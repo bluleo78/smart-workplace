@@ -127,12 +127,13 @@ class AiDevFlowDefinitionTest {
       Map.of(
           "priorities", List.of("gw-repo", "실행에 조치해야 이 노드가 다시 열린다"),
           // 차단·인증 필요는 WORKING 보고로 풀리지 않는다
-          "report_style", List.of("note 쓰는 법", "사람이 실행에 조치해야만 풀린다", "'SCHEDULED'"),
+          "report_style", List.of("note 쓰는 법", "사람이 실행에 조치해야만 풀린다", "'SCHEDULED'", "챗 답"),
           "shell_rules", List.of("Dangerous rm"),
           "repo_facts", List.of(".work-loop/project.md", "현재 단계"),
           "blocked", List.of("같은 단계가 3번 되풀이돼도", "실행에 조치해야 이 노드가 다시 열린다"),
           // report_style 이 시키는 SCHEDULED 를 허용 목록에도 둔다
-          "workflow_rules", List.of("WORKFLOW_USE_MOVE", "다음 회차 대기(SCHEDULED"));
+          // 질문은 이슈 챗 질문 글로 남고 답도 챗으로 온다(WP-2093)
+          "workflow_rules", List.of("WORKFLOW_USE_MOVE", "다음 회차 대기(SCHEDULED", "이슈 챗 질문 글", "챗 답"));
 
   /** 모든 agent_task 가 use 해야 하는 공통 shared 이름 — 위 문구 표의 이름이 곧 그 목록이다(두 곳에 적지 않게). */
   private static final List<String> COMMON_SHARED = List.copyOf(COMMON_MARKERS.keySet());
@@ -200,6 +201,15 @@ class AiDevFlowDefinitionTest {
     for (String marker : markers) {
       assertThat(text).as("%s 의 '%s'", label, marker).contains(marker);
     }
+  }
+
+  @Test
+  @DisplayName("owner 가 answered 로 옮긴다는 옛 안내가 정의에 남지 않는다(챗 답이 공식 경로, WP-2093)")
+  void noStaleOwnerMovesAnsweredGuidance() {
+    String text = new String(bytes, StandardCharsets.UTF_8);
+
+    assertThat(text).doesNotContain("`answered` 이동은 owner").doesNotContain("답은 owner 가 한다");
+    assertThat(text).doesNotContain("(`answered`)은 owner 역할 구성원이 한다");
   }
 
   @Test

@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 
-import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
+import { mkAskModel, mkModel } from '@/test/kits/projects/workflowRunFixtures'
 import { renderScreen } from '@/test/renderScreen'
 
 import { WorkflowRunDetail } from './WorkflowRunDetail'
@@ -115,6 +115,42 @@ describe('실행 상세', () => {
     expect(await screen.findByText('「배포해도 될까요?」')).toBeVisible()
     expect(screen.getByText('담당: 박')).toBeVisible()
     expect(screen.queryByRole('button', { name: '넘기기' })).not.toBeInTheDocument()
+  })
+
+  // WP-2093: 질문 대기(returnTo 노드)면 질문 첫 줄과 챗 링크만 — 담당이 나여도 결과 단추 배너는 없다.
+  it('askWaiting_showsFirstLineAndChatLink_noOutcomeButtons', async () => {
+    const d = {
+      ...detail('WAITING', { nodeKey: 'work_ask', nodeName: '질문 답변' }, {
+        currentNode: 'work_ask',
+        // 질문 원문은 챗 글이라 멘션 토큰이 있다 — 상세에 실린 사람(박=4)은 이름으로, 모르는 id 는 @사용자.
+        context: { _qa: [{ answerNode: 'work_ask', question: '\n<@4> <@99> 어느 쪽?\n- A\n- B', answer: null }] },
+      }),
+      model: mkAskModel(),
+    }
+    setup(d, { meId: 4 })
+    expect(await screen.findByText('「@박 @사용자 어느 쪽?」')).toBeVisible()
+    expect(screen.queryByText(/- A/)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '챗에서 답하기' })).toHaveAttribute('href', '/projects/WP/issues/70?chat=1')
+    expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '넘기기' })).not.toBeInTheDocument()
+  })
+
+  // WP-2093 리뷰 후속: 질문 노드에 다른 결과도 있으면 질문 대기 상자 대신 일반 사람 차례 — 담당인 나에게 배너가 보인다(배너가 answered 를 뺀다).
+  it('askNodeWithOtherOutcomes_assignee_showsBanner', async () => {
+    const model = mkAskModel()
+    const askNode = model.nodes.find((x) => x.key === 'work_ask')!
+    askNode.outcomes = [...askNode.outcomes, { key: 'approve', to: 'end', requireComment: false }]
+    const d = {
+      ...detail('WAITING', { nodeKey: 'work_ask', nodeName: '질문 답변' }, {
+        currentNode: 'work_ask',
+        context: { _qa: [{ answerNode: 'work_ask', question: '어느 쪽?', answer: null }] },
+      }),
+      model,
+    }
+    setup(d, { meId: 4 })
+    expect(await screen.findByTestId('issue-workflow-banner')).toBeVisible()
+    expect(screen.queryByText(/질문 대기/)).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'approve' })).toBeVisible()
   })
 
   it('suspendedBanner_showsReason', async () => {

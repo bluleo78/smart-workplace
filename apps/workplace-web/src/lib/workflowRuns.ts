@@ -1,5 +1,7 @@
 // 워크플로우 실행 조회 — 응답 타입과 화면용 순수 함수(WP-1991). 서버 상태 훅은 hooks/queries/useWorkflowRuns.ts.
 // 이슈 하나에 걸린 실행의 시작·이동·조치는 lib/workflow.ts, 정의 편집·게시는 lib/workflows.ts. 응답 모양은 서버 WorkflowRunPage·WorkflowRunDetail·MyWorkflowTurn 과 같다.
+import { MENTION_TOKEN } from '@/components/mentions/chatMarkdown'
+
 import { isRunStatusEnded, type RunStatus, type WorkflowUser } from './workflow'
 import type { WorkflowModel } from './workflows'
 
@@ -81,7 +83,10 @@ export interface MyWorkflowTurn {
   nodeName: string | null
   enteredAt: string
   handedBy: WorkflowUser | null
+  /** 지금 노드의 미답 질문의 첫 줄 */
   question: string | null
+  /** 지금 노드가 질문 경로(returnTo 있음)인가 — 이면 이슈 챗에서 답한다(WP-2093) */
+  asking: boolean
 }
 
 /** 실행 목록 필터 — 서버가 상태는 값 하나만 받는다. */
@@ -176,6 +181,45 @@ export function pendingQuestion(context: Record<string, unknown>, nodeKey: strin
     if (e && e.answerNode === nodeKey && e.answer == null && typeof e.question === 'string') return e.question
   }
   return null
+}
+
+/**
+ * 질문 글의 첫 줄(WP-2093) — 앞뒤 빈 줄·공백을 건너뛴 첫 줄을 trim, 비면 null. 서버 MyWorkflowTurn.question 과 같은 규칙.
+ * 질문 원문(이슈 챗 질문)은 여러 줄·목록일 수 있어 한 줄 자리에는 첫 줄만 보인다.
+ */
+export function questionFirstLine(q: string | null): string | null {
+  if (q == null) return null
+  for (const line of q.split(/\r?\n|\r/)) {
+    const t = line.trim()
+    if (t !== '') return t
+  }
+  return null
+}
+
+/**
+ * 실행 상세에 실린 사람의 id → 이름(WP-2093) — 시작한 사람·방문 담당·워크플로우가 넣은 담당·행위자. 질문 글의 멘션 토큰을 이름으로 보이는 데 쓴다
+ * (상세 응답에 따로 사람 목록이 없어 이미 실린 사람만 안다).
+ */
+export function runUserNames(detail: Pick<WorkflowRunDetail, 'run' | 'nodeRuns'>): Map<number, string> {
+  const names = new Map<number, string>()
+  const add = (u: WorkflowUser | null | undefined) => {
+    if (u) names.set(u.id, u.name)
+  }
+  add(detail.run.startedBy)
+  for (const v of detail.nodeRuns) {
+    v.assignees.forEach(add)
+    v.workflowAssigned.forEach(add)
+    add(v.actor)
+  }
+  return names
+}
+
+/**
+ * 글의 멘션 토큰(`<@id>`)을 `@이름` 으로 바꾼다(WP-2093) — 서버 MentionParser.replaceWithNames 와 같은 표기라 모르는 id 는 `@사용자`.
+ * 질문 원문(_qa.question)은 챗 글 그대로라 토큰이 들어 있고, 한 줄 글자로 보이는 자리에서 숫자 토큰이 드러나지 않게 한다.
+ */
+export function mentionTokensAsNames(text: string, names: ReadonlyMap<number, string>): string {
+  return text.replace(MENTION_TOKEN, (_, id: string) => `@${names.get(Number(id)) ?? '사용자'}`)
 }
 
 /** 옛 버전에 걸린 진행 중 실행 수 — 버전 번호별(버전 요약 WorkflowVersionSummary 의 두 칸과 같은 모양이라 그대로 넘겨도 된다). */

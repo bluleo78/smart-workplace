@@ -1,6 +1,7 @@
 package com.workplace.issue.workflow.domain;
 
 import com.workplace.global.util.PersonNames;
+import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.workflow.domain.AssigneeResolution.Resolution;
 import com.workplace.issue.workflow.domain.WorkflowModel.Node;
 import com.workplace.issue.workflow.domain.WorkflowModel.Outcome;
@@ -68,8 +69,8 @@ public final class MoveRules {
     if (state.isSuspended()) {
       return List.of(MoveViolation.nodeSuspended());
     }
-    // 7. 담당·관리자 아님
-    if (!actor.isAssignee(state) && !actor.manager()) {
+    // 7. 담당·관리자 아님(챗 답은 담당 검사만 통과 — WP-2093)
+    if (!actor.mayMove(state)) {
       return List.of(MoveViolation.notAssignee());
     }
     // 8. 결과 — 모르면 출력·의견·담당을 판단할 근거가 없어 여기서 멈춘다.
@@ -84,6 +85,13 @@ public final class MoveRules {
     if (outcome.requireComment()
         && (request.comment() == null || !PersonNames.hasVisibleChar(request.comment()))) {
       violations.add(MoveViolation.commentRequired());
+    }
+    // 질문 결과의 의견은 이슈 챗 질문 글이 된다(WP-2093) — 챗 본문 상한(DB 제약과 같은 글자 수 기준)을 넘으면 저장 단계 500 대신 여기서 거절한다.
+    if (OutputRules.isQuestion(state.model(), from, outcome)
+        && request.comment() != null
+        && request.comment().codePointCount(0, request.comment().length())
+            > IssueChatPoster.BODY_MAX) {
+      violations.add(MoveViolation.questionTooLong(IssueChatPoster.BODY_MAX));
     }
     Resolution resolution = plan(from, outcome, request, state, members).resolution();
     if (resolution.violation() != null) {

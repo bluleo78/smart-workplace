@@ -85,6 +85,7 @@ function mockClient() {
     getProjectMembers: vi.fn().mockResolvedValue([]),
     getMe: vi.fn(),
     getMember: vi.fn().mockRejectedValue({ response: { status: 404 } }),
+    searchMembers: vi.fn().mockResolvedValue([]),
   };
 }
 type Client = ReturnType<typeof mockClient>;
@@ -237,6 +238,38 @@ describe('start_issue_workflow', () => {
 describe('move_issue_workflow', () => {
   const base = { issueKey: 'WP-7', fromNode: 'dev', outcome: 'done', expectedRevision: 3 };
 
+  it('description_explainsAskGoesToChat: ask 의견은 이슈 챗 질문으로 남고 챗 답이 answered 로 되돌린다고 안내한다(WP-2093)', () => {
+    const c = mockClient();
+    const description = tool(c, 'move_issue_workflow').description;
+    expect(description).toContain('issue chat');
+    expect(description).toContain('answered');
+    expect(description).toContain('get_issue_chat');
+    // 질문 의견은 챗 글 상한(4000자)을 넘으면 서버가 422 로 거절한다 — 미리 알린다(WP-2093 리뷰 후속).
+    // 상한은 @username 을 <@id> 토큰으로 바꾼 뒤 글자로 잰다 — 도구 검사·서버 판정과 같은 기준임을 알린다.
+    expect(description).toContain('max 4000 chars after @username→<@id>');
+  });
+
+  it('move_askCommentTooLongAfterLinking_rejectedBeforeServer: 멘션 토큰으로 바꾼 뒤 4000자를 넘는 질문 의견은 서버를 부르지 않고 몇 자인지 알려 거절한다', async () => {
+    const c = mockClient();
+    c.searchMembers.mockResolvedValue([member(12345, 'kim')]);
+    // 바꾸기 전 4000자(@kim 4자 + 3996자) — <@12345> 로 바뀌면 4004자가 된다.
+    const comment = '@kim ' + 'a'.repeat(3995);
+    expect([...comment].length).toBe(4000);
+    await expect(tool(c, 'move_issue_workflow').handler({ ...base, outcome: 'ask', comment })).rejects.toThrow(
+      '질문 의견이 4004자입니다(@username 을 <@id> 멘션 토큰으로 바꾼 뒤 기준) — 4000자 이하로 줄여 다시 보내세요.',
+    );
+    expect(c.moveIssueWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('move_askCommentAtLimitAfterLinking_sent: 바뀐 뒤 딱 4000자(코드포인트)면 그대로 보낸다', async () => {
+    const c = mockClient();
+    c.searchMembers.mockResolvedValue([member(12345, 'kim')]);
+    // 이모지(서로게이트 쌍)도 서버처럼 한 글자로 센다 — <@12345>(8) + 공백(1) + 이모지 3991개 = 4000자.
+    const comment = '@kim ' + '😀'.repeat(3991);
+    await tool(c, 'move_issue_workflow').handler({ ...base, outcome: 'ask', comment });
+    expect(c.moveIssueWorkflow).toHaveBeenCalledWith('WP-7', expect.objectContaining({ comment: '<@12345> ' + '😀'.repeat(3991) }));
+  });
+
   it('assigneesByUsername_resolvedToIds: username 을 id 로 풀고 idempotencyKey 를 규칙대로 만든다', async () => {
     const c = mockClient();
     c.getProjectMembers.mockResolvedValue([member(42, 'kim')]);
@@ -253,6 +286,19 @@ describe('move_issue_workflow', () => {
       idempotencyKey: 'WP-7:dev:3:done',
     });
     expect(body.currentNode.key).toBe('dev');
+  });
+
+  it('move_commentMentions_linked: 의견의 @username 을 <@id> 멘션 토큰으로 바꿔 보낸다 — ask 의견이 챗 질문이 되어 멘션 알림이 가게(WP-2093)', async () => {
+    const c = mockClient();
+    c.searchMembers.mockResolvedValue([member(42, 'kim')]);
+    await tool(c, 'move_issue_workflow').handler({ ...base, outcome: 'ask', comment: '@kim A 와 B 중 어느 쪽?' });
+    expect(c.moveIssueWorkflow).toHaveBeenCalledWith('WP-7', {
+      fromNode: 'dev',
+      outcome: 'ask',
+      comment: '<@42> A 와 B 중 어느 쪽?',
+      expectedRevision: 3,
+      idempotencyKey: 'WP-7:dev:3:ask',
+    });
   });
 
   it('assignees·outputs·comment 를 안 주면 본문에 싣지 않는다', async () => {

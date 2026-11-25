@@ -37,6 +37,7 @@ function turnList(count: number): { items: MyWorkflowTurn[] } {
       enteredAt: '2026-11-01T09:00:00+09:00',
       handedBy: null,
       question: null,
+      asking: false,
     })),
   }
 }

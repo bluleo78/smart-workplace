@@ -63,7 +63,8 @@ class ChatSseDispatcherTest {
             null,
             null,
             null,
-            List.of("A안", "B안")));
+            List.of("A안", "B안"),
+            List.of()));
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), payload.capture());

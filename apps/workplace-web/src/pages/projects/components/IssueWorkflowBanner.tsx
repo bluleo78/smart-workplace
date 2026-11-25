@@ -1,6 +1,8 @@
 // 워크플로우 사람 차례 배너(WP-1989) — 내가 담당인 사람 노드(human_task)에서 결과를 골라 다음 단계로 넘긴다.
 // 왜: 노드는 사람이 옮기기 전에는 저절로 바뀌지 않는다. 질문이 와 있으면 그 글을 같이 보이고, 방금 쓴 코멘트·채팅 글을 의견으로 실어 보낼 수 있다.
 // 보일 조건(WAITING · human_task · 내가 담당)이 아니면 아무것도 그리지 않는다.
+// 결과가 answered 뿐인 질문 경로 노드(returnTo 있음)는 그리지 않는다(WP-2093) — 질문이 이슈 챗에 와 있고 챗 답 글이 실행을 움직이므로 결과 단추가 필요 없다.
+// 질문 노드에 다른 결과도 있으면 배너는 보이되 answered 단추만 뺀다(답은 챗으로).
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -15,6 +17,8 @@ import { focusLostOrDetached as focusIsLost } from '@/hooks/useRestoreFocusOnExi
 import { extractApiErrorCode } from '@/lib/api-error'
 import { formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import {
+  bannerOutcomes,
+  isAskWaiting,
   type IssueWorkflowView,
   useIssueWorkflow,
   useMoveIssueWorkflow,
@@ -111,7 +115,7 @@ export function IssueWorkflowBanner({ issueId, projectKey, meId, posted, onPoste
   const viewKey = run?.runId != null ? `${run.runId}:${run.revision}` : null
   const dataUpdatedAt = view.dataUpdatedAt
   const visible =
-    !!run && run.runId != null && run.status === 'WAITING' && !!cur && cur.type === 'human_task' && cur.assignees.some((a) => a.id === meId)
+    !!run && run.runId != null && run.status === 'WAITING' && !!cur && cur.type === 'human_task' && !isAskWaiting(run) && cur.assignees.some((a) => a.id === meId)
   useEffect(() => {
     const moved = liveMoved()
     if (!moved) return
@@ -212,7 +216,9 @@ function BannerBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const q = pendingQuestion(run.context, cur.key)
-  const outcome: WorkflowOutcomeView | undefined = run.outcomes.find((o) => o.key === picked)
+  // 고를 수 있는 결과 — 질문 노드의 answered 는 이슈 챗 답으로만 고른다(WP-2093).
+  const outcomes = bannerOutcomes(cur.returnTo, run.outcomes)
+  const outcome: WorkflowOutcomeView | undefined = outcomes.find((o) => o.key === picked)
 
   // 결과 값이 갖춰졌는지 — 필수 의견·필수 출력·필수 담당.
   const outputsOk = (outcome?.requiredOutputs ?? []).every((o) => readOutput(o, outputs[o.key]).valid)
@@ -245,7 +251,7 @@ function BannerBody({
   function applyPostedBody() {
     if (postedBody == null) return
     // 결과가 하나뿐이면 자동 선택 — 넘기기는 사람이 직접 누른다.
-    if (run.outcomes.length === 1) pick(run.outcomes[0].key)
+    if (outcomes.length === 1) pick(outcomes[0].key)
     setComment(postedBody)
     onPostedBodyUsed?.()
   }
@@ -293,8 +299,10 @@ function BannerBody({
       </div>
       {q && <p>{`「${q}」`}</p>}
       {cur.instructions && <p className="text-xs text-muted-foreground">{cur.instructions}</p>}
+      {/* 질문 노드(WP-2093) — 질문에 대한 답은 결과 단추가 아니라 이슈 챗 글로 한다. */}
+      {cur.returnTo && <p className="text-xs text-muted-foreground">질문에 대한 답은 이슈 챗에 쓰면 돼요.</p>}
       <div className="flex flex-wrap gap-2">
-        {run.outcomes.map((o) => (
+        {outcomes.map((o) => (
           <Button key={o.key} type="button" size="sm" variant={picked === o.key ? 'default' : 'outline'} aria-pressed={picked === o.key} onClick={() => pick(o.key)}>
             {o.key}
           </Button>

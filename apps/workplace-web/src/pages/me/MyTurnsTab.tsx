@@ -11,6 +11,7 @@ import { useMyWorkflowTurns } from '@/hooks/queries/useWorkflowRuns'
 import { useAuth } from '@/hooks/useAuth'
 import { focusRow } from '@/hooks/useListFocusRescue'
 import { focusLostOrDetached } from '@/hooks/useRestoreFocusOnExit'
+import { issueChatPath } from '@/lib/agentWork'
 import { issuePath } from '@/lib/appUrl'
 import { formatRelativeTime } from '@/lib/formatters'
 import { type MyWorkflowTurn, turnDetailOpenedText } from '@/lib/workflowRuns'
@@ -36,6 +37,12 @@ function TurnPanel({ turn, meId, settleList }: { turn: MyWorkflowTurn; meId: num
       <h2 ref={headingRef} id={headingId} className="font-medium text-sm">{`${turn.issueKey} ${turn.title}`}</h2>
       {turn.handedBy && <p className="text-muted-foreground">{`${turn.handedBy.name} 님이 넘김`}</p>}
       {turn.question && <p>{`「${turn.question}」`}</p>}
+      {/* 질문 대기(WP-2093) — 결과 단추 대신 이슈 챗에서 답한다(배너는 질문 경로 노드를 그리지 않는다). */}
+      {turn.asking && (
+        <Link to={issueChatPath(turn.projectKey, turn.issueNumber)} className="inline-block text-primary hover:underline">
+          챗에서 답하기
+        </Link>
+      )}
       <IssueWorkflowBanner issueId={turn.issueId} projectKey={turn.projectKey} meId={meId} onLeave={onLeave} />
     </section>
   )
@@ -94,25 +101,32 @@ export function MyTurnsTab() {
       />
       <ul ref={listRef} className="divide-y rounded-md border" data-testid="my-turn-list">
         {items.map((t) => (
-          <li
-            key={t.runId}
-            data-testid={`my-turn-row-${t.runId}`}
-            className={`flex items-start gap-2 p-3 ${t.runId === selected?.runId ? 'bg-muted' : ''}`}
-          >
-            <button type="button" className="min-w-0 flex-1 space-y-0.5 text-left text-sm" onClick={() => setSelectedId(t.runId)}>
-              <span className="flex items-center gap-2">
-                <span className="font-mono text-xs text-muted-foreground">{t.issueKey}</span>
-                <span className="truncate font-medium">{t.title}</span>
-              </span>
-              <span className="block text-xs text-muted-foreground">{`${t.workflowName} · ${t.nodeName ?? t.nodeKey}`}</span>
-              {t.question && <span className="block text-xs">{t.question}</span>}
-              <span className="block text-xs text-muted-foreground">{formatRelativeTime(t.enteredAt)}</span>
-            </button>
-            <Link to={issuePath(t.projectKey, t.issueNumber)} className="shrink-0 text-xs text-primary hover:underline">
-              열기
-            </Link>
-          </li>
-        ))}
+            <li
+              key={t.runId}
+              data-testid={`my-turn-row-${t.runId}`}
+              className={`flex items-start gap-2 p-3 ${t.runId === selected?.runId ? 'bg-muted' : ''}`}
+            >
+              <button type="button" className="min-w-0 flex-1 space-y-0.5 text-left text-sm" onClick={() => setSelectedId(t.runId)}>
+                <span className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-muted-foreground">{t.issueKey}</span>
+                  <span className="truncate font-medium">{t.title}</span>
+                </span>
+                <span className="block text-xs text-muted-foreground">{`${t.workflowName} · ${t.nodeName ?? t.nodeKey}`}</span>
+                {t.question && <span className="block text-xs">{t.question}</span>}
+                <span className="block text-xs text-muted-foreground">{formatRelativeTime(t.enteredAt)}</span>
+              </button>
+              {/* 질문 대기는 이슈를 챗이 열린 채로 연다(WP-2093) — 답이 챗 글이라 바로 쓰게 한다. */}
+              {t.asking ? (
+                <Link to={issueChatPath(t.projectKey, t.issueNumber)} className="shrink-0 text-xs text-primary hover:underline">
+                  챗에서 답하기
+                </Link>
+              ) : (
+                <Link to={issuePath(t.projectKey, t.issueNumber)} className="shrink-0 text-xs text-primary hover:underline">
+                  열기
+                </Link>
+              )}
+            </li>
+          ))}
       </ul>
       {/* WP-2050: 고른 줄이 없으면 빈 칸 대신 안내 — 줄을 누르면 여기서 바로 답할 수 있다는 걸 알린다(실행 탭의 빈 상세와 같은 모양·톤, 문구는 이 탭에 맞춤). */}
       {/* 로그인 정보가 아직 없으면 패널을 못 그리니 빈 칸 대신 안내를 둔다. */}

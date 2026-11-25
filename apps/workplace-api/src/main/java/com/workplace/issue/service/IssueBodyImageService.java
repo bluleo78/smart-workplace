@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -140,20 +142,14 @@ public class IssueBodyImageService {
     List<IssueBodyFilePlaceholders.Placeholder> found = IssueBodyFilePlaceholders.find(body);
     if (found.isEmpty()) return new ResolvedBody(body, List.of(), Set.of());
 
-    Set<Long> ids = new LinkedHashSet<>();
-    for (var p : found) {
-      ids.add(parseId(p.rawId()));
-    }
-    List<StagedFile> staged;
-    try {
-      staged =
-          stagedFileClaimer.claim(
-              callerId, List.copyOf(ids), StagedFileClaimer.Retention.KEEP_TEMPORARY);
-    } catch (StagedFileUnusableException e) {
-      // 클레임 공용 처리기는 번호를 응답에서 숨기지만(남의 id 떠보기 방지), 여기 번호는 호출자가 본문에 직접 적은 값이라 알려 줘도 새는 것이 없다 —
-      // 원인은 하나의 문구로 묶어 남의 파일·없는 파일·만료를 가르지 않는다.
-      throw unusable(String.valueOf(e.fileId()));
-    }
+    Set<Long> ids = collectIds(found);
+    // 클레임 공용 처리기는 번호를 응답에서 숨기지만(남의 id 떠보기 방지), 여기 번호는 호출자가 본문에 직접 적은 값이라 알려 줘도 새는 것이 없다 —
+    // 원인은 하나의 문구로 묶어 남의 파일·없는 파일·만료를 가르지 않는다.
+    List<StagedFile> staged =
+        lookupStaged(
+            () ->
+                stagedFileClaimer.claim(
+                    callerId, List.copyOf(ids), StagedFileClaimer.Retention.KEEP_TEMPORARY));
 
     // 파일마다 바꿔 넣을 글 — 이미지는 본문 이미지 주소, 그 밖은 굵은 이름.
     Map<Long, String> images = new HashMap<>();
@@ -183,24 +179,106 @@ public class IssueBodyImageService {
       }
     }
 
-    StringBuilder out = new StringBuilder(body.length() + found.size() * 48);
-    int cursor = 0;
-    for (var p : found) {
-      long id = Long.parseLong(p.rawId());
-      out.append(body, cursor, p.start());
-      String url = images.get(id);
-      // 링크 꼴로 적은 이미지도 본문 이미지로 넣는다 — issue-images 주소는 인증 헤더가 있어야 열려 링크로는 쓸 수 없다.
-      out.append(url != null ? "![" + p.alt() + "](" + url + ")" : others.get(id));
-      cursor = p.end();
-    }
-    out.append(body, cursor, body.length());
+    String text =
+        splice(
+            body,
+            found,
+            48,
+            p -> {
+              long id = Long.parseLong(p.rawId());
+              String url = images.get(id);
+              // 링크 꼴로 적은 이미지도 본문 이미지로 넣는다 — issue-images 주소는 인증 헤더가 있어야 열려 링크로는 쓸 수 없다.
+              return url != null ? "![" + p.alt() + "](" + url + ")" : others.get(id);
+            });
 
     // 주소가 자리표시보다 길어 요청 검증(BODY_MAX)을 지난 본문이 상한을 넘을 수 있다 — 저장 전에 다시 본다.
-    if (out.length() > IssueTextLimits.BODY_MAX) {
+    if (text.length() > IssueTextLimits.BODY_MAX) {
       throw new IssueBodyImageRejectedException(
           "파일 자리표시를 주소로 바꾸면 본문이 " + IssueTextLimits.BODY_MAX + "자를 넘어요. 본문을 줄여 주세요.");
     }
-    return new ResolvedBody(out.toString(), List.copyOf(attachments), Set.copyOf(ids));
+    return new ResolvedBody(text, List.copyOf(attachments), Set.copyOf(ids));
+  }
+
+  /**
+   * 이슈 챗에 올릴 글의 스테이징 파일 자리표시 해석 결과(WP-2093).
+   *
+   * @param body 자리표시를 파일 이름 표기로 바꾼 본문
+   * @param fileIds 챗 글 첨부로 붙일 스테이징 파일 id(본문 순서, 중복 없음, 없으면 빈 목록)
+   */
+  public record ChatBody(String body, List<Long> fileIds) {}
+
+  /**
+   * 워크플로우 질문처럼 이슈 댓글이 아니라 이슈 챗 글로 올릴 본문의 자리표시({@code ![설명](file:N)}·{@code [이름](file:N)})를
+   * 바꾼다(WP-2093).
+   *
+   * <p>왜: 챗 글은 본문 이미지 주소를 쓰지 않고 파일을 글의 첨부로 붙인다. 그래서 자리표시의 파일은 모두(이미지 포함) 챗 첨부 id 로 돌려주고, 그 자리는 깨진
+   * 「file:」 링크가 남지 않게 댓글의 이미지 아닌 파일과 같은 굵은 이름 + 「(첨부 파일)」로 바꾼다. 코드 블록·인라인 코드 안은 건드리지 않는다({@link
+   * IssueBodyFilePlaceholders}).
+   *
+   * <p>여기서는 이름을 알려고 잠금 없이 사전 검사만 한다({@link StagedFileClaimer#requireClaimable}) — 실제 클레임은 챗 글이 첨부를
+   * 묶을 때 같은 트랜잭션에서 한다. 자리표시가 없으면 쿼리 없이 그대로 돌려준다.
+   *
+   * @param maxLength 바꾼 본문의 상한(챗 본문 상한) — 이름이 자리표시보다 길어 넘으면 400
+   * @throws IssueBodyImageRejectedException 쓸 수 없는 번호(남의·없는·만료·이미 붙인 파일)·바꾼 본문이 상한을 넘음(400)
+   */
+  public ChatBody resolveStagedPlaceholdersForChat(long callerId, String body, int maxLength) {
+    List<IssueBodyFilePlaceholders.Placeholder> found = IssueBodyFilePlaceholders.find(body);
+    if (found.isEmpty()) return new ChatBody(body, List.of());
+
+    Set<Long> ids = collectIds(found);
+    // 본문에 호출자가 직접 적은 번호라 알려 줘도 새는 것이 없다 — 댓글 자리표시와 같은 문구.
+    List<StagedFile> staged =
+        lookupStaged(
+            () ->
+                stagedFileClaimer.requireClaimable(
+                    callerId, List.copyOf(ids), StagedFileClaimer.Retention.PERMANENT));
+    Map<Long, String> names = new HashMap<>();
+    for (StagedFile f : staged) {
+      names.put(f.fileId(), "**" + escapeMarkdown(f.originalName()) + "** (첨부 파일)");
+    }
+
+    String text = splice(body, found, 32, p -> names.get(Long.parseLong(p.rawId())));
+    // 이름이 자리표시보다 길면 판정(상한)을 지난 글이 챗 본문 상한을 넘을 수 있다 — DB 제약(500) 전에 알린다.
+    if (text.codePointCount(0, text.length()) > maxLength) {
+      throw new IssueBodyImageRejectedException(
+          "파일 자리표시를 파일 이름으로 바꾸면 글이 " + maxLength + "자를 넘어요. 글을 줄여 주세요.");
+    }
+    return new ChatBody(text, List.copyOf(ids));
+  }
+
+  /** 자리표시들의 파일 id 를 본문 순서대로(중복 없이) 모은다 — 해석할 수 없는 번호는 같은 거절 문구로 알린다. */
+  private static Set<Long> collectIds(List<IssueBodyFilePlaceholders.Placeholder> found) {
+    Set<Long> ids = new LinkedHashSet<>();
+    for (var p : found) {
+      ids.add(parseId(p.rawId()));
+    }
+    return ids;
+  }
+
+  /** 스테이징 파일 조회(클레임·사전 검사) — 쓸 수 없는 파일은 번호를 적은 하나의 거절 문구(400)로 바꾼다. */
+  private static List<StagedFile> lookupStaged(Supplier<List<StagedFile>> lookup) {
+    try {
+      return lookup.get();
+    } catch (StagedFileUnusableException e) {
+      throw unusable(String.valueOf(e.fileId()));
+    }
+  }
+
+  /** 본문의 자리표시 구간마다 replacement 가 돌려준 글로 갈아 끼운 본문을 만든다 — sizeHint 는 자리표시당 늘어날 글자 수 추정치. */
+  private static String splice(
+      String body,
+      List<IssueBodyFilePlaceholders.Placeholder> found,
+      int sizeHint,
+      Function<IssueBodyFilePlaceholders.Placeholder, String> replacement) {
+    StringBuilder out = new StringBuilder(body.length() + found.size() * sizeHint);
+    int cursor = 0;
+    for (var p : found) {
+      out.append(body, cursor, p.start());
+      out.append(replacement.apply(p));
+      cursor = p.end();
+    }
+    out.append(body, cursor, body.length());
+    return out.toString();
   }
 
   /** 자리표시 번호 해석 — 19자리지만 Long 범위를 넘는 값은 있을 수 없는 파일이라 같은 거절 문구로 알린다. */

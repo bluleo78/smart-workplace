@@ -16,13 +16,14 @@ const me = { id: meId, username: 'me', name: '나', kind: 'HUMAN' as const }
 
 const turn = (runId: number, extra: object = {}) => ({
   runId, issueId: runId * 10, issueNumber: runId * 10, issueKey: `WP-${runId * 10}`, title: `제목 ${runId}`, projectId: 1, projectKey: 'WP', workflowId: 42,
-  workflowName: '기본 흐름', versionNo: 1, nodeKey: 'review', nodeName: '검토', enteredAt: '2026-11-20T01:00:00Z', handedBy: kim, question: '배포해도 될까요?', ...extra,
+  workflowName: '기본 흐름', versionNo: 1, nodeKey: 'review', nodeName: '검토', enteredAt: '2026-11-20T01:00:00Z', handedBy: kim, question: '배포해도 될까요?', asking: false, ...extra,
 })
 
-const issueView = (runId: number) => ({
+const outcomeView = (key: string) => ({ key, to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] })
+const issueView = (runId: number, node: object = {}, outcomes: object[] = [outcomeView('approve')]) => ({
   runId, status: 'WAITING', revision: 3, workflowId: 42, versionNo: 1,
-  currentNode: { key: 'review', name: '검토', type: 'human_task', roleKey: null, assignees: [me], enteredAt: '2026-11-20T01:00:00Z', nodeRunStatus: 'ACTIVE', instructions: null },
-  outcomes: [{ key: 'approve', to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] }],
+  currentNode: { key: 'review', name: '검토', type: 'human_task', roleKey: null, assignees: [me], enteredAt: '2026-11-20T01:00:00Z', nodeRunStatus: 'ACTIVE', instructions: null, ...node },
+  outcomes,
   path: [], remainingNodeKeys: [], context: {},
 })
 
@@ -37,7 +38,14 @@ function setup(responses: (object[] | number)[]) {
         const next = responses[Math.min(n++, responses.length - 1)]
         return typeof next === 'number' ? HttpResponse.json({ message: 'fail' }, { status: next }) : HttpResponse.json({ items: next })
       }),
-      http.get(base + '/issues/:id/workflow', ({ params }) => HttpResponse.json(issueView(Number(params.id) / 10))),
+      // 질문 경로 줄은 지금 노드에 returnTo 가 있다 — 서버 이슈 워크플로우 뷰와 같은 모양.
+      // run 5 는 표준 질문 노드(결과 answered 뿐), run 7 은 다른 결과(approve)도 있는 질문 노드다.
+      http.get(base + '/issues/:id/workflow', ({ params }) => {
+        const runId = Number(params.id) / 10
+        if (runId === 5) return HttpResponse.json(issueView(runId, { key: 'work_ask', returnTo: 'work' }, [outcomeView('answered')]))
+        if (runId === 7) return HttpResponse.json(issueView(runId, { key: 'work_ask', returnTo: 'work' }, [outcomeView('answered'), outcomeView('approve')]))
+        return HttpResponse.json(issueView(runId))
+      }),
       http.post(base + '/issues/:id/workflow/move', async ({ request }) => {
         moves.push((await request.json()) as Record<string, unknown>)
         return HttpResponse.json(issueView(1))
@@ -73,6 +81,40 @@ describe('내 차례 탭', () => {
     expect(screen.getByTestId('my-turn-row-2')).toBeVisible()
     // WP-2050: 넘겨서 고른 줄이 빠지면 선택이 풀려 안내가 다시 보인다.
     expect(screen.getByTestId('my-turn-empty-detail')).toBeVisible()
+  })
+
+  // WP-2093: 질문 대기 줄은 질문 첫 줄과 「챗에서 답하기」(챗이 열린 이슈 링크)를 보이고, 패널에는 결과 단추가 없다.
+  it('myTurns_askingRow_showsFirstLineAndChatLink_noOutcomeButtons', async () => {
+    const asking = turn(5, { question: '어느 쪽으로 할까요?', asking: true, nodeKey: 'work_ask', nodeName: '질문 답변' })
+    const plain = turn(6)
+    const { user } = setup([[asking, plain]])
+    const rows = await screen.findAllByTestId(/^my-turn-row-/)
+    expect(within(rows[0]).getByText('어느 쪽으로 할까요?')).toBeVisible()
+    expect(within(rows[0]).getByRole('link', { name: '챗에서 답하기' })).toHaveAttribute('href', '/projects/WP/issues/50?chat=1')
+    expect(within(rows[0]).queryByRole('link', { name: '열기' })).not.toBeInTheDocument()
+    // 일반 사람 노드 줄은 그대로 「열기」.
+    expect(within(rows[1]).getByRole('link', { name: '열기' })).toHaveAttribute('href', '/projects/WP/issues/60')
+    expect(within(rows[1]).queryByRole('link', { name: '챗에서 답하기' })).not.toBeInTheDocument()
+
+    await user.click(within(rows[0]).getByRole('button', { name: /WP-50/ }))
+    const panel = await screen.findByTestId('my-turn-panel')
+    expect(within(panel).getByText('「어느 쪽으로 할까요?」')).toBeVisible()
+    expect(within(panel).getByRole('link', { name: '챗에서 답하기' })).toHaveAttribute('href', '/projects/WP/issues/50?chat=1')
+    // 배너는 질문 경로 노드를 그리지 않는다 — 결과 단추·넘기기가 없다.
+    await new Promise((r) => setTimeout(r, 100))
+    expect(within(panel).queryByRole('button', { name: 'answered' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument()
+  })
+
+  // WP-2093 리뷰 후속: 질문 노드에 answered 말고 다른 결과도 있으면 패널 배너는 보이되 answered 단추만 없다(답은 챗으로).
+  it('myTurns_askingRowWithOtherOutcomes_bannerWithoutAnswered', async () => {
+    const asking = turn(7, { question: '어느 쪽으로 할까요?', asking: true, nodeKey: 'work_ask', nodeName: '질문 답변' })
+    const { user } = setup([[asking]])
+    await user.click(within(await screen.findByTestId('my-turn-row-7')).getByRole('button', { name: /WP-70/ }))
+    const panel = await screen.findByTestId('my-turn-panel')
+    expect(await within(panel).findByRole('button', { name: 'approve' })).toBeVisible()
+    expect(within(panel).queryByRole('button', { name: 'answered' })).not.toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: '챗에서 답하기' })).toHaveAttribute('href', '/projects/WP/issues/70?chat=1')
   })
 
   // WP-2050: 고른 줄이 없으면 오른쪽에 안내를 보이고, 줄을 고르면 안내 대신 패널이 보인다.

@@ -70,6 +70,14 @@ public record MoveViolation(int status, String code, String message, Map<String,
     return new MoveViolation(422, "WORKFLOW_COMMENT_REQUIRED", "이 결과로 넘기려면 의견을 적어 주세요.", Map.of());
   }
 
+  /**
+   * 질문 결과의 의견(이슈 챗 질문 글이 된다, WP-2093)이 챗 글 상한을 넘는다 — 그대로 올리면 챗 본문 DB 제약에 걸려 500 이 나므로 이동 전에 거절한다.
+   */
+  public static MoveViolation questionTooLong(int max) {
+    return new MoveViolation(
+        422, "WORKFLOW_QUESTION_TOO_LONG", "질문은 " + max + "자 이하로 적어 주세요.", Map.of());
+  }
+
   /** 담당을 정할 수 없어 골라야 한다. role·candidates 로 다시 보낼 수 있게 한다. */
   public static MoveViolation assigneeRequired(String role, String candidates, String message) {
     return new MoveViolation(
