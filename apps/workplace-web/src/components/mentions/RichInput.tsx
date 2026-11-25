@@ -16,7 +16,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Text from '@tiptap/extension-text';
 import { isHistoryTransaction } from '@tiptap/pm/history';
 import type { Node as PMNode } from '@tiptap/pm/model';
-import { Selection } from '@tiptap/pm/state';
+import { type EditorState, PluginKey, Selection } from '@tiptap/pm/state';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import { ArrowUp, Loader2 } from 'lucide-react';
@@ -144,6 +144,22 @@ interface RichInputProps {
 }
 
 /**
+ * 멘션 검색어에 맞는가를 묻는 판정 — 이름·아이디에 검색어가 들어 있으면(대소문자 무시) 맞는다, 빈 검색어(null 포함)는 전부.
+ * suggestion.items 와 키 가드(지금 문서 상태로 후보가 보이는지 다시 판정, WP-2107)가 같은 규칙을 쓰게 한 곳에 둔다.
+ */
+function mentionMatcher(query: string | null): (m: MentionCandidate) => boolean {
+  const q = (query ?? '').toLowerCase();
+  return (m) => q === '' || m.name.toLowerCase().includes(q) || m.username.toLowerCase().includes(q);
+}
+
+/**
+ * 멘션 suggestion 플러그인 키 — Enter 가드가 view.state 에서 플러그인 상태({ active, query })를 읽는 데 쓴다(WP-2107).
+ * 플러그인 상태는 트랜잭션 apply 에서 동기로 갱신되므로, 비동기인 render.onUpdate(items 를 await) 전에도 지금 검색어를 준다.
+ * 키 하나를 모든 RichInput 이 같이 써도 된다 — 상태는 편집기마다 제 EditorState 안에 따로 있다.
+ */
+const mentionPluginKey = new PluginKey<{ active: boolean; query: string | null }>('richInputMention');
+
+/**
  * 입력칸이 비었는지 — 공백·줄바꿈뿐이어도 비었다고 보고, 글 없이 이미지만 있으면 비어 있지 않다(WP-362).
  * 키 입력마다 호출되므로 editor.isEmpty(O(1))로 먼저 거르고, 아니면 글자·멘션을 처음 찾는 즉시 멈추는 탐색을 쓴다
  * (getText 로 문서 전체를 이어 붙이지 않는다). 결과는 `getText().trim() === '' && 이미지 없음` 과 같다.
@@ -241,17 +257,13 @@ export function RichInput({
     placeholderRef.current = placeholder;
   }, [placeholder]);
 
-  // 멘션 팝업 활성 여부를 인스턴스-로컬로 추적. Enter 가드에서 DOM 전역 조회 대신 사용
-  // (전역 조회 시 다른 인스턴스의 팝업까지 잡혀 Enter 전송이 잘못 차단됨).
-  const popupOpenRef = useRef(false);
   // 멘션 후보 팝업 aria(WP-2061): 목록 id 는 RichInput 마다 달라야 하고, 활성 후보 순번(null=팝업 없음)은 MentionList 가 알려 준다.
   const mentionListId = useId();
   const [mentionActive, setMentionActive] = useState<number | null>(null);
-  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음 — 본문 모드 키 위임과 코멘트·채팅 수정 Esc 양보가 읽음, WP-2082), dismissed: 이번 자동완성에서 Esc 로 닫았는가
-  // (닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
-  // 본문에는 @Override·@media 처럼 멤버가 아닌 @단어가 흔한데 그때도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음), 키를 팝업에 넘기면
-  // Enter·Esc 가 아무 일도 하지 않았다 — 본문 모드는 후보가 보일 때만 키를 팝업에 넘긴다. 코멘트·채팅 Enter 는 popupOpenRef 를 그대로 쓰지만,
-  // 숨긴 팝업(dismissed)은 코멘트·채팅 Enter 전송 가드도 함께 읽는다 — dismissed 를 본문 전용으로 읽지 않게. 수정 중 Esc 는 live 를 본다(WP-2082).
+  // 멘션 팝업 — live: 고를 후보가 보이는가(맞는 멤버가 있고 Esc 로 닫지 않음 — 본문 모드 키 위임·Esc(handleBodyEscape),
+  // 코멘트·채팅 수정 중 Esc 양보(WP-2082)가 읽음. 코멘트·채팅 키 가드는 아래 mentionCandidatesVisible), dismissed: 이번 자동완성에서
+  // Esc 로 닫았는가(닫은 뒤엔 다시 열지 않는다), hide: 지금 팝업 숨기기(팝업이 없으면 null — 코멘트·본문 Esc 가 함께 쓴다).
+  // 맞는 멤버가 없는 @단어(@Override·@media·@zzzz)에도 자동완성은 켜져 있어(빈 팝업은 그려지지 않음) 후보가 보일 때만 키를 팝업에 넘긴다.
   const bodyPopupRef = useRef<{ live: boolean; dismissed: boolean; hide: (() => void) | null }>({
     live: false,
     dismissed: false,
@@ -263,6 +275,16 @@ export function RichInput({
   const reportMentionActive = useCallback((index: number) => {
     if (!bodyPopupRef.current.dismissed) setMentionActive(index);
   }, []);
+  // 지금 문서 상태로 고를 멘션 후보가 보이는가 — 자동완성이 켜져 있고(플러그인 상태 active) Esc 로 닫지 않았고 검색어에 맞는 멤버가 있다.
+  // live 와 뜻은 같지만 live 는 비동기인 render.onUpdate(@tiptap/suggestion 이 items() 를 await)에서야 갱신된다. 한글 조합을 끝내는
+  // Enter 는 확정 글자가 같은 keydown 안에서 막 반영된 직후라 live 가 확정 전 검색어('@ㄱ' → 0건) 기준이다 — 그래서 코멘트·채팅의
+  // 키 가드는 트랜잭션 apply 에서 동기로 갱신되는 플러그인 상태의 검색어로 이것을 다시 판정한다(WP-2107).
+  function mentionCandidatesVisible(state: EditorState): boolean {
+    if (bodyPopupRef.current.dismissed) return false;
+    const suggestion = mentionPluginKey.getState(state);
+    if (!suggestion?.active) return false;
+    return membersRef.current.some(mentionMatcher(suggestion.query));
+  }
 
   // onChange 최신값을 onUpdate 콜백에서 참조 (membersRef 와 동일 패턴, 스테일 클로저 회피).
   const onChangeRef = useRef(onChange);
@@ -410,7 +432,7 @@ export function RichInput({
       // Shift+Enter 줄바꿈(<br>) 처리. StarterKit 포함 패키지이므로 별도 설치 불필요.
       HardBreak,
       // macOS Chrome 한글 조합을 끝내는 Enter 로 전송해도 마지막 글자가 빠지지 않게(WP-333) — 전송 판정보다 먼저 확정 글자를 반영.
-      // (멘션 팝업의 후보 목록은 비동기로 갱신돼 이 순간엔 확정 전 검색어 기준이다 — 알려진 한계.)
+      // (멘션 팝업의 후보 목록은 비동기로 갱신돼 이 순간엔 확정 전 검색어 기준이다 — 그래서 Enter 전송 가드는 플러그인 상태로 다시 판정한다, WP-2107.)
       ImeCommitFlush,
       // placeholderRef 는 ProseMirror 가 장식을 그릴 때(렌더 이후)에만 읽히므로 안전하다(react-hooks/refs 의 보수적 false positive).
       // eslint-disable-next-line react-hooks/refs
@@ -429,17 +451,8 @@ export function RichInput({
           `@${node.attrs.label as string}`,
         suggestion: {
           char: '@',
-          items: ({ query }) => {
-            const q = query.toLowerCase();
-            return membersRef.current
-              .filter(
-                (m) =>
-                  q === '' ||
-                  m.name.toLowerCase().includes(q) ||
-                  m.username.toLowerCase().includes(q),
-              )
-              .slice(0, 8);
-          },
+          pluginKey: mentionPluginKey,
+          items: ({ query }) => membersRef.current.filter(mentionMatcher(query)).slice(0, 8),
           render: () => {
             let component: ReactRenderer<MentionListHandle> | null = null;
             let popup: TippyInstance | null = null;
@@ -451,7 +464,6 @@ export function RichInput({
             });
             return {
               onStart: (props: SuggestionProps<MentionCandidate>) => {
-                popupOpenRef.current = true;
                 bodyPopupRef.current = {
                   live: props.items.length > 0,
                   dismissed: false,
@@ -499,11 +511,13 @@ export function RichInput({
                 // Esc 로 숨긴 팝업(dismissed)에는 방향키·Enter 를 목록에 넘기지 않는다 — 본문 모드와 같게,
                 // 보이지 않는 후보가 선택되지 않게 한다(WP-2062). Escape 는 위에서 팝업 쪽이 먼저 먹는다.
                 // (onCancel 이 있으면 숨긴 팝업은 양보하지 않으므로 두 번째 Esc 는 handleKeyDown 이 먼저 받아 수정을 취소한다 — onCancel 이 없을 때만 팝업 쪽이 삼킨다, WP-2082.)
-                if (bodyPopupRef.current.dismissed) return false;
-                return component?.ref?.onKeyDown(props) ?? false;
+                // 코멘트·채팅도 보이는 후보가 없으면(맞는 멤버 없음) 방향키·Enter 를 넘기지 않는다 — Enter 가 전송으로 가게(WP-2107).
+                if (!mentionCandidatesVisible(props.view.state)) return false;
+                // 후보가 보이는데 목록(onUpdate)이 아직 못 따라와 비어 있으면(한글 조합을 끝내는 Enter) 목록은 키를 넘긴다 —
+                // 그 Enter 는 handleKeyDown 이 이미 멘션에 양보했으니 줄 나누기가 되지 않게 삼키고, 곧 뜨는 목록에서 고르게 한다(WP-2107).
+                return (component?.ref?.onKeyDown(props) ?? false) || isSubmitEnter(props.event);
               },
               onExit: () => {
-                popupOpenRef.current = false;
                 setMentionActive(null);
                 bodyPopupRef.current = { live: false, dismissed: false, hide: null };
                 popup?.destroy();
@@ -596,13 +610,15 @@ export function RichInput({
       },
       // 본문 모드 복사·잘라내기 — 문단 사이 줄바꿈 하나(기본은 "\n\n" 이라 메모장에 붙이면 줄 간격이 두 배가 된다).
       ...(bodyModeEnabled ? { clipboardTextSerializer: sliceToBodyText } : {}),
-      handleKeyDown: (_view, event) => {
+      handleKeyDown: (view, event) => {
         if (bodyModeEnabled) return handleBodyKeyDown(event);
-        // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
+        // 멘션 후보가 보이면 Enter 는 mention 플러그인이 처리(고르기)하도록 여기선 양보한다.
         if (isSubmitEnter(event)) {
-          // 이 인스턴스의 팝업이 열려있으면 mention 처리에 양보 (인스턴스-로컬 플래그).
-          // 숨긴 팝업은 열린 팝업이 아니라 — 멘션 삽입 대신 전송으로 간다(WP-2062).
-          if (popupOpenRef.current && !bodyPopupRef.current.dismissed) return false;
+          // 이 인스턴스에서 고를 후보가 보이면 mention 처리에 양보 — live 가 아니라 지금 문서 상태(플러그인 상태의 검색어)로 다시 판정한다.
+          // live 는 비동기 onUpdate 에서야 갱신돼, 한글 조합을 끝내는 Enter(ImeCommitFlush 가 같은 keydown 안에서 확정 글자를 반영한 직후)엔
+          // 확정 전 검색어('@ㄱ' → 0건) 기준이라 '@김' 처럼 후보가 있는데도 반쯤 쓴 글을 보내 버린다(WP-2107).
+          // 숨긴 팝업(WP-2062)·맞는 멤버가 없어 안 보이는 팝업(WP-2107)은 멘션 삽입 대신 전송으로 간다.
+          if (mentionCandidatesVisible(view.state)) return false;
           event.preventDefault();
           submit();
           return true;

@@ -3,13 +3,17 @@
 // 본문 모드 Esc 후 Enter 가 줄바꿈인 기존 동작도 함께 고정한다(회귀).
 // 메시지 수정(onCancel) 중 Esc(WP-2082) — 후보가 보이면 첫 Esc 는 팝업만 닫고 두 번째 Esc 가 수정을 취소한다. 후보 0건은 Esc 한 번에 취소,
 // 한글 조합 중 Esc 는 취소하지 않는다(조합 가드는 ProseMirror 가 조합 중 키를 대부분 걸러 주는 위에 둔 방어 장치).
-import { act, fireEvent, screen } from '@testing-library/react'
+// 맞는 멤버 없는 @ 뒤 Enter(WP-2107) — 보이는 후보가 없으면 Enter 는 전송, 조합 확정 Enter 처럼 검색어가 막 후보가 생기는 값이 된 직후
+// (비동기 onUpdate 전)엔 보내지 않고 멘션에 양보한다. MentionList 빈 목록은 Enter·방향키를 삼키지 않는다.
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
+import { createRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { editorOf } from '@/test/kits/richEditor'
 import { renderWithProviders } from '@/test/renderWithProviders'
 
+import { MentionList, type MentionListHandle } from './MentionList'
 import { RichInput } from './RichInput'
 
 const MEMBERS = [
@@ -192,5 +196,86 @@ describe('RichInput 멘션 Esc 로 숨긴 뒤 키', () => {
       fireEvent.keyDown(el, { key: 'Escape' })
     })
     expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+// 맞는 멤버가 없는 @입력 뒤 Enter (WP-2107) — 보이는 후보가 없으면 Enter 는 멘션 플러그인에 양보하지 않고 전송으로 간다.
+describe('맞는 멤버가 없는 @ 뒤 Enter (WP-2107)', () => {
+  it('맞는 멤버가 없는 @zzzz 뒤 Enter 는 보낸다', async () => {
+    const onSubmit = vi.fn()
+    const el = renderComment(onSubmit, 'mention-enter-empty')
+    await typeAtEnd(editorOf(el), '@zzzz')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit.mock.calls[0][0]).toContain('@zzzz')
+  })
+
+  it('후보가 보이다 사라진 뒤 Enter 는 보낸다', async () => {
+    const onSubmit = vi.fn()
+    const el = renderComment(onSubmit, 'mention-enter-vanish')
+    const editor = editorOf(el)
+    await typeAtEnd(editor, '@kim')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await typeAtEnd(editor, 'zz')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('검색어가 막 후보가 생기는 값이 된 직후(onUpdate 전)에 온 Enter 는 보내지 않고 멘션에 양보한다', async () => {
+    const onSubmit = vi.fn()
+    const el = renderComment(onSubmit, 'mention-enter-ime')
+    const editor = editorOf(el)
+    // 조합 중 글자 'ㄱ' — 맞는 멤버가 없어 후보가 안 보인다(live=false).
+    await typeAtEnd(editor, '@ㄱ')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // 조합 확정 Enter 흉내: ImeCommitFlush 가 같은 keydown 안에서 확정 글자('김')를 반영한 직후 Enter 가 온다.
+    // 글자 바꾸기와 Enter 를 await 없이 잇달아 보내 — suggestion 의 onUpdate(items 를 await 해 마이크로태스크 뒤)가 돌기 전에 Enter 가 닿는다.
+    // (가드를 live 로 되돌리면 이 Enter 가 '@김' 을 보내 실패하고, 플러그인 onKeyDown 의 삼키기를 빼면 줄 나누기가 돼 실패한다.)
+    await act(async () => {
+      const to = editor.state.selection.from
+      editor.chain().insertContentAt({ from: to - 1, to }, '김').run()
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).not.toHaveBeenCalled() // 반쯤 쓴 글을 보내지 않는다
+    expect(editor.getJSON().content).toHaveLength(1) // 줄 나누기도 아니다
+    // 목록이 따라오면 후보가 보이고, 다음 Enter 는 그 후보를 고른다.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30))
+    })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(JSON.stringify(editor.getJSON())).toContain('mention')
+  })
+
+  it('후보가 보일 때 Enter 는 고르고 보내지 않는다', async () => {
+    const onSubmit = vi.fn()
+    const el = renderComment(onSubmit, 'mention-enter-pick')
+    await typeAtEnd(editorOf(el), '@kim')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.keyDown(el, { key: 'Enter' })
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(JSON.stringify(editorOf(el).getJSON())).toContain('mention')
+  })
+})
+
+describe('MentionList 빈 목록 키 (WP-2107)', () => {
+  it('빈 목록은 Enter·ArrowDown 을 삼키지 않는다', () => {
+    const ref = createRef<MentionListHandle>()
+    const command = vi.fn()
+    render(<MentionList ref={ref} items={[]} command={command} listId="l" onActiveChange={() => {}} />)
+    expect(ref.current?.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'Enter' }) })).toBe(false)
+    expect(ref.current?.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'ArrowDown' }) })).toBe(false)
+    expect(command).not.toHaveBeenCalled()
   })
 })
