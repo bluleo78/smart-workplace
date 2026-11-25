@@ -115,11 +115,13 @@ export class AiRunScope {
     const runnerErrorDetail = lastFailure?.message ?? null;
     const ok = o.ok && !runnerFailed && !forced;
     // 실패 사유 우선순위(WP-2106): client_closed > 남은 러너 오류 중 마지막의 원인 코드(한도·인증·시간 초과 등)
-    // > o.reason(http_<코드>) > runner_error(분류 불가 러너 오류) > markFailed 사유 > 'failed'.
+    // > o.reason(http_<코드>; http_4xx 등 라우트 자체 실패는 분류 사유보다 앞선다) > runner_error(분류 불가 러너 오류) > markFailed 사유 > 'failed'.
     // 분류 불가 러너 오류는 종전 순서를 그대로 둔다 — 러너가 실패했으면 SSE 라우트의 stream_error 가 그 사유를 덮지 않는다(WP-1828).
     // 왜: 러너 오류가 한도 초과여도 라우트는 503 만 알려 http_503 으로 뭉뚱그려지던 것을 원인별로 가른다.
     // 분류 못 한 러너 오류는 기존대로 http_<코드> 가 이긴다. client_closed 는 사용자가 끊은 것이라 항상 우선.
-    const classified = lastFailure?.reason ?? null;
+    // 단, o.reason 이 http_4xx 같은 라우트 자체의 실패(검증·요청 오류)면 그대로 둔다 — 분류 사유는 o.reason 이 없거나 http_5xx·runner_error 일 때만 앞선다.
+    const routeOwnFailure = o.reason !== undefined && !/^http_5\d\d$/.test(o.reason) && o.reason !== 'runner_error';
+    const classified = routeOwnFailure ? null : (lastFailure?.reason ?? null);
     const raw =
       o.reason === 'client_closed'
         ? o.reason

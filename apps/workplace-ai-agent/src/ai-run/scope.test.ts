@@ -167,6 +167,14 @@ describe('AiRunScope', () => {
     expect(sink[1].errorReason).toBe('http_502');
   });
 
+  it('close_limitRunnerError_thenHttp422_keepsHttp422', () => {
+    const { sink, scope } = make();
+    scope.runnerStarted('m', 'c');
+    scope.runnerFinished({ ok: false, usage: null, error: LIMIT });
+    scope.close({ ok: false, reason: 'http_422' });
+    expect(sink[1].errorReason).toBe('http_422');
+  });
+
   it('close_multipleRunnerErrors_classifiesLast', () => {
     const { sink, scope } = make();
     scope.runnerStarted('m', 'c');
