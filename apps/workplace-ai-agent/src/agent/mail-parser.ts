@@ -78,7 +78,6 @@ export function extractJsonObject(text: string): Record<string, unknown> {
   // 최상위 후보만 훑는다(json-extract) — 잘려서 짝 없는 '{' 이후의 중첩 객체는 후보로 나오지 않는다.
   let firstError = '';
   let sawCandidate = false;
-  let sawNonObject = false;
   for (const span of topLevelJsonObjectSpans(s)) {
     sawCandidate = true;
     let parsed: unknown;
@@ -89,11 +88,10 @@ export function extractJsonObject(text: string): Record<string, unknown> {
       if (!firstError) firstError = (e as Error).message;
       continue;
     }
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
-    sawNonObject = true;
+    // 후보는 '{' 로 시작하는 범위라 파싱 결과가 늘 객체다(배열·원시값은 나올 수 없다) — 그래서 모양 검사·「객체가 아님」 갈래를 두지 않는다.
+    return parsed as Record<string, unknown>;
   }
   if (!sawCandidate) throw new ModelOutputError(`분석 JSON 없음: ${text.slice(0, 120)}`);
-  if (sawNonObject) throw new ModelOutputError(`분석 JSON 이 객체가 아님: ${text.slice(0, 120)}`);
   throw new ModelOutputError(`분석 JSON 파싱 실패: ${firstError}`);
 }
 
