@@ -288,6 +288,28 @@ describe('새로고침 유실 경고 (#620)', () => {
   })
 })
 
+// ─── 렌더 윈도우와 방금 쓴 코멘트(WP-2073) ───────────────────────────────
+// 코멘트가 40건이면 최신 30건만 그려진다. 윈도우가 늘 최신 쪽을 잡으므로(리뷰 ①) 방금 쓴 코멘트(가장 최신)는
+// 어느 정렬에서도 창 안에 들어와, 작성할 때마다 41행을 전부 다시 그리지 않는다(리뷰 ②).
+
+describe('렌더 윈도우와 방금 쓴 코멘트 (WP-2073)', () => {
+  test('작성 성공 뒤 방금 쓴 코멘트가 보이고 윈도우는 그대로 30건이다', async () => {
+    const { user, input } = await open(
+      Array.from({ length: 40 }, (_, i) =>
+        createComment({ id: i + 1, issueId: ISSUE_ID, authorId: ME_ID + 999, authorName: '다른 사용자', body: `기존 코멘트 ${i + 1}` }),
+      ),
+    )
+    // 처음에는 렌더 윈도우(최신 30건)만큼만 그려진다.
+    await waitFor(() => expect(commentItems()).toHaveLength(30))
+    setRichText(input, '방금 쓴 코멘트')
+    await user.click(screen.getByTestId('issue-comment-submit'))
+    // 작성 성공 → 방금 만든 코멘트(id 90)는 창 안이라 곧 보이고, 창은 41행으로 펼쳐지지 않는다.
+    expect(await screen.findByTestId('issue-comment-header-90')).toBeInTheDocument()
+    expect(screen.getByText('방금 쓴 코멘트')).toBeInTheDocument()
+    await waitFor(() => expect(commentItems()).toHaveLength(30))
+  })
+})
+
 describe('AGENT 코멘트 마크다운 렌더 (WP-254)', () => {
   const AGENT_BODY = [
     '## 조사 결과',

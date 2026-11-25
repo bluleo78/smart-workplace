@@ -7,7 +7,8 @@
 // 프로젝트 멤버 목록으로 찾는다(읽기 렌더·수정 폼 초기값 공용). 구버전 서버(mentions 없음)는 멤버 목록만 쓴다.
 
 import { Link2, MessageSquareShare, Pencil, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
@@ -30,7 +31,7 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { PersonCardTrigger } from '@/components/users/personCard/PersonCardTrigger';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { useListFocusRescue } from '@/hooks/useListFocusRescue';
+import { focusRow, useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { appLinksOf, withoutMarkdownCode } from '@/lib/appLinks';
@@ -72,7 +73,9 @@ function withCommentMentions(members: MentionUser[], mentions: MentionResponse[]
 }
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
-function CommentItem({
+// memo(WP-2073): 페이지 레벨 상태(타이틀·본문 편집, 탭 전환 등)가 바뀌어 목록이 다시 그려져도 props 가 같으면
+// 이 행은 다시 그려지지 않는다 — 코멘트 200개가 전부 다시 그려져 INP 가 늘어나지 않게(렌더 윈도우와 함께 쓰는 성능 잠금).
+const CommentItem = memo(function CommentItem({
   comment,
   isOwn,
   projectKey,
@@ -104,7 +107,9 @@ function CommentItem({
   touch: boolean;
   currentUserId: number;
   // 반응자 전체 보기 열기(데스크톱 호버 카드 모두 보기) — 오버레이는 목록이 하나만 가진다(WP-504).
-  onOpenReactors: (emoji: string) => void;
+  // 목록의 안정적 콜백을 그대로 받으되 대상 코멘트 id 를 함께 받는다 — 감싸기는 이 컴포넌트 안에서만 해야
+  // 목록 맵이 매 렌더 새 클로저를 만들지 않아 memo 가 무력화되지 않는다(WP-2073).
+  onOpenReactors: (commentId: number, emoji: string) => void;
   // 링크로 열어 온 코멘트 — 잠시 테두리로 강조해 어느 코멘트인지 보이게 한다(WP-1175).
   highlighted?: boolean;
 }) {
@@ -150,6 +155,12 @@ function CommentItem({
   const isAgent = comment.authorKind === 'AGENT';
   const { toggle } = useToggleCommentReaction(projectKey, issueNumber, issueId);
   const toggleReaction = (emoji: string) => toggle(comment.id, emoji);
+  // 반응자 오버레이 열기 — 목록의 안정적 콜백(onOpenReactors)에 이 코멘트 id 를 미리 묶어 (emoji) 만 받는 모양으로 넘긴다.
+  // CommentReactions·ReactionBar 는 (emoji) 시그니처라 여기서만 감싼다(WP-2073).
+  const openReactorsForComment = useCallback(
+    (emoji: string) => onOpenReactors(comment.id, emoji),
+    [onOpenReactors, comment.id],
+  );
   // 반응 없는 코멘트(마우스)의 😊+ 는 본문 아래가 아니라 헤더 hover 액션 자리에 둔다 — 빈 칩 줄이 공간을 차지하지 않게(WP-504).
   const headerReactionAdd = canReact && !touch && !editing && (comment.reactions ?? []).length === 0;
   // 반응 칩·헤더 「반응 추가」가 눌린 뒤 사라지면(첫 반응 → 칩 줄 ＋, 내 반응만 있던 칩 취소) 같은 코멘트의 반응 컨트롤로 포커스를 잇는다(WP-830).
@@ -392,14 +403,14 @@ function CommentItem({
             canReact={canReact}
             touch={touch}
             currentUserId={currentUserId}
-            onOpenReactors={onOpenReactors}
+            onOpenReactors={openReactorsForComment}
             onToggle={toggleReaction}
           />
         )}
       </div>
     </li>
   );
-}
+});
 
 /**
  * 코멘트 본문의 우리 앱 링크 카드(WP-1235) — 채팅 메시지와 같은 규칙(appLinksOf: 앞에서 3개, 같은 대상은 하나)·같은 묶음(LinkPreviewList).
@@ -430,6 +441,25 @@ function commentComposerInput(): HTMLElement | null {
 
 /** 링크로 열어 온 코멘트를 강조해 두는 시간 — 스크롤이 끝나고 눈이 닿을 만큼. */
 export const LINKED_COMMENT_HIGHLIGHT_MS = 4000;
+
+// 렌더 윈도우(WP-2073) — 코멘트가 200개면 한 번에 전부 그려 LCP·INP 가 늘어난다.
+// 처음 30건만 그리고 「더 보기」를 누를 때마다 30건씩 더 그린다.
+/** 처음 그려 넣는 코멘트 수. */
+const INITIAL_VISIBLE_COMMENTS = 30;
+/** 「더 보기」 한 번에 늘려 그리는 코멘트 수. */
+const MORE_VISIBLE_COMMENTS = 30;
+/** 「전부 펼침」 — 윈도우 상한을 사실상 없애 화면에 놓인 코멘트를 전부 그린다. */
+const ALL_VISIBLE_COMMENTS = Number.MAX_SAFE_INTEGER;
+
+/**
+ * 렌더 윈도우 밖 대상(WP-2073) — 목록에는 있는데 아직 안 그려진 코멘트인지 판정한다.
+ *
+ * 방금 쓴 코멘트 스크롤·링크로 온 코멘트 두 효과가 같은 판정을 쓴다 — 그대로 두면
+ * 「찾을 수 없습니다」 오인·아무 일도 없는 스크롤로 끝나므로, 참이면 목록을 전부 펼쳐야 그 자리에 닿는다.
+ * 렌더 바깥 함수라 효과 의존성(ordered·visibleCount) 을 그대로 두고 써도 참조가 흔들리지 않는다.
+ */
+const isHiddenByWindow = (id: number, ordered: readonly IssueCommentResponse[], visibleCount: number) =>
+  visibleCount < ordered.length && ordered.some((c) => c.id === id);
 
 export function IssueCommentList({
   projectKey,
@@ -478,12 +508,16 @@ export function IssueCommentList({
   // 반응자 전체 보기(WP-504) — 목록당 하나(채팅 MessageList 와 같은 구조). 데스크톱은 호버 카드의 모두 보기, 터치는 칩 길게 누르기가 연다.
   // 대상은 코멘트 id 로만 들고 최신 목록에서 찾는다(열린 동안 개수 실시간 반영). 닫을 때 대상은 남겨 닫힘 애니메이션 동안 내용이 비지 않게 한다.
   const [reactors, setReactors] = useState<{ id: number; emoji: string; open: boolean } | null>(null);
-  const openReactors = useCallback(
-    (id: number, emoji: string) => {
-      if (comments.some((c) => c.id === id)) setReactors({ id, emoji, open: true });
-    },
-    [comments],
-  );
+  // comments 는 반응 토글·수정·삭제 때 detail 쿼리가 무효화돼 매번 새 참조로 온다(구조적 공유라 실제로 바뀐 행은 하나여도) —
+  // 콜백 의존성에 두면 콜백 참조가 바뀌어 윈도우 안 모든 행의 memo 가 무력화된다. 최신 목록은 ref 로 읽어
+  // 코멘트 존재 가드는 그대로 두고 콜백 참조는 완전히 고정한다(WP-2073).
+  const commentsRef = useRef(comments);
+  useEffect(() => {
+    commentsRef.current = comments;
+  }, [comments]);
+  const openReactors = useCallback((id: number, emoji: string) => {
+    if (commentsRef.current.some((c) => c.id === id)) setReactors({ id, emoji, open: true });
+  }, []);
   const reactorsComment = reactors ? comments.find((c) => c.id === reactors.id) : undefined;
   // 반응이 모두 사라지거나 코멘트가 지워져 오버레이가 숨겨지면 open 도 내린다 — 그대로 두면 나중에 반응이 다시 달릴 때
   // 사용자 조작 없이 저절로 다시 열린다. 렌더 중 상태 조정(효과로 미루면 한 프레임 다시 열린 상태가 그려질 수 있다).
@@ -493,35 +527,85 @@ export function IssueCommentList({
   // 코멘트를 키보드로 지우면 행이 빠지며 포커스가 body 로 빠졌다 — 같은 자리에 온 코멘트로, 다 지웠으면 작성칸으로 잇는다(WP-832).
   const listRef = useListFocusRescue(comments, commentComposerInput);
 
+  // 렌더 윈도우(WP-2073) — 처음 30건만 그리고 「더 보기」를 누를 때마다 30건씩 늘린다.
+  // 코멘트가 200개여도 한 번에 전부 그리면 LCP·INP 가 늘어난다.
+  const [visibleCount, setVisibleCount] = useState<number>(INITIAL_VISIBLE_COMMENTS);
+  // 이슈가 바뀌면 렌더 윈도우를 처음으로 되돌린다 — 앞 이슈에서 펼쳐 둔 창이 다음 이슈로 새면 목록 전체를 다시 그린다(WP-2073).
+  // 상세 쿼리가 캐시에 있으면 로딩 화면이 없어 리스트 인스턴스가 그대로 유지되므로(재마운트 없음) 렌더 중에 맞춘다.
+  const [prevIssueId, setPrevIssueId] = useState(issueId);
+  if (prevIssueId !== issueId) {
+    setPrevIssueId(issueId);
+    setVisibleCount(INITIAL_VISIBLE_COMMENTS);
+  }
+
+  // 화면 순서(WP-1016) — comments 는 늘 오래된 순으로 오고 order 만 뒤집는다(원본은 뒤집지 않는다).
+  // 아래 두 효과(방금 쓴 코멘트 스크롤·링크로 온 코멘트)가 이 값에 의존하므로 목록 맵보다 위에서 계산하고,
+  // useMemo 로 참조를 고정한다 — order='newest' 면 orderActivity 가 매 렌더 새 배열을 만들어 효과 의존성이 흔들린다(WP-2073).
+  const ordered = useMemo(() => orderActivity(comments, order), [comments, order]);
+
+  // 작성 성공 콜백은 그대로 넘긴다(WP-2073 리뷰 ②) — 렌더 윈도우가 늘 최신 쪽을 잡으므로(아래 `windowed`)
+  // 방금 쓴 코멘트(가장 최신)는 어느 정렬에서도 창 안에 들어온다. 예전에는 여기서 전부 펼쳐, 작성할 때마다
+  // 200행을 다시 그려 INP 가 늘었다. 혹시 창 밖에 남으면 위 스크롤 효과가 그때만 전부 펼친다.
+  const handleBodyPosted = useCallback(
+    (body: string) => {
+      onBodyPosted?.(body);
+    },
+    [onBodyPosted],
+  );
+
   // 방금 쓴 코멘트로 스크롤(WP-1016 리뷰) — 모바일 작성창은 화면 하단에 고정이라, 새 코멘트가 목록 어디에 붙든
   // (최신순 맨 위·오래된 순 맨 끝) 읽던 자리에서는 올라갔는지 보이지 않는다. 작성 성공이 알려 준 id 로만 움직인다 —
   // 다른 곳(다른 탭·AI)에서 온 코멘트는 읽던 자리를 빼앗지 않는다. 다시 받은 목록에 아직 없으면 다음 갱신에서 다시 본다.
   // 가운데로 맞춰 상단 고정 헤더·하단 작성창에 가리지 않게 하고, 움직임 줄이기 설정이면 바로 옮긴다.
   const sectionRef = useRef<HTMLElement>(null);
-  const rowOf = (id: number) => sectionRef.current?.querySelector(`[data-message-id="${id}"]`);
+  const rowOf = (id: number) => sectionRef.current?.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
   useEffect(() => {
     const row = scrollToCommentId == null ? null : rowOf(scrollToCommentId);
-    if (!row) return;
+    if (!row) {
+      // 윈도우 밖이면 전부 펼친다 — 그대로 두면 아무 일도 없는 스크롤로 끝난다(WP-2073).
+      // ordered·visibleCount 가 의존성에 있어야 펼친 뒤 효과가 다시 돈다.
+      if (scrollToCommentId != null && isHiddenByWindow(scrollToCommentId, ordered, visibleCount)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 전부 펼친 뒤 같은 효과가 다시 돌아 대상을 찾는다(의도된 한 번의 연쇄 렌더).
+        setVisibleCount(ALL_VISIBLE_COMMENTS);
+      }
+      return;
+    }
     scrollIntoViewCentered(row);
     onScrolledToComment?.();
-  }, [scrollToCommentId, comments, onScrolledToComment]);
+  }, [scrollToCommentId, comments, onScrolledToComment, ordered, visibleCount]);
 
   // 코멘트 링크로 열어 온 코멘트(WP-1175) — 목록은 이슈 상세와 함께 한 번에 오므로(접기·페이지 없음) 부모가 최신 상세를 받은 뒤
   // 넘겨 준 id 는 그 목록에 있거나 없거나다. 있으면 가운데로 스크롤하고 잠시 강조, 없으면 지워졌을 수 있다고 알린다.
   // 처리한 뒤 부모가 id 를 비워 다시 움직이지 않는다. 안내 토스트는 id 로 하나만 띄운다(개발 모드에서 효과가 두 번 돌아도).
   const [highlightId, setHighlightId] = useState<number | null>(null);
+  // 링크 처리는 링크 하나당 한 번만(WP-2073 리뷰 ⑤) — 아래 효과의 의존성에 ordered·visibleCount 가 있어
+  // 목록 갱신·창 확장 때마다 다시 돌아, 부모가 id 를 비우기 전에 스크롤·강조·안내가 겹쳐 실행됐다.
+  // 같은 id 로 다시 돌아오면 건너뛰고, 링크가 비워지면 다음 링크를 위해 표시를 지운다.
+  const handledLinkedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (linkedCommentId == null) return;
+    if (linkedCommentId == null) {
+      handledLinkedRef.current = null;
+      return;
+    }
+    if (handledLinkedRef.current === linkedCommentId) return;
     const row = rowOf(linkedCommentId);
     if (row) {
+      handledLinkedRef.current = linkedCommentId;
       scrollIntoViewCentered(row);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 행이 그려진 DOM 을 찾은 뒤에야 강조할지 알 수 있어 렌더 중으로 못 옮긴다(링크마다 한 번).
       setHighlightId(linkedCommentId);
+    } else if (isHiddenByWindow(linkedCommentId, ordered, visibleCount)) {
+      // 「찾을 수 없습니다」 로 오인하지 않도록 전부 펼치고 그 자리에서 돌아간다
+      // (처리 완료도 알리지 않는다 — 펼친 뒤 다음 렌더에서 다시 찾는다)(WP-2073).
+      setVisibleCount(ALL_VISIBLE_COMMENTS);
+      return;
     } else {
+      // 목록에 아예 없는 id(삭제됨) — 지금처럼 알리고 처리를 끝낸다.
+      handledLinkedRef.current = linkedCommentId;
       toast.info('링크한 코멘트를 찾을 수 없습니다 — 삭제됐을 수 있습니다', { id: 'issue-comment-link-missing' });
     }
     onLinkedCommentHandled?.();
-  }, [linkedCommentId, onLinkedCommentHandled]);
+  }, [linkedCommentId, onLinkedCommentHandled, ordered, visibleCount]);
   useEffect(() => {
     if (highlightId == null) return;
     const t = setTimeout(() => setHighlightId(null), LINKED_COMMENT_HIGHLIGHT_MS);
@@ -542,35 +626,87 @@ export function IssueCommentList({
     <div key="composer" className="space-y-2">
       {commentLocked
         ? <CommentLockedNotice />
-        : <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} onBodyPosted={onBodyPosted} />}
+        : <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} onBodyPosted={handleBodyPosted} />}
+    </div>
+  );
+
+  // 지금 그릴 코멘트(WP-2073 리뷰 ①) — 렌더 윈도우는 어느 정렬이든 최신 쪽을 잡는다.
+  // 오래된 순(기본)에서 앞쪽을 슬라이스하면 30건 창이 가장 오래된 댓글만 담아 최신 댓글·AI 보고가 가려진다 —
+  // 오래된 순은 뒤쪽(최신 30건), 최신순은 앞쪽(최신 30건)을 그려 둘 다 최신이 처음 보인다.
+  const windowed =
+    ordered.length <= visibleCount
+      ? ordered
+      : order === 'newest'
+        ? ordered.slice(0, visibleCount)
+        : ordered.slice(ordered.length - visibleCount);
+  // 아직 안 그린 코멘트 수 — 「더 보기」 버튼 문구와 버튼 표시 여부를 정한다(숨은 것은 늘 더 오래된 쪽).
+  const hiddenCount = ordered.length - windowed.length;
+
+  // 「더 보기」 클릭(WP-2073) — 30건씩 늘려 그린다. 남은 개수가 끝나는 마지막 클릭은 버튼이 이번 렌더에서
+  // 사라지므로 초점 이동까지 여기서 함께 처리한다.
+  const showMoreComments = () => {
+    const nextCount = visibleCount + MORE_VISIBLE_COMMENTS;
+    // 남은 개수가 0이 되는 마지막 클릭 — 버튼이 이번 렌더에서 사라져 초점을 가진 컨트롤이 없어진다
+    // (document.activeElement → body, 다음 Tab 이 페이지 맨 위에서 시작: WCAG 2.4.3). useListFocusRescue 는
+    // 버튼이 <ul> 밖에 있고 목록도 그대로라 잡지 못하므로, 확장 전에 막 드러날 첫 행 id 를 정해 두고
+    // 그려진 뒤 그 행으로 초점을 옮긴다(WP-2073 리뷰 ④ — 이미 보이던 마지막 행이 아니라 새로 드러난 첫 행).
+    // 오래된 순은 위쪽에, 최신순은 아래쪽에 늘어나므로 새로 드러난 행들 중 화면 순서의 첫째를 고른다.
+    const firstRevealed = order === 'newest' ? visibleCount : Math.max(0, ordered.length - nextCount);
+    const focusTargetId = nextCount >= ordered.length ? ordered[firstRevealed]?.id : undefined;
+    // DOM 이 갱신된 뒤에 초점을 옮기려면 상태 변경을 동기로 흘려야 한다 — 이벤트가 끝나기 전에 행이 그려진다.
+    flushSync(() => setVisibleCount(nextCount));
+    if (focusTargetId == null) return;
+    // 마우스로 눌렀어도 다른 곳으로 초점이 이미 옮겨 갔으면 빼앗지 않는다 — 버튼이 사라지며 초점을 잃었을 때만.
+    const active = document.activeElement;
+    if (active != null && active !== document.body && active.isConnected) return;
+    const row = rowOf(focusTargetId);
+    if (row) focusRow(row);
+    else commentComposerInput()?.focus({ preventScroll: true });
+  };
+
+  // 「더 보기」 단추 — 숨은 코멘트는 늘 더 오래된 쪽이라, 오래된 순(기본)의 창은 위쪽(최신)을 쥐고
+  // 아래로 늘어나는 게 아니라 위로 늘어난다 — 단추를 늘어나는 쪽(목록 위)에 둬야 새로 드러난 첫 행이 바로 옆이다.
+  // 최신순은 아래로 늘어나니 지금처럼 목록 아래에 둔다(WP-2073 리뷰 ①·④).
+  const moreButton = hiddenCount > 0 && (
+    <div className="flex justify-center">
+      <Button variant="outline" size="sm" data-testid="issue-comment-more" onClick={showMoreComments}>
+        댓글 {hiddenCount}개 더 보기
+      </Button>
     </div>
   );
 
   // "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거).
   const list = (
-    <ul key="list" ref={listRef} className="space-y-3" role="list" {...longPress}>
-      {orderActivity(comments, order).map((c) => (
-        <CommentItem
-          key={c.id}
-          comment={c}
-          // 본인 HUMAN 코멘트만 수정·삭제 가능
-          isOwn={c.authorKind === 'HUMAN' && user != null && c.authorId === user.id}
-          projectKey={projectKey}
-          issueNumber={issueNumber}
-          issueId={issueId}
-          mentionUsers={mentionUsers}
-          mentionCandidates={mentionCandidates}
-          canReact={canReact}
-          touch={touch}
-          currentUserId={currentUserId}
-          onOpenReactors={(emoji) => openReactors(c.id, emoji)}
-          highlighted={c.id === highlightId}
-        />
-      ))}
-      {comments.length === 0 && (
-        <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
-      )}
-    </ul>
+    <Fragment key="list">
+      {order === 'newest' ? null : moreButton}
+      <ul ref={listRef} className="space-y-3" role="list" {...longPress}>
+        {windowed.map((c) => (
+          <CommentItem
+            key={c.id}
+            comment={c}
+            // 본인 HUMAN 코멘트만 수정·삭제 가능
+            isOwn={c.authorKind === 'HUMAN' && user != null && c.authorId === user.id}
+            projectKey={projectKey}
+            issueNumber={issueNumber}
+            issueId={issueId}
+            mentionUsers={mentionUsers}
+            mentionCandidates={mentionCandidates}
+            canReact={canReact}
+            touch={touch}
+            currentUserId={currentUserId}
+            // 목록의 openReactors 는 useCallback 안정 참조 — 맵에서 감싸면 매 렌더 새 클로저가 되어 memo 가 무력화된다(WP-2073).
+            // id 묶음은 각 행 CommentItem 안에서만 한다.
+            onOpenReactors={openReactors}
+            highlighted={c.id === highlightId}
+          />
+        ))}
+        {comments.length === 0 && (
+          <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
+        )}
+      </ul>
+      {/* 「더 보기」(WP-2073) — <ul> 밖(섹션 안)에 둬 행으로 세지 않게 한다. */}
+      {order === 'newest' ? moreButton : null}
+    </Fragment>
   );
 
   return (
