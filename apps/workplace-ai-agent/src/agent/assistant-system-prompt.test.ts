@@ -612,6 +612,10 @@ describe('WP-2152 기록 유무 질문 — 요청 이력은 list_issues 로 직�
     expect(tableAt).toBeGreaterThan(-1);
     expect(ruleAt).toBeLessThan(tableAt);
     expect(p).toContain('이메일에 서명 기능에 대한 요청이 있었나');
+    // 완료 기준 1 예문은 「기록 유무 질문」 절 안에 있어야 한다 — 밖에 있으면 넓어진 메일 가리킴 규칙이 삼킨다.
+    const exampleAt = p.indexOf('이메일에 서명 기능에 대한 요청이 있었나');
+    expect(exampleAt).toBeGreaterThan(ruleAt);
+    expect(exampleAt).toBeLessThan(tableAt);
     expect(p).toMatch(/기록 유무 질문[\s\S]{0,1600}이 절 밖이다/);
   });
 
@@ -645,5 +649,88 @@ describe('WP-2152 기록 유무 질문 — 요청 이력은 list_issues 로 직�
     expect(row).toBeTruthy();
     expect(row!).toContain('메일을 가리킨 검색');
     expect(row!).not.toContain('정리·검색·발송');
+  });
+
+  // 리뷰 후속(앞 PR #1894) — 「그 밖의 검색은 기록 유무 절을 따른다」가 너무 넓어
+  // "김민수가 보낸 견적서 찾아줘" 같은 메일 찾기까지 이슈 검색으로 끌려가던 것을 좁힌다.
+  it.each(cases)('%s: 메일 검색 예외는 등록된 일의 유무·이력을 묻는 검색뿐이다', (_runner, p) => {
+    expect(p).toContain('등록된 일의 유무·이력을 묻는 검색');
+    expect(p).not.toContain('그 밖의 검색은 위 「기록 유무 질문」 절을 따른다');
+  });
+
+  it.each(cases)('%s: 메일을 가리키는 구를 예시로 밝히고, 맨 낱말이 있는 요청 이력 질문은 이 절에 남는다', (_runner, p) => {
+    expect(p).toMatch(/메일을 가리켰을 때만[\s\S]{0,80}mail-agent/);
+    // 메일을 가리키는 구 — "김민수가 보낸 견적서 찾아줘" 같은 문서·파일 단서도 포함한다.
+    expect(p).toContain('"받은 메일", "메일로 받은", "<사람>이 보낸 메일", "<사람>이 보낸 견적서 같은 문서·파일", "<사람>에게서 온"');
+    expect(p).toContain('김민수가 보낸 견적서 찾아줘');
+    // 맨 낱말 "받은"·"회신"·"수신" 은 메일 가리킴이 아니다 — 요청 이력 질문이 메일로 새는 것을 막는다.
+    expect(p).toContain('"받은", "회신", "수신" 같은 낱말 하나만으로는 메일을 가리킨 것이 아니다');
+    expect(p).toContain('"서명 요청 받은 적 있어?", "회신 기능 제안한 적 있어?"');
+    expect(p).toMatch(/이 낱말들이 \*\*검색어\*\*/);
+    expect(p).toMatch(/채널·DM·노트·회의록·드라이브처럼[\s\S]{0,60}이 절 밖/);
+    expect(p).toContain("그 도메인의 읽기 도구를 따른다");
+    // 찾을 곳 예외가 메일 위임 규칙과 갈리지 않게 메일은 따로 밝힌다.
+    expect(p).toContain('(메일은 아래 메일 위임 규칙대로)');
+  });
+
+  it.each(cases)('%s: 「노트」는 장소 조사가 붙을 때만 찾을 곳이다 — 주제어로 남는다', (_runner, p) => {
+    expect(p).toContain('노트는 주제와 찾을 곳을 가른다');
+    expect(p).toContain('"노트에서", "노트에 있는"');
+    expect(p).toMatch(/조사가 없는 "노트" 는 주제어다/);
+    expect(p).toContain('장소 조사가 붙었을 때만 찾을 곳이다');
+  });
+
+  it.each(cases)('%s: 요청 이력 질문에 메일 구가 겹치면 기록 유무 절이 먼저다 — 우선순위를 못박는다', (_runner, p) => {
+    expect(p).toContain('「기록 유무 질문」 절이 먼저다');
+    expect(p).toContain('예: "김민수가 보낸 견적서 요청 이력 있어?"');
+    expect(p).toContain('구는 검색어로만 쓰고 이력은 `list_issues` 로 답한다');
+  });
+
+  it.each(cases)('%s: 완료 기준 3 예문 「서명 요청 메일 온 적 있어?」 는 매체 유무로 이 절 밖이다', (_runner, p) => {
+    expect(p).toContain('"서명 요청 메일 온 적 있어?"');
+    expect(p).toMatch(/매체 자체의 유무를 묻는 질문은 이 절 밖이다/);
+    expect(p).toContain('매체 자체 유무 질문("서명 요청 메일 온 적 있어?")은 이 절 밖이라');
+  });
+
+  it.each(cases)('%s: 메일 구 목록에 맨 낱말(받은·회신·수신)이 다시 들어오지 않는다', (_runner, p) => {
+    const clueLine = p.split('\n').find((l) => l.includes('- 메일에서 찾는 것은'));
+    expect(clueLine).toBeTruthy();
+    // 예시 목록만 떼어 본다 — 뒤의 부정 문장에는 예문으로 같은 낱말이 올 수 있다.
+    const listEnd = clueLine!.indexOf('반면 "받은"');
+    expect(listEnd).toBeGreaterThan(-1);
+    const list = clueLine!.slice(0, listEnd);
+    expect(list).not.toContain('"받은"');
+    expect(list).not.toContain('"회신"');
+    expect(list).not.toContain('"수신"');
+    expect(list).not.toContain('"보낸 사람"');
+  });
+
+  it.each(cases)('%s: 구 목록은 예시다 — 목록 밖 메일 검색도 「메일」을 대상·곳으로 말하면 mail-agent 로 간다', (_runner, p) => {
+    expect(p).toMatch(/아래 구는 \*\*예시\*\*다/);
+    expect(p).toContain('**"메일" 을 찾을 대상·곳으로 말하면**');
+    // 완료 기준 3 예문(「메일 온」)과 평범한 메일 검색의 경로를 박는다.
+    expect(p).toContain('"<주제> 메일"("견적서 메일 찾아줘")');
+    expect(p).toContain('"메일 온"("서명 요청 메일 온 적 있어?")');
+    const mailRow = p.split('\n').find((l) => l.includes('**메일 검색**은 위 「기록 유무 질문」 절의 메일 구 목록을 **예시**로 보고'));
+    expect(mailRow).toBeTruthy();
+    expect(mailRow).toContain('견적서 메일 찾아줘');
+    expect(mailRow).toContain('서명 요청 메일 온 적 있어?');
+    expect(mailRow).toContain('등록된 일의 유무·이력을 묻는 검색');
+  });
+
+  it.each(cases)('%s: 도구 선택 규칙과 읽기 조회 처리 모두에 기록 유무 질문 예외를 박는다', (_runner, p) => {
+    const toolAt = p.indexOf('### 도구 선택 (먼저 결정)');
+    expect(toolAt).toBeGreaterThan(-1);
+    const section = p.slice(toolAt, toolAt + 600);
+    expect(section).toContain('기록 유무 질문은 이 예외다');
+    expect(section).toContain('assignee: "any"');
+    const readAt = p.indexOf('## 읽기 조회 직접 처리');
+    expect(readAt).toBeGreaterThan(-1);
+    expect(p.slice(readAt, readAt + 1200)).toContain('`show_issue_list` 를 붙이지 않습니다');
+  });
+
+  it.each(cases)('%s: 화면 범위 이어서 찾기 — 「한 번 더」 대신 상한을 가리키는 문구다', (_runner, p) => {
+    expect(p).toContain('이어서 찾는다(상한은 아래)');
+    expect(p).not.toContain('한 번 더 찾는다');
   });
 });
