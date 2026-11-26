@@ -1363,3 +1363,129 @@ it('nodeDrawer_settings_decision_offersFixInYaml', async () => {
   fireEvent.click(within(drawer).getByRole('button', { name: 'YAML 에서 고치기' }))
   expect(onYaml).toHaveBeenCalledTimes(1)
 })
+
+// 리뷰 후속(WP-2092) — 지시 편집 창이 열린 사이 노드 키가 바뀌거나 YAML 이 깨져 서랍이 사라져도 창과 고치던 글이 남는다.
+// 적용할 곳이 없으니 읽기 전용 + 안내로 바꾸고, 노드가 돌아오면 다시 고칠 수 있다.
+it('instructionEditor_nodeGone_keepsDialogReadOnlyWithNotice', async () => {
+  const onYaml = vi.fn()
+  const { rerender } = renderWithProviders(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  clickNode('dev')
+  await expandInstructions()
+  const dialog = await screen.findByRole('dialog')
+  await userEvent.click(screen.getByRole('button', { name: '마크다운 원문' }))
+  fireEvent.change(within(dialog).getByLabelText('지시 원문'), { target: { value: '고친 지시' } })
+  // 노드 키가 바뀐다(AI 패널이 dev → develop 으로 고친 경우)
+  rerender(<Harness initial={FIXTURE.replace('  dev:\n', '  develop:\n')} onYaml={onYaml} />)
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('이 노드가 사라져 적용할 수 없어요')
+  expect(screen.getByLabelText('지시 원문')).toHaveValue('고친 지시')
+  expect(screen.queryByRole('button', { name: '적용' })).toBeNull()
+  // YAML 이 깨져 그래프 편집기가 오류 안내로 바뀌어도 창이 남는다
+  rerender(<Harness initial={FIXTURE + '\n  : : bad'} onYaml={onYaml} />)
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  expect(screen.getByLabelText('지시 원문')).toHaveValue('고친 지시')
+  // 노드가 돌아오면 다시 적용할 수 있다
+  rerender(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: '적용' }))
+  expect(doc(onYaml.mock.lastCall![0]).nodes.dev.instructions.trim()).toBe('고친 지시')
+})
+
+/** 「개발(dev)」 노드의 지시 편집 창을 열고 원문 모드에서 글을 고친다 — 아래 리뷰 후속 테스트 공용 */
+async function openDevInstructionsAndEdit(initial: string, onYaml: (y: string) => void) {
+  const utils = renderWithProviders(<Harness initial={initial} onYaml={onYaml} />)
+  clickNode('dev')
+  await expandInstructions()
+  const dialog = await screen.findByRole('dialog')
+  await userEvent.click(screen.getByRole('button', { name: '마크다운 원문' }))
+  fireEvent.change(within(dialog).getByLabelText('지시 원문'), { target: { value: '고친 지시' } })
+  return utils
+}
+
+// 리뷰 후속(WP-2092) — 노드 유형이 지시를 받지 않는 것으로 바뀌면 적용하지 않는다(서버가 막는 칸을 쓰지 않게)
+it('instructionEditor_typeWithoutInstructions_readOnlyWithNotice', async () => {
+  const onYaml = vi.fn()
+  const { rerender } = await openDevInstructionsAndEdit(FIXTURE, onYaml)
+  rerender(<Harness initial={FIXTURE.replace('    type: agent_task\n    name: 개발', '    type: decision\n    name: 개발')} onYaml={onYaml} />)
+  expect(screen.getByRole('status')).toHaveTextContent('이 노드 유형은 지시를 받지 않아 적용할 수 없어요')
+  expect(screen.queryByRole('button', { name: '적용' })).toBeNull()
+  expect(screen.getByLabelText('지시 원문')).toHaveValue('고친 지시')
+})
+
+// 리뷰 후속(WP-2092) — YAML 문법 오류는 노드가 사라진 것과 다른 안내(고치면 다시 적용할 수 있다)
+it('instructionEditor_syntaxError_showsSyntaxNotice', async () => {
+  const onYaml = vi.fn()
+  const { rerender } = await openDevInstructionsAndEdit(FIXTURE, onYaml)
+  rerender(<Harness initial={FIXTURE + '\n  : : bad'} onYaml={onYaml} />)
+  expect(screen.getByRole('status')).toHaveTextContent('YAML 문법 오류로 잠시 적용할 수 없어요 — 고치면 다시 적용할 수 있어요')
+})
+
+// 리뷰 후속(WP-2092) — 사라졌던 키에 유형이나 이름이 다른 노드가 생기면 그 노드에 몰래 붙지 않는다
+it('instructionEditor_differentNodeWithSameKey_staysReadOnly', async () => {
+  const onYaml = vi.fn()
+  const { rerender } = await openDevInstructionsAndEdit(FIXTURE, onYaml)
+  rerender(<Harness initial={FIXTURE.replace('  dev:\n', '  develop:\n')} onYaml={onYaml} />)
+  rerender(<Harness initial={FIXTURE.replace('    name: 개발\n', '    name: 다른 일\n')} onYaml={onYaml} />)
+  expect(screen.getByRole('status')).toHaveTextContent('같은 키의 다른 노드가 생겨 적용할 수 없어요')
+  expect(screen.queryByRole('button', { name: '적용' })).toBeNull()
+})
+
+// 리뷰 후속 3(WP-2092) — 노드가 있는 동안 AI 가 이름을 바꾼 뒤 YAML 이 잠깐 깨졌다 돌아오면, 돌아온 노드는 마지막으로 본 그 노드라 다시 고칠 수 있다
+// (잠김 기준이 연 때의 이름에 머물면 「같은 키의 다른 노드」로 영영 잠겼다)
+it('instructionEditor_renamedWhilePresent_thenSyntaxError_restoresEditable', async () => {
+  const onYaml = vi.fn()
+  const renamed = FIXTURE.replace('    name: 개발\n', '    name: 개발 단계\n')
+  const { rerender } = await openDevInstructionsAndEdit(FIXTURE, onYaml)
+  rerender(<Harness initial={renamed} onYaml={onYaml} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  rerender(<Harness initial={renamed + '\n  : : bad'} onYaml={onYaml} />)
+  expect(screen.getByRole('status')).toHaveTextContent('YAML 문법 오류')
+  rerender(<Harness initial={renamed} onYaml={onYaml} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: '적용' }))
+  const applied = doc(onYaml.mock.lastCall![0]).nodes.dev
+  expect(applied.instructions.trim()).toBe('고친 지시')
+  expect(applied.name).toBe('개발 단계')
+})
+
+// 리뷰 후속 3(WP-2092) — 잠긴 동안 왼쪽 「함께 받는 공통 지시」는 마지막으로 본 노드의 것을 그대로 보인다(사라진 노드라 목록이 비지 않게)
+it('instructionEditor_locked_keepsLastLiveSharedList', async () => {
+  const onYaml = vi.fn()
+  const withShared = FIXTURE
+    .replace('    role: developer\n', '    role: developer\n    use: [rules]\n')
+    .replace('\nnodes:\n', '\nshared:\n  rules: 규칙 글\n\nnodes:\n')
+  const { rerender } = await openDevInstructionsAndEdit(withShared, onYaml)
+  expect(within(screen.getByRole('dialog')).getByRole('button', { name: /rules/ })).toBeEnabled()
+  rerender(<Harness initial={withShared.replace('  dev:\n', '  develop:\n')} onYaml={onYaml} />)
+  expect(screen.getByRole('status')).toHaveTextContent('이 노드가 사라져')
+  expect(within(screen.getByRole('dialog')).getByRole('button', { name: /rules/ })).toBeEnabled()
+})
+
+// 리뷰 후속 4(WP-2092) — 창이 열린 채 다른 노드의 지시 편집을 열면 창은 새 노드로 새로 시작한다
+// (앞 노드의 제목·글을 보이면서 새 노드에 적용하지 않게)
+it('instructionEditor_switchingTarget_restartsWithNewNode', async () => {
+  const onYaml = vi.fn()
+  await openDevInstructionsAndEdit(FIXTURE, onYaml)
+  expect(screen.getByText('✦ 개발 — 지시 편집')).toBeInTheDocument()
+  // 모달 창 아래(aria-hidden)의 서랍을 직접 눌러 기획 확정 노드의 지시 편집을 연다 — AI 패널과 함께 non-modal 일 때 생길 수 있는 경로
+  clickNode('plan_ok')
+  fireEvent.click(await screen.findByRole('button', { name: '지시 편집 ⤢', hidden: true }))
+  expect(await screen.findByText('✦ 기획 확정 — 지시 편집')).toBeInTheDocument()
+  // 새로 시작한 창 — 앞 노드에서 고친 원문은 없고, 지시가 없는 새 노드의 빈 안내가 보인다
+  expect(screen.queryByLabelText('지시 원문')).toBeNull()
+  expect(screen.queryByText('고친 지시')).toBeNull()
+  expect(screen.getByRole('button', { name: '여기를 눌러 지시를 쓰세요' })).toBeInTheDocument()
+})
+
+// 리뷰 후속 4(WP-2092) — 사라졌다 같은 노드로 돌아와 풀린 뒤에는, 있는 동안의 이름 바꾸기로 다시 잠기지 않는다
+it('instructionEditor_restoredThenRenamedWhilePresent_staysEditable', async () => {
+  const onYaml = vi.fn()
+  const { rerender } = await openDevInstructionsAndEdit(FIXTURE, onYaml)
+  rerender(<Harness initial={FIXTURE + '\n  : : bad'} onYaml={onYaml} />)
+  rerender(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  rerender(<Harness initial={FIXTURE.replace('    name: 개발\n', '    name: 개발 단계\n')} onYaml={onYaml} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: '적용' }))
+  expect(doc(onYaml.mock.lastCall![0]).nodes.dev.instructions.trim()).toBe('고친 지시')
+})

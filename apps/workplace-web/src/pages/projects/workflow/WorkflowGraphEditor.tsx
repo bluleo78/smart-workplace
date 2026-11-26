@@ -26,7 +26,9 @@ import { drawnEdge, flowHandles, isShapeNode, nodeSize, routedPoints } from './g
 import {
   addAskPath, addNodeAtFreeSpot, autoLayout, moveManyFromDrag, type NewNodeType, parseWorkflowGraph, placeNodes, type WorkflowGraph,
 } from './graphYaml'
+import type { InstructionEditorTarget } from './instructionLock'
 import { NodeDrawer } from './NodeDrawer'
+import { NodeInstructionEditor } from './NodeInstructionEditor'
 import { OverviewDrawer } from './OverviewDrawer'
 import { revealOffset } from './viewportReveal'
 import { type FlowNodeData, GraphLegend, RoutedEdge, type RoutedEdgeData, WorkflowNodeView } from './WorkflowGraphShapes'
@@ -91,7 +93,7 @@ function ZoomControls() {
  * 서랍 상태(drawer)는 부모가 든다 — 탭 머리 검사 배지도 같은 서랍을 열어야 하기 때문이다.
  * 지역 상태는 드래그 중 좌표·질문 경로 펼침·자동 정렬 실행 취소 기억뿐이다 — 원본을 둘로 들지 않으려는 것이다.
  */
-function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, problems, onOpenYaml, workflowId }: {
+function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, problems, onOpenYaml, onOpenInstructions, workflowId }: {
   yaml: string
   readOnly: boolean
   onChange: (yaml: string) => void
@@ -100,6 +102,8 @@ function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, probl
   onDrawerChange: (drawer: DrawerState) => void
   problems: GraphProblems
   onOpenYaml: () => void
+  /** 노드 서랍 「지시 편집 ⤢」 — 창은 서랍 밖(WorkflowGraphEditor)이 띄운다 */
+  onOpenInstructions: (target: InstructionEditorTarget) => void
   /** 노드 서랍 「최근 실행」 조회용 정의 id */
   workflowId: number
 }) {
@@ -479,6 +483,7 @@ function Canvas({ yaml, readOnly, onChange, graph, drawer, onDrawerChange, probl
             onChange={onChange}
             onClose={closeDrawer}
             onOpenYaml={onOpenYaml}
+            onOpenInstructions={onOpenInstructions}
             workflowId={workflowId}
           />
         )}
@@ -521,27 +526,51 @@ export function WorkflowGraphEditor({ yaml, parsed, readOnly, onChange, onOpenYa
   /** 이 워크플로우 정의 id — 노드 서랍 「최근 실행」이 실행을 조회하는 데 쓴다 */
   workflowId: number
 }) {
-  if (!('graph' in parsed)) {
-    return (
-      <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
-        <p>YAML 에 문법 오류가 있어 그래프로 볼 수 없습니다.</p>
-        <YamlFixButton onClick={onOpenYaml} />
-      </div>
-    )
-  }
+  // 지시 편집 창(WP-2092)을 연 노드 — 서랍 안이 아니라 여기서 든다. 창이 열린 사이 노드 키가 바뀌거나 YAML 이 깨지면
+  // 서랍(과 문법 오류면 캔버스 전체)이 사라지는데, 창과 고치던 글은 남아야 하기 때문이다(문법 오류 안내 쪽에도 같이 그린다)
+  // seq 는 연 횟수 — 창의 key 로 써서 열 때마다(같은 노드를 다시 열어도) 창의 초안·기준 노드가 새로 시작하게 한다.
+  // 창이 열린 채 다른 노드의 「지시 편집 ⤢」가 눌려도(AI 패널과 함께 non-modal) 앞 노드의 글을 새 노드에 적용하지 않는다.
+  // YAML 변경·문법 오류로는 seq 가 바뀌지 않아 다시 마운트되지 않는다(고치던 글 유지)
+  const [instructionSession, setInstructionSession] = useState<{ target: InstructionEditorTarget; seq: number } | null>(null)
+  const openInstructions = useCallback((target: InstructionEditorTarget) => {
+    setInstructionSession((cur) => ({ target, seq: (cur?.seq ?? 0) + 1 }))
+  }, [])
+  const instructionEditor = instructionSession && (
+    <NodeInstructionEditor
+      key={instructionSession.seq}
+      yaml={yaml}
+      syntaxError={!('graph' in parsed)}
+      target={instructionSession.target}
+      readOnly={readOnly}
+      onChange={onChange}
+      onClose={() => setInstructionSession(null)}
+    />
+  )
+  // 창은 두 갈래 모두 같은 자리(조각의 둘째 자식)에 둔다 — 갈래마다 다른 부모 아래 그리면 YAML 이 깨지는 순간 창이 다시 마운트돼 고치던 글이 사라진다
   return (
-    <ReactFlowProvider>
-      <Canvas
-        yaml={yaml}
-        readOnly={readOnly}
-        onChange={onChange}
-        graph={parsed.graph}
-        drawer={drawer}
-        onDrawerChange={onDrawerChange}
-        problems={problems}
-        onOpenYaml={onOpenYaml}
-        workflowId={workflowId}
-      />
-    </ReactFlowProvider>
+    <>
+      {'graph' in parsed ? (
+        <ReactFlowProvider>
+          <Canvas
+            yaml={yaml}
+            readOnly={readOnly}
+            onChange={onChange}
+            graph={parsed.graph}
+            drawer={drawer}
+            onDrawerChange={onDrawerChange}
+            problems={problems}
+            onOpenYaml={onOpenYaml}
+            onOpenInstructions={openInstructions}
+            workflowId={workflowId}
+          />
+        </ReactFlowProvider>
+      ) : (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
+          <p>YAML 에 문법 오류가 있어 그래프로 볼 수 없습니다.</p>
+          <YamlFixButton onClick={onOpenYaml} />
+        </div>
+      )}
+      {instructionEditor}
+    </>
   )
 }

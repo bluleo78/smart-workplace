@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -9,8 +9,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { askTarget, instructionPreview, instructionStats, moveTargets, type NodeTabProps } from './drawerModel'
 import { DrawerSection, YamlFixButton } from './DrawerShell'
 import { commonErrorTarget } from './graphLayout'
-import { addAskPath, type NodeDetail, type NodePatch, readShared, type WorkflowGraph } from './graphYaml'
-import { InstructionEditorDialog, type SharedInstruction } from './InstructionEditorDialog'
+import { addAskPath, type NodeDetail, type NodePatch, type WorkflowGraph } from './graphYaml'
+import { type InstructionEditorTarget, targetOf } from './instructionLock'
 import { NODE_FIELDS, type PanelField } from './nodeFields'
 import { workflowSelectClass } from './WorkflowVersions'
 
@@ -119,35 +119,20 @@ function OnErrorField({ graph, nodeKey, onError, readOnly, patch }: {
 
 /**
  * 지시 요약(WP-2091) — 앞 3줄 미리 보기와 「n자 · 표 n · 제목 n」 통계. 긴 지시가 서랍을 다 차지하지 않게 접어 두고,
- * 「지시 편집 ⤢」(읽기 전용이면 「지시 보기 ⤢」)를 누르면 넓은 편집 창(WP-2092, InstructionEditorDialog)이 열린다.
- * 창의 「적용」이 onEdit 로 초안 YAML 에 반영된다(게시 전까지 AI 에게 가지 않는다).
+ * 「지시 편집 ⤢」(읽기 전용이면 「지시 보기 ⤢」)를 누르면 넓은 편집 창(WP-2092)을 연다 — 창은 서랍 밖(NodeInstructionEditor)에서 뜬다.
  */
-function InstructionSummary({ text, readOnly, nodeName, nodeKey, yaml, useKey, onEdit }: {
+function InstructionSummary({ text, readOnly, onOpen }: {
   text: string
   readOnly: boolean
-  nodeName: string
-  nodeKey: string
-  yaml: string
-  /** 이 노드가 use 하는 공통 지시 이름 목록을 줄바꿈으로 이은 키 */
-  useKey: string
-  onEdit: (next: string | null) => void
+  onOpen: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  // 편집 창 왼쪽 「함께 받는 공통 지시」 — 창이 열렸을 때만 YAML 에서 읽는다(정의가 없으면 text null)
-  const shared = useMemo((): SharedInstruction[] => {
-    if (!open) return []
-    const defs = readShared(yaml)
-    // 빈 문자열을 나누면 [''] 라 이름 없는 공통 지시가 하나 생기지 않게 빈 목록으로
-    const names = useKey === '' ? [] : useKey.split('\n')
-    return names.map((name): SharedInstruction => ({ name, text: defs.find((s) => s.name === name)?.text ?? null }))
-  }, [open, yaml, useKey])
   const stats = instructionStats(text)
   const preview = instructionPreview(text)
   return (
     <DrawerSection
       title="지시"
       action={
-        <Button type="button" variant="ghost" size="sm" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+        <Button type="button" variant="ghost" size="sm" aria-haspopup="dialog" onClick={onOpen}>
           {readOnly ? '지시 보기 ⤢' : '지시 편집 ⤢'}
         </Button>
       }
@@ -156,18 +141,6 @@ function InstructionSummary({ text, readOnly, nodeName, nodeKey, yaml, useKey, o
         ? <p className="line-clamp-3 whitespace-pre-line text-xs">{preview}</p>
         : <p className="text-xs text-muted-foreground">지시가 없습니다</p>}
       <p className="text-xs text-muted-foreground">{`${stats.chars}자 · 표 ${stats.tables} · 제목 ${stats.headings}`}</p>
-      {open && (
-        <InstructionEditorDialog
-          open={open}
-          onOpenChange={setOpen}
-          nodeName={nodeName}
-          nodeKey={nodeKey}
-          text={text}
-          shared={shared}
-          readOnly={readOnly}
-          onApply={onEdit}
-        />
-      )}
     </DrawerSection>
   )
 }
@@ -176,15 +149,15 @@ function InstructionSummary({ text, readOnly, nodeName, nodeKey, yaml, useKey, o
  * 노드 서랍의 「설정」 탭(WP-2091) — 이름·담당 역할·필요 환경·사람에게 묻기·막혔을 때·공통 지시·지시 요약 순.
  * 칸마다 NODE_FIELDS 의 종류별 허용 칸만 그린다(서버가 막는 칸을 쓰지 않게). start·end·decision 은 이름만.
  */
-export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChange, patch, onOpenYaml }: NodeTabProps & {
+export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChange, patch, onOpenYaml, onOpenInstructions }: NodeTabProps & {
   /** YAML 보기로 넘어간다 — 서랍에 컨트롤이 없는 칸(decision 조건·returnTo)의 「YAML 에서 고치기」 */
   onOpenYaml: () => void
+  /** 지시 편집 창을 연다 — 창은 서랍 밖에서 뜬다(NodeInstructionEditor) */
+  onOpenInstructions: (target: InstructionEditorTarget) => void
 }) {
   const fields = NODE_FIELDS[detail.type] ?? new Set<PanelField>()
   const asked = fields.has('ask') ? askTarget(graph, nodeKey) : null
   const yamlNote = yamlNoteFor(detail.type, graph, nodeKey)
-  // 키는 이름 목록을 이은 문자열 — detail 은 YAML 을 다시 읽을 때마다 새 배열이라 배열 자체를 키로 두면 매번 다시 계산된다
-  const useKey = detail.use.join('\n')
   return (
     <>
       <div className="px-3 pb-3">
@@ -257,11 +230,7 @@ export function NodeSettingsTab({ yaml, graph, nodeKey, detail, readOnly, onChan
         <InstructionSummary
           text={detail.instructions ?? ''}
           readOnly={readOnly}
-          nodeName={detail.name ?? nodeKey}
-          nodeKey={nodeKey}
-          yaml={yaml}
-          useKey={useKey}
-          onEdit={(instructions) => patch({ instructions })}
+          onOpen={() => onOpenInstructions(targetOf(nodeKey, detail))}
         />
       )}
       {yamlNote && (

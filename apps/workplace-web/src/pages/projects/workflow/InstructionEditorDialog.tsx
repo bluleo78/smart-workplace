@@ -121,6 +121,8 @@ export interface InstructionEditorDialogProps {
   text: string
   shared: SharedInstruction[]
   readOnly: boolean
+  /** 창 아래에 띄울 안내(예: 노드가 사라져 적용할 수 없음) — 없으면 띄우지 않는다 */
+  notice?: string | null
   /** 적용 — 지시가 비면 null, 바꾸지 않았으면 부르지 않는다. */
   onApply: (next: string | null) => void
 }
@@ -131,21 +133,7 @@ export interface InstructionEditorDialogProps {
  * Radix 가 Content 를 다른 컴포넌트로 다시 마운트하는데, 상태가 Content 안에 있으면 고치던 글이 사라졌다.
  * 상태는 마운트 때 text 에서 시작하므로 호출부는 열려 있는 동안만 마운트한다(열 때마다 새로 시작).
  */
-export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey, text, shared, readOnly, onApply }: InstructionEditorDialogProps) {
-  const aiAware = useAiPanelAwareDialog({
-    open,
-    size: 'wide',
-    handlers: {
-      // 글을 고치는 칸의 Esc 는 편집 취소 몫이라 창을 닫지 않는다(개인 작업 상세 모달과 같은 규칙)
-      onEscapeKeyDown: (e) => {
-        if (isTextEntryTarget(e.target)) e.preventDefault()
-      },
-      // 바깥(그래프·서랍) 클릭·포커스로는 닫지 않는다 — 고치던 글이 확인 없이 버려지므로 닫기는 ✕·취소·적용·Esc 로만
-      // (AI 패널 쪽 상호작용 허용은 훅이 먼저 처리한다)
-      onInteractOutside: (e) => e.preventDefault(),
-    },
-  })
-
+export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey, text, shared, readOnly, notice, onApply }: InstructionEditorDialogProps) {
   const [draft, setDraft] = useState(text)
   // 창을 연 때의 지시 — 적용 때 draft 와 비교한다. 열린 사이 AI·YAML 탭이 text prop 을 바꿔도 안 고친 채 적용하면 옛 글로 덮지 않는다
   const [openedText, setOpenedText] = useState(text)
@@ -155,6 +143,9 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
   // 창을 연 뒤 다른 곳에서 지시가 바뀐 채 적용을 눌렀을 때 보이는 알림(덮어쓰기 전에 사용자가 고르게 한다)
   // 알림을 띄운 때의 text(null 이면 알림 없음) — 알림 뒤 text 가 또 바뀌면 이 값과 달라져 다시 경고한다
   const [warnedText, setWarnedText] = useState<string | null>(null)
+  // text 가 연 때의 글로 돌아오면 알림 기억도 비운다 — 남겨 두면 다음 바깥 변경에 적용을 누르지 않았는데도 알림이 저절로 다시 뜬다
+  // (렌더 중 상태 조정 — effect 로 하면 한 번은 낡은 알림이 그려진다)
+  if (warnedText !== null && text === openedText) setWarnedText(null)
   const editingRef = useRef<Editing | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const centerRef = useRef<HTMLDivElement | null>(null)
@@ -164,6 +155,37 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
   const pendingSel = useRef<[number, number] | null>(null)
   const pendingScroll = useRef<number | null>(null)
   const pendingFocus = useRef<FocusTarget | null>(null)
+  // 원문 모드 입력칸에서 Esc 를 누르면 포커스를 둘 곳 — 블록 편집의 Esc 가 블록으로 돌아가듯 입력칸만 떠난다
+  const rawToggleRef = useRef<HTMLButtonElement | null>(null)
+
+  /**
+   * 닫으면 잃을 고친 글이 있는가 — 지금 편집을 끝냈을 때의 글이 연 때의 글과도, 지금 text(다른 곳에서 바뀐 글)와도 다르다.
+   * 적용(apply)의 덮어쓰기 알림과 Esc 닫기 막기가 같은 규칙을 쓴다.
+   */
+  const isDirty = (): boolean => {
+    const next = settledOf(editingRef.current, draft)
+    return next !== openedText && next !== text
+  }
+
+  const aiAware = useAiPanelAwareDialog({
+    open,
+    size: 'wide',
+    handlers: {
+      onEscapeKeyDown: (e) => {
+        // 글을 고치는 칸의 Esc 는 편집 취소 몫이라 창을 닫지 않는다(개인 작업 상세 모달과 같은 규칙) — 칸을 떠나는 건 칸의 onKeyDown 이 한다
+        if (isTextEntryTarget(e.target)) {
+          e.preventDefault()
+          return
+        }
+        // 고친 글이 적용되지 않은 채면 Esc 로도 닫지 않는다 — 바깥 클릭을 막는 것과 같은 이유(확인 없이 버려짐). 닫기는 ✕·취소·적용으로.
+        // 읽기 전용이어도 본다 — 노드가 사라져 읽기 전용이 된 창(notice)에도 아직 복사하지 않은 글이 있을 수 있다
+        if (isDirty()) e.preventDefault()
+      },
+      // 바깥(그래프·서랍) 클릭·포커스로는 닫지 않는다 — 고치던 글이 확인 없이 버려지므로 닫기는 ✕·취소·적용·Esc 로만
+      // (AI 패널 쪽 상호작용 허용은 훅이 먼저 처리한다)
+      onInteractOutside: (e) => e.preventDefault(),
+    },
+  })
 
   // 편집 중엔 시작 때 스냅숏으로 그리므로 다시 파싱하지 않는다 — 편집이 아닐 때만 draft 를 나눈다
   // 원문 모드에선 목차만 쓰므로 입력마다 바로 나누지 않고 한 박자 늦춘 값으로 나눈다(타이핑을 막지 않게)
@@ -190,6 +212,18 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
     },
     [setEditingBoth],
   )
+
+  // 블록을 고치던 중 읽기 전용이 되면(게시 중·노드가 사라짐 등) 편집을 끝낸다 — 입력칸이 남으면 친 글이 draft 에 들지 않고 버려진다.
+  // 지금까지 친 글은 onEditChange 가 이미 draft 에 넣었으므로 끝내기만 하면 남는다.
+  // 입력칸에 포커스가 있었으면 Esc 와 같은 자리(그 블록·새 칸이면 마지막 블록)로 돌려 body 로 빠지지 않게 한다 —
+  // 다른 곳(AI 입력 등)에 포커스가 있으면 뺏지 않는다. 그리기 전에 끝내려고 layout effect 로 한다
+  useLayoutEffect(() => {
+    if (!readOnly) return
+    const cur = editingRef.current
+    if (!cur) return
+    const hadFocus = taRef.current !== null && document.activeElement === taRef.current
+    endEditing(hadFocus ? (cur.index === -1 ? 'last' : cur.index) : undefined)
+  }, [readOnly, endEditing])
 
   /** 지금 편집을 끝냈을 때의 지시 원문 — 비운 새 칸이면 붙였던 빈 줄을 뺀 원래 글. */
   const settledText = (): string => settledOf(editingRef.current, draft)
@@ -338,9 +372,9 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
   const apply = () => {
     const next = settledText()
     if (text !== openedText) {
-      // 연 뒤 다른 곳에서 지시가 바뀌었다 — 안 고쳤거나 이미 같은 글이면 잃을 게 없으니 닫기만, 아니면 덮어쓰기 전에 알린다
-      if (next === openedText || next === text) onOpenChange(false)
-      else setWarnedText(text)
+      // 연 뒤 다른 곳에서 지시가 바뀌었다 — 잃을 게 없으면(isDirty 아님) 닫기만, 아니면 덮어쓰기 전에 알린다
+      if (isDirty()) setWarnedText(text)
+      else onOpenChange(false)
       return
     }
     if (next !== openedText) onApply(next.trim() === '' ? null : next)
@@ -417,7 +451,7 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
             <Button type="button" size="sm" variant={mode === 'format' ? 'secondary' : 'ghost'} aria-pressed={mode === 'format'} onClick={() => { setSharedView(null); setMode('format') }}>
               서식 편집
             </Button>
-            <Button type="button" size="sm" variant={mode === 'raw' ? 'secondary' : 'ghost'} aria-pressed={mode === 'raw'} onClick={() => { endEditing(); setSharedView(null); setMode('raw') }}>
+            <Button ref={rawToggleRef} type="button" size="sm" variant={mode === 'raw' ? 'secondary' : 'ghost'} aria-pressed={mode === 'raw'} onClick={() => { endEditing(); setSharedView(null); setMode('raw') }}>
               마크다운 원문
             </Button>
           </div>
@@ -510,6 +544,13 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
                   className="min-h-[60vh] font-mono text-sm"
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
+                    // Esc 는 블록 편집과 같이 입력칸만 떠난다(창 닫기는 다음 Esc) — 한글 조합 중 Esc 는 조합 취소 몫이라 두고,
+                    // 포커스는 「마크다운 원문」 단추로 옮긴다(blur 만 하면 포커스가 창 밖 body 로 빠진다)
+                    if (e.key === 'Escape' && !isImeComposing(e.nativeEvent)) {
+                      e.preventDefault()
+                      rawToggleRef.current?.focus()
+                      return
+                    }
                     if (!readOnly) onShortcut(e)
                   }}
                 />
@@ -546,8 +587,9 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
                                 }
                               },
                             }
-                          : {})}
-                        className={cn('my-1 rounded-md px-2 py-1', canEditBlocks && 'cursor-text hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none')}
+                          : // 읽기 전용 등 고칠 수 없을 때도 편집이 끝난 뒤 포커스를 돌려받을 수 있게(탭 순서에는 넣지 않는다)
+                            { tabIndex: -1 })}
+                        className={cn('my-1 rounded-md px-2 py-1', canEditBlocks && 'cursor-text hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', !canEditBlocks && 'outline-none')}
                       >
                         <BlockView raw={b.raw} />
                       </div>
@@ -556,7 +598,10 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
                   {editing && editing.index === -1 ? (
                     <div className="my-2">{editor}</div>
                   ) : empty ? (
-                    readOnly ? null : (
+                    // 읽기 전용이면 쓰라는 안내 대신 비었다는 것만 알린다(빈 가운데로 두면 불러오기 실패처럼 보인다)
+                    readOnly ? (
+                      <p className="text-sm text-muted-foreground">지시가 없습니다</p>
+                    ) : (
                       <button
                         ref={addRef}
                         type="button"
@@ -579,6 +624,11 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
           </div>
         </div>
 
+        {notice && (
+          <div role="status" className="border-t bg-muted px-5 py-2 text-sm">
+            {notice}
+          </div>
+        )}
         {showConflict && (
           <div role="alert" className="flex items-center justify-between gap-3 border-t bg-muted px-5 py-2 text-sm">
             <span>창을 연 뒤 다른 곳에서 이 지시가 바뀌었어요.</span>
