@@ -6,7 +6,7 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import { DISABLED_REASON_WRAPPER_ATTR } from '@/hooks/useDialogFocusRestore'
 import { clearWorkflowDraftSessions } from '@/lib/workflowDraftSessions'
 import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
-import { draftTime, nextDraftTime, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
+import { draftTime, nextDraftTime, originalYaml, renderWorkflow, workflowDetail, workflowProblem } from '@/test/kits/projects/workflowTestSupport'
 import { gate } from '@/test/loadErrorRetry'
 import { server } from '@/test/msw/server'
 
@@ -498,6 +498,7 @@ it('publish_disabledWhenNoUnpostedChanges_withReason', async () => {
   const reason = '바꾼 내용이 없어 게시할 것이 없습니다.'
   server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
   const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  const original = (yaml as HTMLTextAreaElement).value
   // 공용 DisabledReasonTooltip — 막히면 감싸개가 「게시 — 사유」 이름의 막힌 단추 하나로 노출되고 안의 진짜 단추는 inert 로 숨는다
   const publish = await screen.findByRole('button', { name: BLOCKED_PUBLISH })
   const inner = publish.querySelector('button') as HTMLElement
@@ -528,7 +529,16 @@ it('publish_disabledWhenNoUnpostedChanges_withReason', async () => {
   expect(screen.getByRole('button', { name: '초안 저장' })).toBeVisible()
   expect(screen.queryByText(reason)).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+  // 원문을 다시 그대로 입력하면 편집이 지워져 되돌리기·초안 저장이 사라지고 변경 없음 사유가 돌아온다
+  fireEvent.change(yaml, { target: { value: original } })
+  await waitFor(() => expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: '초안 저장' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true')
+
+  // 되돌리기로 지워도 같다
+  fireEvent.change(yaml, { target: { value: changed } })
+  fireEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
   await waitFor(() => expect(screen.queryByRole('button', { name: '되돌리기' })).not.toBeInTheDocument())
   expect(screen.queryByRole('button', { name: '초안 저장' })).not.toBeInTheDocument()
   expect(screen.queryByText(/^변경 \d+$/)).not.toBeInTheDocument()
@@ -1533,4 +1543,55 @@ it('publishDialog_withPublishedVersion_noCheckboxAndNoEnableInBody', async () =>
   await waitFor(() => expect(within(dialog).getByRole('button', { name: '게시' })).toBeEnabled())
   fireEvent.click(within(dialog).getByRole('button', { name: '게시' }))
   await waitFor(() => expect(bodies).toEqual([{ expectedDraftUpdatedAt: draftTime }]))
+})
+
+// WP-2133 리뷰 후속 — 변경 없음 상태에서 사용 스위치를 켜고 끄는(busy) 동안에도 게시 사유 감싸개(역할·Tab 정지·이름)가 그대로 남는다
+it('publish_noChanges_reasonStaysWhileEnableToggleBusy', async () => {
+  renderWorkflow()
+  const pending = gate()
+  const bodies = enabledWorkflow(async () => {
+    await pending.promise
+    return HttpResponse.json({ ...workflowDetail, enabled: false })
+  })
+  server.use(http.post('/api/v1/workflows/validate', () => HttpResponse.json({ problems: [] })))
+  const toggle = await screen.findByRole('switch', { name: '워크플로우 사용' })
+  await waitFor(() => expect(toggle).toBeChecked())
+  await waitFor(() => expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true'))
+  await userEvent.click(toggle)
+  const dialog = await screen.findByRole('dialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: '끄기' }))
+  // 쓰기 응답을 붙잡아 둔 동안(busy) — 스위치는 잠기지만 게시 감싸개는 사유를 그대로 둔다
+  await waitFor(() => expect(bodies).toEqual([{ enabled: false }]))
+  await waitFor(() => expect(screen.getByRole('switch', { name: '워크플로우 사용' })).toHaveAttribute('aria-busy', 'true'))
+  const wrapper = screen.getByRole('button', { name: BLOCKED_PUBLISH })
+  expect(wrapper).toHaveAttribute('aria-disabled', 'true')
+  expect(wrapper).toHaveAttribute('tabindex', '0')
+  expect(wrapper).toHaveAttribute('aria-label', BLOCKED_PUBLISH)
+  pending.release()
+  await waitFor(() => expect(screen.getByRole('switch', { name: '워크플로우 사용' })).not.toBeChecked())
+  expect(screen.getByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('tabindex', '0')
+})
+
+// WP-2133 리뷰 후속 — 검사 중 배지가 지난 결과의 ERROR 를 보이는 동안에는 변경 없음 사유를 달지 않는다(오류 배지 옆에 「바꾼 내용이 없다」가 함께 뜨지 않게)
+it('publish_noChanges_staleErrorBadgeWhileChecking_hidesReason', async () => {
+  renderWorkflow()
+  const hold = gate()
+  onTestFinished(() => hold.release())
+  // 서버 초안은 게시본과 다르고 ERROR 진단을 가진다 — 편집기에 게시본 원문을 다시 넣으면 변경은 0 이지만 검사 응답 전까지 배지는 초안 진단(ERROR)이다
+  server.use(
+    http.get('/api/v1/workflows/42', () => HttpResponse.json({ ...workflowDetail, draftYaml: 'name: 초안 오류', draftProblems: [workflowProblem] })),
+    http.post('/api/v1/workflows/validate', async () => {
+      await hold.promise
+      return HttpResponse.json({ problems: [] })
+    }),
+  )
+  const yaml = await screen.findByRole('textbox', { name: '워크플로우 YAML' })
+  await waitFor(() => expect(yaml).toHaveValue('name: 초안 오류'))
+  fireEvent.change(yaml, { target: { value: originalYaml } })
+  // 검사 중 — 게시는 막히지만 오류 배지와 어긋나는 변경 없음 사유(감싸개)는 없다
+  await waitFor(() => expect(screen.getByRole('button', { name: '게시' })).toBeDisabled())
+  expect(screen.queryByRole('button', { name: BLOCKED_PUBLISH })).not.toBeInTheDocument()
+  // 검사가 오류 없이 끝나면 변경 없음 사유가 돌아온다
+  hold.release()
+  expect(await screen.findByRole('button', { name: BLOCKED_PUBLISH })).toHaveAttribute('aria-disabled', 'true')
 })

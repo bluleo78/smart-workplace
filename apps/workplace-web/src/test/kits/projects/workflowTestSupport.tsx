@@ -16,7 +16,7 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 const base = '/api/v1'
 export const draftTime = '2026-11-22T10:00:00Z'
 export const nextDraftTime = '2026-11-22T10:00:01Z'
-const originalYaml = 'name: 정리\nnodes:\n  review: {}'
+export const originalYaml = 'name: 정리\nnodes:\n  review: {}'
 export const olderYaml = 'name: 초안\nnodes:\n  check: {}'
 export const workflowProblem = {
   severity: 'ERROR', code: 'INVALID_NODE', message: '노드를 확인하세요.', line: 3, column: 3, nodeKey: 'review',
