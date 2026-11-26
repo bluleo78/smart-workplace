@@ -2030,3 +2030,24 @@ test('기획안 쓰기 지시(plan-issue.md·ai-dev-flow.yaml): 제목·본문�
     includesAll(line, ['`update_issue({ issueKey, body, fileIds, version })`'], `${name} 예시`);
   }
 });
+
+// WP-2143 deploy — 「운영 배포」 워크플로우 템플릿(WP-2144)과의 계약(결과·산출물 이름)과 승인 없이 반영하지 않는 순서를 고정한다.
+test('deploy SKILL.md 는 결과 ready·nothing·blocked·deployed·failed 와 산출물 tag·commit·previousTag 를 정하고, 반영 전에 승인을 확인한다', () => {
+  const text = body(readFileSync(new URL('deploy/SKILL.md', skillsDir), 'utf8'));
+  for (const k of ['`ready`', '`nothing`', '`blocked`', '`deployed`', '`failed`', '`approve`']) assert.ok(text.includes(k), `${k} 가 없다`);
+  assert.ok(text.includes('{ tag, commit: <전체 SHA>, previousTag: <지금 운영 태그> }'));
+  const apply = text.slice(text.indexOf('\n## apply'));
+  assertBefore(apply, '**승인 확인**', '**반영**');
+  assertBefore(apply, '**반영**', '`add_comment(');
+  // 되돌림은 실패 갈래에 있고, 포함 이슈 댓글은 성공 갈래에만 있다.
+  assertBefore(apply, '**성공 → `deployed`**', '**실패 → 되돌린 뒤 `failed`**');
+  assert.ok(apply.slice(apply.indexOf('**실패')).includes('rollout undo'));
+  // 승인된 태그만 — apply 는 실행 context 의 준비 산출물을 쓴다.
+  assert.match(text, /`apply`: 실행 `context` 의 준비 노드 산출물 `commit` 그대로/);
+  // 설정 형식 문서가 함께 있다.
+  assert.ok(readFileSync(new URL('deploy/config.md', skillsDir), 'utf8').includes('`.genia/deploy.yaml`'));
+});
+
+test('work-loop 의 「운영 배포 하지 않는다」는 deploy 스킬 예외를 적는다 (WP-2143)', () => {
+  assert.match(skillBody, /운영 배포\(예외: 배포 담당 AI 가 「운영 배포」 워크플로우의 승인 다음 노드에서 deploy 스킬로 하는 반영/);
+});

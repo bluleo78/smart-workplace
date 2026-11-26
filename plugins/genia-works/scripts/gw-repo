@@ -10,6 +10,7 @@
 #   gw-repo pr-review <번호> --approve [--sha <HEAD>]
 #   gw-repo pr-review <번호> --request-changes|--comment --body-file <파일>
 #   gw-repo pr-merge <번호> --sha <리뷰한 HEAD> --subject <머지 커밋 제목>                   # merge 커밋(squash·rebase 아님), HEAD 가 다르면 거절
+#   gw-repo ci-job <커밋 SHA 40자> <잡 이름>       # 그 커밋의 CI 잡 결과 {"status","url"} — deploy 스킬이 이미지 빌드를 확인한다(WP-2143)
 #
 # PR 한 건(두 호스트 같은 모양 — 스킬은 이 이름·값으로만 판단한다):
 #   number · title · body · url · headRefName · headRefOid
@@ -18,6 +19,10 @@
 #   checks         PASS | FAIL | PENDING | NONE           (CI·파이프라인)
 #   reviewDecision APPROVED | CHANGES_REQUESTED | null
 #   mergeCommit    머지 커밋 SHA | null
+#
+# CI 잡 한 건(ci-job): status PASS | FAIL | PENDING | NONE(그 이름의 잡이 없음) · url 잡 주소 | null
+#   같은 커밋에 파이프라인·실행이 여럿이면 가장 최근 것(재시도 포함)을 본다. GitLab 의 수동(manual) 잡은 아직 돌지 않은 것이라 PENDING 이다.
+#
 # GitLab 은 「변경 요청」 리뷰 상태를 API 로 남길 수 없어 --request-changes 를 MR 댓글 + 승인 취소로 한다. 그래서 GitLab 의 reviewDecision 은
 # 사람이 화면에서 「변경 요청」을 눌렀을 때만 CHANGES_REQUESTED 다 — AI 검토자의 반려는 이슈 챗(@멘션)으로 개발자에게 간다.
 #
@@ -30,7 +35,7 @@
 # 종료 코드: 0 성공 · 2 사용법 오류·origin 없음·주소를 못 읽음 · 3 CLI 없음(gh·glab·jq) · 4 로그인 안 됨 · 그 밖은 gh·glab 의 실패(stderr 그대로)
 
 usage() {
-  echo "사용법: gw-repo kind | auth-check | pr-list [--all] [--search <키>] | pr-view <번호> | pr-create --head <브랜치> --title <제목> --body-file <파일> [--base <브랜치>] | pr-review <번호> --approve [--sha <HEAD>] | pr-review <번호> --request-changes|--comment --body-file <파일> | pr-merge <번호> --sha <HEAD> --subject <제목>" >&2
+  echo "사용법: gw-repo kind | auth-check | pr-list [--all] [--search <키>] | pr-view <번호> | pr-create --head <브랜치> --title <제목> --body-file <파일> [--base <브랜치>] | pr-review <번호> --approve [--sha <HEAD>] | pr-review <번호> --request-changes|--comment --body-file <파일> | pr-merge <번호> --sha <HEAD> --subject <제목> | ci-job <SHA> <잡 이름>" >&2
   exit 2
 }
 
@@ -276,6 +281,34 @@ case "$cmd" in
     else
       jq -n --arg sha "$sha" --arg m "$subject" '{sha: $sha, merge_commit_message: $m, squash: false, should_remove_source_branch: false}' > "$req"
       glab_api -X PUT "$proj/merge_requests/$n/merge" --input "$req" >/dev/null
+    fi
+    ;;
+
+  ci-job)
+    [ $# -eq 2 ] || usage
+    sha=$1 job=$2
+    # 커밋은 40자 SHA 만 받는다(GitLab 의 sha 거르기는 전체 SHA 로만 맞는다). 잡 이름은 URL 에 넣지 않고 jq 로 거른다.
+    case "$sha" in *[!0-9a-f]*) usage ;; esac
+    [ ${#sha} -eq 40 ] || usage
+    case "$job" in '' | *[!A-Za-z0-9._:/\ -]*) usage ;; esac
+    if [ "$kind" = github ]; then
+      gh api "repos/$path/commits/$sha/check-runs?per_page=100" > "$tmpd/runs.json" || exit $?
+      jq --arg j "$job" '[.check_runs[] | select(.name == $j)] | sort_by(.started_at // "") | last
+        | if . == null then {status: "NONE", url: null}
+          else {status: (if .status != "completed" then "PENDING" elif .conclusion == "success" then "PASS" else "FAIL" end), url: .html_url} end' \
+        "$tmpd/runs.json"
+    else
+      glab_api "$proj/pipelines?sha=$sha&per_page=20" > "$tmpd/pipes.json" || exit $?
+      # 최근 파이프라인부터 그 이름의 잡을 찾는다 — 처음 찾은 파이프라인에서 가장 최근 잡(재시도면 id 가 큰 것).
+      for pid in $(jq -r 'sort_by(-.id) | .[].id' "$tmpd/pipes.json"); do
+        glab_api "$proj/pipelines/$pid/jobs?per_page=100&include_retried=true" > "$tmpd/jobs.json" || exit $?
+        found=$(jq -c --arg j "$job" '[.[] | select(.name == $j)] | sort_by(.id) | last
+          | if . == null then empty
+            else {status: (if .status == "success" then "PASS" elif (.status | IN("failed","canceled","skipped")) then "FAIL" else "PENDING" end), url: .web_url} end' \
+          "$tmpd/jobs.json") || exit $?
+        if [ -n "$found" ]; then echo "$found"; exit 0; fi
+      done
+      echo '{"status":"NONE","url":null}'
     fi
     ;;
 

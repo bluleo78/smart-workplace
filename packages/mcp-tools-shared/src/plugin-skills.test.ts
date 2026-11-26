@@ -61,6 +61,15 @@ describeSkillTools('work-on', {
   read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
 });
 
+// WP-2143: 「운영 배포」 워크플로우 노드에서 준비·반영하는 스킬 — 노드 읽기·결과 이동, 포함 이슈 제목·반영 댓글, 진행 보고.
+describeSkillTools('deploy', {
+  get_issue_workflow: ['issueKey'],
+  move_issue_workflow: ['issueKey', 'fromNode', 'outcome', 'outputs', 'comment', 'assignees', 'expectedRevision', 'runId'],
+  get_issue_detail: [],
+  add_comment: ['issueKey', 'body'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message'],
+});
+
 // start-agent 는 MCP 도구를 부르지 않는다 — 고른 AI 의 키로 스크립트(gw-agent-projects)가 REST 목록을 읽는다(WP-1046).
 
 // WP-449: work-on 의 짝 — 결과 요약을 남기며 작업을 끝내고(검토 대기·완료 뒤 DONE·취소·반려·실패) 리소스를 정리하는 스킬.
