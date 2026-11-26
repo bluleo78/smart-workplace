@@ -292,3 +292,63 @@ test('리뷰 수정: GitLab need_rebase 는 충돌로, auth-check 는 토큰이 
   assert.equal(a.status, 4);
   assert.match(a.stderr, /토큰이 통하지 않습니다/);
 });
+
+// WP-2143 deploy 스킬이 낼 커밋의 이미지 빌드 잡을 확인한다 — 두 호스트 같은 모양 {status, url}.
+const SHA40 = 'f705a78781a832ceb150ed037adbf093085122ca';
+
+test('ci-job GitLab: 최근 파이프라인부터 그 이름의 잡을 찾고, 재시도면 가장 최근 잡, 상태를 공통 값으로', () => {
+  origin('https://gitlab.iacloud.kr/demo/factory-board.git');
+  mkdirSync(join(runDir, 'repo-tokens', 'gitlab'), { recursive: true });
+  writeFileSync(join(runDir, 'repo-tokens', 'gitlab', 'gitlab.iacloud.kr'), 'tok');
+  reply({
+    [`glab api --hostname gitlab.iacloud.kr projects/demo%2Ffactory-board/pipelines?sha=${SHA40}`]: { out: [{ id: 10 }, { id: 12 }] },
+    // 최근(12) 파이프라인에는 그 잡이 없다 — 10 에서 찾는다.
+    'glab api --hostname gitlab.iacloud.kr projects/demo%2Ffactory-board/pipelines/12/jobs': { out: [{ id: 5, name: 'test', status: 'success' }] },
+    'glab api --hostname gitlab.iacloud.kr projects/demo%2Ffactory-board/pipelines/10/jobs': {
+      out: [
+        { id: 3, name: 'build-image', status: 'failed', web_url: 'u3' },
+        { id: 4, name: 'build-image', status: 'success', web_url: 'u4' },
+      ],
+    },
+  });
+  const r = run(['ci-job', SHA40, 'build-image']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { status: 'PASS', url: 'u4' });
+  const c = calls();
+  assert.equal(c[0].args.at(-1), `projects/demo%2Ffactory-board/pipelines?sha=${SHA40}&per_page=20`);
+  assert.equal(c[1].args.at(-1), 'projects/demo%2Ffactory-board/pipelines/12/jobs?per_page=100&include_retried=true');
+  assert.ok(c.every((x) => x.token === 'tok' && x.telemetry === 'false'));
+
+  reply({
+    [`glab api --hostname gitlab.iacloud.kr projects/demo%2Ffactory-board/pipelines?sha=${SHA40}`]: { out: [{ id: 10 }] },
+    'glab api --hostname gitlab.iacloud.kr projects/demo%2Ffactory-board/pipelines/10/jobs': { out: [{ id: 3, name: 'build-image', status: 'manual', web_url: 'u' }] },
+  });
+  assert.equal(JSON.parse(run(['ci-job', SHA40, 'build-image']).stdout).status, 'PENDING');
+  reply({ [`glab api --hostname gitlab.iacloud.kr projects/demo%2Ffactory-board/pipelines?sha=${SHA40}`]: { out: [] } });
+  assert.deepEqual(JSON.parse(run(['ci-job', SHA40, 'build-image']).stdout), { status: 'NONE', url: null });
+});
+
+test('ci-job GitHub: check-runs 에서 그 이름의 가장 최근 실행', () => {
+  origin('https://github.com/a/wp.git');
+  reply({
+    [`gh api repos/a/wp/commits/${SHA40}/check-runs`]: {
+      out: {
+        check_runs: [
+          { name: 'build', status: 'completed', conclusion: 'failure', started_at: '2026-11-26T01:00:00Z', html_url: 'old' },
+          { name: 'build', status: 'in_progress', conclusion: null, started_at: '2026-11-26T02:00:00Z', html_url: 'new' },
+          { name: 'lint', status: 'completed', conclusion: 'success', started_at: '2026-11-26T03:00:00Z', html_url: 'l' },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(JSON.parse(run(['ci-job', SHA40, 'build']).stdout), { status: 'PENDING', url: 'new' });
+  assert.deepEqual(JSON.parse(run(['ci-job', SHA40, 'deploy']).stdout), { status: 'NONE', url: null });
+});
+
+test('ci-job: 40자 SHA 가 아니거나 잡 이름이 이상하면 아무것도 부르지 않고 종료 2', () => {
+  origin('https://gitlab.iacloud.kr/demo/factory-board.git');
+  assert.equal(run(['ci-job', 'f705a787', 'build-image']).status, 2);
+  assert.equal(run(['ci-job', SHA40, 'a;rm -rf']).status, 2);
+  assert.equal(run(['ci-job', SHA40]).status, 2);
+  assert.deepEqual(calls(), []);
+});
