@@ -101,3 +101,12 @@ export function answerAbandoned(line, abandoned) {
   if (line.startsWith('show ') && line.endsWith(`:${ABANDONED_FILE}`)) return { stdout: JSON.stringify({ versions: abandoned }) };
   return undefined;
 }
+
+/** 사람들이 실제로 설치하는 마켓플레이스 source.url — GitLab CI 의 `origin`(gitlab.iacloud.kr)과 다른 주소다(WP-2138). */
+export const MARKETPLACE_URL = 'https://github.com/bluleo78/smart-workplace.git';
+/**
+ * genia-works 플러그인 하나를 ref 로 가리키는 마켓플레이스 파일 내용 — build·verify-tag 테스트가 같이 쓴다(WP-2138).
+ * `url` 을 null 로 주면 `source.url` 이 없는 파일을 만든다(게이트가 멈추는지 확인할 때).
+ */
+export const marketplaceWithRef = (ref, url = MARKETPLACE_URL) =>
+  JSON.stringify({ name: 'genia-works', plugins: [{ name: 'genia-works', source: { source: 'git-subdir', ...(url ? { url } : {}), ref } }] });

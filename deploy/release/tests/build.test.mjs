@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runRelease, findBase, abandonedReleases, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit } from '../lib/build.mjs';
-import { REPO, SHA, catalog, deps, NOW, repoOf, fakeDigest, baseManifest, makeExec, buildCalls, createCalls } from './helpers.mjs';
+import { runRelease, findBase, abandonedReleases, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit, marketplaceGitSource, marketplaceRefVersion } from '../lib/build.mjs';
+import { REPO, SHA, catalog, deps, NOW, repoOf, fakeDigest, baseManifest, makeExec, buildCalls, createCalls, MARKETPLACE_URL, marketplaceWithRef } from './helpers.mjs';
 
 // runRelease 는 기준(base)과 기준 매니페스트를 호출자가 정해 넘긴다(CLI main 이 한 번에 결정). 테스트는 기본으로 v0.8.0 기준 + 전체 기준 매니페스트를 준다.
 const BASE = { baseTag: 'v0.8.0', baseVersion: '0.8.0' };
@@ -122,9 +122,6 @@ function pluginRepo({ marketplace = null, pluginJson = null } = {}) {
   return root;
 }
 
-/** genia-works 플러그인 하나를 ref 로 가리키는 마켓플레이스 파일 내용. */
-const marketplaceWithRef = (ref) => JSON.stringify({ name: 'genia-works', plugins: [{ name: 'genia-works', source: { source: 'git-subdir', ref } }] });
-
 test('매니페스트 pluginVersion: 그 커밋의 마켓플레이스 ref(genia-works--v<버전>)의 버전을 담는다 (WP-1707)', () => {
   const ref = JSON.parse(readFileSync(join(REPO, 'apps/workplace-web/public/claude/marketplace.json'), 'utf8')).plugins.find((p) => p.name === 'genia-works').source.ref;
   const manifest = runRelease(opts(makeExec({ diff: [] })));
@@ -161,6 +158,19 @@ test('매니페스트 pluginVersion: ref·plugin.json 둘 다 못 읽거나 형�
   assert.ok(logs.some((m) => /매니페스트에 넣지 않는다/.test(m)));
   const bad = pluginRepo({ marketplace: marketplaceWithRef('main'), pluginJson: '{ "version": "latest" }' });
   assert.equal('pluginVersion' in runRelease(opts(makeExec({ diff: [] }), { repoRoot: bad, log: () => {} })), false);
+});
+
+test('marketplaceRefVersion: 내용에서 genia-works ref 버전만 뽑는다 (WP-2138)', () => {
+  assert.equal(marketplaceRefVersion(marketplaceWithRef('genia-works--v0.1.78')), '0.1.78');
+  assert.equal(marketplaceRefVersion(marketplaceWithRef('main')), null);
+  assert.equal(marketplaceRefVersion('{ not json'), null);
+});
+
+test('marketplaceGitSource: ref 버전과 사람들이 설치하는 source.url 을 함께 뽑는다 (WP-2138)', () => {
+  assert.deepEqual(marketplaceGitSource(marketplaceWithRef('genia-works--v0.1.78')), { version: '0.1.78', url: MARKETPLACE_URL });
+  // url 이 빠진 파일에서는 버전만 읽히고 url 은 null — 게이트가 멈추는지 여기서 고정한다.
+  assert.deepEqual(marketplaceGitSource(marketplaceWithRef('genia-works--v0.1.78', null)), { version: '0.1.78', url: null });
+  assert.deepEqual(marketplaceGitSource('{ not json'), { version: null, url: null });
 });
 
 test('자기 자신의 태그(v0.9.0)는 기준에서 제외되고, git diff 는 <기준>..HEAD', () => {

@@ -28,10 +28,19 @@ variables:
 
 # gitlab.iacloud.kr 는 자체 서명 인증서다. 러너가 넘겨주는 CA(CI_SERVER_TLS_CA_FILE)를 작업 안의 git·node 도 믿게 한다
 # (러너의 소스 받기는 통과하지만 작업 컨테이너 안의 git fetch·매니페스트 fetch 는 따로 검증한다).
+# `http.sslCAInfo` 는 기본 CA 번들을 통째로 대체한다 — GitLab CA 만 넣으면 릴리스 게이트가 설치 주소(github.com)로
+# `git ls-remote` 를 할 때 GitHub 인증을 검증 못 해 태그가 있어도 릴리스가 전량 막힌다(WP-2138). 그래서 시스템 번들을 덧붙인다.
 .trust-gitlab-ca: &trust-gitlab-ca
   - |
     if [ -n "$CI_SERVER_TLS_CA_FILE" ]; then
-      git config --global http.sslCAInfo "$CI_SERVER_TLS_CA_FILE"
+      GIT_CA_BUNDLE="$CI_SERVER_TLS_CA_FILE"
+      for system_ca in /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem; do
+        if [ -f "$system_ca" ] && cat "$CI_SERVER_TLS_CA_FILE" "$system_ca" > /tmp/git-ca-bundle.pem; then
+          GIT_CA_BUNDLE=/tmp/git-ca-bundle.pem
+          break
+        fi
+      done
+      git config --global http.sslCAInfo "$GIT_CA_BUNDLE"
       export NODE_EXTRA_CA_CERTS="$CI_SERVER_TLS_CA_FILE"
     fi
 
@@ -49,6 +58,7 @@ verify-tag:
     # 태그 커밋이 main·hotfix/* 에 포함됐는지 보려면 원격 브랜치가 있어야 한다(태그 파이프라인은 브랜치를 받지 않는다).
     - git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/hotfix/*:refs/remotes/origin/hotfix/*'
   script:
+    # marketplace source.url(설치 주소, github.com)로 `git ls-remote` 를 한다 — 이 잡은 github.com 으로 outbound 가 열려 있어야 한다(WP-2138).
     - node deploy/release/verify-tag.mjs --tag "$CI_COMMIT_TAG" --env-out release.env
   artifacts:
     reports:

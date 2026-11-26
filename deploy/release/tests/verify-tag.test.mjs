@@ -4,10 +4,15 @@ import assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { isReleaseBranch, main, verifyTag } from '../verify-tag.mjs';
-import { REPO, SHA, answerAbandoned, makeTmp } from './helpers.mjs';
+import { MARKETPLACE_URL, REPO, SHA, answerAbandoned, makeTmp, marketplaceWithRef } from './helpers.mjs';
+import { MARKETPLACE_PATH } from '../lib/build.mjs';
 
-/** 태그 검증에 필요한 git 질의만 답하는 가짜 exec. */
-function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0', 'v0.9.0'], allTags = merged, shallow = false, abandoned = null, leftNotes = [] } = {}) {
+/**
+ * 태그 검증에 필요한 git 질의만 답하는 가짜 exec — lsRemoteThrows 를 주면 ls-remote 만 네트워크 오류처럼 던진다.
+ * ls-remote 는 marketplace `source.url`(설치 주소)로 온 호출에만 답한다 — 게이트가 다른 원격(GitLab origin)을 묻는 순간
+ * 「예상 못한 git 호출」 으로 실패해, 대상이 url 인지 테스트가 잡는다(WP-2138).
+ */
+function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0', 'v0.9.0'], allTags = merged, shallow = false, abandoned = null, leftNotes = [], marketplace = marketplaceWithRef('genia-works--v0.1.78'), pluginTag = 'genia-works--v0.1.78', lsRemoteThrows = false } = {}) {
   const calls = [];
   const exec = (cmd, args) => {
     calls.push(args.join(' '));
@@ -28,6 +33,23 @@ function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0
     if (line === 'rev-parse --is-shallow-repository') return { stdout: `${shallow}\n` };
     const a = answerAbandoned(line, abandoned);
     if (a) return a;
+    // marketplace: null 이면 파일 없음, pluginTag: null 이면 설치 주소에 없음
+    // (answerAbandoned 뒤에 둔다 — 버린 릴리스의 `show` 답변을 가로채지 않게)
+    if (line.startsWith('show ')) {
+      if (marketplace === null) throw new Error('fatal: path ... did not match any files');
+      // 읽는 위치가 태그 커밋인지를 고정한다 — HEAD(워킹트리)를 읽으면 CI 와 로컬에서 결과가 갈린다.
+      if (line !== `show ${SHA}:${MARKETPLACE_PATH}`) throw new Error(`태그 커밋이 아닌 곳에서 marketplace.json 을 읽었다: ${line}`);
+      return { stdout: marketplace };
+    }
+    const ls = /^ls-remote --tags (\S+) refs\/tags\/(.+)$/.exec(line);
+    if (ls) {
+      const [, target, tag] = ls;
+      // 설치 주소가 아닌 원격(GitLab origin 등)에 물으면 실패 — 대상이 url 인지를 테스트가 잡는다(WP-2138).
+      if (target !== MARKETPLACE_URL) throw new Error(`설치 주소가 아닌 곳에 물었다: ${line}`);
+      // 네트워크 오류는 defaultExec 이 던지는 모양 그대로 — 메시지가 안내 문구로 바뀌지 않는지 확인하는 데 쓴다.
+      if (lsRemoteThrows) throw new Error(`git ${line} 실패 (종료 코드 128)\nfatal: unable to access 'https://github.com/bluleo78/smart-workplace/'`);
+      return { stdout: pluginTag === tag ? `${SHA} refs/tags/${tag}\n` : '' };
+    }
     if (line === `tag --merged ${SHA} --list v*`) return { stdout: merged.join('\n') };
     if (line === 'tag --list v*') return { stdout: allTags.join('\n') };
     throw new Error(`예상 못한 git 호출: ${line}`);
@@ -38,7 +60,7 @@ function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0
 
 test('main 에 포함된 태그 + 노트 있음 → 기준(v0.8.0)과 버전을 돌려준다', () => {
   const r = verifyTag({ tag: 'v0.9.0', exec: gitFake(), repoRoot: REPO });
-  assert.deepEqual(r, { version: '0.9.0', commit: SHA, baseTag: 'v0.8.0', baseVersion: '0.8.0' });
+  assert.deepEqual(r, { version: '0.9.0', commit: SHA, baseTag: 'v0.8.0', baseVersion: '0.8.0', pluginTag: 'genia-works--v0.1.78', pluginUrl: MARKETPLACE_URL });
 });
 
 test('hotfix/* 에만 포함된 태그도 허용, 기능 브랜치에만 있으면 거부', () => {
@@ -89,7 +111,8 @@ test('main: --env-out 에 VERSION·BASE_TAG·BASE_VERSION 을 dotenv 로 쓴다'
   const logs = [];
   await main(['--tag', 'v0.9.0', '--env-out', out], { repoRoot: REPO, exec: gitFake(), log: (l) => logs.push(l) });
   assert.equal(readFileSync(out, 'utf8'), 'VERSION=0.9.0\nBASE_TAG=v0.8.0\nBASE_VERSION=0.8.0\n');
-  assert.ok(logs.some((l) => l.includes('검증 통과')));
+  // CI 로그로 「무엇을 확인했는지」 가 남는다(WP-2138) — 설치 주소와 플러그인 태그가 한 줄에 보인다.
+  assert.ok(logs.some((l) => l.includes('검증 통과') && l.includes('genia-works--v0.1.78') && l.includes(MARKETPLACE_URL)));
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -107,4 +130,46 @@ test('버린 릴리스(WP-454): 기준에서 빠지고, 그 버전 자체는 다
 test('버린 릴리스(WP-454): 그 버전의 노트가 태그 커밋에 남아 있으면 거부', () => {
   const base = gitFake({ merged: ['v0.8.0', 'v0.8.1', 'v0.9.0'], abandoned: { '0.8.1': '빌드 실패' }, leftNotes: ['0.8.1'] });
   assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: base, repoRoot: REPO }), /releases\/0\.8\.1\.md/);
+});
+
+test('marketplace ref 태그가 설치 주소에 없으면 거부하고 올리라 안내한다 (WP-2138)', () => {
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: gitFake({ pluginTag: null }), repoRoot: REPO }),
+    (e) => new RegExp(`genia-works--v0\\.1\\.78 태그가 설치 주소\\(${MARKETPLACE_URL}\\) 에 없다`).test(e.message) && /먼저/.test(e.message));
+});
+
+test('marketplace ref 태그가 설치 주소에 있으면 통과한다 (WP-2138)', () => {
+  const r = verifyTag({ tag: 'v0.9.0', exec: gitFake(), repoRoot: REPO });
+  assert.equal(r.pluginTag, 'genia-works--v0.1.78');
+});
+
+test('ls-remote 는 marketplace source.url 하나만 묻는다 — GitLab origin 을 묻지 않는다 (WP-2138 사고)', () => {
+  // 사고: GitLab CI 의 origin 은 gitlab.iacloud.kr 이라 origin 기준 확인은 GitHub 에 없는 태그를 그대로 지나쳤다.
+  const exec = gitFake();
+  verifyTag({ tag: 'v0.9.0', exec, repoRoot: REPO });
+  assert.deepEqual(exec.calls.filter((c) => c.startsWith('ls-remote ')), [`ls-remote --tags ${MARKETPLACE_URL} refs/tags/genia-works--v0.1.78`]);
+});
+
+test('설치 주소에 태그가 없어 거부할 때도 origin 을 대신 물어보지 않는다 (WP-2138 사고)', () => {
+  const exec = gitFake({ pluginTag: null });
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec, repoRoot: REPO }), /설치 주소/);
+  assert.deepEqual(exec.calls.filter((c) => c.startsWith('ls-remote ')), [`ls-remote --tags ${MARKETPLACE_URL} refs/tags/genia-works--v0.1.78`]);
+});
+
+test('marketplace source.url 이 없으면 확인할 주소가 없으니 거부한다 (WP-2138)', () => {
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: gitFake({ marketplace: marketplaceWithRef('genia-works--v0.1.78', null) }), repoRoot: REPO }),
+    /source\.url 을 읽지 못했다/);
+});
+
+test('marketplace.json 을 태그 커밋에서 못 읽으면 git 오류 원인까지 싣고 거부한다 (WP-2138)', () => {
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: gitFake({ marketplace: null }), repoRoot: REPO }),
+    (e) => /marketplace\.json/.test(e.message) && /fatal: path/.test(e.message));
+});
+
+test('marketplace ref 가 genia-works--v<버전> 모양이 아니면 거부한다 (WP-2138)', () => {
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: gitFake({ marketplace: marketplaceWithRef('main') }), repoRoot: REPO }), /genia-works--v<버전>/);
+});
+
+test('ls-remote 네트워크 오류는 「태그를 올리세요」 안내로 바꾸지 않고 그대로 흘려보낸다 (WP-2138)', () => {
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: gitFake({ lsRemoteThrows: true }), repoRoot: REPO }),
+    (e) => /실패/.test(e.message) && !/올리세요/.test(e.message));
 });

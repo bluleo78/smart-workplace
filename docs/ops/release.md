@@ -30,7 +30,9 @@ Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/
 
 | 잡 | 하는 일 |
 |---|---|
-| verify-tag | 태그 형식, 태그 커밋이 `main`·`hotfix/*` 에 있는지, `releases/<버전>.md` 존재, 기준 태그 계산 |
+| verify-tag | 태그 형식, 태그 커밋이 `main`·`hotfix/*` 에 있는지, `releases/<버전>.md` 존재, `marketplace.json` ref(`genia-works--v<버전>`) 태그가 설치 주소(`source.url`)에 있는지, 기준 태그 계산 |
+
+verify-tag 는 설치 주소(GitHub)로 `git ls-remote` 를 하므로 **github.com 으로 나가는 outbound** 가 필요하다(WP-2138). GitLab 자체 서명 인증서는 러너가 넘기는 CA 로 믿되, `http.sslCAInfo` 가 기본 번들을 대체하는 까닭에 시스템 CA 를 덧붙여 둔다(`.gitlab-ci.yml` `trust-gitlab-ca`) — 덧붙이지 않으면 태그가 제대로 있어도 모든 릴리스가 막힌다.
 | build-images | 바뀐 앱만 `:sha-<커밋>` 빌드 → 모두 성공하면 `:<버전>` 태그(승계 포함) → digest 검증 → 매니페스트 업로드 |
 | checklist | 기준 릴리스 대비 배포 체크리스트 → GitLab Release 본문 |
 | gitlab-release | Release 생성(매니페스트·노트 링크) |
