@@ -22,6 +22,7 @@ import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
+import { liveSearchParams } from '../../../lib/historyParam';
 import { type IssueConditionChip, issueConditionChips, type IssueConditionKey, withoutCondition } from '../../../lib/issueConditionChips';
 import {
   carrySort,
@@ -30,6 +31,7 @@ import {
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
+  parseGroupParam,
   parseView,
   withoutViewOrder,
 } from '../../../lib/issueFilters';
@@ -144,19 +146,26 @@ export function useIssueFilterControls(
 
   // 검색어 draft — 300ms debounce 후 URL 에 반영해 매 키 입력마다 네트워크 호출을 막는다.
   // URL 의 q 가 외부 변경(예: 필터 지우기 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
-  // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003). 쓰는 순간의 최신 필터·view·group 에 q 만 바꾼다.
-  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(filters.q, (q) =>
-    writeFilters({ ...filters, q }, view, groupParam),
-  );
+  // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003).
+  // debounce 300ms 뒤라 저장 보기 적용(transition)이 렌더에 닿기 전일 수 있다(WP-2141) —
+  // 그 순간에도 브라우저 주소는 이미 적용된 값이라(WP-955 와 같은 근거) 쓰는 순간의 주소에서 조건을 다시 읽는다.
+  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(filters.q, (q) => {
+    const live = liveSearchParams();
+    writeFilters({ ...parseFilters(live), q }, parseView(live), parseGroupParam(live), live);
+  });
 
   // view·groupBy 는 IssueFilters 와 분리된 URL 키 — 필터 변경 시에도 함께 보존해야 한다.
   function writeFilters(
     next: IssueFilters,
     nextView: IssueView,
     nextGroupBy: IssueGroupParam | null,
+    base?: URLSearchParams, // 보류 중인 변경이 이미 주소에 있을 때 그 주소를 기준으로 열 옵션을 이어 받는다
   ) {
     // replace 를 지킨다 — 조건 기억(useRememberedIssueQuery, WP-1035)은 replace 가 아닌 이동만 「들어옴」으로 보고 되살린다.
-    setParams((prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), prev), { replace: true });
+    setParams(
+      (prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), base ?? prev),
+      { replace: true },
+    );
   }
 
   function setView(v: IssueView) {
