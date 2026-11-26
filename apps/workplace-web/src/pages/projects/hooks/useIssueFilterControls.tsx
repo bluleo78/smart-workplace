@@ -22,6 +22,7 @@ import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
+import { liveSearchParams } from '../../../lib/historyParam';
 import { type IssueConditionChip, issueConditionChips, type IssueConditionKey, withoutCondition } from '../../../lib/issueConditionChips';
 import {
   carrySort,
@@ -30,6 +31,7 @@ import {
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
+  parseGroupParam,
   parseView,
   withoutViewOrder,
 } from '../../../lib/issueFilters';
@@ -145,7 +147,9 @@ export function useIssueFilterControls(
 
   // 검색어 draft — 300ms debounce 후 URL 에 반영해 매 키 입력마다 네트워크 호출을 막는다.
   // URL 의 q 가 외부 변경(예: 필터 지우기 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
-  // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003). 쓰는 순간의 최신 필터·view·group 에 q 만 바꾼다.
+  // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003).
+  // debounce 300ms 뒤라 저장 보기 적용(transition)이 렌더에 닿기 전일 수 있다(WP-2141) —
+  // 그 순간에도 브라우저 주소는 이미 적용된 값이라(WP-955 와 같은 근거) 쓰는 순간의 주소에서 조건을 다시 읽는다.
   // 「필터 지우기」(빈 상태 CTA 포함)가 싣는 router state 신호를 cancelKey 로 받아, 대기 중인 q 쓰기를 접는다(WP-2125).
   // 뒤로·앞으로 가기(POP)로 돌아온 항목에는 옛 신호값이 남아 있어도 지우기로 보지 않는다 — 그 사이 친 검색어가 버려진다.
   // 새 신호는 REPLACE·PUSH 이동만 싣는다.
@@ -163,7 +167,10 @@ export function useIssueFilterControls(
   }
   const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(
     filters.q,
-    (q) => writeFilters({ ...filters, q }, view, groupParam),
+    (q) => {
+      const live = liveSearchParams();
+      writeFilters({ ...parseFilters(live), q }, parseView(live), parseGroupParam(live), live);
+    },
     300,
     acceptedResetSignal,
   );
@@ -176,9 +183,13 @@ export function useIssueFilterControls(
     next: IssueFilters,
     nextView: IssueView,
     nextGroupBy: IssueGroupParam | null,
+    base?: URLSearchParams, // 보류 중인 변경이 이미 주소에 있을 때 그 주소를 기준으로 열 옵션을 이어 받는다
   ) {
     // replace 를 지킨다 — 조건 기억(useRememberedIssueQuery, WP-1035)은 replace 가 아닌 이동만 「들어옴」으로 보고 되살린다.
-    setParams((prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), prev), { replace: true });
+    setParams(
+      (prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), base ?? prev),
+      { replace: true },
+    );
   }
 
   function setView(v: IssueView) {
