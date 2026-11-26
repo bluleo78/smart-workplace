@@ -13,9 +13,10 @@ import { type ComponentType } from 'react'
 import { AiIcon } from '@/components/ai/AiIcon'
 
 // WP-2076 — 대시보드 본문 여덟 개를 lazy + Suspense 대신 정적으로 받는다. 홈이 첫 화면이라 본문은 곧바로 필요하고,
-// 늦게 끝나면 카드 틀(스켈레톤 190px)이 먼저 그려진 뒤 본문이 올라가 아래 카드가 한 번에 밀리며 CLS 를 만든다
-// (실측: 본문 청크 그래프 550ms > 레이아웃 조회 30ms — 미리 받기를 늦춰도 이기지 못한다). 정적 import 면 카드는
-// 본문과 같은 렌더에서 처음부터 그려지고, 이후 로딩·데이터 전환은 각 본문의 스켈레톤·min-h 가 잡는다.
+// 늦게 끝나면 카드 틀(Suspense 폴백 Skeleton h-20 = 80px — EntryBody)이 먼저 그려진 뒤 본문이 올라가 아래 카드가
+// 한 번에 밀리며 CLS 를 만든다 (실측: 본문 청크 그래프 550ms > 레이아웃 조회 30ms — 미리 받기를 늦춰도 이기지 못한다).
+// 정적 import 면 카드는 본문과 같은 렌더에서 처음부터 그려지고, 이후 로딩·데이터 전환은 각 본문의 스켈레톤·min-h 가 잡는다.
+// (Suspense 는 이제 카탈로그 본문만 감싼다 — 시스템 본문에는 지연 로딩이 없다, WP-2076 리뷰 후속 ④)
 import CalendarTodayBody from './dashboard/CalendarTodayBody'
 import ConversationsBody from './dashboard/ConversationsBody'
 import MyTasksBody from './dashboard/MyTasksBody'

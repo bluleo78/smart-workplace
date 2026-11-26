@@ -24,6 +24,7 @@ import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { todayRange } from '@/lib/calendarRange'
 import { HIT_AREA_COARSE, HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import { showsLoadError } from '@/lib/queryFailure'
+import { cn } from '@/lib/utils'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -199,6 +200,12 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const showAttentionSkeleton =
     !previewData && top.length === 0 && failedSources.length === 0 && attentionSources.some((q) => q.isLoading)
 
+  // WP-2076 리뷰 후속 ③ — 240px 하한은 로딩 스켈레톤과 데이터(부분 오류 배너 226/234 포함) 분기에만 넣는다.
+  // 미리 보기(previewData)에는 넣지 않고, 로딩이 끝난 빈 상태(46px)·오류(94px) 분기는 자연 높이를 그대로 둬
+  // 「다 확인했습니다」 아래 ~190px 의 빈 자리가 남지 않게 한다. 240 은 네 분기 실측(스켈레톤 188·데이터 168·
+  // 부분 오류 배너 226/234)을 덮는 하한이다.
+  const attentionMinHeight = previewData ? undefined : 'min-h-[240px]'
+
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리). previewData 있으면 항상 로딩/에러 없음으로 고정.
   // ai=true 이면 CountCell 이 AiIcon 배지를 표시(AI 분류 활성 신호).
   // testId: E2E 셀 단위 testid(선택적).
@@ -260,16 +267,16 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             />
             지금 신경 쓸 일{top.length > 0 ? ` (${top.length})` : ''}
           </h3>
-          {/* WP-2076: 로딩·빈 상태·데이터·에러 어느 분기든 같은 최소 높이를 유지 — 데이터 도착 전후 높이가 달라져
-              아래 카드가 밀리는 CLS 를 없앤다. 240px = 네 분기 실측(스켈레톤 188·데이터 168·부분 오류 배너 226/234·빈 46·오류 94)을 모두 덮는 하한. */}
-          <div data-testid="dashboard-attention-body" className="min-h-[240px]">
+          {/* WP-2076 리뷰 후속: 최소 높이는 로딩 스켈레톤·데이터 분기 안에만 둔다 — 빈 상태·오류 분기와
+              미리 보기는 자연 높이를 그대로 둬 빈 자리가 남지 않게 한다(attentionMinHeight). */}
+          <div data-testid="dashboard-attention-body">
             {showAttentionSkeleton ? (
               // 아직 행을 만들 수 없을 때 — 실제 포커스 자리 1 + 행 자리 4 구조·높이 그대로 미리 그린다(도착 전후 시프트 없음).
               // aria-busy/aria-label: 스크린리더에 "불러오는 중"임을 알린다. role="status" — role 없는 div 의 aria-label 은
               // AT 가 무시할 수 있어 라이브 리전임을 role 로 밝힌다(WP-2076 리뷰).
               <div
                 data-testid="dashboard-attention-skeleton"
-                className="space-y-2"
+                className={cn('space-y-2', attentionMinHeight)}
                 role="status"
                 aria-busy="true"
                 aria-label="지금 신경 쓸 일 불러오는 중"
@@ -296,7 +303,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
                 다 확인했습니다
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className={cn('space-y-2', attentionMinHeight)}>
                 {/* 일부 소스가 실패했는데 다른 소스 행은 있을 때 — 목록이 전부인 것처럼 보이지 않게 한 줄 알린다(WP-865). */}
                 {failedSources.length > 0 && (
                   <LoadErrorState
