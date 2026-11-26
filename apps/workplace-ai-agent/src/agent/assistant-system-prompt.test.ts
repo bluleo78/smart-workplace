@@ -598,3 +598,52 @@ describe('사용법 질문(WP-1511)', () => {
     expect(ASSISTANT_ROUTER_TOOLS).toContain('manual');
   });
 });
+
+describe('WP-2152 기록 유무 질문 — 요청 이력은 list_issues 로 직접', () => {
+  const cases = [
+    ['claude', assistantSystemPrompt('claude')],
+    ['opencode', assistantSystemPrompt('opencode')],
+  ] as const;
+
+  it.each(cases)('%s: 기록 유무 질문 절이 위임 표보다 앞에 있다', (_runner, p) => {
+    const ruleAt = p.indexOf('## 기록 유무 질문');
+    const tableAt = p.indexOf('| 위임 대상(쓰기/분석) |');
+    expect(ruleAt).toBeGreaterThan(-1);
+    expect(tableAt).toBeGreaterThan(-1);
+    expect(ruleAt).toBeLessThan(tableAt);
+    expect(p).toContain('이메일에 서명 기능에 대한 요청이 있었나');
+    expect(p).toMatch(/기록 유무 질문[\s\S]{0,1600}이 절 밖이다/);
+  });
+
+  it.each(cases)('%s: list_issues 조건 — assignee "any" 필수 + 완료·취소 포함 status 명시', (_runner, p) => {
+    expect(p).toContain('assignee: "any"');
+    expect(p).toContain('status: "TODO,IN_PROGRESS,DONE,CANCELED"');
+    expect(p).toMatch(/기록 유무 질문[\s\S]{0,1200}list_issues/);
+    expect(p).toMatch(/기록 유무 질문[\s\S]{0,1200}assignee: "any"/);
+    expect(p).toMatch(/기록 유무 질문[\s\S]{0,1200}TODO,IN_PROGRESS,DONE,CANCELED/);
+  });
+
+  it.each(cases)('%s: issue-agent · mail-agent 로 위임하지 않는다고 명시한다', (_runner, p) => {
+    expect(p).toMatch(/기록 유무 질문[\s\S]{0,1200}issue-agent 로도 mail-agent 로도 위임하지 않는다/);
+  });
+
+  it.each(cases)('%s: 화면 범위는 projectKey 로 먼저, 답에 찾은 범위를 한 줄 적는다', (_runner, p) => {
+    expect(p).toContain('범위가 프로젝트(이슈 목록·이슈 상세)면 이슈 검색은 그');
+    expect(p).toContain('찾은 범위(프로젝트 키 또는 「모든 프로젝트」)를 한 줄');
+    expect(p).toContain('범위를 넓혀(모든 프로젝트 — projectKey 없이)');
+  });
+
+  it.each(cases)('%s: 이슈 검색 상한 — 프로젝트 범위 2번 + 모든 프로젝트 범위 2번', (_runner, p) => {
+    expect(p).toContain('모든 프로젝트 범위에서 2번');
+    expect(p).toContain('같은 프로젝트 범위에서 2번');
+  });
+
+  it.each(cases)('%s: 메일 검색은 메일을 가리킬 때만 — 옛 「메일 요약·정리·검색」 문구는 없다', (_runner, p) => {
+    expect(p).toContain('메일을 가리켰을 때만');
+    expect(p).not.toContain('메일 요약·정리·검색·발송·답장·특정 메일 읽기는 본문 이해가 필요하므로');
+    const row = p.split('\n').find((l) => l.includes('**mail-agent**') && l.startsWith('|'));
+    expect(row).toBeTruthy();
+    expect(row!).toContain('메일을 가리킨 검색');
+    expect(row!).not.toContain('정리·검색·발송');
+  });
+});
