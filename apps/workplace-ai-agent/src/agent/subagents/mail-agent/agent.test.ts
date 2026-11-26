@@ -99,4 +99,23 @@ describe('mail-agent 정의', () => {
     expect(prompt).toMatch(/분류는 바꿀 수 없다[^\n]*답하지 않/);
     expect(prompt).not.toContain('remember_memory');
   });
+
+  // WP-2152: 한 질문의 메일 검색(list_mail)은 처음 검색 포함 3번까지 — 캡처에서 23번 호출이 응답 지연·토큰 낭비였다.
+  it('WP-2152: 메일 검색은 처음 포함 3번까지, 계정만 바꾼 같은 검색어는 세지 않으며 3번 뒤엔 시도한 검색어와 함께 없다고 답한다', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('메일 검색은 3번까지');
+    expect(prompt).toContain('처음 검색도 그 안에 넣는다');
+    expect(prompt).toContain('계정을 바꿔 같은 검색어로 찾는 것은 세지 않는다');
+    expect(prompt).toContain('시도한 검색어와 함께 없다고 답한다');
+    expect(prompt).not.toContain('검색어를 바꿔 다시 찾는 것은 3번까지');
+  });
+
+  // 리뷰 후속(앞 PR #1894) — 다음 쪽 이어 읽기는 같은 검색의 연속이라 상한에 세지 않는다.
+  // list_mail 은 커서(nextCursor)가 없어 limit 을 키워 다시 읽는 것이 다음 쪽이다 — 없는 파라미터를 프롬프트에 쓰지 않는다.
+  it('WP-2152: 같은 검색어의 다음 쪽 이어 읽기(limit 을 키워 다시 읽기)는 3번 상한에 세지 않는다', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('같은 검색어의 다음 쪽 이어 읽기');
+    expect(prompt).toContain('`limit` 을 키워 다시 읽는다');
+    expect(prompt).not.toContain('nextCursor');
+  });
 });
