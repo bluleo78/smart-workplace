@@ -458,24 +458,41 @@ describe('buildSharedIssueTools', () => {
     expect(JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: 'x' })))).not.toHaveProperty('url');
   });
 
-  // WP-2113: 제목·본문을 바꾸면 쓰기 전에 상세를 읽어 version 을 실어 보낸다 — 서버가 version 없는 글 필드 변경을 막는다.
-  it('update_issue content with title reads detail and sends version', async () => {
+  // WP-2113(리뷰 후속): version 은 호출자가 상세에서 읽어 넘긴 값만 쓴다 — 쓰기 직전에 새로 읽으면 서버 값과 언제나 같아
+  // 충돌 검사를 건너뛰게 되기 때문이다(검토자 지적 「보호가 비어 있다」).
+  it('update_issue content with title sends the version the caller read', async () => {
     const c = mockClient();
-    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { version: 7 } });
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', title: '새 제목' });
-    expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
+    await t.handler({ issueKey: 'WP-12', title: '새 제목', version: 7 });
+    expect(c.getIssueDetail).not.toHaveBeenCalled();
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ title: '새 제목', version: 7 }));
   });
 
-  // WP-2113: 본문만 바꾸는 단독 요청도 쓰기 전에 상세를 읽어 version 을 실어 보낸다 — 제목이 없어도 서버 409 에 걸리지 않게.
-  it('update_issue content with body reads detail and sends version', async () => {
+  // WP-2113(리뷰 후속): 본문만 바꾸는 경우도 같다 — 읽은 version 을 그대로 싣는다.
+  it('update_issue content with body sends the version the caller read', async () => {
     const c = mockClient();
-    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { version: 7 } });
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', body: '새 본문' });
-    expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
+    await t.handler({ issueKey: 'WP-12', body: '새 본문', version: 7 });
+    expect(c.getIssueDetail).not.toHaveBeenCalled();
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ body: '새 본문', version: 7 }));
+  });
+
+  // WP-2113(리뷰 후속): version 없이 제목·본문을 바꾸면 version 없이 그대로 보낸다 — 자동으로 방금 읽은 값을 붙이지 않고
+  // 서버 409 로 막히게 한다(그 안내를 받아 호출자가 get_issue_detail 로 다시 읽어 재시도한다).
+  it('update_issue content without version sends none', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', title: '새 제목' });
+    expect(c.getIssueDetail).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.not.objectContaining({ version: expect.any(Number) }));
+  });
+
+  // WP-2113(리뷰 후속): 준 version 은 글 필드가 아닌 내용 변경에도 그대로 쓴다 — 호출자가 충돌 검사를 넘기면 언제든 한다.
+  it('update_issue sends the caller version on a non-text content change', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', priority: 'HIGH', version: 3 });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ priority: 'HIGH', version: 3 }));
   });
 
   // WP-2113: 제목·본문 없는 내용 PATCH(상태·우선순위만)는 조회를 하지 않는다 — 불필요한 GET 을 늘리지 않는다.
@@ -487,15 +504,57 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.not.objectContaining({ version: expect.any(Number) }));
   });
 
-  // WP-2113: 상세 조회에 실패하면 내용 쓰기는 실패로 흘러 도구 결과에 남는다 — 예외로 호출 전체가 죽지 않는다.
-  it('update_issue detail fetch failure fails content only', async () => {
+  // WP-2113(리뷰 후속): 상세 조회는 더 이상 하지 않으므로, 읽기 실패와 무관하게 내용 PATCH 는 그대로 나간다.
+  it('update_issue content write does not depend on a detail read', async () => {
     const c = mockClient();
     vi.mocked(c.getIssueDetail).mockRejectedValue(new Error('네트워크 오류'));
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
     const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '새 제목' })));
+    expect(out.ok).toBe(true);
+    expect(c.getIssueDetail).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', expect.objectContaining({ title: '새 제목' }));
+  });
+
+  // WP-2113(반려 ②): version 없이 보낸 내용 PATCH 가 서버 409 로 거절되면 무엇을 해야 하는지 함께 돌려준다 —
+  // 안내가 없으면 호출자(AI)는 같은 요청을 그대로 되풀이한다.
+  it('version 없는 내용 PATCH 의 409 에 재시도 힌트를 덧붙인다', async () => {
+    const c = mockClient();
+    vi.mocked(c.updateIssueContent).mockRejectedValue(
+      Object.assign(new Error('conflict'), {
+        // 실서버는 @ResponseStatus ErrorResponse JSON 을 준다 — 문자열 본문 mock 으로는 실물 shape 를 못 잡는다(WP-2113 리뷰 Minor).
+        response: { status: 409, data: { status: 409, message: '제목·본문을 고치려면 이슈의 최신 내용을 다시 확인해 주세요: WP-12' } },
+      }),
+    );
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '새 제목' })));
     expect(out.ok).toBe(false);
-    expect(String(out.results.content)).toMatch(/^failed/);
-    expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(out.results.content).toContain('제목·본문을 고치려면 이슈의 최신 내용을 다시 확인해 주세요: WP-12');
+    expect(out.results.content).toContain('get_issue_detail 의 version 을 실어 다시 보내세요');
+  });
+
+  // WP-2113(반려 ②): version 을 싣고도 409 면 남이 먼저 저장한 경우라 서버 안내가 이미 충분하다 — 힌트를 겹쳐 붙이지 않는다.
+  it('version 을 싣고 409 가 나면 재시도 힌트를 붙이지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.updateIssueContent).mockRejectedValue(
+      Object.assign(new Error('conflict'), { response: { status: 409, data: '먼저 저장한 내용이 있습니다' } }),
+    );
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '새 제목', version: 3 })));
+    expect(out.results.content).toContain('먼저 저장한 내용이 있습니다');
+    expect(out.results.content).not.toContain('실어 다시 보내세요');
+  });
+
+  // WP-2113(반려 ③): 내용을 바꾼 뒤 서버가 준 새 version 을 결과에 싣는다 — 뒤이어 하는 쓰기가 이 값으로 409 를 맞지 않게.
+  it('내용 PATCH 성공 결과에 새 version 을 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.updateIssueContent).mockResolvedValue({ summary: { number: 12, version: 9 } });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '새 제목', version: 8 })));
+    expect(out).toMatchObject({ ok: true, version: 9 });
+    // 응답에 version 이 없으면(이 mock 처럼) 키를 싣지 않는다 — 실서비스의 내용 PATCH 응답은 version 을 준다.
+    vi.mocked(c.updateIssueContent).mockResolvedValue(undefined);
+    const noContent = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE' })));
+    expect(noContent).not.toHaveProperty('version');
   });
 
   it('WP-356: create_issue 는 모르는 마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
@@ -1594,8 +1653,9 @@ describe('이슈 관계·외부 링크 도구 (WP-887)', () => {
 });
 
 /**
- * WP-1494: get_issue_detail 크기 옵션(comments·history·bodyMaxChars). 옵션을 안 주면 응답이 이전과 글자 하나까지 같아야 한다 —
- * work-loop 같은 기존 AI 가 기본 코멘트·이력에 기대기 때문이다. 기본 응답은 변경 전 코드로 만든 스냅숏과 비교한다.
+ * WP-1494: get_issue_detail 크기 옵션(comments·history·bodyMaxChars). 옵션을 안 주면 크기 옵션이 끼어들지 않은 기본 응답이어야
+ * 한다 — work-loop 같은 기존 AI 가 기본 코멘트·이력에 기대기 때문이다. 기본 응답은 스냅숏으로 고정한다.
+ * WP-2113 리뷰 후속: 응답에 version 을 더해(호출자가 update_issue(version) 로 넘길 값) baseline 은 그때 갱신했다.
  */
 describe('get_issue_detail 크기 옵션 (WP-1494)', () => {
   // 서로게이트 쌍(😀) 이 경계에 걸리게 본문을 짠다 — 'a' 9개 + 😀 + 'b' 여러 개.
@@ -1625,7 +1685,7 @@ describe('get_issue_detail 크기 옵션 (WP-1494)', () => {
     return async (args: Record<string, unknown>) => resultText(await t.handler({ issueKey: 'WP-12', ...args }));
   };
 
-  it('옵션이 없으면 응답 문자열이 변경 전과 같다', async () => {
+  it('옵션이 없으면 크기 옵션 없는 기본 응답이다', async () => {
     expect(await setup()({})).toMatchSnapshot();
   });
 

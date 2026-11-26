@@ -2018,3 +2018,15 @@ test('process-issue.md 1번 「시작」은 옛 워크플로우 notes 를 SKILL.
   includesAll(l, ['`SKILL.md` 3번 「워크플로우를 끈 뒤 이어 하기」', '`.yaml`', '덮어쓰기 **전에**'], '1번 시작 갈래');
   assertBefore(start, '「워크플로우를 끈 뒤 이어 하기」', '- **처리 파일을 읽는다**');
 });
+
+// WP-2113(반려 ①): rg 로 찾은 기획안 쓰기 지시는 user-message·issue-agent 외 두 곳(plan-issue·워크플로우 yaml)이다 —
+// 여기서 version 동행 문구가 조용히 빠지면 AI 가 version 없이 본문을 써 409 루프를 도는 회귀가 어떤 테스트에도 걸리지 않는다.
+test('기획안 쓰기 지시(plan-issue.md·ai-dev-flow.yaml): 제목·본문을 바꿀 때 get_issue_detail 의 version 을 함께 보낸다 (WP-2113)', () => {
+  const yaml = readFileSync(new URL('../../../docs/workflows/ai-dev-flow.yaml', import.meta.url), 'utf8');
+  for (const [name, text] of [['plan-issue.md', planIssue], ['ai-dev-flow.yaml', yaml]]) {
+    const line = lineWith(text, '기획안은 이슈 본문에 쓴다');
+    includesAll(line, ['`get_issue_detail` 에서 읽은 `version` 을 함께 보낸다', '409', 'WP-2113'], name);
+    // 예시 자체가 version 없는 호출이면 복사-실행 경로가 지시와 어긋난다(리뷰 Minor 7).
+    includesAll(line, ['`update_issue({ issueKey, body, fileIds, version })`'], `${name} 예시`);
+  }
+});

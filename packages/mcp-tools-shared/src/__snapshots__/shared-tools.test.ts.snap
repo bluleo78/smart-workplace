@@ -3795,6 +3795,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "type": {
           "type": "string",
         },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
       },
       "required": [
         "issueKey",

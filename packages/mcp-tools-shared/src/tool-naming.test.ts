@@ -39,6 +39,11 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  * 19,500 → 19,550: 2026-11-26 WP-2098 update_issue 에 convertSubtasksToType 인자(스키마 한 필드 + 설명 한 줄)가 늘었다
  *   (브랜치 측정 19,454 → 19,529, 약 +75). 검토자 손 머지에서 WP-2097 리뷰 후속(19,500)과 합쳐 50 단위로 올렸다. 다른 도구 설명은 줄이지 않았다
  *   (무인 세션 결정 — 검토 때 dh.yang 확인 요청).
+ * 19,550 유지: 2026-11-26 WP-2113 리뷰 후속 — 브랜치에서는 19,450 → 19,550 으로 올렸고 main 의 19,550(위 WP-2098)과 같은 값이라 상한 줄은 그대로다.
+ *   반려 ⑤ 로 뺀 알림 문구 `Status/priority changes notify …` 를 되살렸다(브랜치 측정 19,469, main 설명과 합치면 19,546 — 여유 4).
+ *   「결과에 새 version 을 싣는다」는 뜻은 도구 설명에서 빼고(자리가 없어) 프롬프트(issue-agent 부분 수정 안내·결정 사항 규칙)와
+ *   결과 JSON 의 `version` 이 담는다. `Unknown labels are created (gray).` 는 create_issue 설명의 `created (gray; createdLabels)`
+ *   가 이미 담아 계속 뺀다. 다른 도구 설명은 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
  */
 const DEFINITION_TOKEN_CAP = 19_550;
 /**

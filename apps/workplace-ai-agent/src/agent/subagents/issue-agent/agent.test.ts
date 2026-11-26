@@ -57,6 +57,18 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('위임 prompt 에 라우터가 적어 준 값');
   });
 
+  // WP-2113(반려 ①): 제목·본문을 바꿀 때 get_issue_detail 에서 읽은 version 을 함께 넘긴다 — 안 그러면 서버 409 로 첫 시도가 밀리고,
+  // 409 가 오면 같은 요청을 되풀이하지 말고 다시 읽은 version 으로 재시도한다.
+  it('WP-2113: 제목·본문 변경에 version 을 함께 넘기는 흐름과 409 재시도를 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('제목·본문(`title`·`body`)');
+    expect(prompt).toContain('`get_issue_detail` 에서 `version` 을 읽어');
+    expect(prompt).toContain('서버가 409');
+    expect(prompt).toContain('새 `version` 이 오니');
+    // 상세 응답에 version 이 실린다(호출처 위치도 함께 안내).
+    expect(prompt).toContain('낙관 토큰 `version`');
+  });
+
   // WP-887: 관계 유형은 「이 이슈는 ___」 서술어로 읽고, 차단은 link_issues 로 건다.
   it('WP-887: 관계 서술어 규칙·relationTypes 출처·차단은 link_issues·지우기 id 출처를 안내한다', () => {
     const prompt = loaded['issue-agent'].prompt;
