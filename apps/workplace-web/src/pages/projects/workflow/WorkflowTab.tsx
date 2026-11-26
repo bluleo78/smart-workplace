@@ -473,7 +473,9 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
     // 헤더 배지와 같은 판정 — 충돌 중에는 개요 목록의 「질문 경로 추가」도 끈다
     readOnly: busy || isLoggingOut || conflict,
   }
-  const hasErrors = problems.some((problem) => problem.severity === 'ERROR')
+  // 배지에 보이는 진단으로 판정한다 — 검사 중에는 problems 가 비어도 배지는 지난 결과의 ERROR 를 보이므로,
+  // 그 동안도 게시를 오래가는 막힘으로 쳐 오류 배지 옆에 변경 없음 사유가 함께 뜨지 않게 한다(검사가 끝나면 새 결과로 다시 판정)
+  const hasErrors = badgeProblems.some((problem) => problem.severity === 'ERROR')
   // 검증 요청에 실패하면 진단 목록이 비어 있어도 검증이 끝날 때까지 게시를 막는다.
   // 게시 안 한 변경이 0 이면 같은 원문으로 게시본 버전만 하나 더 쌓인다(WP-2043). 서버는 같은 내용 재게시를 허용하므로 화면이 막는다.
   // - 게시본이 있고 변경이 0 이면 aria-disabled + 툴팁 사유로 막는다. 첫 게시(게시본 없음)는 비교할 게시본이 없어 0 이어도 막지 않는다.
@@ -489,9 +491,12 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       : checkingChanges ? 'checking'
         : unknownChanges && published.isError ? 'failed'
           : null
-  // noChanges 를 뺀 꺼짐 사유 — 이쪽만 진짜 disabled 로 막는다(noChanges 는 aria-disabled + 툴팁)
-  const otherPublishBlocked = !canManage || isLoggingOut || conflict || busy || validation.pending || validation.failed || hasErrors || checkingChanges
-  // 다른 사유로 이미 막혔으면 변경 없음 사유(설명·툴팁)는 달지 않는다 — 실제 막은 사유와 어긋나지 않게
+  // noChanges 를 뺀 오래가는 꺼짐 사유 — 이쪽만 진짜 disabled 로 막는다(noChanges 는 aria-disabled + 툴팁)
+  const otherPublishBlocked = !canManage || isLoggingOut || conflict || validation.failed || hasErrors
+  // 잠깐의 막힘(쓰기 진행 중·검사 중·변경 확인 중) — disabled 에만 더하고 사유 숨김 판정에는 넣지 않는다.
+  // 넣으면 변경 없음 상태에서 사용 스위치를 켜고 끄는(busy) 동안 사유 툴팁·감싸개의 역할·Tab 정지가 잠깐 사라졌다 돌아온다.
+  const transientPublishBlocked = busy || validation.pending || checkingChanges
+  // 오래가는 다른 사유로 이미 막혔으면 변경 없음 사유(설명·툴팁)는 달지 않는다 — 실제 막은 사유와 어긋나지 않게
   const showNoChangesReason = noChanges && !otherPublishBlocked
 
   // YAML 편집기와 그래프 편집기가 같은 초안 갱신 규칙을 쓴다 — 기준 YAML 과 같아지면 편집을 지운다.
@@ -537,7 +542,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       <Button
         size="sm"
         variant={noChanges ? 'outline' : 'default'}
-        disabled={otherPublishBlocked || noChanges}
+        disabled={otherPublishBlocked || transientPublishBlocked || noChanges}
         ref={publishRef}
         onClick={() => {
           setEnableOnPublish(true)
