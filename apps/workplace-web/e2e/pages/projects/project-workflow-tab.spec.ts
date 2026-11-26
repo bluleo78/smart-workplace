@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { parse } from 'yaml'
 
+import type { WorkflowDetail, WorkflowSummary, WorkflowVersionDetail, WorkflowVersionSummary } from '../../../src/lib/workflows'
 import { createProject } from '../../factories/project.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 
@@ -427,4 +428,47 @@ test('workflowGraph_panCanvas_doesNotOpenOverview', { tag: '@input' }, async ({ 
   // (빈 캔버스 클릭 → 개요 배선 자체는 vitest graphEditor_paneClick_opensOverview 가 덮는다)
   await page.mouse.click(startX - 90, startY - 40)
   await expect(overview).toBeVisible()
+})
+
+/** 1440px 에서 변경이 없을 때 머리가 한 줄에 들어가는지 — 줄바꿈으로 게시 단추가 탭 아래로 밀리면 실패한다(WP-2133). */
+test('workflowTab_noChanges_headerFitsOneLineAt1440', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  const yaml = 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task'
+  await mockWorkflow(page, yaml)
+  // 게시본이 있고 초안 원문 = 게시본 원문이라 변경 0 이 되도록 버전 응답을 덧씌운다(나중에 등록한 라우트가 우선).
+  await page.route('**/api/v1/projects/7/workflows', (route) => route.fulfill({
+    json: [{ id: 42, name: '작업 정리', enabled: true, activeVersionNo: 2, draftChanged: false }] satisfies WorkflowSummary[],
+  }))
+  await page.route('**/api/v1/workflows/42', (route) => route.fulfill({
+    json: {
+      id: 42, projectId: 7, name: '작업 정리', enabled: true,
+      activeVersion: { no: 2, createdAt: '2026-11-22T10:00:00Z', createdBy: null },
+      draftYaml: yaml, draftUpdatedAt: '2026-11-22T10:00:00Z', draftProblems: [],
+    } satisfies WorkflowDetail,
+  }))
+  await page.route('**/api/v1/workflows/42/versions', (route) => route.fulfill({
+    json: [{ versionNo: 2, createdAt: '2026-11-22T10:00:00Z', createdBy: null, activeRuns: 0 }] satisfies WorkflowVersionSummary[],
+  }))
+  await page.route('**/api/v1/workflows/42/versions/2', (route) => route.fulfill({
+    json: {
+      versionNo: 2, sourceYaml: yaml,
+      model: { schema: '', roles: [], shared: [], nodes: [], start: [], layout: [] },
+    } satisfies WorkflowVersionDetail,
+  }))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/projects/WP/workflow')
+
+  // 변경이 없어 막히면 공용 DisabledReasonTooltip 감싸개가 「게시 — 사유」 이름의 막힌 단추로 노출된다
+  const publish = page.getByRole('button', { name: '게시 — 바꾼 내용이 없어 게시할 것이 없습니다.', exact: true })
+  // 게시본 원문을 받아 변경 0 이 확정되면 게시가 비활성으로 남는다.
+  await expect(publish).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByRole('button', { name: '되돌리기' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '초안 저장' })).toHaveCount(0)
+
+  const tabsBox = await page.getByRole('tablist', { name: '워크플로우 보기' }).boundingBox()
+  const publishBox = await publish.boundingBox()
+  // 게시 단추의 세로 중심이 보기 탭 높이의 절반 안이면 같은 줄이다.
+  expect(Math.abs(publishBox!.y + publishBox!.height / 2 - (tabsBox!.y + tabsBox!.height / 2))).toBeLessThan(tabsBox!.height / 2)
+  // 사용 스위치도 같은 줄(세로 중심이 탭 줄 안)이어야 한다.
+  const switchBox = await page.getByRole('switch', { name: '워크플로우 사용' }).boundingBox()
+  expect(Math.abs(switchBox!.y + switchBox!.height / 2 - (tabsBox!.y + tabsBox!.height / 2))).toBeLessThan(tabsBox!.height / 2)
 })

@@ -1,18 +1,22 @@
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
 import { Page } from '@/components/layout/Page'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import { DisabledReasonTooltip } from '@/components/ui/disabled-reason-tooltip'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/hooks/useAuth'
+import { DISABLED_REASON_WRAPPER_ATTR } from '@/hooks/useDialogFocusRestore'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useRestoreFocusAfterAction } from '@/hooks/useRestoreFocusAfterAction'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { apiErrorResponse, apiErrorStatus, extractApiError, extractApiErrorCode, isConflictError } from '@/lib/api-error'
 import type { WorkflowDraftSession } from '@/lib/workflowDraftSessions'
@@ -341,10 +345,6 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
     () => canManage && publishedYaml !== undefined ? countWorkflowYamlChanges(publishedYaml, yaml) : null,
     [canManage, publishedYaml, yaml],
   )
-  let changeCountLabel = '게시 안 한 변경 수 확인 중'
-  if (unpostedChanges !== null) changeCountLabel = '게시 안 한 변경 ' + unpostedChanges
-  else if (published.isError) changeCountLabel = '게시 안 한 변경 수를 불러오지 못했습니다.'
-
   // 응답으로 받은 초안을 먼저 반영하고 목록의 배지는 백그라운드에서 맞춘다.
   async function acceptDraft(updated: Pick<WorkflowDetail, 'draftYaml' | 'draftUpdatedAt' | 'draftProblems'>, generation: number) {
     await queryClient.cancelQueries({ queryKey: workflowKeys.detail(id), exact: true })
@@ -476,13 +476,23 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
   const hasErrors = problems.some((problem) => problem.severity === 'ERROR')
   // 검증 요청에 실패하면 진단 목록이 비어 있어도 검증이 끝날 때까지 게시를 막는다.
   // 게시 안 한 변경이 0 이면 같은 원문으로 게시본 버전만 하나 더 쌓인다(WP-2043). 서버는 같은 내용 재게시를 허용하므로 화면이 막는다.
-  // - 게시본이 있고 변경이 0 이면 사유 글자와 함께 막는다. 첫 게시(게시본 없음)는 비교할 게시본이 없어 0 이어도 막지 않는다.
-  // - 게시본 원문을 불러오는 중(null)에는 변경 수를 모르므로 사유 글자 없이 잠시 막는다(상태 라벨이 확인 중을 알린다).
+  // - 게시본이 있고 변경이 0 이면 aria-disabled + 툴팁 사유로 막는다. 첫 게시(게시본 없음)는 비교할 게시본이 없어 0 이어도 막지 않는다.
+  // - 게시본 원문을 불러오는 중(null)에는 변경 수를 모르므로 사유 글자 없이 잠시 막는다(변경 확인 중 글자가 알린다).
   // - 불러오기에 실패하면(isError) 개수를 영영 알 수 없으므로 막지 않는다.
   const noChanges = activeVersionNo !== null && unpostedChanges === 0
-  const checkingChanges = activeVersionNo !== null && unpostedChanges === null && !published.isError
-  const noChangesReasonId = useId()
-  const canPublish = canManage && !isLoggingOut && !conflict && !busy && !validation.pending && !validation.failed && !hasErrors && !noChanges && !checkingChanges
+  // 게시본은 있는데 변경 수를 아직 모름 — 불러오는 중이면 확인 중, 실패면 실패
+  const unknownChanges = activeVersionNo !== null && unpostedChanges === null
+  const checkingChanges = unknownChanges && !published.isError
+  // 변경 수 표시는 하나만 — 개수를 알면 배지(다시 불러오다 실패해도 지난 개수가 유효), 모르면 확인 중/실패
+  const changeStatus: 'badge' | 'checking' | 'failed' | null =
+    unpostedChanges !== null && unpostedChanges > 0 ? 'badge'
+      : checkingChanges ? 'checking'
+        : unknownChanges && published.isError ? 'failed'
+          : null
+  // noChanges 를 뺀 꺼짐 사유 — 이쪽만 진짜 disabled 로 막는다(noChanges 는 aria-disabled + 툴팁)
+  const otherPublishBlocked = !canManage || isLoggingOut || conflict || busy || validation.pending || validation.failed || hasErrors || checkingChanges
+  // 다른 사유로 이미 막혔으면 변경 없음 사유(설명·툴팁)는 달지 않는다 — 실제 막은 사유와 어긋나지 않게
+  const showNoChangesReason = noChanges && !otherPublishBlocked
 
   // YAML 편집기와 그래프 편집기가 같은 초안 갱신 규칙을 쓴다 — 기준 YAML 과 같아지면 편집을 지운다.
   function editDraft(updated: string) {
@@ -500,6 +510,43 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
     setView('yaml')
   }
 
+  // 게시 단추. 변경이 없는 사유는 공용 DisabledReasonTooltip 으로 알린다(WP-2133) — 막힌 단추의 사유 툴팁·접근 이름·초점 이동을
+  // 이미 맞춰 둔 부품이라 손으로 aria-disabled·sr-only 설명·클릭 가드를 다시 만들지 않는다. 변경이 없으면 채운 primary 대신 outline 으로 그린다.
+  // 되돌리기·초안 저장·충돌 배너의 「최신 초안 불러오기」는 누르면 사라져 포커스가 body 로 떨어진다 — 공용 훅이 그 단추를 키보드로 눌렀을 때만
+  // 편집·쓰기가 끝나고 잠깐의 막힘(busy·검사 중·변경 확인 중)이 풀린 뒤 옮긴다(막힘 중엔 게시가 disabled 라 스위치로 잘못 가지 않게).
+  // 대상: 게시가 변경 없음 사유로만 막혔으면 감싸개, 열려 있으면 게시 단추, 오래 막혔으면(ERROR·권한 등, focus() 가 무시된다) 사용 스위치 → 선택된 보기 탭.
+  const publishRef = useRef<HTMLButtonElement | null>(null)
+  const switchRef = useRef<HTMLButtonElement | null>(null)
+  const tabsListRef = useRef<HTMLDivElement | null>(null)
+  const draftActionFocus = useRestoreFocusAfterAction({
+    active: edit !== null || write.isPending,
+    settling: busy || validation.pending || checkingChanges,
+    getTarget: () => {
+      const button = publishRef.current
+      const toggle = switchRef.current
+      if (showNoChangesReason) return button?.closest<HTMLElement>(`[${DISABLED_REASON_WRAPPER_ATTR}]`)
+      if (button && !button.disabled) return button
+      if (toggle && !toggle.disabled) return toggle
+      return tabsListRef.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+    },
+  })
+  // 사라지는 단추의 쓰기 — 실패하면 편집·배너가 남으므로 복원 표지를 거둔다
+  const writeFromDraftAction = (action: WorkflowAction) => write.mutate(action, { onError: draftActionFocus.clear })
+  const publishControl = (
+    <DisabledReasonTooltip reason={showNoChangesReason ? NO_CHANGES_REASON : null} label="게시">
+      <Button
+        size="sm"
+        variant={noChanges ? 'outline' : 'default'}
+        disabled={otherPublishBlocked || noChanges}
+        ref={publishRef}
+        onClick={() => {
+          setEnableOnPublish(true)
+          setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected })
+        }}
+      >게시</Button>
+    </DisabledReasonTooltip>
+  )
+
   // 사용 스위치(WP-2119) — 시안대로 머리 오른쪽 묶음의 게시 단추 옆에 둔다(권한이 없으면 같은 자리에 읽기 전용 배지).
   // 끄기 확인의 실행 수는 수를 아직 모를 때(버전 목록을 받은 적 없음)와 버전 목록 불러오기가 실패했을 때 null —
   // 창을 연 채 다시 불러오는 중에는 지난 수를 그대로 둬 「끄기」가 잠기지 않게 하고, 다시 불러오기가 실패하면
@@ -514,6 +561,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       runsLoadError={versions.isError && !versions.isFetching}
       onRetryRuns={() => void versions.refetch()}
       busy={busy}
+      switchRef={switchRef}
       onChange={(next) => toggleEnabled.mutate(next)}
     />
   )
@@ -526,7 +574,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
         {picker}
         <span className={STATUS_PILL}>{activeVersionNo !== null ? `게시 버전 ${activeVersionNo}` : '게시 전'}</span>
         {canManage && draftChanged && <span className={STATUS_PILL}>초안 있음</span>}
-        <TabsList aria-label="워크플로우 보기">
+        <TabsList ref={tabsListRef} aria-label="워크플로우 보기">
           <TabsTrigger value="graph">그래프</TabsTrigger>
           <TabsTrigger value="yaml">YAML</TabsTrigger>
           <TabsTrigger value="runs">{running === null ? '실행' : `실행 ${running}`}</TabsTrigger>
@@ -548,19 +596,24 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
               // YAML 이 파싱되지 않으면 서랍이 없으니 예전 팝오버(「YAML 오류 확인」)를 그대로 쓴다
               onOpen={view === 'graph' && graphParsable ? () => setDrawer({ kind: 'overview', tab: 'problems' }) : undefined}
             />
-            <span className="text-xs text-muted-foreground" role="status">
-              {changeCountLabel}
+            {/* 변경 수 — 바뀐 게 있을 때만 경고 톤 알약으로 보이고, 확인 중·실패는 짧은 글자로 같은 자리에 둔다(WP-2133).
+                role="status" 감싸개는 늘 마운트해 둔다 — 내용과 함께 마운트되는 라이브 영역은 0→N 변경을 스크린리더가 놓칠 수 있다.
+                접근성 트리에서 빠지지 않게 contents 가 아닌 인라인 요소로 두고, 세 상태(배지·확인 중·실패)는 서로 겹치지 않는다. 변경 0 이면 보이는 것은 없고 스크린리더용 「변경 없음」만 둔다. */}
+            <span role="status" data-testid="workflow-change-status" className="inline-flex items-center gap-2">
+              {changeStatus === 'badge' && <Badge variant="warning">변경 {unpostedChanges}</Badge>}
+              {changeStatus === 'checking' && <span className="text-xs text-muted-foreground">변경 확인 중</span>}
+              {changeStatus === 'failed' && <span className="text-xs text-muted-foreground">변경 수 불러오기 실패</span>}
+              {/* 변경 0 — 보이는 배지는 없지만 라이브 영역이 「0 이 됐다」를 읽어 주게 스크린리더용 글자만 둔다 */}
+              {noChanges && <span className="sr-only">변경 없음</span>}
             </span>
-            <Button size="sm" variant="ghost" disabled={!edit || busy || conflict || isLoggingOut} onClick={() => updateDraft(id, null)}>되돌리기</Button>
-            <Button size="sm" variant="outline" disabled={!edit || busy || conflict || isLoggingOut} onClick={() => write.mutate({ type: 'save' })}>초안 저장</Button>
-            {/* 꺼진 단추는 pointer-events-none 이라 title 툴팁이 뜨지 않는다 — 이유를 단추 옆에 보이는 글자로 둔다. */}
-            {noChanges && <span id={noChangesReasonId} className="text-xs text-muted-foreground">{NO_CHANGES_REASON}</span>}
-            <Button
-              size="sm"
-              disabled={!canPublish}
-              aria-describedby={noChanges ? noChangesReasonId : undefined}
-              onClick={() => { setEnableOnPublish(true); setPublishConfirmation({ yaml, edit, expectedDraftUpdatedAt: expected }) }}
-            >게시</Button>
+            {/* 되돌리기·초안 저장은 로컬 편집이 있을 때만 쓸 수 있으므로 그때만 그린다 — 꺼진 단추가 글자처럼 남지 않게(WP-2133) */}
+            {edit && (
+              <>
+                <Button size="sm" variant="ghost" disabled={busy || conflict || isLoggingOut} {...draftActionFocus.triggerProps(() => updateDraft(id, null))}>되돌리기</Button>
+                <Button size="sm" variant="outline" disabled={busy || conflict || isLoggingOut} {...draftActionFocus.triggerProps(() => writeFromDraftAction({ type: 'save' }))}>초안 저장</Button>
+              </>
+            )}
+            {publishControl}
             {enableSwitch}
           </div>
         )}
@@ -572,7 +625,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
           {conflict && (
             <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm">
               <p>다른 곳에서 초안이 바뀌었습니다. 최신 초안을 불러오면 현재 편집 내용이 바뀝니다.</p>
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => write.mutate({ type: 'reload' })}>최신 초안 불러오기</Button>
+              <Button variant="outline" size="sm" disabled={busy} {...draftActionFocus.triggerProps(() => writeFromDraftAction({ type: 'reload' }))}>최신 초안 불러오기</Button>
             </div>
           )}
           {workError && <p role="alert" className="text-sm text-destructive">{workError}</p>}
