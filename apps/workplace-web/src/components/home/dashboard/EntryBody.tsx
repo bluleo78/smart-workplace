@@ -41,13 +41,14 @@ export function EntryBody({
   entry: ResolvedEntry
   frameHeadingLevel?: WidgetHeadingLevel
 }) {
+  // 시스템 본문 여덟 개는 registry 에 정적 import 라 지연 로딩이 없어 Suspense 가 필요 없다 — 감싸면
+  // 공짜 폴백(h-20) 자리만 더해 둔다(WP-2076 리뷰 후속 ④). 카탈로그 본문만 lazy 라 그때만 멈춘다.
+  // ⚠️ 훗날 시스템 본문에 lazy·suspend 요소를 넣으면 이 분기에도 Suspense 가 필요하다 — 그때 없애면
+  // 폴백이 라우트 수준(페이지 전체)으로 새므로 함께 되돌려야 한다.
+  if (entry.kind === 'system') return <entry.def.Component count={entry.cfg.count} />
   return (
     <Suspense fallback={<Skeleton className="h-20 w-full" />}>
-      {entry.kind === 'system' ? (
-        <entry.def.Component count={entry.cfg.count} />
-      ) : (
-        <CatalogWidgetBody type={entry.cfg.type} params={entry.cfg.params} headingLevel={frameHeadingLevel} />
-      )}
+      <CatalogWidgetBody type={entry.cfg.type} params={entry.cfg.params} headingLevel={frameHeadingLevel} />
     </Suspense>
   )
 }

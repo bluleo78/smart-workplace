@@ -450,10 +450,11 @@ test.each([undefined, '내 일감'])('제목을 숨긴 카탈로그 위젯은 �
   expect(within(c).getByTestId('home-widget')).toContainElement(h)
 })
 
-// ── WP-2076 — 「지금 신경 쓸 일」 영역 CLS: 로딩 스켈레톤 게이팅 + 모든 분기 공통 min-h 래퍼 ──────────
+// ── WP-2076 · 리뷰 후속 — 「지금 신경 쓸 일」 영역 CLS: 로딩 스켈레톤 게이팅 + 분기별 min-h ──────────
 // 데이터 도착 전후로 영역 높이가 바뀌면 아래 카드가 밀리며 CLS 가 난다. 로딩 중에는 실제와 같은 자리 수의
-// 스켈레톤을, 로딩·빈 상태·데이터·에러 어느 분기에서도 같은 최소 높이(min-h) 래퍼를 그린다.
-// jsdom 은 레이아웃을 재지 못하므로 높이 수치(CLS)는 단언하지 않고 스켈레톤 게이팅·래퍼 DOM 구조만 고정한다.
+// 스켈레톤을, 240px 최소 높이는 로딩 스켈레톤·데이터(부분 오류 배너) 분기에만 둔다 — 로딩이 끝난 빈 상태·
+// 오류 분기는 자연 높이를 써 「다 확인했습니다」 아래 빈 자리를 없앤다(리뷰 후속 ③).
+// jsdom 은 레이아웃을 재지 못하므로 높이 수치(CLS)는 단언하지 않고 스켈레톤 게이팅·min-h DOM 구조만 고정한다.
 
 /** 마감(due) 소스 응답을 늦춰 행을 아직 만들 수 없는 pending 상태를 만든다(WP-2076 — 스켈레톤 게이팅 확인용). */
 const slowDues = () =>
@@ -479,8 +480,9 @@ test('합성 — 응답이 도착하면 스켈레톤이 실제 콘텐츠로 바�
   expect(screen.queryByTestId('dashboard-attention-empty')).not.toBeInTheDocument()
 })
 
-// 어느 분기에서도 최소 높이 래퍼가 있어야 아래 카드가 밀리지 않는다(WP-2076) — 로딩/빈 상태/데이터/에러 4종.
-// 분기별 핸들러를 한 맵으로 둔다 — 중첩 삼항 대신 분기가 늘어나도 한 자리에서 고친다.
+// 240px 최소 높이는 로딩 스켈레톤·데이터 분기에만 있다 — 로딩이 끝난 빈 상태·오류 분기는 자연 높이를 써
+// 「다 확인했습니다」 아래 ~190px 의 빈 자리가 남지 않는다(WP-2076 리뷰 후속 ③). 분기별 핸들러를 한 맵으로
+// 둔다 — 중첩 삼항 대신 분기가 늘어나도 한 자리에서 고친다.
 type AttentionBranch = '로딩' | '빈 상태' | '데이터' | '에러'
 const attentionBranchHandlers: Record<AttentionBranch, RequestHandler[]> = {
   로딩: [slowDues()],
@@ -489,14 +491,15 @@ const attentionBranchHandlers: Record<AttentionBranch, RequestHandler[]> = {
   에러: [http.get('/api/v1/me/issues', () => HttpResponse.json({ message: 'boom' }, { status: 500 }))],
 }
 test.each<AttentionBranch>(['로딩', '빈 상태', '데이터', '에러'])(
-  '합성 — %s 분기에서도 attention-body 래퍼가 배너까지 덮는 최소 높이를 갖는다 (WP-2076 · CLS)',
+  '합성 — %s 분기의 240px 최소 높이 유무가 리뷰 후속대로다 (WP-2076 · CLS)',
   async (branch) => {
     const handlers = attentionBranchHandlers[branch]
     await renderDashboard(layout(['synthesis']), { widgets: false, handlers })
     const shown: Record<string, string> = { 로딩: 'dashboard-attention-skeleton', '빈 상태': 'dashboard-attention-empty', 데이터: 'dashboard-attention-focus', 에러: 'dashboard-attention-error' }
     expect(await screen.findByTestId(shown[branch])).toBeInTheDocument()
     const wrapper = screen.getByTestId('dashboard-attention-body')
-    expect(wrapper.className).toContain('min-h-[240px]')
+    const floored = [wrapper, ...wrapper.querySelectorAll('div')].some((el) => el.className.includes('min-h-[240px]'))
+    expect(floored).toBe(branch === '로딩' || branch === '데이터')
   },
 )
 
@@ -509,5 +512,6 @@ test('attention 스켈레톤은 로딩을 aria 로 알리고 자리 수는 한 �
   expect(skeleton).toHaveAttribute('role', 'status')
   // 포커스 자리 1 + 행 자리 4 = ATTENTION_MAX_ROWS(5) — 상수가 바뀌면 이 자리 수도 함께 바뀐다.
   expect(skeleton.querySelectorAll('[data-testid="dashboard-attention-skeleton-row"]')).toHaveLength(4)
-  expect(screen.getByTestId('dashboard-attention-body').className).toContain('min-h-[240px]')
+  // 스켈레톤 분기 자체가 240px 하한을 가진다(래퍼는 분기별로 나눴다 — 리뷰 후속 ③).
+  expect(skeleton.className).toContain('min-h-[240px]')
 })

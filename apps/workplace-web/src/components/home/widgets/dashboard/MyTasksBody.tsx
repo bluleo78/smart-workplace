@@ -25,12 +25,15 @@ const BUCKET_LABEL: Record<MyTaskBucket, string> = {
 }
 
 // WP-2076 · 리뷰 후속: 항목 수별 본문 최소 높이 — 격리 스택(work-loop) 실측 자연 높이(1440·390 동일).
-// 로딩 스켈레톤·데이터·오류가 이 표를 공유해야 데이터 도착 전후 높이가 같다(→ CLS).
+// 이 표는 **로딩 스켈레톤에만** 쓴다(로딩→데이터 전환의 자리 맞춤). 데이터·오류·미리 보기 분기는 자연
+// 높이를 그대로 두어, count 10 에 항목이 적거나 빈 상태일 때 빈 자리가 남지 않는다(리뷰 후속 ①②).
 // 3 은 3행 실측 200 이지만 빈 상태 실측 220 보다 작아 로딩(200)→빈 상태(220) 전환에서 20px 가 밀린다 —
 // 표는 max(해당 count 실측, 빈 상태 220) 을 쓴다(5·10 은 실측 그대로 260·470).
+// 남는 전환(설계상 감수): 로딩 하한을 데이터에 남기지 않으므로, 실제로 빈 상태가 되면 5 260→220(40px)·
+// 10 470→220(250px) 만큼 아래로 줄어든다 — PR 본문 「남은 위험」에 그대로 적는다.
 // 5 가 기본값이다(위젯 설정은 3·5·10 — backend 화이트리스트와 같은 값).
 const BODY_MIN_HEIGHT_PX: Record<number, number> = { 3: 220, 5: 260, 10: 470 }
-/** 본문 최소 높이(px) — 표에 없는 항목 수는 기본값 5 로 본다(설정 화이트리스트 밖 값). */
+/** 로딩 스켈레톤 최소 높이(px) — 표에 없는 항목 수는 기본값 5 로 본다(설정 화이트리스트 밖 값). */
 function bodyMinHeightPx(count: number): number {
   return BODY_MIN_HEIGHT_PX[count] ?? BODY_MIN_HEIGHT_PX[5]
 }
@@ -52,13 +55,16 @@ export default function MyTasksBody({
   const loading = !previewData && (assigned.isLoading || watched.isLoading)
   // 둘 중 하나라도 실패하면 분류가 거짓이 되므로 전체를 에러 처리(#205).
   const isError = !previewData && (showsLoadError(assigned) || showsLoadError(watched))
-  // 본문 최소 높이 — 로딩·오류·데이터 세 분기가 같은 값을 쓴다(early return 전에 계산).
+  // 본문 최소 높이 — 아래 `loading` 분기에서만 읽는다(WP-2076 리뷰 후속 ①②). 그 분기는 `!previewData &&`
+  // 로 시작하므로 미리 보기엔 없고, 오류·데이터 분기는 자연 높이를 그대로 둔다. count 표를 데이터 도착 뒤에도
+  // 남기면 count 10 에 항목 1~2개·빈 상태일 때 ~250px 의 빈 자리가 늘 남기 때문이다.
   const minHeight = bodyMinHeightPx(limit)
 
   // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  // 최소 높이는 넣지 않는다 — 오류도 로딩이 끝난 뒤의 분기라 자연 높이를 쓴다(빈 자리 방지, 리뷰 후속 ①).
   if (isError)
     return (
-      <div data-testid="dash-mytasks-body" style={{ minHeight }}>
+      <div data-testid="dash-mytasks-body">
         <WidgetError
           onRetry={() => {
             assigned.refetch()
@@ -70,7 +76,7 @@ export default function MyTasksBody({
       </div>
     )
   // I3(a11y): 로딩 영역에 aria-busy + 라벨. role="status" — role 없는 div 의 aria-label 은 AT 가 무시할 수 있어 라이브 리전임을 role 로 밝힌다(WP-2076 리뷰).
-  // flex + minHeight 로 스켈레톤이 데이터 본문과 같은 높이를 채운다(로딩/데이터 높이 동일 → CLS).
+  // flex + minHeight 로 스켈레톤이 실측 자연 높이(항목 수별 표)를 채운다 — 데이터가 표만큼 채워질 때 로딩→데이터 전환이 밀리지 않는다.
   if (loading)
     return (
       <div role="status" aria-busy="true" aria-label="불러오는 중" className="flex" style={{ minHeight }}>
@@ -136,8 +142,9 @@ export default function MyTasksBody({
   }
 
   return (
-    // WP-2076: 로딩 스켈레톤과 같은 minHeight(항목 수별 실측 표) — 도착 전후 본문 높이가 같아야 아래 카드가 밀리지 않는다(CLS).
-    <div data-testid="dash-mytasks" style={{ minHeight }}>
+    // WP-2076 리뷰 후속: 최소 높이를 넣지 않는다 — 데이터 도착 뒤에는 실제 콘텐츠 높이가 곧 높이여야
+    // count 10 처럼 항목이 적을 때 빈 자리가 남지 않는다(로딩 자리는 위 스켈레톤 분기가 잡는다).
+    <div data-testid="dash-mytasks">
       {today.data && (
         // 누르면 내 작업 개요 탭 — 어제 한 일·오늘 할 일을 자세히 본다.
         <Link

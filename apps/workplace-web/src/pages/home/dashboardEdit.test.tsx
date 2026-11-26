@@ -271,6 +271,8 @@ test('위젯 추가 모달 — 「요약」 미리보기에 멘션 수와 「지
   expect(await within(preview).findByRole('button', { name: '멘션 1건' })).toBeInTheDocument()
   expect(within(preview).getByRole('link', { name: /API 응답 스키마 검토/ })).toHaveTextContent('멘션')
   expect(within(preview).queryByRole('link', { name: /대시보드 위젯 프리뷰 추가/ })).not.toBeInTheDocument()
+  // WP-2076 리뷰 후속 ③ — 미리 보기에는 240px 최소 높이를 넣지 않는다(미리 보기 자리에 빈 자리가 남지 않게).
+  expect(within(preview).getByTestId('dashboard-attention-body').className).not.toContain('min-h-[240px]')
 })
 
 test('모달로 추가한 위젯도 되돌리기로 취소된다(일관성)', async () => {
