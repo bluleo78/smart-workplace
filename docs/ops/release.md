@@ -13,6 +13,7 @@ Gen:iA Works 운영(prod, kubecontext `iacloud-prod-public`, namespace `smart-wo
 - 이미지: `docker.io/iacloudops/genia-works-<앱>` (private). 릴리스마다 바뀐 앱만 새로 빌드하고 나머지는 이전 이미지를 승계한다. 운영은 태그가 아니라 **digest** 로 참조한다.
 - 릴리스 매니페스트(앱별 repository·digest·원 빌드 버전): GitLab 패키지 `release-manifest/<버전>/release-manifest.json`.
 - 노트: `releases/<버전>.md` — web 빌드에 들어가 앱 사용자 메뉴 「새 소식」으로 보인다(반영과 함께 나가고 롤백하면 함께 되돌아간다).
+- 이 문서는 Works 자신의 반영이다. Works 위에서 개발하는 **다른 앱**(예: factory-board)을 배포 담당 AI 로 운영에 내는 연결은 [앱 배포 자동화 연결](deploy-automation.md)(WP-2145).
 
 ## ① 준비
 
