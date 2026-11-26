@@ -122,6 +122,24 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
     }
   })
 
+  // WP-2125 리뷰 후속: 칩 적용은 startTransition 안이라 보기의 결과(/issues)가 늦으면 전환이 보류되어 지우기 신호가 커밋되지 않는다 —
+  // 그 사이 300ms debounce 가 돌아도 q 가 보기 쿼리를 덮지 않게 클릭 순간 대기 중 쓰기를 동기로 접는다.
+  test('보기의 결과 응답이 debounce 보다 늦어도 검색어를 치자마자 칩을 누르면 q 가 되살아나지 않는다', async () => {
+    const { user, location } = await open()
+    const release = holdWhile((u) => u.searchParams.get('priority') === 'HIGH')
+    await user.click(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('결제')
+    fireEvent.click(screen.getByTestId('view-chip-1'))
+    // 응답이 막힌 채 debounce(300ms)보다 오래 기다린다 — 전환이 보류된 동안에도 q 가 URL 에 쓰이면 안 된다.
+    await new Promise((r) => setTimeout(r, 600))
+    release()
+    expect(await screen.findByText('높음 이슈')).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 400))
+    const search = new URL(location(), 'http://x').searchParams
+    expect(search.has('q')).toBe(false)
+    expect(search.get('priority')).toBe('HIGH')
+  })
+
   // WP-2125: 「필터 지우기」 이동의 state 가 이전 state 를 복사하면 고정 보기 링크의 savedViewId 가 남아 그 보기가 다시 골라진다.
   describe('고정 보기 링크로 들어온 뒤', () => {
     // 링크 보기(#3 보드)로 열려 칩이 켜진 상태에서 시작한다.

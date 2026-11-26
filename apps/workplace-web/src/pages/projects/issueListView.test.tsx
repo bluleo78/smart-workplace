@@ -5,8 +5,11 @@
 // 라우트 → 목록 API → 행 배선(@wiring)·칩/레이블 폭(@layout)·우선순위 「!」 가상 요소(@layout)·history 한 번만 쌓기(@platform)는 E2E 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
+import type { ReactNode } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
+import { settleHistory } from '@/test/history'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
 import { openQuickFacet } from '@/test/kits/projects/quickFilter'
@@ -20,13 +23,33 @@ import { countsJudgments, headerCount } from './components/issueListHeaderCount'
 
 const KEY = 'WP'
 
+/**
+ * 라우터 이동 버튼 — 실제 라우터로 새 history 항목(PUSH)을 쌓는다. push-plain 은 state 없이, push-copy 는 지금 location.state 를 그대로 복사해
+ * (이슈 드로어 열기·AI 딥링크가 하는 이동과 같다) 같은 주소로 이동한다.
+ */
+function NavButtons() {
+  const navigate = useNavigate()
+  const loc = useLocation()
+  const to = `${loc.pathname}${loc.search}`
+  return (
+    <>
+      <button type="button" data-testid="nav-push-plain" onClick={() => navigate(to)}>
+        plain
+      </button>
+      <button type="button" data-testid="nav-push-copy" onClick={() => navigate(to, { state: loc.state })}>
+        copy
+      </button>
+    </>
+  )
+}
+
 /** 목록을 연다 — search 는 검색 응답(기본 issues 그대로), extra 는 테스트별 핸들러(앞에 두어 우선). */
 function openList(
   issues: IssueResponse[],
-  { path = `/projects/${KEY}`, extra = [], search }: { path?: string; extra?: RequestHandler[]; search?: (url: URL) => IssueResponse[] } = {},
+  { path = `/projects/${KEY}`, extra = [], search, screenExtra }: { path?: string; extra?: RequestHandler[]; search?: (url: URL) => IssueResponse[]; screenExtra?: ReactNode } = {},
 ) {
   const api = projectScreen(KEY, { search: search ?? (() => issues) })
-  const view = renderProjectScreen(path, { handlers: [...extra, ...api.handlers] })
+  const view = renderProjectScreen(path, { handlers: [...extra, ...api.handlers], extra: screenExtra })
   return { ...view, api, lastSearch: () => api.searches.at(-1) }
 }
 
@@ -188,6 +211,49 @@ describe('빈 상태 (#337)', () => {
     await user.paste('버그')
     await waitFor(() => expect(location()).toMatch(/q=/))
     expect(decodeURIComponent(location())).toContain('q=버그')
+  })
+
+  // WP-2125 리뷰 후속: 뒤로 가기(POP)로 옛 지우기 신호가 남은 항목에 돌아가도 그 신호를 지우기로 보지 않아 방금 친 검색어가 버려지지 않는다.
+  test('옛 지우기 신호가 남은 항목으로 뒤로 가도 그 사이 친 검색어는 300ms 뒤 URL 에 쓰인다', async () => {
+    const { user, location } = openList([], {
+      path: `/projects/${KEY}/issues?status=IN_PROGRESS`,
+      search: (url) => (url.searchParams.has('status') || url.searchParams.has('q') ? [] : [createIssue({ number: 5, title: '정상 이슈' })]),
+      screenExtra: <NavButtons />,
+    })
+    // 항목 A — 「필터 지우기」(replace)로 지우기 신호가 history.state 에 남는다.
+    await user.click(await screen.findByTestId('empty-reset-filter'))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`))
+    // 항목 B — 같은 주소를 라우터 이동(PUSH)으로 새 항목에 쌓는다(신호 없음).
+    await user.click(screen.getByTestId('nav-push-plain'))
+    await user.click(await screen.findByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('결제')
+    // 검색어를 치자마자 A 로 뒤로 간다 — 옛 신호가 남은 항목이다.
+    window.history.back()
+    await settleHistory()
+    await waitFor(() => expect(decodeURIComponent(location())).toContain('q=결제'))
+    expect(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' })).toHaveValue('결제')
+  })
+
+  // WP-2125 리뷰 후속 2: 지우기 → state 를 복사하는 다른 PUSH → 뒤로(POP) → 검색어 → state 를 복사하는 이동 — 옛 신호가 다시 실려도 새 지우기가 아니다.
+  test('옛 지우기 신호를 복사한 이동이 뒤따라도 그 사이 친 검색어는 버려지지 않는다', async () => {
+    const { user, location } = openList([], {
+      path: `/projects/${KEY}/issues?status=IN_PROGRESS`,
+      search: (url) => (url.searchParams.has('status') || url.searchParams.has('q') ? [] : [createIssue({ number: 5, title: '정상 이슈' })]),
+      screenExtra: <NavButtons />,
+    })
+    await user.click(await screen.findByTestId('empty-reset-filter'))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues`))
+    // 드로어 열기처럼 location.state 를 그대로 복사하는 PUSH, 그리고 뒤로(POP).
+    await user.click(screen.getByTestId('nav-push-copy'))
+    await settleHistory()
+    window.history.back()
+    await settleHistory()
+    await user.click(await screen.findByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('결제')
+    // debounce(300ms) 안에 state 를 복사하는 이동이 다시 일어난다 — 옛 신호값 그대로.
+    await user.click(screen.getByTestId('nav-push-copy'))
+    await waitFor(() => expect(decodeURIComponent(location())).toContain('q=결제'), { timeout: 2000 })
+    expect(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' })).toHaveValue('결제')
   })
 
   // 필터 없는 0건 → 「이슈가 없습니다」 + 「새 이슈 만들기」 → 유형 중립 「새 이슈」 다이얼로그(#641).

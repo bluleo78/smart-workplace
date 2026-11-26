@@ -166,22 +166,28 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // 칩 둘이 켜지거나 「전체」로 튀고, 새 칩에 「수정됨」·뷰 업데이트 버튼이 비쳤다. 같은 이벤트의 전환은 한 번에 커밋된다.
   // 전체 칩 — 모든 파라미터 제거(그룹도 화면 기본값으로). 고른 뷰도 잊는다.
   // 서명(prev)도 함께 비워 둔다 — 남아 있으면 나중에 같은 뷰가 다시 일치해도 「변화 없음」으로 걸러져 고른 뷰가 잡히지 않는다.
-  const applyAll = () =>
+  // 이동 옵션은 transition 밖(클릭 순간)에 만든다 — issueFiltersResetNav() 가 대기 중 검색어 쓰기를 동기로 접는다.
+  // 전환이 보류되면 신호 state 가 커밋되기 전에 debounce 가 먼저 돌아 보기 쿼리를 덮기 때문이다(WP-2125).
+  const applyAll = () => {
+    const nav = issueFiltersResetNav()
     startTransition(() => {
       setSelectedViewId(null)
       setPickedViewId(null)
       setPrevMatchingSignature(null)
       // 지우기 신호 — 대기 중인 검색어 debounce 가 q 를 다시 얹지 않게(WP-2125).
-      setParams(new URLSearchParams(), issueFiltersResetNav())
+      setParams(new URLSearchParams(), nav)
     })
+  }
   // 저장 뷰 적용 — group 이 없는 (사이클 그룹 도입 전) 뷰는 group=none 을 명시해 예전처럼 평면 목록으로 연다(#878).
   // 고른 뷰 id 를 먼저 기억해 둔다 — 같은 조건의 다른 뷰가 활성으로 잡히지 않게(WP-473).
-  const apply = (v: SavedViewResponse) =>
+  const apply = (v: SavedViewResponse) => {
+    const nav = issueFiltersResetNav()
     startTransition(() => {
       setSelectedViewId(v.id)
       setPickedViewId(v.id)
-      setParams(savedViewQueryToParams(v.query), issueFiltersResetNav())
+      setParams(savedViewQueryToParams(v.query), nav)
     })
+  }
 
   // 막 저장한 뷰를 고른 뷰로 — 일치 판정에 맡기면 열만 바꾼 예전 뷰(필터는 같음)가 고른 뷰로 남아 새 뷰가 활성이 되지 않았다.
   // 「마지막으로 고른 뷰가 이긴다」(WP-473)를 생성에도 적용한다. 목록 캐시에는 생성 훅이 먼저 넣어 둔다.

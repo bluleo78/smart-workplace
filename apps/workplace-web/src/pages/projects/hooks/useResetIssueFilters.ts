@@ -12,6 +12,27 @@ export function readIssueFiltersReset(state: unknown): number | undefined {
   return typeof v === 'number' ? v : undefined;
 }
 
+/**
+ * 대기 중 검색어 쓰기를 접는 함수 모음 — 필터 줄(useIssueFilterControls)이 자기 draft 를 접는 함수를 등록한다(WP-2125 리뷰 후속).
+ * 저장 보기 칩(useSavedViewState)은 필터 줄과 다른 컴포넌트라 draft 에 닿을 길이 없고, 칩 적용·「전체」는 startTransition 안에서 주소를 바꾸므로
+ * 보기 데이터 로드로 전환이 보류되는 동안 router state 신호가 아직 커밋되지 않아 대기 중 debounce 가 먼저 돌아 보기 쿼리를 덮을 수 있다.
+ * 그래서 클릭 순간(transition 밖)에 이 통로로 동기 취소한다.
+ */
+const pendingSearchCancelers = new Set<() => void>();
+
+/** 필터 줄이 대기 중 검색어 쓰기를 접는 함수를 등록한다 — 반환값은 등록 해제(언마운트 정리용). */
+export function registerPendingSearchCancel(cancel: () => void): () => void {
+  pendingSearchCancelers.add(cancel);
+  return () => {
+    pendingSearchCancelers.delete(cancel);
+  };
+}
+
+/** 대기 중(300ms debounce)인 이슈 검색어 쓰기를 지금 접는다 — issueFiltersResetNav() 가 부른다(호출부가 따로 부르다 빠뜨리지 않게). */
+function cancelPendingIssueSearchWrite(): void {
+  pendingSearchCancelers.forEach((cancel) => cancel());
+}
+
 /** 지우기 신호용 모듈 단위 값 — 마지막으로 낸 신호값. */
 let resetSeq = 0;
 
@@ -34,8 +55,13 @@ export function withIssueFiltersReset(): object {
   return { [ISSUE_FILTERS_RESET_KEY]: nextResetSeq() };
 }
 
-/** 「필터 지우기」 이동의 navigate 옵션 — replace 이동에 지우기 신호 state 를 싣는다. 호출부가 각자 조립하지 않게 모은 헬퍼. */
+/**
+ * 「필터 지우기」 이동의 navigate 옵션 — replace 이동에 지우기 신호 state 를 싣는다. 호출부가 각자 조립하지 않게 모은 헬퍼.
+ * 부르는 순간 대기 중 검색어 쓰기도 동기로 접는다 — router state 신호는 커밋돼야 닿아, 그 전에 debounce 가 돌면 q 가 되살아난다.
+ * 그래서 클릭 핸들러에서(startTransition 밖에서) 불러야 한다 — 전환 안에서 부르면 취소도 전환과 함께 늦게 커밋된다.
+ */
 export function issueFiltersResetNav(): { replace: true; state: object } {
+  cancelPendingIssueSearchWrite();
   return { replace: true, state: withIssueFiltersReset() };
 }
 
@@ -46,7 +72,9 @@ export function issueFiltersResetNav(): { replace: true; state: object } {
  */
 export function useResetIssueFilters(): () => void {
   const [, setParams] = useSearchParams();
-  return () =>
+  return () => {
+    // 이동 옵션을 먼저 만든다 — issueFiltersResetNav() 가 클릭 순간 대기 중 검색어 쓰기를 동기로 접는다.
+    const nav = issueFiltersResetNav();
     setParams((prev) => {
       const p = new URLSearchParams();
       const view = prev.get('view');
@@ -54,5 +82,6 @@ export function useResetIssueFilters(): () => void {
       if (view) p.set('view', view);
       if (group) p.set('group', group);
       return carryViewOptions(carrySort(p, prev), prev);
-    }, issueFiltersResetNav());
+    }, nav);
+  };
 }
