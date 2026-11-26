@@ -342,4 +342,5 @@ claude plugin validate plugins/genia-works
 
 1. `.claude-plugin/plugin.json` 의 `version` 을 올립니다.
 2. 태그 `genia-works--v<버전>` 을 달고 올립니다.
+   태그는 **사람이 올립니다**(work-loop 등 AI 세션은 태그 push 가 금지). 앱 릴리스 게이트(`deploy/release/verify-tag.mjs`)가 ref 가 가리키는 태그가 마켓플레이스 `source.url`(사람들이 설치하는 주소 — GitLab CI 의 `origin` 이 아니라)에 없으면 「먼저 … 태그를 올리세요」로 멈춥니다.
 3. 목록 파일의 `ref` 를 그 태그로 바꾸고 웹을 배포합니다.

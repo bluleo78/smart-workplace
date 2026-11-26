@@ -210,6 +210,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
   - 개발자 PR 본문의 「절차」 줄을 확인한다(`process-issue.md` 5번 형식, 흉내만 낸 줄이면 반려).
   - 브랜치 전체에 `/code-review medium` 을 실제로 돌리고(다시 부탁받으면 달라진 부분 — process-issue.md 「PR 리뷰·머지」 3번) 그 결과를 적는다.
   - 완료 기준 대조표를 적는다(미충족·확인 불가가 있으면 반려, 통합 PR 은 이슈마다).
+  - PR 이 `apps/workplace-web/public/claude/marketplace.json` 의 ref 나 `plugins/genia-works/.claude-plugin/plugin.json` 의 version 을 바꾸면, 머지 전에 PR 브랜치의 marketplace.json 을 읽어 `source.ref`(새 태그 하나)와 `source.url` 을 정확히 좇는다 — `git ls-remote --tags <source.url> refs/tags/<source.ref>` 가 빈 출력이면 머지하지 않고 그 이슈 챗에 태그 push 를 사람에게 요청한다(와일드카드 목록이 아니라 그 태그 하나를 그 주소에서 묻는다. 태그 push 는 사람 몫, WP-2138).
 - **바로 머지·풀테스트(WP-2003)** — 리뷰를 통과한 PR 은 받는 대로 머지한다(순서 머지 WP-1720·앞지르기 WP-1999 는 없앴다). 충돌은 검토자가 손 머지로 푼다(7절). 리뷰할 것이 없으면 main 을 풀테스트하고 통과한 커밋으로 `green` 을 옮긴다 — 풀테스트를 띄운 뒤 green 을 옮길 때까지는 머지를 멈추고 승인만 한다(3절 「풀테스트」, process-issue.md 「풀테스트·green (검토자)」).
 
 ## 9. 할 일 없을 때 (`SKILL.md` 3번 「할 일 없음」)
