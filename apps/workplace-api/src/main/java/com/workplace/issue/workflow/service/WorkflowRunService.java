@@ -426,6 +426,12 @@ public class WorkflowRunService {
     if (!violations.isEmpty()) {
       throw WorkflowException.fromViolation(violations.getFirst());
     }
+    // 시안 첨부·답 선택지(WP-2147)는 질문 이동의 질문 글에만 붙는다 — 쓰기 전에 거른다(붙일 글이 없는데 조용히 버리지 않게).
+    boolean askMove = OutputRules.isQuestion(model, from, outcome);
+    boolean hasQuestionText = req.comment() != null && PersonNames.hasVisibleChar(req.comment());
+    if (req.hasQuestionExtras() && !(askMove && hasQuestionText)) {
+      throw WorkflowException.questionExtrasWithoutQuestion();
+    }
     MovePlan plan = MoveRules.plan(from, outcome, req, state, before.members());
     Route route = plan.route();
     NodeRunRow leaving = WorkflowRunViews.currentVisit(before);
@@ -447,22 +453,31 @@ public class WorkflowRunService {
     // 이 경우 node_run.comment_id 는 null 이고 질문 글 id 는 _qa 에 questionMessageId 로 남는다.
     // 질문 알림(AI_QUESTION)도 챗 글 이벤트가 낸다. 의견이 비면(공백뿐) 올릴 글이 없어 아무것도 쓰지 않는다. 담당 교체 뒤에 쓰는 순서는 댓글과 같다(질문
     // 알림이 새 담당에게 가게).
-    boolean askMove = OutputRules.isQuestion(model, from, outcome);
     WorkflowRunWriter.WrittenComment comment = null;
     Long questionMessageId = null;
     String questionText = null;
     if (askMove) {
       // 챗과 같은 기준(그려지는 글자)으로 빈 의견을 본다 — 제로폭만 있는 의견을 올리면 챗이 빈 글로 거절해 이동 전체가 실패한다.
-      if (req.comment() != null && PersonNames.hasVisibleChar(req.comment())) {
+      if (hasQuestionText) {
         // 의견의 file:N 자리표시는 댓글처럼 본문 주소로 바꾸지 않고 챗 글 첨부로 붙이며, 그 자리는 파일 이름으로 바꾼다(깨진 링크가 남지 않게).
         // _qa.question 에도 바꾼 본문을 남긴다 — 원문의 file:N 은 저장 뒤 쓸모가 없다.
         IssueBodyImageService.ChatBody chatBody =
             bodyImageService.resolveStagedPlaceholdersForChat(
                 actorId, req.comment(), IssueChatPoster.BODY_MAX);
         questionText = chatBody.body();
+        // 요청의 fileIds(시안, WP-2147)를 자리표시 첨부 뒤에 붙인다 — 같은 파일을 두 번 클레임하지 않게 겹치는 id 는 한 번만. 선택지를 주면
+        // 그대로 칩으로 저장하고, 안 주면(null) 서버가 커밋 뒤 질문 글에서 뽑는다(WP-1569).
+        LinkedHashSet<Long> files = new LinkedHashSet<>(chatBody.fileIds());
+        files.addAll(req.fileIds());
         questionMessageId =
             chatPoster.post(
-                actorId, project.key(), issue.number(), chatBody.body(), true, chatBody.fileIds());
+                actorId,
+                project.key(),
+                issue.number(),
+                chatBody.body(),
+                true,
+                List.copyOf(files),
+                req.normalizedOptions());
       }
     } else if (answerMessageId == null) {
       comment = writer.comment(actorId, issue.id(), req.comment());

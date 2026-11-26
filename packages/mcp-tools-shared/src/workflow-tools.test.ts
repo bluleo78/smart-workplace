@@ -333,6 +333,43 @@ describe('move_issue_workflow', () => {
     expect(c.moveIssueWorkflow).not.toHaveBeenCalled();
   });
 
+  it('move_askWithMockupsAndOptions_forwarded: ask 의견과 함께 준 fileIds·options 를 본문에 싣는다(WP-2147 — 시안을 보고 칩으로 고르게)', async () => {
+    const c = mockClient();
+    await tool(c, 'move_issue_workflow').handler({
+      ...base,
+      outcome: 'ask',
+      comment: '배치 두 안 중 고르세요',
+      fileIds: [31, 32],
+      options: [' 1안 — 카드형 ', '2안 — 표형'],
+    });
+    expect(c.moveIssueWorkflow).toHaveBeenCalledWith('WP-7', {
+      fromNode: 'dev',
+      outcome: 'ask',
+      comment: '배치 두 안 중 고르세요',
+      expectedRevision: 3,
+      idempotencyKey: 'WP-7:dev:3:ask',
+      fileIds: [31, 32],
+      options: ['1안 — 카드형', '2안 — 표형'],
+    });
+  });
+
+  it('move_extrasWithoutComment_rejectedBeforeServer: 질문 글(의견) 없이 fileIds·options 를 주면 서버를 부르지 않고 거절한다(WP-2147)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'move_issue_workflow').handler({ ...base, outcome: 'ask', fileIds: [31] })).rejects.toThrow(/질문 글/);
+    await expect(
+      tool(c, 'move_issue_workflow').handler({ ...base, outcome: 'ask', comment: '  ', options: ['가', '나'] }),
+    ).rejects.toThrow(/질문 글/);
+    expect(c.moveIssueWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('move_optionsShape_validated: 선택지는 2~4개·중복 없이 — report_agent_work 와 같은 규칙(WP-2147)', async () => {
+    const c = mockClient();
+    const t = tool(c, 'move_issue_workflow');
+    await expect(t.handler({ ...base, outcome: 'ask', comment: 'q', options: ['하나'] })).rejects.toThrow();
+    await expect(t.handler({ ...base, outcome: 'ask', comment: 'q', options: ['가', ' 가 '] })).rejects.toThrow(/distinct/);
+    expect(c.moveIssueWorkflow).not.toHaveBeenCalled();
+  });
+
   it('move_blankComment_omitted: 공백뿐인 comment 는 본문에서 뺀다', async () => {
     const c = mockClient();
     await tool(c, 'move_issue_workflow').handler({ ...base, comment: '   ' });

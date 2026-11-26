@@ -130,6 +130,18 @@ public class WorkflowException extends RuntimeException {
         List.of());
   }
 
+  /**
+   * 질문 이동(ask)이 아닌데 시안 첨부(fileIds)·답 선택지(options)를 보냈거나, 질문 이동인데 붙일 질문 글(의견)이 비었다(WP-2147). 둘 다 질문
+   * 글에 붙는 것이라 붙일 글이 없으면 조용히 버리지 않고 거절한다.
+   */
+  public static WorkflowException questionExtrasWithoutQuestion() {
+    return new WorkflowException(
+        HttpStatus.BAD_REQUEST,
+        "WORKFLOW_QUESTION_EXTRAS_ONLY",
+        "fileIds·options 는 질문 이동(ask)에서 의견(질문 글)과 함께만 보낼 수 있습니다.",
+        List.of());
+  }
+
   /** 실행 목록의 status 가 실행 상태 값 하나가 아니다(WP-1985). 받은 값은 되비추지 않는다. */
   public static WorkflowException invalidRunStatus() {
     return new WorkflowException(

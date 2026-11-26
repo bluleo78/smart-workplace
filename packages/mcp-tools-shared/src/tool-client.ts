@@ -1138,6 +1138,10 @@ export interface MoveWorkflowBody {
   idempotencyKey: string;
   /** 겨눈 실행(view 의 runId). 빠지면 서버가 지금 실행을 겨눈 것으로 본다. */
   runId?: number;
+  /** 질문 글 첨부(스테이징 파일 id, WP-2147) — 질문 이동에서만. */
+  fileIds?: number[];
+  /** 질문 글 답 선택지(WP-2147) — 질문 이동에서만. */
+  options?: string[];
 }
 
 export interface WorkflowToolClient {

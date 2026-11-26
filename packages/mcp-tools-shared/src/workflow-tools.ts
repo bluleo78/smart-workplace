@@ -9,6 +9,7 @@ import type { SharedTool } from './mcp-tool.js';
 import { linkMentions, resolveMentionTokens } from './messaging-tools.js';
 import { describeApiError, parseIssueKey } from './parse.js';
 import { type AssigneeResolverClient, resolveAssigneeIds } from './resolve.js';
+import { questionOptionsInput, stagedFileIdsInput } from './schemas.js';
 import { nullAsOmitted } from './tool-definitions.js';
 import type {
   IssueWorkflowViewRow,
@@ -38,6 +39,9 @@ export const moveIssueWorkflowInput = z.object({
   expectedRevision: z.number().int().min(0),
   // 겨눈 실행(get_issue_workflow 의 runId) — 주면 서버가 멱등 조회를 그 실행으로 좁혀, 실행이 바뀐 뒤 옛 key 가 새 이동을 막지 않게 한다.
   runId: nullAsOmitted(z.number().int().positive()),
+  // WP-2147: 질문 이동(ask)의 질문 글에 붙일 시안 첨부·답 칩 — report_agent_work 의 fileIds·options 와 같은 규칙. 질문 글(의견)이 있어야 한다.
+  fileIds: nullAsOmitted(stagedFileIdsInput),
+  options: nullAsOmitted(questionOptionsInput),
 });
 export const getWorkflowInput = z.object({
   projectKey: z.string().min(1),
@@ -340,16 +344,21 @@ export function buildWorkflowTools(
       description:
         'Moves the issue from fromNode by an outcome from get_issue_workflow. Give required outputs, comment, next assignees (usernames) when asked, ' +
         'and expectedRevision, runId from it. WORKFLOW_STALE if changed. ' +
-        "On ask, the comment becomes an issue chat question (max 4000 chars after @username→<@id>); a person's reply returns it via answered (read via get_issue_chat; never move answered yourself).",
+        "On ask, the comment becomes an issue chat question (max 4000 chars after @username→<@id>) +fileIds, options (chips, best first); a person's reply returns it via answered (read via get_issue_chat; never move answered yourself).",
       inputSchema: moveIssueWorkflowInput,
       async handler(args) {
-        const { issueKey, fromNode, outcome, outputs, assignees, comment, expectedRevision, runId } = moveIssueWorkflowInput.parse(args);
+        const { issueKey, fromNode, outcome, outputs, assignees, comment, expectedRevision, runId, fileIds, options } =
+          moveIssueWorkflowInput.parse(args);
         // 의견의 @username 은 <@id> 멘션 토큰으로 바꿔 보낸다(report_agent_work 의 message 와 같은 linkMentions) — 결과 ask 의 의견은
         // 이슈 챗 질문이 되므로(WP-2093) 토큰이어야 @owner 멘션이 알림으로 간다. 일반 이동의 의견 댓글도 같은 토큰 표기를 쓴다.
         const linkedComment = comment != null && comment.trim() !== '' ? await linkMentions(client, comment) : undefined;
         // 서버는 바뀐 뒤 글자로 질문 상한을 잰다(토큰이 @username 보다 길 수 있다) — 같은 기준으로 먼저 재서, 422 대신 몇 자인지 알려 줄인 뒤
         // 다시 보내게 한다. 서버처럼 코드포인트로 센다.
         if (outcome === ASK_OUTCOME && linkedComment !== undefined) assertQuestionLength(linkedComment);
+        // 첨부·선택지는 질문 글에 붙는다(WP-2147) — 붙일 글이 없으면 서버를 부르기 전에 고칠 곳을 알린다(질문 이동인지는 서버가 판정한다).
+        if ((fileIds?.length || options) && linkedComment === undefined) {
+          throw new Error('fileIds·options 는 질문 이동(ask)의 의견(질문 글)과 함께 보내야 합니다.');
+        }
         // 담당을 모두 id 로 푼 뒤에 서버를 부른다(me 별칭·프로젝트 멤버 확인은 다른 이슈 도구와 같은 resolveAssigneeIds).
         // 일부만 풀린 채 이동하면 담당이 조용히 빠지므로, 못 찾으면 서버를 부르기 전에 던진다.
         const assigneeIds = assignees?.length ? await resolveAssigneeIds(client, parseIssueKey(issueKey).projectKey, assignees) : undefined;
@@ -364,6 +373,8 @@ export function buildWorkflowTools(
           idempotencyKey: `${issueKey}:${fromNode}:${expectedRevision}:${outcome}`,
           // 준 때만 싣는다 — 빠지면 서버가 지금 실행을 겨눈 것으로 본다(하위 호환).
           ...(runId != null && { runId }),
+          ...(fileIds?.length && { fileIds }),
+          ...(options && { options }),
         };
         return viewJson(await client.moveIssueWorkflow(issueKey, body), client);
       },

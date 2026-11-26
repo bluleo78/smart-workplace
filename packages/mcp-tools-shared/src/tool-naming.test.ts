@@ -44,8 +44,10 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  *   「결과에 새 version 을 싣는다」는 뜻은 도구 설명에서 빼고(자리가 없어) 프롬프트(issue-agent 부분 수정 안내·결정 사항 규칙)와
  *   결과 JSON 의 `version` 이 담는다. `Unknown labels are created (gray).` 는 create_issue 설명의 `created (gray; createdLabels)`
  *   가 이미 담아 계속 뺀다. 다른 도구 설명은 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
+ * 19,550 → 19,650: 2026-11-26 WP-2147 move_issue_workflow 에 질문 시안 첨부(fileIds)·답 칩(options) 인자(report_agent_work 와 같은 스키마)와
+ *   설명 한 구절이 늘었다(main 19,546 위에서 측정 19,615). 설명을 줄여 본 뒤의 값이고 여유를 두어 50 단위로 올렸다. 다른 도구 설명은 줄이지 않았다(사람 세션 — dh.yang 확인).
  */
-const DEFINITION_TOKEN_CAP = 19_550;
+const DEFINITION_TOKEN_CAP = 19_650;
 /**
  * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
  * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).

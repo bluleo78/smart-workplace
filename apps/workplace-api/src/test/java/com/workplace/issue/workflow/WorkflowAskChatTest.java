@@ -584,6 +584,85 @@ class WorkflowAskChatTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("ask 이동의 fileIds·options 는 질문 글의 첨부·답 칩이 된다 — 자리표시 첨부와 합치고 선택지는 정리해 저장(WP-2147)")
+  void askMove_fileIdsAndOptions_attachedToChatQuestion() {
+    long bot = agent();
+    long issue = startedIssue(bot);
+    long inline = stagedFile(bot, "plan.txt");
+    long mockup = stagedFile(bot, "mockup-a.txt");
+    Map<String, Object> body =
+        moveBody("work", "ask", "배치 어느 쪽?\n[계획](file:" + inline + ")", 0, "k-x");
+    // 자리표시와 같은 파일을 fileIds 에 또 넣어도 한 번만 붙는다.
+    body.put("fileIds", List.of(mockup, inline));
+    body.put("options", List.of(" 1안 — 카드형 ", "2안 — 표형", "2안 — 표형"));
+
+    JsonNode moved = expectAsAgent(moveWith(issue, body), bot);
+
+    long messageId = moved.get("context").get("_qa").get(0).get("questionMessageId").asLong();
+    assertThat(
+            dsl.select(CHAT_MESSAGE_ATTACHMENT.FILE_ID)
+                .from(CHAT_MESSAGE_ATTACHMENT)
+                .where(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID.eq(messageId))
+                .fetch(CHAT_MESSAGE_ATTACHMENT.FILE_ID))
+        .containsExactlyInAnyOrder(inline, mockup);
+    String options =
+        dsl.select(CHAT_MESSAGE.OPTIONS)
+            .from(CHAT_MESSAGE)
+            .where(CHAT_MESSAGE.ID.eq(messageId))
+            .fetchOne(CHAT_MESSAGE.OPTIONS)
+            .data();
+    assertThat(om.readTree(options).toString()).isEqualTo("[\"1안 — 카드형\",\"2안 — 표형\"]");
+  }
+
+  @Test
+  @DisplayName("질문이 아닌 이동이나 의견이 빈 질문 이동에 fileIds·options 를 주면 400 — 붙일 질문 글이 없다(WP-2147)")
+  void questionExtras_withoutQuestion_rejected() {
+    long bot = agent();
+    long issue = startedIssue(bot);
+    long file = stagedFile(bot, "a.txt");
+
+    Map<String, Object> done = moveBody("work", "done", "끝", 0, "k-d");
+    done.put("fileIds", List.of(file));
+    JsonNode err = expectAsAgent(moveWith(issue, done), bot, 400);
+    assertThat(err.toString()).contains("WORKFLOW_QUESTION_EXTRAS_ONLY");
+
+    // 거절된 이동은 아무것도 바꾸지 않는다 — 지금 노드 그대로, 챗 글 없음.
+    assertThat(run(issue).get(WORKFLOW_RUN.CURRENT_NODE)).isEqualTo("work");
+    assertThat(chatBodies(issue)).isEmpty();
+  }
+
+  @Test
+  @DisplayName("의견을 요구하지 않는 질문 이동이라도 의견 없이 fileIds·options 만 주면 400(WP-2147)")
+  void questionExtras_onBlankAsk_rejected() {
+    long bot = agent();
+    long wf =
+        publish(
+            yaml(bot)
+                .replace(
+                    "ask: { to: work_ask, assignTo: lead, requireComment: true }",
+                    "ask: { to: work_ask, assignTo: lead }"));
+    long issue = issue(lead);
+    ok(startReq(issue, wf), pm);
+
+    Map<String, Object> blankAsk = moveBody("work", "ask", null, 0, "k-b");
+    blankAsk.put("options", List.of("가", "나"));
+    assertThat(expectAsAgent(moveWith(issue, blankAsk), bot, 400).toString())
+        .contains("WORKFLOW_QUESTION_EXTRAS_ONLY");
+    assertThat(chatBodies(issue)).isEmpty();
+  }
+
+  @Test
+  @DisplayName("ask 이동의 options 모양이 틀리면(하나뿐) 400")
+  void askMove_badOptions_rejected() {
+    long bot = agent();
+    long issue = startedIssue(bot);
+    Map<String, Object> body = moveBody("work", "ask", QUESTION, 0, "k-o");
+    body.put("options", List.of("하나뿐"));
+    expectAsAgent(moveWith(issue, body), bot, 400);
+    assertThat(chatBodies(issue)).isEmpty();
+  }
+
+  @Test
   @DisplayName("보이지 않는 글자뿐인 질문 의견은 챗 글을 올리지 않고(챗 빈 글 거절로 실패하지 않고) 이동만 한다")
   void askMove_invisibleOnlyComment_noChatPost() {
     long bot = agent();
@@ -861,13 +940,31 @@ class WorkflowAskChatTest extends IntegrationTestBase {
 
   private MockHttpServletRequestBuilder move(
       long issue, String from, String outcome, String comment, int revision, String idemKey) {
+    return moveWith(issue, moveBody(from, outcome, comment, revision, idemKey));
+  }
+
+  /** 이동 요청 본문 — 필드를 더 얹을 수 있게 고칠 수 있는 맵으로 돌려준다(WP-2147 fileIds·options). */
+  private Map<String, Object> moveBody(
+      String from, String outcome, String comment, int revision, String idemKey) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("fromNode", from);
     body.put("outcome", outcome);
     if (comment != null) body.put("comment", comment);
     body.put("expectedRevision", revision);
     body.put("idempotencyKey", idemKey);
+    return body;
+  }
+
+  private MockHttpServletRequestBuilder moveWith(long issue, Map<String, Object> body) {
     return post(API + "/issues/" + issue + "/workflow/move").content(om.writeValueAsString(body));
+  }
+
+  /** AI 이름으로 글 파일 하나를 스테이징하고 id 를 돌려준다. */
+  private long stagedFile(long bot, String name) {
+    return expectAsAgent(
+            post(API + "/staged-files/text").content(json("name", name, "content", "내용")), bot, 201)
+        .get("fileId")
+        .asLong();
   }
 
   /** AI 의 ak_ 키(+ 도구 맥락 헤더)로 요청하고 200 응답 본문을 돌려준다 — 외부 AI 가 직접 이동하는 경로. */
