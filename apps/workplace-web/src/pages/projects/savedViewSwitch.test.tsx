@@ -2,7 +2,7 @@
 // 예전에는 칩을 누르면 ① 고른 뷰 상태가 주소보다 먼저 커밋돼 칩 둘이 켜지고 「수정됨」이 한 프레임 비쳤고,
 // ② 새 결과가 오기 전 목록이 스켈레톤으로 떨어졌다가(보드는 컬럼마다 「이슈 없음」) 새 목록으로 바뀌었다.
 // 이제 칩과 주소는 한 번에 바뀌고, 새 결과가 올 때까지 이전 목록을 흐리게(진행 막대) 두었다가 한 번에 바꾼다.
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
@@ -253,3 +253,186 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
   })
 })
 
+// WP-2148: 칩 적용(startTransition)이 렌더에 닿기 전, 필터 바의 다른 조건 쓰기도 렌더 시점의 옛 값이 아니라 쓰는 순간의 라이브 주소 위에 얹힌다.
+// 「높음만」(priority=HIGH&group=none) 결과를 늦춰 전환을 보류시키고, 그 사이 조작한 키만 바뀌고 priority 는 살아 있어야 한다.
+// 「필터 지우기」(reset)는 뺀다 — 보류 중에는 렌더가 아직 필터 없는 전체 목록이라 hasActiveFilters 가 거짓이고 단추가 화면에 없다(사용자가 누를 수 없다).
+describe('저장 보기 전환이 보류된 동안의 다른 조건 쓰기(WP-2148)', () => {
+  // 한 act 안에서 두 번 클릭 — 렌더가 끼지 않아 두 번째 호출이 첫 클릭의 렌더 반영 전에 일어난다.
+  const clickTwice = (el: HTMLElement) =>
+    act(() => {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+  const params = (location: () => string) => new URL(location(), 'http://x').searchParams
+
+  // 전환 보류 상태 — apply() 가 history 만 먼저 바꾸고 렌더는 아직 옛 값인 순간을 replaceState 로 흉내 낸다(WP-2141 의 issueSearchSavedViewRace 와 같은 방식).
+  // 칩 클릭 경로는 jsdom 에서 transition 이 곧바로 렌더에 닿아(결과 대기는 keepPreviousData) 렌더가 앞서므로 경합이 재현되지 않아, 마지막 테스트가 그 경로를 따로 본다.
+  const openPending = async (query = '?priority=HIGH&group=none') => {
+    const view = await open()
+    window.history.replaceState(window.history.state, '', `/projects/${KEY}/issues${query}`)
+    return view
+  }
+
+  test('(a) 그룹 기준을 바꿔도 보류 중인 우선순위 조건이 남는다', async () => {
+    const { user, location } = await openPending()
+    await user.click(screen.getByTestId('group-by-trigger'))
+    await user.click(await screen.findByTestId('group-by-status'))
+    await waitFor(() => expect(params(location).get('group')).toBe('status'))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+
+  test('(b) 다른 facet(유형)을 골라도 보류 중인 우선순위 조건이 남는다', async () => {
+    const { user, location } = await openPending()
+    await user.click(await screen.findByTestId('quick-filter-type-trigger'))
+    const options = await screen.findAllByTestId(/^facet-value-type-/)
+    await user.click(options[0])
+    await waitFor(() => expect(params(location).has('type')).toBe(true))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+
+  test('(c) 보기를 보드로 바꿔도 보류 중인 우선순위 조건이 남는다', async () => {
+    const { user, location } = await openPending()
+    await user.click(within(screen.getByRole('group', { name: '뷰 전환' })).getByRole('button', { name: '보드' }))
+    await waitFor(() => expect(params(location).get('view')).toBe('board'))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+
+  test('(d) 「완료 모두 보기」를 눌러도 보류 중인 우선순위 조건이 남는다', async () => {
+    const { user, location } = await openPending()
+    await user.click(screen.getByTestId('show-all-closed-toggle'))
+    await waitFor(() => expect(params(location).get('closed')).toBe('all'))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+
+  test('(i) 보류 중 보기가 closed=all 을 걸었어도 「완료 모두 보기」를 누르면 켜진 채 남고 우선순위도 남는다', async () => {
+    const { user, location } = await openPending('?priority=HIGH&group=none&closed=all')
+    await user.click(screen.getByTestId('show-all-closed-toggle'))
+    // 단추는 렌더 값(꺼짐)을 보였으므로 누르면 켜짐이 목표다 — 라이브 값을 뒤집으면 closed 가 사라진다.
+    await waitFor(() => expect(params(location).get('closed')).toBe('all'))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+
+  test('(j) 보류 중 보기가 건 priority=HIGH 에 같은 facet 에서 낮음을 더해도 HIGH 가 남는다', async () => {
+    const { user, location } = await openPending()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    await user.click(await screen.findByTestId('facet-value-priority-LOW'))
+    await waitFor(() => expect(params(location).get('priority')).toContain('LOW'))
+    expect(params(location).get('priority')).toContain('HIGH')
+  })
+
+  test('(l) 렌더 전 같은 값을 켰다 끄면 주소에 그 값이 남지 않는다(마지막으로 보낸 값 기준)', async () => {
+    const { user, location } = await open()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    const opt = await screen.findByTestId('facet-value-priority-LOW')
+    // 한 act 안에서 두 번 — 렌더가 끼지 않아 두 번째 호출이 첫 클릭의 렌더 반영 전에 일어난다.
+    clickTwice(opt)
+    await waitFor(() => expect(params(location).has('priority')).toBe(false))
+  })
+
+  test('(m) 렌더 [HIGH,LOW] 에서 HIGH 를 껐다 켜면 주소에 HIGH·LOW 가 모두 있다', async () => {
+    const { user, location } = await open()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    await user.click(await screen.findByTestId('facet-value-priority-HIGH'))
+    await user.click(await screen.findByTestId('facet-value-priority-LOW'))
+    await waitFor(() => expect(params(location).get('priority')).toContain('LOW'))
+    const high = await screen.findByTestId('facet-value-priority-HIGH')
+    clickTwice(high)
+    await waitFor(() => expect(params(location).get('priority')).toContain('HIGH'))
+    expect(params(location).get('priority')).toContain('LOW')
+  })
+
+  test('(n) 보류 중 보기가 건 priority=HIGH 에서 우선순위 facet 을 「선택 해제」하면 HIGH 도 비운다', async () => {
+    const { user, location } = await openPending()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    await user.click(await screen.findByTestId('facet-value-priority-LOW'))
+    await waitFor(() => expect(params(location).get('priority')).toContain('LOW'))
+    // 렌더 값 [HIGH,LOW] 에서 비우기 → next 가 빈 배열 — 보류 보기의 HIGH 도 남기지 않는다.
+    await user.click(await screen.findByTestId('quick-filter-clear-priority'))
+    await waitFor(() => expect(params(location).has('priority')).toBe(false))
+  })
+
+  test('(p) 보류 중 우선순위 LOW 를 켰다가 마지막 값 LOW 를 끄면 보류 보기의 HIGH 는 남는다(선택 해제와 구분)', async () => {
+    const { user, location } = await openPending()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    const low = await screen.findByTestId('facet-value-priority-LOW')
+    // 한 act 안에서 켜고 끈다 — 렌더가 끼지 않아 토글이 [] 를 보내지만 선택 해제 단추가 아니라 LOW 만 뺀다.
+    clickTwice(low)
+    await waitFor(() => expect(params(location).get('priority')).toBe('HIGH'))
+  })
+
+  test('(o) 다른 화면 이동이 보류된 사이 「필터 지우기」는 주소도 지우기 신호(history state)도 내지 않는다', async () => {
+    const { user } = await open()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    await user.click(await screen.findByTestId('facet-value-priority-LOW'))
+    await user.keyboard('{Escape}')
+    const clearAll = await screen.findByTestId('quick-filter-clear-all')
+    window.history.replaceState(window.history.state, '', '/projects/OTHER?x=1')
+    const before = JSON.stringify(window.history.state)
+    await user.click(clearAll)
+    expect(window.location.pathname + window.location.search).toBe('/projects/OTHER?x=1')
+    expect(JSON.stringify(window.history.state)).toBe(before)
+  })
+
+  test('(k) 보류 없이 우선순위 하나를 고르고 다시 해제하면 기존과 같다(대조군)', async () => {
+    const { user, location } = await open()
+    await user.click(await screen.findByTestId('quick-filter-priority-trigger'))
+    await user.click(await screen.findByTestId('facet-value-priority-LOW'))
+    await waitFor(() => expect(params(location).get('priority')).toBe('LOW'))
+    await user.click(await screen.findByTestId('facet-value-priority-LOW'))
+    await waitFor(() => expect(params(location).has('priority')).toBe(false))
+  })
+
+  test('(f) 다른 화면으로 이동이 보류된 사이(라이브 pathname 이 다름)에는 검색어를 이 화면 조건으로 쓰지 않는다', async () => {
+    const { user } = await open()
+    // 다른 화면으로 옮겨 가는 전환이 아직 렌더에 닿지 않은 순간 — 브라우저 주소만 먼저 바뀐 상태를 흉내 낸다.
+    window.history.replaceState(window.history.state, '', '/projects/OTHER?x=1')
+    await user.click(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('결제')
+    // debounce(300ms)보다 오래 기다려 쓰기가 일어날 기회를 준다 — 일어나지 않아야 하는 부재 확인이라 고정 대기.
+    await new Promise((r) => setTimeout(r, 600))
+    expect(window.location.pathname + window.location.search).toBe('/projects/OTHER?x=1')
+  })
+
+  test('(h) 다른 화면으로 이동이 보류된 사이(라이브 pathname 이 다름)에는 정렬을 이 화면 조건으로 쓰지 않는다', async () => {
+    const { user } = await open()
+    // 다른 화면으로 옮겨 가는 전환이 아직 렌더에 닿지 않은 순간 — 브라우저 주소만 먼저 바뀐 상태를 흉내 낸다((f)와 같은 모양).
+    window.history.replaceState(window.history.state, '', '/projects/OTHER?x=1')
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    await user.click(await screen.findByTestId('issue-sort-menu').then((m) => within(m).getAllByRole('menuitemradio')[1]))
+    // 쓰기가 일어나지 않아야 하는 부재 확인이라 고정 대기.
+    await new Promise((r) => setTimeout(r, 300))
+    expect(window.location.pathname + window.location.search).toBe('/projects/OTHER?x=1')
+  })
+
+  test('(e) 정렬 칩으로 정렬을 바꿔도 보류 중인 우선순위 조건이 남는다', async () => {
+    const { user, location } = await openPending()
+    await user.click(screen.getByTestId('issue-sort-chip'))
+    await user.click(await screen.findByTestId('issue-sort-menu').then((m) => within(m).getAllByRole('menuitemradio')[1]))
+    await waitFor(() => expect(params(location).has('sort')).toBe(true))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+
+  test('(g) 보류 없이 그룹을 바꾸면 결과는 그대로다(대조군)', async () => {
+    const { user, location } = await open()
+    await user.click(screen.getByTestId('group-by-trigger'))
+    await user.click(await screen.findByTestId('group-by-status'))
+    await waitFor(() => expect(params(location).get('group')).toBe('status'))
+    expect(params(location).has('priority')).toBe(false)
+  })
+
+  // 실제 apply 경로(칩 클릭 → startTransition) 위에서 검색어를 치고 debounce 가 지난 뒤 전환이 끝나도 q 와 보기 조건이 함께 있다.
+  // 실제 apply 경로를 지나는지 보는 확인이며 jsdom 에서는 전환이 곧바로 커밋돼 base 코드에서도 통과한다 — WP-2148 회귀는 (a)~(f)가 지킨다.
+  test('칩 클릭 → 보류 중 검색어 → debounce 경과 → 전환 완료 뒤 priority 와 q 가 함께 있다', async () => {
+    const { user, location } = await open()
+    const release = holdWhile((u) => u.searchParams.get('priority') === 'HIGH')
+    fireEvent.click(screen.getByTestId('view-chip-1'))
+    await user.click(screen.getByRole('textbox', { name: '이슈 필터: 제목·키' }))
+    await user.paste('결제')
+    await new Promise((r) => setTimeout(r, 600))
+    release()
+    expect(await screen.findByText('높음 이슈')).toBeInTheDocument()
+    await waitFor(() => expect(params(location).get('q')).toBe('결제'))
+    expect(params(location).get('priority')).toBe('HIGH')
+  })
+})

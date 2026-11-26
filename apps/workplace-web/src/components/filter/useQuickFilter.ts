@@ -3,14 +3,14 @@
 import { useMemo } from 'react';
 
 import { isPinnedAsChip, moreFacets, quickChipKeys, togglePinned } from './quickFilterLayout';
-import type { FacetDef, FilterValue } from './types';
+import type { FacetChangeMeta, FacetDef, FilterValue } from './types';
 import { useFacetToggle } from './useFacetToggle';
 import { useQuickFilterPrefs } from './useQuickFilterPrefs';
 
 export interface QuickFilterInput {
   facets: FacetDef[];
   value: FilterValue;
-  onChange: (next: FilterValue) => void;
+  onChange: (next: FilterValue, meta?: FacetChangeMeta) => void;
   /** 화면별 기본 칩(facet key, 보이는 순서). */
   defaultChips: readonly string[];
   /** 칩 고정·숨김을 기억할 localStorage 키. 없으면 고정·숨김 메뉴를 감추고 기억하지 않는다. */

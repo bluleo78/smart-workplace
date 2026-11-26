@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 import { AddFilterButton } from './AddFilterButton';
 import { FilterChip } from './FilterChip';
-import type { FacetDef, FilterValue } from './types';
+import type { FacetChangeMeta, FacetDef, FilterValue } from './types';
 import { useFacetToggle } from './useFacetToggle';
 
 export function FacetFilter({
@@ -17,7 +17,7 @@ export function FacetFilter({
 }: {
   facets: FacetDef[];
   value: FilterValue;
-  onChange: (next: FilterValue) => void;
+  onChange: (next: FilterValue, meta?: FacetChangeMeta) => void;
   /** 「＋ 필터」 팝오버 방향 고정 — 지정하면 뒤집지 않는다(모바일 필터 시트). 미지정이면 기존처럼 자동. */
   popoverSide?: 'top' | 'bottom';
   /** 「＋ 필터」 바로 뒤에 한 덩어리로 붙일 요소(예: 「초기화」) — 줄이 넘쳐도 이것만 따로 떨어지지 않는다. */

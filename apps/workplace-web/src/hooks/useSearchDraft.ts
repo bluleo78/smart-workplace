@@ -16,12 +16,12 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
  *   예약돼 있던 q 쓰기가 방금 연 상세(?contact)를 지우는 경합을 막는다. 접으면 draft 도 URL 값으로 되돌아간다.
  *
  * @param value 지금 URL 의 검색어(없으면 '')
- * @param write 검색어를 URL 에 쓴다 — 화면이 정한 방식으로(보통 history replace)
+ * @param write 검색어를 URL 에 쓴다 — 화면이 정한 방식으로(보통 history replace). 쓰기를 접었으면 false 를 돌려줄 수 있다
  * @param delay debounce 간격(ms)
  * @param cancelKey 값이 바뀔 때마다 남은 debounce 를 접는 신호 — 쓰지 않으면(undefined) 접지 않는다
  * @returns draft(입력값)·setDraft(타이핑 — debounce 뒤 write)
  */
-export function useSearchDraft(value: string, write: (next: string) => void, delay = 300, cancelKey?: unknown) {
+export function useSearchDraft(value: string, write: (next: string) => void | boolean, delay = 300, cancelKey?: unknown) {
   const [draft, setDraft] = useState(value)
   // 이 훅이 마지막으로 URL 에 쓴 q — 그 값이 value 로 되돌아올 때는 draft 를 덮지 않는다.
   const writtenRef = useRef<string | null>(null)
@@ -44,9 +44,11 @@ export function useSearchDraft(value: string, write: (next: string) => void, del
   }
 
   // URL 에 쓴다. q 가 실제로 바뀔 때만 메아리를 기다린다 — 안 바뀌면 value 가 그대로라 기록이 소비되지 않고 남는다.
+  // write 가 false 를 돌려주면(쓰기를 접음 — 예: 다른 화면 이동 보류 중) URL 이 안 바뀌니 메아리 기록을 되돌린다(WP-2148).
   const send = (next: string) => {
-    if (next !== value) writtenRef.current = next
-    write(next)
+    const track = next !== value
+    if (track) writtenRef.current = next
+    if (write(next) === false && track) writtenRef.current = null
   }
 
   // debounce 가 끝난 순간의 최신 렌더 값으로 판정·쓰기 — 공백뿐이면 ''로 보고, 이미 URL 과 같으면 쓰지 않는다(화면의 write 가 다른 키를 건드리지 않게).
