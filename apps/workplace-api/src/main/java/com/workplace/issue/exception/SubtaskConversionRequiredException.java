@@ -5,13 +5,18 @@ import java.util.List;
 /**
  * 하위 태스크가 달린 이슈를 에픽으로 바꾸려는데 하위 태스크를 어떻게 할지(변환 유형) 정하지 않았다 — 400(WP-2098).
  *
- * <p>에픽 바로 아래에는 하위 태스크를 둘 수 없어 막는다. 화면이 변환 확인 창을 띄울 수 있도록 막는 하위 태스크의 키 전체를 싣는다(응답 {@code
- * errors.code} = {@link #CODE}, {@code errors.issueKeys} = 번호 순 키를 {@code ,} 로 이은 문자열). 문구는 화면 용어로
- * — 토스트로 그대로 보인다.
+ * <p>에픽 바로 아래에는 하위 태스크를 둘 수 없어 막는다. 응답에 막는 하위 태스크 중 호출자가 읽을 수 있는 것의 키를 싣는다(읽을 수 없는 것은 키를 드러내지 않고
+ * 문구의 「외 n개」에만 센다)({@code errors.code} = {@link #CODE}, {@code errors.issueKeys} = 번호 순 키를 {@code
+ * ,} 로 이은 문자열). 문구는 화면 용어로 — 토스트로 그대로 보인다.
+ *
+ * <p>누가 이 응답을 받나: 웹은 에픽으로 바꾸기 전에 하위를 먼저 조회해 변환 확인 창을 띄우고 고른 유형을 {@code convertSubtasksToTypeId} 로
+ * 함께 보내므로 보통은 받지 않는다 — 조회와 저장 사이에 하위 태스크가 새로 생긴 경합에서만 받고, 그때는 {@code errors.code} 로 가르지 않고 문구를 토스트로
+ * 보인다. {@code errors.code}·{@code errors.issueKeys} 는 옵션 없이 부르는 API 호출자가 가르는 데 쓴다 — MCP {@code
+ * update_issue} 는 코드로 가르지 않고 문구를 그대로 돌려주며, AI 가 그 안내를 보고 {@code convertSubtasksToType} 을 넣어 다시 부른다.
  */
 public class SubtaskConversionRequiredException extends RuntimeException {
 
-  /** 응답 {@code errors.code} 값 — 화면·MCP 가 이 코드로 변환 안내를 분기한다. */
+  /** 응답 {@code errors.code} 값 — 옵션 없이 부르는 API 호출자가 이 코드로 가른다(웹·MCP 는 쓰지 않는다 — 위 클래스 설명). */
   public static final String CODE = "SUBTASK_CONVERT_REQUIRED";
 
   /** 문구에 직접 나열하는 키 개수 — 넘으면 「외 n개」로 줄인다. */

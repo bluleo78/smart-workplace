@@ -89,7 +89,9 @@ export function IssueTypeSelectPopover({
   function onOpenChange(next: boolean) {
     setOpen(next);
     if (!next) {
+      // 회차를 넘기며 잠금도 함께 푼다 — 버린 회차의 finally 는 잠금을 건드리지 않으므로(아래) 여기서 풀어야 다시 열 때 고를 수 있다.
       epicFetchSeq.current += 1;
+      setLoadingChildren(false);
       setSubtaskTypeId(null);
       setParentValue('');
     }
@@ -109,18 +111,21 @@ export function IssueTypeSelectPopover({
     }
   }
 
+  // 읽을 수 있는 상위만 — 가린 상위(WP-2131)·상위 없음은 undefined. 키·제목·관계 옵션을 쓰는 곳은 이것으로 가른다.
+  const visibleParent = parentLink != null && !parentLink.hidden ? parentLink : undefined;
+
   // WP-2097 — 지금 상위가 에픽 아래면 이동 선택지, 아니면 상위 없이 변경만. parentLink 없거나 창이 닫혀
   // 있으면(대상 유형을 아직 모른다) 선택지가 없다. 신규 유형이 EPIC 이면 대상이 EPIC 이므로 detach 만.
   const choices =
-    parentLink != null && !parentLink.hidden && pendingType != null
+    visibleParent != null && pendingType != null
       ? parentLinkChangeChoices({
           newTypeName: pendingType.name,
           // 상세 응답은 할아버지의 유형 이름을 따로 안 실으는데(에픽일 때만 싣는다) 에픽이 실려 있으면 그 유형이다.
-          grandparentTypeName: parentLink.grandparent ? 'EPIC' : null,
-          grandparentKey: parentLink.grandparent?.key ?? null,
-          grandparentTitle: parentLink.grandparent?.title ?? null,
-          grandparentStatus: parentLink.grandparent?.status ?? null,
-          issueStatus: parentLink.issueStatus ?? null,
+          grandparentTypeName: visibleParent.grandparent ? 'EPIC' : null,
+          grandparentKey: visibleParent.grandparent?.key ?? null,
+          grandparentTitle: visibleParent.grandparent?.title ?? null,
+          grandparentStatus: visibleParent.grandparent?.status ?? null,
+          issueStatus: visibleParent.issueStatus ?? null,
         })
       : null;
 
@@ -152,7 +157,8 @@ export function IssueTypeSelectPopover({
     } catch (e) {
       if (seq === epicFetchSeq.current) handleApiError(e, '하위 태스크를 불러오지 못했습니다');
     } finally {
-      setLoadingChildren(false);
+      // 지금 회차일 때만 잠금을 푼다 — 취소한 앞 회차의 늦은 응답이 다시 고른 조회의 잠금을 풀지 않게(리뷰 후속, PR #1874).
+      if (seq === epicFetchSeq.current) setLoadingChildren(false);
     }
   }
 
@@ -196,8 +202,8 @@ export function IssueTypeSelectPopover({
       {
         typeId: convertPending.id,
         convertSubtasksToTypeId: c.convertSubtasksToTypeId,
-        // 가린 상위(WP-2131)는 키를 모르므로 관련 관계 선택을 싣지 않는다 — 서버가 상위만 푼다.
-        relateToReleasedParent: parentLink && !parentLink.hidden ? c.relateToReleasedParent : undefined,
+        // 가린 상위는 관계 옵션을 보내지 않는다(WP-2131 — { typeId } 만과 같은 규칙).
+        relateToReleasedParent: visibleParent ? c.relateToReleasedParent : undefined,
       },
       { onSuccess: () => setConvertPending(null) },
     );
@@ -314,10 +320,12 @@ export function IssueTypeSelectPopover({
           subtasks={convertPending.subtasks}
           targetTypes={convertTargetTypes(types.data ?? [])}
           currentParent={
-            // 가린 상위(WP-2131)는 키·제목을 모르므로 상위 안내·관련 관계 체크 없이 띄운다.
-            parentLink && !parentLink.hidden
-              ? { key: parentLink.parentKey, title: parentLink.parentTitle, typeName: parentLink.parentTypeName ?? '' }
-              : null
+            // 가린 상위(WP-2131)는 그대로 넘겨 키 없는 안내를 보인다 — 서버가 상위를 푼다.
+            parentLink?.hidden
+              ? parentLink
+              : visibleParent
+                ? { key: visibleParent.parentKey, title: visibleParent.parentTitle, typeName: visibleParent.parentTypeName }
+                : null
           }
           onConfirm={onConvertConfirm}
           onCancel={() => setConvertPending(null)}

@@ -4,9 +4,11 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { childrenResolver } from '@/test/kits/projects/children'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { renderScreen } from '@/test/renderScreen'
 
+import { createIssue } from '../../../e2e/factories/issue.factory'
 import { makeSubtaskType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import type { ParentLink } from './IssueTypeSelectPopover'
 import { IssueTypeSelectPopover } from './IssueTypeSelectPopover'
@@ -200,4 +202,38 @@ test('가린 상위여도 상위를 풀지 않는 변경은 창 없이 바로 { 
   await user.click(await screen.findByTestId('issue-type-option-2'))
   expect(screen.queryByTestId('parent-link-dialog')).toBeNull()
   await waitFor(() => expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 2 }]))
+})
+
+// 리뷰 후속(PR #1874) — 가린 상위(WP-2131)가 있는 이슈를 에픽으로 바꿀 때 하위 태스크 변환 창은 키 없이 「상위 연결이 풀립니다」를 보이고(관계 체크 없음),
+// 확인하면 관계 옵션 없이 { typeId, convertSubtasksToTypeId } 만 보낸다(가린 상위는 { typeId } 만과 같은 규칙).
+test('가린 상위: 에픽 전환의 하위 태스크 변환 창은 키 없는 상위 안내를 보이고, 관계 옵션 없는 PATCH 를 보낸다', async () => {
+  const requests = recordRequests()
+  const { user } = renderScreen(
+    <IssueTypeSelectPopover
+      projectKey="WP"
+      issueNumber={7}
+      current={makeTaskType()}
+      parentLink={{ hidden: true }}
+      childCount={1}
+    />,
+    {
+      handlers: [
+        ...pickerHandlers(),
+        http.get(
+          '/api/v1/projects/WP/issues/7/children',
+          childrenResolver(() => [createIssue({ id: 211, projectKey: 'WP', number: 11, title: '하위 11', type: makeSubtaskType() })]),
+        ),
+      ],
+    },
+  )
+  await user.click(screen.getByTestId('issue-type-trigger'))
+  await user.click(await screen.findByTestId('issue-type-option-6'))
+  const dialog = await screen.findByTestId('subtask-convert-dialog')
+  expect(within(dialog).getByTestId('subtask-convert-hidden-parent-notice').textContent).toContain('상위 연결이 풀립니다')
+  expect(within(dialog).queryByTestId('subtask-convert-parent-notice')).toBeNull()
+  expect(within(dialog).queryByRole('checkbox', { name: '관련 관계 유지' })).toBeNull()
+  await user.click(within(dialog).getByTestId('subtask-convert-confirm'))
+  await waitFor(() =>
+    expect(requests.bodies('PATCH', TYPE_PATCH)).toEqual([{ typeId: 6, convertSubtasksToTypeId: 1 }]),
+  )
 })
