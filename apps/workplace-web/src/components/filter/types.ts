@@ -40,3 +40,10 @@ export interface FacetDef {
 
 // facetKey → 선택된 값들. 멀티셀렉트(AND/OR 결합 의미는 호출부 책임).
 export type FilterValue = Record<string, FacetValue[]>;
+
+/** facet 변경 부가 정보(WP-2148) — cleared 는 「선택 해제」 단추로 그 facet 을 통째로 비웠다는 표시(마지막 값 하나를 끈 토글과 구분). */
+export interface FacetChangeMeta {
+  cleared?: string;
+  /** 이 변경을 만든 기준값 — useFacetToggle 이 보내기 전 latest ref(낙관 상태). 없으면 호출부가 렌더 값을 기준으로 본다. */
+  base?: FilterValue;
+}

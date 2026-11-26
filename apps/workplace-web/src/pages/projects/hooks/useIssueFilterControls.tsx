@@ -5,7 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 
-import { type FacetDef, type FilterValue, QUICK_FILTER_STORAGE_PREFIX } from '@/components/filter';
+import { type FacetChangeMeta, type FacetDef, type FilterValue, QUICK_FILTER_STORAGE_PREFIX } from '@/components/filter';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
@@ -22,7 +22,6 @@ import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
-import { liveSearchParams } from '../../../lib/historyParam';
 import { type IssueConditionChip, issueConditionChips, type IssueConditionKey, withoutCondition } from '../../../lib/issueConditionChips';
 import {
   carrySort,
@@ -48,8 +47,84 @@ import { assigneeFacetValue, assigneeFilterFromFacet, buildAssigneeFacet } from 
 import { buildComponentFacet, componentFacetValue, componentFilterFromFacet } from './componentFacet';
 import { buildStatusFacets } from './statusFacets';
 import { useSetIssueSort } from './useIssueSortParam';
-import { issueFiltersResetNav, readIssueFiltersReset, registerPendingSearchCancel } from './useResetIssueFilters';
+import { cancelPendingIssueSearchWrite, issueFiltersResetOptions, readIssueFiltersReset, registerPendingSearchCancel } from './useResetIssueFilters';
+import { useWriteLiveParams } from './useWriteLiveParams';
 import { buildVersionFacet, versionFacetValue, versionFilterFromFacet } from './versionFacet';
+
+// 쓰기 patch 가 주고받는 조건 묶음 — 라이브 주소에서 읽은 필터·보기·그룹 원값(WP-2148).
+interface FilterState {
+  filters: IssueFilters;
+  view: IssueView;
+  group: IssueGroupParam | null;
+}
+
+// facet 값 두 개가 같은가 — 없음은 빈 배열로 보고, 원소 순서까지 같을 때만 같다(WP-2148).
+function sameFacetValue(a: readonly (string | number)[] | undefined, b: readonly (string | number)[] | undefined): boolean {
+  const x = a ?? [];
+  const y = b ?? [];
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+// URL filters → 범용 FilterValue. 상태 범주/우선순위는 문자열, 상태/라벨/사이클/유형/담당자는 숫자 id.
+// 렌더 값(filters)과 쓰는 순간의 라이브 값(WP-2148) 둘 다 같은 매핑으로 만들려고 순수 함수로 뺐다.
+function filtersToFacetValue(filters: IssueFilters): FilterValue {
+  return {
+    statusId: filters.statusIds,
+    status: filters.statuses,
+    priority: filters.priorities,
+    label: filters.labelIds,
+    cycle: filters.cycleIds,
+    // 구성요소 — id 와 「구성요소 없음」('none')을 한 facet 값으로.
+    component: componentFacetValue(filters.componentIds, filters.componentNone),
+    // 수정 버전·영향 버전 — 구성요소처럼 id 와 「없음」('none')을 한 facet 값으로.
+    fixVersion: versionFacetValue(filters.fixVersionIds, filters.fixVersionNone),
+    affectsVersion: versionFacetValue(filters.affectsVersionIds, filters.affectsVersionNone),
+    type: filters.typeIds,
+    // 담당자 — id 와 「미지정」('none', URL assignee=null)을 한 facet 값으로(WP-1020).
+    assignee: assigneeFacetValue(filters.assigneeIds, filters.includeUnassigned),
+    // 완료일 기간은 토큰 하나(프리셋 또는 'from~to') — 단일 선택 facet.
+    closedIn: filters.closedIn ? [filters.closedIn] : [],
+  };
+}
+
+// FilterValue → URL filters(filtersToFacetValue 의 역). 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
+// 'none' 센티널(구성요소·버전·담당자)은 각 FromFacet 이 〈ids, none 플래그〉로 나누고, 완료일은 토큰 하나 — 비면 null.
+function facetValueToFilters(fv: FilterValue): Partial<IssueFilters> {
+  const fixVersion = versionFilterFromFacet(fv.fixVersion);
+  const affectsVersion = versionFilterFromFacet(fv.affectsVersion);
+  return {
+    statusIds: (fv.statusId ?? []) as number[],
+    statuses: (fv.status ?? []) as string[],
+    priorities: (fv.priority ?? []) as string[],
+    labelIds: (fv.label ?? []) as number[],
+    cycleIds: (fv.cycle ?? []) as number[],
+    ...componentFilterFromFacet(fv.component),
+    fixVersionIds: fixVersion.ids,
+    fixVersionNone: fixVersion.none,
+    affectsVersionIds: affectsVersion.ids,
+    affectsVersionNone: affectsVersion.none,
+    typeIds: (fv.type ?? []) as number[],
+    // 담당자 — id 와 「미지정」을 includeUnassigned 로 나눈다(WP-1020).
+    ...assigneeFilterFromFacet(fv.assignee),
+    closedIn: fv.closedIn?.[0] != null ? String(fv.closedIn[0]) : null,
+  };
+}
+
+// 다중 선택 facet 의 바뀐 부분만 라이브 값에 얹는다(WP-2148) — 라이브 값 − (렌더 값에서 사용자가 뺀 것) + (사용자가 더한 것).
+// 더한 값은 중복 없이 라이브 순서 뒤에 붙인다. 보류 중인 저장 보기가 같은 facet 에 건 값을 통째로 덮어 지우지 않게 한다.
+function mergeFacetValue(
+  live: readonly (string | number)[] | undefined,
+  rendered: readonly (string | number)[] | undefined,
+  next: readonly (string | number)[] | undefined,
+): (string | number)[] {
+  const l = live ?? [];
+  const r = rendered ?? [];
+  const n = next ?? [];
+  const removed = r.filter((v) => !n.includes(v));
+  const added = n.filter((v) => !r.includes(v));
+  const kept = l.filter((v) => !removed.includes(v));
+  return [...kept, ...added.filter((v) => !kept.includes(v))];
+}
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
 // 사이클(#878)은 팀 목록 전용 — 보드·사이클 비사용 화면에선 목록에서 빠진다(아래 visibleGroupOptions).
@@ -89,7 +164,7 @@ export interface IssueFilterControls {
   setQDraft: (q: string) => void; // 300ms debounce 후 URL q
   facets: FacetDef[];
   filterValue: FilterValue;
-  onFilterChange: (next: FilterValue) => void;
+  onFilterChange: (next: FilterValue, meta?: FacetChangeMeta) => void;
   hasActiveFilters: boolean; // filterOnlyKey(filters) !== '' — q 포함·정렬 제외, 빈 상태 단추와 같은 기준(WP-2115)
   setView: (v: IssueView) => void;
   setGroupBy: (g: IssueGroupBy | null) => void;
@@ -124,7 +199,7 @@ export function useIssueFilterControls(
   const meId = user?.id ?? null;
   const quickFilterStorageKey =
     meId == null ? undefined : `${QUICK_FILTER_STORAGE_PREFIX}${options?.quickFilterScreen ?? 'project-issues'}:${meId}`;
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   // params 는 URL(search)이 바뀔 때만 새 객체 — 파싱 결과를 메모해 아래 filterValue 메모가 매 렌더 깨지지 않게 한다.
   const filters = useMemo(() => parseFilters(params), [params]);
   const view = parseView(params);
@@ -167,10 +242,8 @@ export function useIssueFilterControls(
   }
   const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(
     filters.q,
-    (q) => {
-      const live = liveSearchParams();
-      writeFilters({ ...parseFilters(live), q }, parseView(live), parseGroupParam(live), live);
-    },
+    // 가드로 접히면 false 를 돌려줘 useSearchDraft 가 메아리 기록을 되돌리게 한다(WP-2148).
+    (q) => writeFilters((cur) => ({ ...cur, filters: { ...cur.filters, q } })),
     300,
     acceptedResetSignal,
   );
@@ -178,28 +251,27 @@ export function useIssueFilterControls(
   const currentQ = filters.q;
   useEffect(() => registerPendingSearchCancel(() => setQDraft(currentQ)), [currentQ, setQDraft]);
 
-  // view·groupBy 는 IssueFilters 와 분리된 URL 키 — 필터 변경 시에도 함께 보존해야 한다.
-  function writeFilters(
-    next: IssueFilters,
-    nextView: IssueView,
-    nextGroupBy: IssueGroupParam | null,
-    base?: URLSearchParams, // 보류 중인 변경이 이미 주소에 있을 때 그 주소를 기준으로 열 옵션을 이어 받는다
-  ) {
-    // replace 를 지킨다 — 조건 기억(useRememberedIssueQuery, WP-1035)은 replace 가 아닌 이동만 「들어옴」으로 보고 되살린다.
-    setParams(
-      (prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), base ?? prev),
-      { replace: true },
-    );
+  // 쓰기 공통 경로(WP-2148) — 라이브 주소 기준·다른 화면 가드는 useWriteLiveParams 가 맡는다(근거는 그 훅 주석).
+  // 이 훅의 모든 쓰기는 쓰는 순간의 주소에서 조건을 읽고, 사용자가 바꾼 키만 그 위에 얹는다.
+  const writeLive = useWriteLiveParams();
+
+  // 필터·보기·그룹 쓰기 — patch 가 라이브 값(cur) 위에 자기 키만 바꿔 돌려준다.
+  // view·groupBy 는 IssueFilters 와 분리된 URL 키라 함께 돌려받아 보존한다. replace 를 지킨다 — 조건 기억(useRememberedIssueQuery, WP-1035)은 replace 가 아닌 이동만 「들어옴」으로 보고 되살린다.
+  function writeFilters(patch: (cur: FilterState) => FilterState): boolean {
+    return writeLive((live) => {
+      const next = patch({ filters: parseFilters(live), view: parseView(live), group: parseGroupParam(live) });
+      return carryViewOptions(filtersToParams(next.filters, next.view, next.group), live);
+    });
   }
 
   function setView(v: IssueView) {
-    writeFilters(filters, v, groupParam);
+    writeFilters((cur) => ({ ...cur, view: v }));
   }
 
   // 그룹 기준 변경 — 필터/view 는 유지하고 group 만 교체 (#58).
   // 「없음」은 group=none 으로 명시한다 — 키를 지우면 사이클이 있는 프로젝트는 기본 사이클 그룹으로 되돌아간다(#878).
   function setGroupBy(g: IssueGroupBy | null) {
-    writeFilters(filters, view, g ?? 'none');
+    writeFilters((cur) => ({ ...cur, group: g ?? 'none' }));
   }
 
   // 정렬 변경(WP-1238) — 필터·view·group 은 그대로, sort·direction 만 바꾼다. 목록·보드가 같은 URL 값을 보므로 보기를 바꿔도 이어진다.
@@ -211,14 +283,16 @@ export function useIssueFilterControls(
 
   // 「끝난 이슈 아래로」(WP-2103) — 목록(평면)에서만 쓰인다. 켜짐이 기본이라 끌 때만 URL 에 closedLast=off 를 남긴다.
   function setClosedLast(on: boolean) {
-    const next = { ...filters };
-    if (on) delete next.closedLastOff;
-    else next.closedLastOff = true;
-    writeFilters(next, view, groupParam);
+    writeFilters((cur) => {
+      const next = { ...cur.filters };
+      if (on) delete next.closedLastOff;
+      else next.closedLastOff = true;
+      return { ...cur, filters: next };
+    });
   }
   // 「기본으로」(WP-2103 리뷰 후속) — 정렬과 끔 설정을 한 번의 쓰기로 함께 지운다(필터·보기·그룹은 그대로).
   function resetOrder() {
-    writeFilters(withoutViewOrder(filters), view, groupParam);
+    writeFilters((cur) => ({ ...cur, filters: withoutViewOrder(cur.filters) }));
   }
   // 쓸 수 있는 자리(그룹 없는 목록)에서만 토글을 만든다 — 소비처가 삼항식 없이 그대로 넘긴다. 필터·보기·그룹·정렬은 두고 이 설정만 바꾼다.
   // 기본 그룹 판정을 기다리는 동안(사이클 목록 로딩 — 기본 그룹이 cycle 일 수 있다)은 groupBy 가 null 이라도 만들지 않는다 — 항목이 잠깐 보였다 사라지지 않게.
@@ -229,12 +303,17 @@ export function useIssueFilterControls(
 
   // 필터 지우기는 view·group·정렬(WP-1238)(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
   function reset() {
-    setParams((prev) => {
+    // 보기·그룹·정렬·열 구성도 렌더 값이 아니라 라이브 주소에서 이어받는다(WP-2148).
+    // 쓰기가 접히면(다른 화면 이동 보류, WP-2148) 대기 검색어 취소·draft 비우기도 내지 않는다 — 부수 효과는 쓰기가 true 일 때만.
+    const written = writeLive((live) => {
       const p = new URLSearchParams();
-      if (view === 'board') p.set('view', 'board');
-      if (groupParam) p.set('group', groupParam);
-      return carryViewOptions(carrySort(p, prev), prev);
-    }, issueFiltersResetNav());
+      if (parseView(live) === 'board') p.set('view', 'board');
+      const group = parseGroupParam(live);
+      if (group) p.set('group', group);
+      return carryViewOptions(carrySort(p, live), live);
+    }, issueFiltersResetOptions());
+    if (!written) return;
+    cancelPendingIssueSearchWrite();
     // 검색 입력 직후(300ms debounce 대기 중)에 눌러도 예약된 q 쓰기가 URL 을 되살리지 않게 draft 도 비운다 —
     // router state 의 지우기 신호(WP-2125)와 함께, 이 훅 안의 draft 는 바로 '' 로 맞춘다(WP-2115).
     setQDraft('');
@@ -253,27 +332,8 @@ export function useIssueFilterControls(
   // 0건 빈 상태 단추(IssueListView)와 같은 기준 filterOnlyKey 를 쓴다(WP-2115).
   const hasActiveFilters = filterOnlyKey(filters) !== '';
 
-  // URL filters → 범용 FilterValue. 상태 범주/우선순위는 문자열, 상태/라벨/사이클/유형/담당자는 숫자 id.
-  const filterValue: FilterValue = useMemo(
-    () => ({
-      statusId: filters.statusIds,
-      status: filters.statuses,
-      priority: filters.priorities,
-      label: filters.labelIds,
-      cycle: filters.cycleIds,
-      // 구성요소 — id 와 「구성요소 없음」('none')을 한 facet 값으로.
-      component: componentFacetValue(filters.componentIds, filters.componentNone),
-      // 수정 버전·영향 버전 — 구성요소처럼 id 와 「없음」('none')을 한 facet 값으로.
-      fixVersion: versionFacetValue(filters.fixVersionIds, filters.fixVersionNone),
-      affectsVersion: versionFacetValue(filters.affectsVersionIds, filters.affectsVersionNone),
-      type: filters.typeIds,
-      // 담당자 — id 와 「미지정」('none', URL assignee=null)을 한 facet 값으로(WP-1020).
-      assignee: assigneeFacetValue(filters.assigneeIds, filters.includeUnassigned),
-      // 완료일 기간은 토큰 하나(프리셋 또는 'from~to') — 단일 선택 facet.
-      closedIn: filters.closedIn ? [filters.closedIn] : [],
-    }),
-    [filters],
-  );
+  // URL filters → 범용 FilterValue(순수 함수 filtersToFacetValue). 렌더 값은 filters 가 바뀔 때만 새로 만든다.
+  const filterValue: FilterValue = useMemo(() => filtersToFacetValue(filters), [filters]);
 
   // 구성요소 필터가 걸려 있는가 — 구성요소가 모두 보관돼도 facet 을 남겨 풀 수 있게 한다.
   const componentFilterActive = filters.componentIds.length > 0 || filters.componentNone;
@@ -384,31 +444,28 @@ export function useIssueFilterControls(
   );
 
   // FilterValue → URL filters. 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
-  function onFilterChange(next: FilterValue) {
-    const fixVersion = versionFilterFromFacet(next.fixVersion);
-    const affectsVersion = versionFilterFromFacet(next.affectsVersion);
-    writeFilters(
-      {
-        ...filters,
-        statuses: (next.status ?? []) as string[],
-        statusIds: (next.statusId ?? []) as number[],
-        priorities: (next.priority ?? []) as string[],
-        labelIds: (next.label ?? []) as number[],
-        cycleIds: (next.cycle ?? []) as number[],
-        ...componentFilterFromFacet(next.component),
-        fixVersionIds: fixVersion.ids,
-        fixVersionNone: fixVersion.none,
-        affectsVersionIds: affectsVersion.ids,
-        affectsVersionNone: affectsVersion.none,
-        typeIds: (next.type ?? []) as number[],
-        // 담당자 필터 — 숫자 id 배열로 왕복(#363), 「미지정」은 includeUnassigned 로 나눈다(WP-1020).
-        ...assigneeFilterFromFacet(next.assignee),
-        // 완료일 기간 — 단일 값(토큰)으로 왕복. 비면 null.
-        closedIn: next.closedIn?.[0] != null ? String(next.closedIn[0]) : null,
-      },
-      view,
-      groupParam,
-    );
+  // next 는 렌더 시점 filterValue 에서 사용자가 하나 바꾼 값 — 렌더 값과 달라진 facet 키(배열 원소 순서까지 비교)만 라이브 필터에 얹고,
+  // 같은 키는 라이브 값을 둔다(보류 중인 저장 보기가 건 조건을 되돌리지 않게, WP-2148).
+  // 바뀐 키는 next 로 통째로 바꾸지 않고 렌더 값 대비 더해진·빠진 값을 라이브 facet 값에 적용한다 — 보류 중 보기가 같은 facet 에 건 값이 사라지지 않게(WP-2148).
+  // 단일 선택 facet(FacetDef.single, 완료일)은 더하고 빼는 개념이 없어 next 값을 그대로 쓴다.
+  // 비교 기준(base)은 렌더 값이 아니라 useFacetToggle 이 meta.base 로 넘기는 보내기 전 latest(낙관 상태)다 — 렌더 반영이 늦을 때
+  // (같은 값을 렌더 전에 켰다 끔, 렌더 [A,B] 에서 A 를 껐다 켬) 렌더 값과 비교하면 변화를 놓쳐 lost update 가 난다(WP-2148). meta 가 없으면 렌더 값.
+  function onFilterChange(next: FilterValue, meta?: FacetChangeMeta) {
+    const base = meta?.base ?? filterValue;
+    writeFilters((cur) => {
+      const liveValue = filtersToFacetValue(cur.filters);
+      const merged: FilterValue = { ...liveValue };
+      for (const key of Object.keys(next)) {
+        if (sameFacetValue(next[key], base[key])) continue;
+        const single = facets.find((d) => d.key === key)?.single === true;
+        // 「선택 해제」 단추(meta.cleared)는 보류 중 보기가 건 같은 facet 값도 남기지 않고 []로 쓴다(WP-2148).
+        // 마지막 값 하나를 끈 토글도 next 가 []지만 그건 그 값만 뺀다 — mergeFacetValue 가 보류 보기의 다른 값을 남긴다.
+        const cleared = meta?.cleared === key;
+        merged[key] = single || cleared ? next[key] : mergeFacetValue(liveValue[key], base[key], next[key]);
+      }
+      // 안 바뀐 키는 라이브 값이 왕복(filtersToFacetValue → facetValueToFilters)하므로 그대로 남는다.
+      return { ...cur, filters: { ...cur.filters, ...facetValueToFilters(merged) } };
+    });
   }
 
   // 조건 칩(오래 멈춤·기다리는 중·마감 기간, WP-1478) — 라벨 기준일은 완료일 프리셋과 같은 KST 오늘 정오.
@@ -416,12 +473,14 @@ export function useIssueFilterControls(
 
   // 조건 칩 하나 지우기 — 그 조건만 빼고 다시 쓴다.
   function removeCondition(key: IssueConditionKey) {
-    writeFilters(withoutCondition(filters, key), view, groupParam);
+    writeFilters((cur) => ({ ...cur, filters: withoutCondition(cur.filters, key) }));
   }
 
   // 「완료 모두 보기」 토글 — 데스크톱 버튼과 모바일 뷰 시트가 공유.
   function toggleShowAllClosed() {
-    writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupParam);
+    // 목표 값은 사용자가 본 단추 상태(렌더 값)의 반대 — 라이브 값을 뒤집으면 보류 중 보기가 closed=all 을 걸었을 때 「켜기」가 꺼짐이 된다(WP-2148).
+    const target = !filters.showAllClosed;
+    writeFilters((cur) => ({ ...cur, filters: { ...cur.filters, showAllClosed: target } }));
   }
 
   return {

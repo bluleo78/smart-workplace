@@ -2,7 +2,7 @@
 // facet 값 토글·비우기 — 「＋ 필터」(FacetFilter)와 빠른 필터 칩(QuickFilterBar·모바일 칩 줄)이 같은 규칙을 쓴다.
 import { useEffect, useRef } from 'react';
 
-import type { FacetDef, FacetValue, FilterValue } from './types';
+import type { FacetChangeMeta, FacetDef, FacetValue, FilterValue } from './types';
 
 /**
  * 값 토글(single facet 은 대체)·facet 비우기를 돌려준다.
@@ -10,7 +10,11 @@ import type { FacetDef, FacetValue, FilterValue } from './types';
  * value prop 반영이 한 틱 이상 늦을 수 있어(React Router 는 navigation 을 transition 으로 처리), 연속 토글 때 두 번째
  * 클릭이 갱신 전 value 를 읽어 첫 선택을 덮어쓰는 lost update 가 났다. 낙관적으로 ref 를 먼저 갱신해 다음 토글이 이어받는다.
  */
-export function useFacetToggle(facets: FacetDef[], value: FilterValue, onChange: (next: FilterValue) => void) {
+export function useFacetToggle(
+  facets: FacetDef[],
+  value: FilterValue,
+  onChange: (next: FilterValue, meta?: FacetChangeMeta) => void,
+) {
   const latest = useRef(value);
   useEffect(() => {
     latest.current = value;
@@ -24,14 +28,15 @@ export function useFacetToggle(facets: FacetDef[], value: FilterValue, onChange:
     const next = cur.includes(v) ? cur.filter((x) => x !== v) : single ? [v] : [...cur, v];
     const merged = { ...base, [key]: next };
     latest.current = merged;
-    onChange(merged);
+    onChange(merged, { base });
   }
 
-  // 해당 facet 의 모든 값 비움.
+  // 해당 facet 의 모든 값 비움 — 「선택 해제」 단추. 마지막 값 하나를 끈 toggle 도 빈 배열을 보내므로, 호출부가 둘을 구분하게 meta.cleared 로 알린다(WP-2148).
   function clear(key: string) {
-    const merged = { ...latest.current, [key]: [] };
+    const base = latest.current;
+    const merged = { ...base, [key]: [] };
     latest.current = merged;
-    onChange(merged);
+    onChange(merged, { base, cleared: key });
   }
 
   return { toggle, clear };

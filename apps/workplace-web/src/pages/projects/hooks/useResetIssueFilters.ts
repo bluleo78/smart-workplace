@@ -28,8 +28,8 @@ export function registerPendingSearchCancel(cancel: () => void): () => void {
   };
 }
 
-/** 대기 중(300ms debounce)인 이슈 검색어 쓰기를 지금 접는다 — issueFiltersResetNav() 가 부른다(호출부가 따로 부르다 빠뜨리지 않게). */
-function cancelPendingIssueSearchWrite(): void {
+/** 대기 중(300ms debounce)인 이슈 검색어 쓰기를 지금 접는다 — issueFiltersResetNav() 가 부른다(호출부가 따로 부르다 빠뜨리지 않게). 쓰기가 접힐 수 있는 호출부(WP-2148)는 쓰기 성공 뒤 직접 부른다. */
+export function cancelPendingIssueSearchWrite(): void {
   pendingSearchCancelers.forEach((cancel) => cancel());
 }
 
@@ -62,6 +62,11 @@ export function withIssueFiltersReset(): object {
  */
 export function issueFiltersResetNav(): { replace: true; state: object } {
   cancelPendingIssueSearchWrite();
+  return issueFiltersResetOptions();
+}
+
+/** 부수 효과 없는 「필터 지우기」 이동 옵션(replace + 지우기 신호) — 쓰기가 접힐 수 있는 호출부가 쓰고, 검색어 취소는 쓰기 성공 뒤 cancelPendingIssueSearchWrite() 로 낸다(WP-2148). */
+export function issueFiltersResetOptions(): { replace: true; state: object } {
   return { replace: true, state: withIssueFiltersReset() };
 }
 
