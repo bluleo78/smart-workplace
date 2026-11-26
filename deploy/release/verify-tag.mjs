@@ -9,6 +9,7 @@
 // - 기준: 태그 커밋의 조상 중 가장 높은 vX.Y.Z(findBase — 버린 릴리스 abandoned-releases.json 은 뺀다). 없으면 실패(첫 릴리스 v0.9.0 의 기준은 v0.8.0). 태그 버전은 기준보다 높아야 한다.
 // 원격 브랜치는 호출 전에 받아 둬야 한다(CI 는 main·hotfix/* 를 refs/remotes/origin 으로 fetch). 종료 코드 0 = 통과, 1 = 실패(stderr `오류: …`).
 // 플러그인 ref 태그 확인(WP-2138)은 `git ls-remote` 로 설치 주소(marketplace `source.url`)에 직접 접속한다 — GitLab CI 의 `origin` 은 gitlab.iacloud.kr 이라 사람들이 설치하는 GitHub 와 다르고, 원격 브랜치 fetch 만으로도 부족하며 오프라인에서 돌면 네트워크 오류가 난다.
+// 접속이 길게 멈추지 않도록 그 호출에는 시간 제한을 거고(아래 LS_REMOTE_TIMEOUT_MS), 설치 주소는 `https://` 로 시작하는 값만 받아 옵션으로 읽히지 않게 `--` 뒤에 둔다(WP-2138 리뷰 후속).
 import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,9 @@ import { isMainModule } from './lib/cli.mjs';
 import { compareVersions, isVersionTag } from './lib/semver.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** 설치 주소로 하는 `git ls-remote` 를 기다릴 상한(ms) — github.com 이 길게 멈추면 릴리스 게이트도 멈추지 않게 한다(WP-2138 리뷰 후속 ①). */
+export const LS_REMOTE_TIMEOUT_MS = 60_000;
 
 /** 태그 커밋을 포함할 수 있는 원격 브랜치 — 그 밖의 브랜치(기능 브랜치 등)에만 있는 커밋은 릴리스하지 않는다. */
 export const isReleaseBranch = (ref) => ref === 'origin/main' || ref.startsWith('origin/hotfix/');
@@ -43,8 +47,13 @@ export function verifyPluginRefTag({ exec, repoRoot, commit }) {
   if (!version) throw new Error('marketplace.json 의 genia-works ref 를 읽지 못했다 — ref 는 genia-works--v<버전> 이어야 한다');
   // url 을 못 읽으면 확인할 주소가 없는 것이다 — 경고로 넘기면 WP-2138 과 같은 사고가 반복되므로 멈춘다.
   if (!url) throw new Error(`marketplace.json 의 genia-works source.url 을 읽지 못했다 — 사람들이 설치하는 주소라 ${MARKETPLACE_PATH} 에 source.url 을 적는다`);
+  // http·파일 경로 같은 값은 검증 없이 넘기면 게이트가 엉뚱한 곳을 확인한다(WP-2138 리뷰 후속 ②) — 설치 주소는 https 저장소만 쓴다.
+  if (!url.startsWith('https://'))
+    throw new Error(`marketplace.json 의 genia-works source.url 이 https:// 로 시작하지 않는다: ${url} — 사람들이 설치하는 주소는 https 저장소다`);
   const tag = `genia-works--v${version}`;
-  if (git('ls-remote', '--tags', url, `refs/tags/${tag}`).trim() === '')
+  // url 앞의 `--` 는 값을 옵션으로 읽히지 않게 막는다(WP-2138 리뷰 후속 ②). timeout 은 github.com 이 길게 멈출 때 게이트가 잡히지 않게(WP-2138 리뷰 후속 ①).
+  const found = exec('git', ['ls-remote', '--tags', '--', url, `refs/tags/${tag}`], { cwd: repoRoot, timeout: LS_REMOTE_TIMEOUT_MS }).stdout;
+  if (found.trim() === '')
     throw new Error(`${tag} 태그가 설치 주소(${url}) 에 없다 — 먼저 \`git tag ${tag} <커밋>\` · \`git push ${url} ${tag}\` 로 태그를 올리세요`);
   return { tag, version, url };
 }

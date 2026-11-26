@@ -31,12 +31,12 @@ Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/
 | 잡 | 하는 일 |
 |---|---|
 | verify-tag | 태그 형식, 태그 커밋이 `main`·`hotfix/*` 에 있는지, `releases/<버전>.md` 존재, `marketplace.json` ref(`genia-works--v<버전>`) 태그가 설치 주소(`source.url`)에 있는지, 기준 태그 계산 |
-
-verify-tag 는 설치 주소(GitHub)로 `git ls-remote` 를 하므로 **github.com 으로 나가는 outbound** 가 필요하다(WP-2138). GitLab 자체 서명 인증서는 러너가 넘기는 CA 로 믿되, `http.sslCAInfo` 가 기본 번들을 대체하는 까닭에 시스템 CA 를 덧붙여 둔다(`.gitlab-ci.yml` `trust-gitlab-ca`) — 덧붙이지 않으면 태그가 제대로 있어도 모든 릴리스가 막힌다.
 | build-images | 바뀐 앱만 `:sha-<커밋>` 빌드 → 모두 성공하면 `:<버전>` 태그(승계 포함) → digest 검증 → 매니페스트 업로드 |
 | checklist | 기준 릴리스 대비 배포 체크리스트 → GitLab Release 본문 |
 | gitlab-release | Release 생성(매니페스트·노트 링크) |
 | trivy-scan | 취약점·SBOM 기록(실패해도 릴리스를 막지 않는다) |
+
+verify-tag 는 설치 주소(GitHub)로 `git ls-remote` 를 하므로 **github.com 으로 나가는 outbound** 가 필요하다(WP-2138). GitLab 자체 서명 인증서는 러너가 넘기는 CA 로 믿되, `http.sslCAInfo` 가 기본 번들을 대체하는 까닭에 시스템 CA 를 덧붙여 둔다(`.gitlab-ci.yml` `trust-gitlab-ca`) — 덧붙이지 않으면 태그가 제대로 있어도 모든 릴리스가 막힌다. 설치 주소 접속이 길게 멈추지 않도록 `ls-remote` 에 60초 시간 제한이 걸려 있고(`verify-tag.mjs` `LS_REMOTE_TIMEOUT_MS`), 잡 제한 시간도 15분으로 짧게 잡아 두었다(WP-2138 리뷰 후속).
 
 프로젝트 CI/CD 변수(Protected, `v*` 는 Protected tag): `DOCKERHUB_USERNAME`·`DOCKERHUB_TOKEN`(iacloudops push), `DHI_USERNAME`·`DHI_TOKEN`(dhi.io 베이스 pull). 비밀값 백업은 아래 「비밀값 백업·복구」. *(GitLab 설정·첫 파이프라인 검증은 WP-442)*
 

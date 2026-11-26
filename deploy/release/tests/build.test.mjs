@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runRelease, findBase, abandonedReleases, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit, marketplaceGitSource, marketplaceRefVersion } from '../lib/build.mjs';
+import { runRelease, findBase, abandonedReleases, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit, marketplaceGitSource, marketplaceRefVersion, defaultExec } from '../lib/build.mjs';
 import { REPO, SHA, catalog, deps, NOW, repoOf, fakeDigest, baseManifest, makeExec, buildCalls, createCalls, MARKETPLACE_URL, marketplaceWithRef } from './helpers.mjs';
 
 // runRelease 는 기준(base)과 기준 매니페스트를 호출자가 정해 넘긴다(CLI main 이 한 번에 결정). 테스트는 기본으로 v0.8.0 기준 + 전체 기준 매니페스트를 준다.
@@ -462,4 +462,11 @@ test('abandonedReleases: 파일 있는지 보는 git 오류는 삼키지 않고,
   const raw = (stdout) => (cmd, args) => ({ stdout: args[0] === 'ls-tree' ? 'deploy/release/abandoned-releases.json\n' : stdout });
   assert.throws(() => abandonedReleases({ exec: raw('{ "versions": { "0.9.1": "x", } }'), repoRoot: REPO }), /형식이 틀렸다/);
   assert.throws(() => abandonedReleases({ exec: raw('{ "versions": { "0.9.1": {} } }'), repoRoot: REPO }), /형식이 틀렸다/);
+});
+
+test('defaultExec: timeout 안에 끝나지 않는 명령은 끊고 무엇이 멈췄는지 말한다 (WP-2138 리뷰 후속 ①)', () => {
+  assert.throws(() => defaultExec(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { timeout: 100 }),
+    (e) => /100ms 안에 끝나지 않아 중단했다/.test(e.message) && e.message.includes('-e'));
+  // timeout 을 안 주면 그대로 기다린다(기존 호출은 바꾸지 않는다).
+  assert.equal(defaultExec(process.execPath, ['-e', 'process.stdout.write("ok")']).stdout, 'ok');
 });
