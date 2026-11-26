@@ -20,12 +20,17 @@ const DRY_RUN_DIGEST = `sha256:${'0'.repeat(64)}`;
 /**
  * 실제 실행기. 기본은 stdout 을 잡아 돌려주고, `{ capture: false }` 면 자식의 출력을 그대로 흘린다(긴 docker 빌드 로그를 실시간으로 보려고).
  * `toStderr: true`(capture: false 와 함께)면 자식의 stdout 도 우리 stderr 로 흘려 보낸다 — 호출 도구의 stdout 은 체크리스트·상태 표 전용으로 남긴다(helm 요약 등이 섞이지 않게).
+ * `timeout`(ms)은 그 안에 끝나지 않는 명령을 끊는다 — 원격 접속(`git ls-remote`)이 길게 멈출 때 릴리스 게이트가 잡히지 않게 쓴다(WP-2138 리뷰 후속).
  * 종료 코드가 0 이 아니면 명령과 stderr 를 담아 throw 한다.
  */
-export function defaultExec(cmd, args, { capture = true, cwd, toStderr = false } = {}) {
+export function defaultExec(cmd, args, { capture = true, cwd, toStderr = false, timeout } = {}) {
   // maxBuffer: 기본 1MB 면 릴리스 범위 전체 `git diff -U0`(WP-441, 수백 KB~수 MB)가 ENOBUFS 로 잘린다. 넉넉히 256MB.
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: capture ? ['ignore', 'pipe', 'pipe'] : toStderr ? ['inherit', 2, 'inherit'] : 'inherit' });
-  if (r.error) throw new Error(`${cmd} 실행 실패: ${r.error.message}`);
+  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout, stdio: capture ? ['ignore', 'pipe', 'pipe'] : toStderr ? ['inherit', 2, 'inherit'] : 'inherit' });
+  if (r.error) {
+    // 시간 제한에 걸린 것과 실행 자체가 실패한 것을 가른다 — 시간 제한 쪽은 무엇이 멈췄는지가 안내여야 러너·사람이 알 수 있다.
+    if (r.error.code === 'ETIMEDOUT') throw new Error(`${cmd} ${args.join(' ')} 실패 — ${timeout}ms 안에 끝나지 않아 중단했다`);
+    throw new Error(`${cmd} 실행 실패: ${r.error.message}`);
+  }
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} 실패 (종료 코드 ${r.status})${r.stderr ? `\n${r.stderr.trim()}` : ''}`);
   return { stdout: r.stdout ?? '' };
 }

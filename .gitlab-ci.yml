@@ -52,6 +52,10 @@ default:
 verify-tag:
   stage: verify
   image: node:24-alpine
+  # 빌드 없이 끝나는 잡이라 기본 잡 제한 시간(1시간) 대신 짧게 잡는다 — 설치 주소(github.com) 접속이 멈춰도 파이프라인이 1시간을 기다리지 않게(WP-2138 리뷰 후속 ①).
+  # 스크립트 안의 ls-remote 는 60초로 이미 끊겨 있어(verify-tag.mjs LS_REMOTE_TIMEOUT_MS) 이 값은 clone·fetch 까지의 여유 상한이다.
+  # 저장소 pack 약 110MiB 를 GIT_DEPTH 0 으로 받는 clone + 태그 fetch + 검증(60초 상한)을 합쳐 3분 안팎으로 보고, 5배 여유를 둔 15분으로 잡았다.
+  timeout: 15m
   before_script:
     - apk add --no-cache git >/dev/null
     - *trust-gitlab-ca
