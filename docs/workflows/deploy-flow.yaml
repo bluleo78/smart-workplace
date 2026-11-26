@@ -1,0 +1,93 @@
+# 운영 배포 워크플로우 정의 (WP-2144, 에픽 WP-2134)
+#
+# 개발 워크플로우는 머지까지만 한다. 운영 반영은 사람이 승인한 뒤에만 — 프로젝트마다 이 정의를 가져다 「운영 배포」 워크플로우로 게시한다.
+# 쓰는 법: 프로젝트 › 워크플로우 › 「워크플로우 만들기」(이름 「운영 배포」) → YAML 보기에 이 파일을 붙여 넣고 roles 의 members 만
+#          그 프로젝트의 배포 담당 AI·승인자로 바꿔 게시한다. 앱마다 다른 값은 앱 저장소의 .genia/deploy.yaml 에 둔다(노드 지시에 적지 않는다).
+# 흐름: 시작(배포 담당 AI 에게 배포 이슈 지정) → 배포 준비(AI) → 배포 승인(사람) → 운영 반영(AI) → 끝
+# 노드 지시는 genia-works 플러그인의 deploy 스킬(plugins/genia-works/skills/deploy)을 부른다 — 결과 이름(ready·nothing·blocked·approve·
+#   deployed·failed)과 준비 산출물(tag·commit·previousTag)은 그 스킬과 맞춘 계약이다. 바꾸면 스킬도 함께 바꾼다.
+# 검증: apps/workplace-api 의 DeployFlowDefinitionTest 가 파서·검증기를 통과(ERROR·WARNING 0)하는지 지킨다.
+schema: genia/workflow@1
+name: 운영 배포
+
+roles:
+  # members 는 예시다 — 게시 전에 그 프로젝트의 구성원으로 바꾼다.
+  deployer: { name: 배포 담당, members: [deploy@iacloud.kr] }
+  owner:    { name: 승인자,   members: [dh.yang@iacloud.kr] }
+
+nodes:
+  start: { type: start, name: 시작 }
+
+  prepare:
+    type: agent_task
+    name: 배포 준비
+    role: deployer
+    requires: [local-repo]
+    maxVisits: 3
+    instructions: |
+      배포 준비 노드다 — 무엇이 나가는지 정리해 승인자에게 보인다. 클러스터는 읽기만 한다.
+      앱 저장소 폴더에서 genia-works 플러그인의 deploy 스킬을 `/genia-works:deploy <이 이슈 키> prepare` 로 부르고 그 절차대로 결과를 고른다.
+      - `ready`: 산출물 `tag`·`commit`·`previousTag` 를 꼭 넣고, 의견에 「지금 → 낼」 태그, 배포 설정·스크립트 변경, 이미지 빌드, 포함 이슈·커밋, 매니페스트 변경을 적는다.
+      - `nothing`: 운영이 이미 그 태그(또는 더 새 커밋)라 낼 것이 없다.
+      - `blocked`: 설정 파일이 없거나 틀림, 이미지 빌드 실패·없음, 운영 이미지를 읽지 못함 — 의견에 무엇이 막았는지와 사람이 할 일.
+      - 사람에게 물어야 하면 결과 `ask`(이동 의견 맨 앞에 승인자를 @멘션).
+      `blocked` 는 결과 이동이다 — `report_agent_work` 의 BLOCKED 보고를 쓰지 않는다(실행이 멈춘다).
+    outputs:
+      tag: { type: string }
+      commit: { type: string }
+      previousTag: { type: string }
+    outcomes:
+      ready:   { to: approve, requireComment: true }
+      nothing: { to: finish, requireComment: true }
+      blocked: { to: unblock, requireComment: true }
+    ask: { role: owner }
+
+  approve:
+    type: human_task
+    name: 배포 승인
+    role: owner
+    instructions: |
+      배포 준비 의견에서 나갈 내용(태그, 포함 이슈·커밋, 매니페스트·배포 스크립트 변경)을 보고 정한다.
+      - `approve`: 운영 반영으로 넘어간다. 반영은 준비에서 정한 태그 그대로다(그 뒤 머지된 커밋은 섞이지 않는다).
+      - `reject`: 반영하지 않고 끝낸다 — 의견에 이유.
+      운영 반영이 실패해 되돌린 뒤 돌아왔으면 반영 의견의 원인을 보고 다시 승인하거나 끝낸다.
+    timeout: { after: P1D, then: remind }
+    outcomes:
+      approve: { to: deploy }
+      reject:  { to: finish, requireComment: true }
+
+  unblock:
+    type: human_task
+    name: 배포 막힘 확인
+    role: owner
+    instructions: |
+      배포 준비가 막혔다 — 준비 의견의 사유(설정 파일·이미지 빌드·운영 이미지 읽기)를 고친 뒤 정한다.
+      - `retry`: 배포 준비를 다시 한다.
+      - `cancel`: 이번 배포를 그만둔다 — 의견에 이유.
+    timeout: { after: P1D, then: remind }
+    outcomes:
+      retry:  { to: prepare }
+      cancel: { to: finish, requireComment: true }
+
+  deploy:
+    type: agent_task
+    name: 운영 반영
+    role: deployer
+    requires: [local-repo]
+    maxVisits: 3
+    instructions: |
+      운영 반영 노드다 — 승인된 태그를 운영에 반영한다. 배포 담당 AI 가 이 노드에서 하는 반영이 「운영 배포 하지 않는다」 규칙의 유일한 예외다.
+      앱 저장소 폴더에서 genia-works 플러그인의 deploy 스킬을 `/genia-works:deploy <이 이슈 키> apply` 로 부르고 그 절차대로 결과를 고른다.
+      - 반영할 태그·커밋은 배포 준비 산출물 그대로다. 브랜치 끝을 다시 고르지 않는다.
+      - `deployed`: rollout·상태 주소가 정상 — 포함 이슈에 「운영 반영(태그)」 댓글을 남긴 뒤, 의견에 이전 → 반영 태그와 확인 결과.
+      - `failed`: 반영·확인이 실패해 `rollout undo` 로 되돌렸다 — 의견에 원인과 되돌림 결과. 승인자에게 돌아간다.
+      - 사람에게 물어야 하면 결과 `ask`(이동 의견 맨 앞에 승인자를 @멘션).
+    outcomes:
+      deployed: { to: finish, requireComment: true }
+      failed:   { to: approve, requireComment: true }
+    ask: { role: owner }
+
+  finish: { type: end, name: 끝 }
+
+start:
+  - { when: { assigneeRole: deployer }, to: prepare }

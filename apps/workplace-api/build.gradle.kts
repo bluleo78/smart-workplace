@@ -166,6 +166,13 @@ tasks.withType<Test> {
         .withPropertyName("aiDevFlowDefinition")
         .withPathSensitivity(PathSensitivity.NONE)
         .optional()
+    // DeployFlowDefinitionTest 가 운영 배포 정의와 그 짝인 플러그인 deploy 스킬을 읽는다(WP-2144) — 둘 중 하나만 바뀌어도 다시 돌게.
+    inputs.files(
+            rootProject.file("../../docs/workflows/deploy-flow.yaml"),
+            rootProject.file("../../plugins/genia-works/skills/deploy/SKILL.md"))
+        .withPropertyName("deployFlowDefinition")
+        .withPathSensitivity(PathSensitivity.NONE)
+        .optional()
     // 운영·bootRun 과 같은 UTC 기본 시간대로 테스트 JVM 을 띄운다(WP-939) — 테스트는 WorkplaceApplication.main 을
     // 거치지 않아 거기서 고정한 시간대가 적용되지 않는다. pgjdbc 가 이 값으로 DB 세션 TimeZone 을 맞춘다.
     systemProperty("user.timezone", "UTC")
