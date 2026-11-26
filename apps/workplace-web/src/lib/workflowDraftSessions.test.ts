@@ -64,7 +64,8 @@ it('테넌트 전환은 이전 요청을 무효화하지만 사용자 범위의 
 it('세션 저장소 쓰기가 실패해도 메모리 초안을 유지하고 복원 불가 상태를 알린다', () => {
   const key = workflowDraftStorageKey(1, 3, 7)!
   pruneWorkflowDraftSessions(key, new Set([42]), true)
-  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota') })
+  // sessionStorage 의 실제 프로토타입에 건다 — Node 26 에서는 Storage.prototype(window.Storage 포함)이 jsdom 창 sessionStorage 의 프로토타입과 달라 가로채지 못한다
+  const write = vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'setItem').mockImplementation(() => { throw new DOMException('quota') })
   const edit = { edit: { yaml: 'draft', expectedDraftUpdatedAt: 'old', baseYaml: '' }, conflict: false }
   try {
     expect(updateWorkflowDraftSession(key, 42, edit)).toBe(false)
