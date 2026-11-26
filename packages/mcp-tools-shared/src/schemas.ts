@@ -94,6 +94,9 @@ export const updateIssueInput = z.object({
   issueKey: z.string().min(1),
   title: z.string().max(200).optional(),
   body: z.string().max(ISSUE_BODY_MAX_LENGTH).optional(),
+  // WP-2113(리뷰 후속): 제목·본문 변경 시 서버가 요구하는 낙관적 동시성 토큰 — get_issue_detail 응답의 version 을
+  // 읽은 그 값을 그대로 넘긴다. 쓰기 직전에 새로 읽어 넣으면 언제나 맞아 서버가 막으려는 덮어쓰기를 그대로 두기 때문이다.
+  version: z.number().int().min(0).optional(),
   priority: issuePriorityInput.optional(),
   // WP-807·WP-870: 범주 또는 프로젝트 상태 이름 — 핸들러가 범주는 status, 이름은 statusName 으로 보내 서버가 해석한다. 설명은 크기 상한 때문에 영어 짧은 문구.
   status: z.string().min(1).optional().describe('TODO/IN_PROGRESS/DONE/CANCELED or a status name'),

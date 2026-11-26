@@ -85,6 +85,8 @@ export interface IssueDetail {
   /** 프로젝트 상태 이름(WP-807) — 범주 안의 개별 상태. 서버가 안 주면 null. */
   statusName: string | null;
   priority: string;
+  /** 낙관적 동시성 토큰(#611) — 제목·본문을 바꿀 때 읽은 이 값 그대로 update_issue(version) 로 넘긴다(WP-2113). 서버가 안 주면 null. */
+  version: number | null;
   type: string | null;
   assignees: PersonView[];
   reporter: PersonView | null;
@@ -256,6 +258,9 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     status: String(s.status ?? r.status ?? ''),
     statusName: (s.statusName ?? r.statusName ?? null) as string | null,
     priority: String(s.priority ?? r.priority ?? ''),
+    // WP-2113(반려 ④): 서버가 준 version 을 그대로 싣는다 — 없을 때 0 으로 채우면 실제 값처럼 보여, 그 값을 넘긴 호출자가
+    // 알 수 없이 409 를 맞는다(없는 값은 null 로 밝힌다).
+    version: s.version === undefined || s.version === null ? null : Number(s.version),
     type: typeName(s.type),
     assignees: toPeopleView(s.assignees ?? r.assignees),
     reporter: r.reporter ? toPersonView(r.reporter as Raw) : null,

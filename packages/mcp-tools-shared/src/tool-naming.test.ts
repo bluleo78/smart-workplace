@@ -33,8 +33,13 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  * 19,400 → 19,450: 2026-11-25 WP-2097 update_issue 에 relateToReleasedParent 인자(스키마 한 필드 + 설명 한 줄)가 늘었다
  *   (직전 19,369, 늘어 19,413). 짧은 설명이지만 한글 1자 = 1토큰 근사라 31 토큰 남던 자리에 못 들어간다. 다른 도구 설명은 줄이지 않았다
  *   (무인 세션 결정 — 검토 때 dh.yang 확인 요청).
+ * 19,450 → 19,550: 2026-11-26 WP-2113 리뷰 후속 — main 상한(19,500 → 19,550)에 맞춰 같은 값으로 올려 머지 후 상한 줄은 충돌하지 않는다.
+ *   반려 ⑤ 로 뺀 알림 문구 `Status/priority changes notify …` 를 되살렸다(브랜치 측정 19,469, main 설명과 합치면 19,546 — 여유 4).
+ *   「결과에 새 version 을 싣는다」는 뜻은 도구 설명에서 빼고(자리가 없어) 프롬프트(issue-agent 부분 수정 안내·결정 사항 규칙)와
+ *   결과 JSON 의 `version` 이 담는다. `Unknown labels are created (gray).` 는 create_issue 설명의 `created (gray; createdLabels)`
+ *   가 이미 담아 계속 뺀다. 다른 도구 설명은 줄이지 않았다(무인 세션 결정 — 검토 때 dh.yang 확인 요청).
  */
-const DEFINITION_TOKEN_CAP = 19_450;
+const DEFINITION_TOKEN_CAP = 19_550;
 /**
  * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
  * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).

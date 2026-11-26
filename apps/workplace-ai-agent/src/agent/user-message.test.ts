@@ -308,6 +308,9 @@ describe('buildUserMessage', () => {
     expect(m).toContain('먼저 get_issue_detail 로 지금의 이슈 본문을 다시 읽습니다');
     expect(m).toContain('그 문구 한 줄만 덧붙이고');
     expect(m).toContain('나머지 본문은 한 글자도 바꾸지 않은 채 update_issue 로 저장합니다');
+    // WP-2113(반려 ①): 본문을 다시 쓸 때 읽은 version 을 함께 보낸다 — 안 그러면 서버 409 로 첫 시도가 밀린다.
+    expect(m).toContain('그때 읽은 version 을 update_issue 에 함께 싣습니다');
+    expect(m).toContain('싣지 않으면 서버가 409 로 거절합니다');
     expect(m).toContain('지금 본문을 읽지 못했으면 본문을 쓰지 말고');
     // 애매한 답에 `[확인 필요]` 로 다시 묻는 줄은 싣지 않는다(본문이 또 확인을 받으라고 한 쓰기만 표지로 묻는다).
     expect(m).not.toContain('답만으로 정할 수 없거나');

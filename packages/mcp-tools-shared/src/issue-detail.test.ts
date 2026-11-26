@@ -103,6 +103,14 @@ describe('normalizeIssueDetail', () => {
     expect(d.assignees).toEqual([{ username: 'alice', name: 'Alice', kind: 'HUMAN' }]);
   });
 
+  // WP-2113(리뷰 후속): 상세 응답에 version 을 싣는다 — update_issue(version) 로 넘길 값을 호출자가 읽을 수 있어야 한다.
+  // WP-2113(반려 ④): 서버가 안 준 때는 null 이다 — 0 으로 채우면 실제 값처럼 보여 그 값을 넘긴 호출자가 알 수 없이 409 를 맞는다.
+  it('summary.version 을 top-level version 으로 옮기고, 없으면 null 이다', () => {
+    expect(normalizeIssueDetail({ ...raw, summary: { ...raw.summary, version: 7 } }).version).toBe(7);
+    expect(normalizeIssueDetail(raw).version).toBeNull();
+    expect(normalizeIssueDetail({ ...raw, summary: { ...raw.summary, version: null } }).version).toBeNull();
+  });
+
   // WP-1038: 부모는 다른 프로젝트 에픽일 수 있어 응답의 projectKey 로 키를 만들고, 읽을 수 없는 부모는 { hidden: true } 만 준다.
   it('다른 프로젝트 부모는 부모의 projectKey 로, 가려진 부모는 hidden 으로 준다', () => {
     const cross = normalizeIssueDetail({

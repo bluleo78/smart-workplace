@@ -311,13 +311,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles, components replace the set ([] clears). ' +
         'reporter (username, humans only; open projects: non-members too): OWNER/ADMIN or current reporter only. ' +
-        'Names (type, milestone, cycles, components, fields) from get_project; unknown fail before any write. Unknown labels are created ' +
-        '(gray). Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
-        'Status/priority changes notify assignees, watchers, new assignees. agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.' +
+        'Names (type, milestone, cycles, components, fields) from get_project; unknown fail before any write. ' +
+        'Parts save separately: {ok, results, createdLabels?}; unknown status fails results.content, writes nothing else. ' +
+        'Status/priority changes notify assignees, watchers, new assignees. ' +
+        'title/body need version from get_issue_detail. ' +
+        'agentRuntime INTERNAL AIs ignore other AIs\' assigning, comments, status.' +
         LINK_RULE_AUTOLINK,
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, status, type, parent, relateToReleasedParent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, relateToReleasedParent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, version, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -357,6 +359,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         // 2) 필드별 팬아웃 — 각 단계 독립 저장, 성공/실패 구조화.
         const results: Record<string, string> = {};
         let url: string | undefined;
+        // WP-2113(반려 ③): 내용(제목·본문)을 바꾼 뒤 서버가 준 새 version — 다음 쓰기(상태 변경 등)가 자기 쓰기로 version 을 올려
+        // 본문 쓰기를 409 로 밀어내는 왕복을 막으려, 호출자가 바로 이어서 쓸 값을 결과에 돌려준다.
+        let newVersion: number | undefined;
 
         // 모르는 상태 이름은 어떤 쓰기보다 먼저 실패해야 한다 — 담당자·라벨 등만 바뀐 반쯤 고친 이슈를 남기지 않게.
         // 이름은 서버가 내용 PATCH 에서 해석·거절하므로 보통은 내용 PATCH 를 맨 앞에 두는 것으로 충분하다(아래 contentFirst).
@@ -369,13 +374,17 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           if (unknown) return JSON.stringify({ ok: false, results: { content: `failed: ${unknown}` } });
         }
         // 성공이면 응답 본문, 실패면 undefined 를 돌려준다 — 유형 변경 응답의 releasedParentKey 를 결과에 옮겨 담기 위해서(WP-2097).
-        const run = async <T>(key: string, fn: () => Promise<T>): Promise<T | undefined> => {
+        // WP-2113(반려 ②): conflictHint 를 준 단계가 서버 409 로 거절되면 실패 문구에 그 안내를 덧붙인다 — 안내가 없으면 호출자(AI)는
+        // 같은 요청을 그대로 되풀이한다(409 는 「version 을 실어 다시 보내라」는 뜻).
+        const run = async <T>(key: string, fn: () => Promise<T>, conflictHint?: string): Promise<T | undefined> => {
           try {
             const value = await fn();
             results[key] = 'ok';
             return value;
           } catch (e) {
             results[key] = `failed: ${errText(e)}`;
+            const status = (e as { response?: { status?: number } })?.response?.status;
+            if (conflictHint !== undefined && status === 409) results[key] += ` — ${conflictHint}`;
             return undefined;
           }
         };
@@ -390,20 +399,28 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         // WP-1780: 스테이징 파일 첨부(WP-422)는 내용 PATCH 의 fileIds 로 보낸다 — 서버가 본문 자리표시 번호를 빼고 나머지를 같은 트랜잭션에서 붙인다. 빈 배열은 싣지 않는다.
         if (fileIds?.length) content.fileIds = fileIds;
         if (Object.keys(content).length > 0) {
-          await run('content', async () => {
-            // WP-2113: 서버는 version 없는 제목·본문 변경을 409 로 막는다 — 내용(글 필드)을 고칠 때만
-            // 쓰기 전에 상세를 읽어 지금 version 을 실어 보낸다. 조회에 실패하면 밖으로 던져 run() 이
-            // results.content 실패로 남긴다(도구 호출 전체는 죽지 않는다) — 읽지 않고 보낼 때보다 못하지 않다.
-            // 읽은 뒤 남이 고치면 서버 409 가 같은 실패로 흘러 AI 가 재시도한다.
-            if (content.title !== undefined || content.body !== undefined) {
-              const detail = (await client.getIssueDetail(issueKey)) as { summary?: { version?: number } } | null;
-              const v = detail?.summary?.version;
-              if (typeof v === 'number') content.version = v;
-            }
-            // WP-1523: 내용 PATCH 응답(상세)에 서버가 실은 화면 주소를 결과에 옮긴다. 내용을 고치지 않은 호출에는 없다.
-            const updated = (await client.updateIssueContent(issueKey, content)) as { url?: unknown } | null | undefined;
-            if (typeof updated?.url === 'string' && updated.url) url = updated.url;
-          });
+          await run(
+            'content',
+            async () => {
+              // WP-2113(리뷰 후속): version 은 호출자가 상세에서 읽어 넘긴 값만 쓴다 — 쓰기 직전에 새로 읽으면 서버 값과
+              // 언제나 같아 충돌 검사가 없는 것과 같았기 때문이다(검토자 지적 「보호가 비어 없다」). version 없는 제목·본문
+              // 변경은 서버가 409 로 막고, 그 안내를 받아 호출자가 get_issue_detail 로 다시 읽어 재시도한다.
+              if (typeof version === 'number') content.version = version;
+              // WP-1523: 내용 PATCH 응답(상세)에 서버가 실은 화면 주소를 결과에 옮긴다. 내용을 고치지 않은 호출에는 없다.
+              // WP-2113(반려 ③): 새 version 도 함께 옮긴다 — 그 뒤 다른 쓰기가 version 을 올려 본문 재시도가 409 가 되는 것을 막는다.
+              const updated = (await client.updateIssueContent(issueKey, content)) as {
+                url?: unknown;
+                version?: unknown;
+                summary?: { version?: unknown };
+              } | null | undefined;
+              if (typeof updated?.url === 'string' && updated.url) url = updated.url;
+              const readVersion = updated?.summary?.version ?? updated?.version;
+              if (typeof readVersion === 'number') newVersion = readVersion;
+            },
+            // WP-2113(반려 ②): version 을 싣지 않은 요청이 409 로 돌아오면 무엇을 해야 하는지 함께 돌려준다 — version 을 싣고도
+            // 409 가 난 경우(남이 먼저 저장)는 서버 안내가 이미 충분해 붙이지 않는다.
+            typeof version === 'number' ? undefined : 'get_issue_detail 의 version 을 실어 다시 보내세요',
+          );
           // WP-1780: 첨부는 내용 PATCH 와 한 몸이라 결과도 같은 값(성공이면 ok, 실패면 같은 실패)으로 알린다 — 일찍 돌아가는 경로보다 먼저 채운다.
           if (fileIds?.length) results.attachments = results.content;
           // 상태 이름을 실은 내용 PATCH 가 실패했으면(모르는 이름 400 등) 나머지는 쓰지 않는다 — 이 앞의 쓰기는 드라이브 링크뿐이고 그때는 이름을 미리 확인했다.
@@ -446,7 +463,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         const ok = Object.values(results).every((v) => v === 'ok');
         // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.
-        return JSON.stringify({ ok, ...(url && { url }), ...(releasedParentKey && { releasedParentKey }), results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });
+        return JSON.stringify({
+          ok,
+          ...(url && { url }),
+          // WP-2113(반려 ③): 내용을 바꿨을 때만 — 다음 쓰기가 이 값을 그대로 싣게.
+          ...(newVersion !== undefined && { version: newVersion }),
+          ...(releasedParentKey && { releasedParentKey }),
+          results,
+          ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}),
+        });
       },
     },
     {
