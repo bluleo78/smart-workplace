@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { Attendee } from '../types/calendar'
 import {
   eventTimeLines,
+  isDeclinedByMe,
   joinButtonLabel,
   recurrenceLabel,
   reminderLabel,
@@ -318,5 +319,15 @@ describe('splitMeetingBoilerplate', () => {
     const r = splitMeetingBoilerplate(`${SEP}\nMicrosoft Teams 모임\n${tail}`)
     expect(r.boilerplate!.split('\n')).toHaveLength(20)
     expect(r.body).toContain('줄 30')
+  })
+})
+
+describe('isDeclinedByMe (WP-2149)', () => {
+  it('DECLINED 일 때만 true', () => {
+    expect(isDeclinedByMe({ myRsvpStatus: 'DECLINED' })).toBe(true)
+  })
+
+  it.each(['ACCEPTED', 'TENTATIVE', null, undefined] as const)('%s 는 false', (s) => {
+    expect(isDeclinedByMe({ myRsvpStatus: s })).toBe(false)
   })
 })

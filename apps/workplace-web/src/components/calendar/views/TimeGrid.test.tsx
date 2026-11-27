@@ -1,5 +1,5 @@
 // TimeGrid 접근성 테스트(WP-1906) — 날짜 열 이름·시간 칸 이름·로빙 tabIndex·키보드 조작.
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -185,5 +185,55 @@ describe('TimeGrid 접근성', () => {
     rerenderDays(weekOf(15))
     expect(zeroTabSlots()).toHaveLength(1)
     expect(zeroTabSlots()[0]).toHaveAccessibleName(TODAY_10)
+  })
+})
+
+// 거절한 일정 표시(WP-2149) — 흐림·취소선(제목만)·「거절」 배지. 시간 블록·종일 칩 모두.
+describe('TimeGrid 거절 일정 (WP-2149)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 21, 10))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  function setupDeclined() {
+    const onSelectEvent = vi.fn()
+    const events = [
+      calendarEvent({ id: 1, title: '수락 회의', myRsvpStatus: 'ACCEPTED', startsAt: '2026-11-21T01:00:00Z', endsAt: '2026-11-21T02:00:00Z' }),
+      calendarEvent({ id: 2, title: '거절 회의', myRsvpStatus: 'DECLINED', startsAt: '2026-11-21T03:00:00Z', endsAt: '2026-11-21T04:00:00Z' }),
+      calendarEvent({ id: 3, title: '거절 워크숍', myRsvpStatus: 'DECLINED', allDay: true, startsAt: '2026-11-20T15:00:00Z', endsAt: '2026-11-21T15:00:00Z' }),
+    ]
+    renderWithProviders(
+      <TimeGrid events={events} issueDues={[]} anchor={new Date(2026, 10, 21)} onCreateAt={vi.fn()} onSelectEvent={onSelectEvent} onSelectIssue={vi.fn()} testid="calendar-view-week" days={weekOf(15)} />,
+    )
+    return { onSelectEvent, events }
+  }
+
+  it.each([
+    ['2', /거절 회의/],
+    ['3', /거절 워크숍/],
+  ])('거절 일정 %s 는 흐리고 배지가 있으며 제목만 취소선', (id, title) => {
+    setupDeclined()
+    const block = screen.getByTestId(`calendar-event-${id}`)
+    expect(block).toHaveClass('opacity-50')
+    const badge = within(block).getByTestId('calendar-event-declined-badge')
+    expect(badge).toBeInTheDocument()
+    expect(within(block).getByText(title)).toHaveClass('line-through')
+    expect(block).not.toHaveClass('line-through')
+    expect(badge).not.toHaveClass('line-through')
+  })
+
+  it('수락한 일정은 그대로 보인다', () => {
+    setupDeclined()
+    const block = screen.getByTestId('calendar-event-1')
+    expect(block).not.toHaveClass('opacity-50')
+    expect(within(block).queryByTestId('calendar-event-declined-badge')).toBeNull()
+    expect(block.querySelector('.line-through')).toBeNull()
+  })
+
+  it('거절 블록을 눌러도 그 일정이 열린다', () => {
+    const { onSelectEvent, events } = setupDeclined()
+    fireEvent.click(screen.getByTestId('calendar-event-2'))
+    expect(onSelectEvent).toHaveBeenCalledWith(events[1])
   })
 })

@@ -4,11 +4,13 @@ import { format, isSameDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { DeclinedTitle } from '@/components/calendar/declinedEvent'
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { NowLine } from '@/components/calendar/NowLine'
 import { useMinuteNow } from '@/hooks/useMinuteNow'
 import { DRAG_THRESHOLD_PX, dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, hourOffset, HOURS, initialGridScrollTop, issueDuesOnDay, layoutTimedEvents, nowLineTop, timedEventBox, timedEventColumnStyle, timedSegmentLabel } from '@/lib/calendar'
+import { isDeclinedByMe } from '@/lib/calendarEventView'
 import { dayColumnLabel, defaultTimeSlot, nextTimeSlot, timeSlotLabel, type TimeSlotPos } from '@/lib/calendarGridNav'
 import { type MovedRange, type ResizeEdge, resizeHandles, withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
@@ -228,10 +230,11 @@ export function TimeGrid({
                     if (move.consumeClick()) return
                     onSelectEvent(e)
                   }}
-                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate ${isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
+                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate ${isDeclinedByMe(e) || isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
                 >
                   <ExtraTagDots event={e} />
-                  {e.title}
+                  {/* 거절한 일정(WP-2149)은 흐림 + 「거절」 배지 + 제목 취소선 */}
+                  <DeclinedTitle declined={isDeclinedByMe(e)}>{e.title}</DeclinedTitle>
                 </button>
               ))}
               {/* 끌어 옮기는 종일 일정이 놓일 날 — 반투명 사본(WP-1328) */}
@@ -362,6 +365,7 @@ export function TimeGrid({
               {layoutsByDay[dayIndex].map(({ event: e, top, height, columnStyle }) => {
                 // 테두리 늘이기 손잡이(WP-1518) — 옮길 수 있는 일정만, 어느 조각에 둘지는 resizeHandles 가 정한다.
                 const handles = onMoveEvent && (!canMoveEvent || canMoveEvent(e)) ? resizeHandles(e, day, height) : null
+                const declined = isDeclinedByMe(e)
                 return (
                   <button
                     key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
@@ -380,11 +384,12 @@ export function TimeGrid({
                       if (move.consumeClick()) return
                       onSelectEvent(e)
                     }}
-                    className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden ${isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
+                    className={`text-xs text-left rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden ${declined || isMovingEvent(move.preview, e) ? 'opacity-50' : ''}`}
                   >
                     <ExtraTagDots event={e} />
+                    {/* 거절한 일정(WP-2149)은 흐림 + 「거절」 배지 + 시각 라벨·제목 취소선 */}
                     {/* WP-1910: 여러 날 일정은 조각마다 그날에 맞는 라벨 — 24시간 HH:mm, 로컬 타임존(WP-1909) — (시작일 시작 시각·이어지는 날 M/d부터·마지막 날 ~끝 시각) */}
-                    {timedSegmentLabel(e, day)} {e.title}
+                    <DeclinedTitle declined={declined}>{timedSegmentLabel(e, day)} {e.title}</DeclinedTitle>
                     {handles &&
                       RESIZE_EDGES.filter((edge) => handles[edge]).map((edge) => (
                         <span
