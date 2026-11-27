@@ -602,13 +602,35 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
                 eventService.update(
                     ownerId,
                     created.id(),
-                    moveReq(extCalId),
+                    req(extCalId, "FREQ=DAILY;COUNT=3"),
                     com.workplace.calendar.dto.EditScope.ALL,
                     null))
         .isInstanceOf(
             com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
         .hasMessageContaining("반복");
     verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /**
+   * 수정 요청은 전체 교체라 recurrenceRule=null 은 「반복 해제」다 — 반복을 풀며 「전체 일정」으로 옮기면 결과가 단일 일정이므로 Outlook 에 만들고
+   * 연결한다(WP-2155).
+   */
+  @Test
+  void update_recurring_event_cleared_and_moved_whole_series_converts() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-cleared");
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+
+    eventService.update(
+        ownerId, created.id(), moveReq(extCalId), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+    CalendarEventResponse after = eventService.get(ownerId, created.id());
+    assertThat(after.calendarId()).isEqualTo(extCalId);
+    assertThat(after.recurrenceRule()).isNull();
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-cleared");
   }
 
   /** 로컬 일정을 외부 쓰기 캘린더로 직접 옮겨 둔 고아 상태를 만든다 — 서비스 경로는 Graph 생성을 타므로 DB 로 심는다(WP-2155). */
@@ -653,7 +675,7 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("이동");
   }
 
-  /** 반복 고아 일정(이동 아님) 편집도 422 없이 로컬 수정으로 통과한다(WP-2155). */
+  /** 반복을 유지한 반복 고아 일정(이동 아님) 편집은 422 없이 로컬 수정으로 통과한다 — 요청이 규칙을 그대로 실어 보낸다(WP-2155). */
   @Test
   void update_orphan_recurring_without_move_succeeds_without_422() {
     long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
@@ -662,10 +684,15 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     forceIntoExternalCalendar(created.id());
 
     eventService.update(
-        ownerId, created.id(), moveReq(null), com.workplace.calendar.dto.EditScope.ALL, null);
+        ownerId,
+        created.id(),
+        req(null, "FREQ=DAILY;COUNT=3"),
+        com.workplace.calendar.dto.EditScope.ALL,
+        null);
 
     verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
-    assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("이동");
+    assertThat(eventService.get(ownerId, created.id()).recurrenceRule())
+        .isEqualTo("FREQ=DAILY;COUNT=3");
   }
 
   /** 읽기전용 외부 캘린더로의 이동은 기존대로 409 — 전환 대상이 아니다(WP-2155). */
@@ -1111,25 +1138,63 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     assertThat(externalIdOf(created.id())).isNull();
   }
 
-  /** 바깥 tx(AI·채팅 confirm) 안의 로컬→Outlook 이동은 예전처럼 로컬 이동으로 통과한다 — 승인 때 409 가 나지 않는다(WP-2155). */
+  /**
+   * 바깥 tx(AI·채팅 confirm) 안의 로컬→Outlook 이동은 분명한 오류로 거절한다 — 로컬로만 옮기면 「Outlook 에 없는」 일정이 다시 생긴다. Graph
+   * 미호출, 소속 캘린더 불변(WP-2155).
+   */
   @Test
-  void update_move_to_external_within_ambient_tx_moves_locally() {
+  void update_move_to_external_within_ambient_tx_is_rejected() {
     long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
     CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
 
-    new TransactionTemplate(txManager)
-        .execute(
-            s ->
-                eventService.update(
-                    ownerId,
-                    created.id(),
-                    moveReq(extCalId),
-                    com.workplace.calendar.dto.EditScope.ALL,
-                    null));
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(txManager)
+                    .execute(
+                        s ->
+                            eventService.update(
+                                ownerId,
+                                created.id(),
+                                moveReq(extCalId),
+                                com.workplace.calendar.dto.EditScope.ALL,
+                                null)))
+        .isInstanceOf(
+            com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException.class);
 
     verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
-    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(extCalId);
-    assertThat(externalIdOf(created.id())).isNull();
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
+  }
+
+  /**
+   * 전환 뒤 Outlook 범주 쓰기가 일시 오류로 실패해도 저장은 성공으로 돌려주고 태그 없이 둔다 — 일정은 이미 Outlook 에 연결됐고, 다시 저장하면 중복 생성되기
+   * 때문이다. 앱 태그(APP)는 남기지 않는다(남기면 다시는 뗄 수 없다)(WP-2155).
+   */
+  @Test
+  void update_move_to_own_mailbox_categories_transient_failure_keeps_conversion_without_tags() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-conv-fail");
+    liveCategories("graph-conv-fail", List.of());
+    org.mockito.Mockito.doThrow(
+            new ExternalCalendarWriteException("Graph 범주 쓰기 실패", new RuntimeException("503")))
+        .when(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-conv-fail"), anyList());
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(localCal, null), List.of(tagId)));
+
+    CalendarEventResponse result =
+        eventService.update(
+            ownerId,
+            created.id(),
+            moveReq(extCalId),
+            com.workplace.calendar.dto.EditScope.ALL,
+            null);
+
+    assertThat(result.calendarId()).isEqualTo(extCalId);
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-conv-fail");
+    assertThat(tagSourcesOf(created.id())).isEmpty();
   }
 
   // ── delete write-through (Task 9) ──────────────────────────────────────────

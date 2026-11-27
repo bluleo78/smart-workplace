@@ -1066,9 +1066,8 @@ public class CalendarEventService {
       OffsetDateTime expectedUpdatedAt) {
     // ① resolve — 사전검증과 같은 술어(checkUpdatable: RRULE·색·owner(404)·RO(409)·회차 식별자·이동 대상 캘린더·외부
     // 일정 제약)를 돌리고 외부 쓰기 컨텍스트를 얻는다. 검증은 RLS 읽기를 포함하므로 반드시 tx 안에서 수행한다(#492).
-    // 호출자(AI·채팅 confirm)의 바깥 tx 는 txTemplate 에 들어가기 전에 본다 — 안에서는 늘 열려 있다. 바깥 tx 안의 고아 일정 편집은 Graph
-    // 를
-    // 부를 수 없으므로 전환하지 않고 로컬 수정으로 둔다(WP-2155).
+    // 호출자(AI·채팅 confirm)의 바깥 tx 는 txTemplate 에 들어가기 전에 본다 — 안에서는 늘 열려 있다.
+    // 바깥 tx 안에서는 Graph 를 부를 수 없어 고아 편집은 로컬 수정, Outlook 캘린더로의 이동은 거절한다(WP-2155).
     boolean ambientTx = TransactionSynchronizationManager.isActualTransactionActive();
     ExternalWriteCtx ctx =
         txTemplate.execute(
@@ -1180,10 +1179,10 @@ public class CalendarEventService {
       converted =
           txTemplate.execute(
               s -> {
-                // 행을 잠근 뒤 external_id 를 다시 본다(WP-2155) — 사전검증 뒤 같은 일정이 이미 연결됐으면(동시 저장·버전 없는 AI/MCP
-                // 재요청)
-                // 덮어쓰면 앞서 만든 Outlook 일정이 고아가 된다. 409 로 끝내고 방금 만든 쪽은 아래에서 지운다. 전환 대상은 override 가 아닌
-                // 단일 일정이라 자기 행만 잠근다(lockSeriesFor 와 같은 순서).
+                // 행을 잠근 뒤 external_id 를 다시 본다(WP-2155) — 사전검증 뒤 같은 일정이 이미 연결됐으면
+                // (동시 저장·버전 없는 AI/MCP 재요청) 덮어쓰면 앞서 만든 Outlook 일정이 고아가 된다. 409 로 끝내고
+                // 방금 만든 쪽은 아래에서 지운다. 전환 대상은 override 가 아닌 단일 일정이라 자기 행만 잠근다
+                // (lockSeriesFor 와 같은 순서).
                 repo.lockForUpdate(id);
                 var ref =
                     repo.findExternalRef(id)
@@ -2259,11 +2258,15 @@ public class CalendarEventService {
               .orElse(null);
       if (conv != null) {
         boolean move = !Long.valueOf(targetId).equals(cur.calendarId());
-        // 「이 일정만」 고친 회차(override 행)는 RRULE 이 없어도 반복 시리즈의 일부다 — Outlook 에 단일 일정으로 만들면 시리즈와 갈라지므로
-        // 반복으로 본다(WP-2155).
+        // 반복은 수정한 뒤의 상태로 본다(WP-2155). 수정 요청은 전체 교체라 recurrenceRule=null 은 「반복 해제」다 — 단일 일정·「전체
+        // 일정」(ALL)
+        // 수정이면 요청 규칙만 본다. 반복 시리즈의 한 회차만 고치는 수정(THIS·THIS_AND_FOLLOWING)과 「이 일정만」 고친 회차(override 행,
+        // RRULE
+        // 없음)는 여전히 시리즈의 일부라 반복이다 — Outlook 에 단일 일정으로 만들면 시리즈와 갈라진다.
+        boolean wholeSeries = occurrenceDate == null || scope == EditScope.ALL;
         boolean recurring =
-            isRecurring(cur)
-                || hasRecurrence(req.recurrenceRule())
+            hasRecurrence(req.recurrenceRule())
+                || (isRecurring(cur) && !wholeSeries)
                 || exceptionRepo.findMasterOccurrenceByOverride(id).isPresent();
         // 참석자 조회는 반복이 아닐 때만 필요하다 — 반복이면 어차피 막히거나(이동) 로컬로 남는다(고아).
         boolean attendees = !recurring && hasNonOrganizerAttendees(id);
@@ -2271,10 +2274,13 @@ public class CalendarEventService {
           // 이동은 초대가 새거나 반복이 깨지므로 422 로 명시한다.
           if (recurring) throw LocalToExternalMoveNotSupportedException.recurring();
           if (attendees) throw LocalToExternalMoveNotSupportedException.withAttendees();
+          // 바깥 tx(AI·채팅 confirm) 안에서는 Graph 를 부를 수 없다 — 로컬로만 옮기면 「Outlook 캘린더에 있는 것처럼 보이지만 Outlook
+          // 에는
+          // 없는」 일정이 다시 생기므로 분명한 오류로 거절한다(WP-2155). 미리보기(validateUpdatable)도 같은 판정이라 승인 전에 막힌다.
+          if (ambientTx) throw new ExternalCalendarWriteInTransactionException();
         }
-        // 고아 일정(이동 아님)에 참석자·반복이 있으면 전환하지 않고 로컬 수정으로 둔다 — 편집을 막지 않는다. 바깥 tx(AI·채팅 confirm) 안이면
-        // 이동이든 고아든 Graph 를 부를 수 없어 예전처럼 로컬로 둔다 — 전환하면 미리보기는 통과하고 승인 때 409 가 난다(WP-2155). 고아가 되지만
-        // 다음 일반 편집 때 전환된다.
+        // 고아 일정(이동 아님)에 참석자·반복이 있거나 바깥 tx 안이면 전환하지 않고 로컬 수정으로 둔다 — 그전까지 되던 편집을 막지 않는다.
+        // 다음 일반 편집 때 전환된다(WP-2155).
         if (!recurring && !attendees && !ambientTx) {
           return convertingCtx(
               callerId, ctx, cur, conv, req, occurrenceDate, expectedUpdatedAt, move);
