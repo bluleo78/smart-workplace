@@ -42,6 +42,7 @@ public record WorkflowRunDetail(
    * 노드 방문 하나(들어간 순서).
    *
    * @param nodeName 그 버전 모델의 노드 이름(없으면 null)
+   * @param outcomeName 고른 결과의 표시 이름(그 버전 모델 기준, 아직 안 골랐으면 null)
    * @param assignees 이 방문의 담당
    * @param workflowAssigned 그중 워크플로우가 이슈 담당에 넣은 사람
    * @param outputs 낸 출력 JSON 글(없으면 null)
@@ -58,6 +59,7 @@ public record WorkflowRunDetail(
       List<UserSummary> assignees,
       List<UserSummary> workflowAssigned,
       String outcome,
+      String outcomeName,
       @JsonRawValue String outputs,
       Long commentId,
       String waitingReason,

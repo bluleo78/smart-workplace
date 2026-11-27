@@ -233,9 +233,9 @@ class MoveRulesTest {
   @DisplayName("number 출력은 유한한 수만 — NaN·무한·글은 거절")
   void numberOutput_rejectsNaNAndString() {
     Map<String, OutputSpec> specs = new LinkedHashMap<>();
-    specs.put("prUrl", new OutputSpec("url", true));
-    specs.put("score", new OutputSpec("number", false));
-    specs.put("ok", new OutputSpec("boolean", false));
+    specs.put("prUrl", new OutputSpec("url", true, null));
+    specs.put("score", new OutputSpec("number", false, null));
+    specs.put("ok", new OutputSpec("boolean", false, null));
     WorkflowModel model = RunModels.withOutputs(SPEC, "dev", specs);
     MoveActor actor = new MoveActor(DEV1, false);
     for (Object bad : List.of(Double.NaN, Double.POSITIVE_INFINITY, "1", true)) {
@@ -256,8 +256,8 @@ class MoveRulesTest {
   @DisplayName("출력 JSON 이 64 KiB 를 넘거나 NUL·짝 없는 서로게이트가 있으면 OUTPUT_INVALID")
   void outputs_over64KiB_orNul_invalid() {
     Map<String, OutputSpec> specs = new LinkedHashMap<>();
-    specs.put("prUrl", new OutputSpec("url", true));
-    specs.put("note", new OutputSpec("string", false));
+    specs.put("prUrl", new OutputSpec("url", true, null));
+    specs.put("note", new OutputSpec("string", false, null));
     WorkflowModel model = RunModels.withOutputs(SPEC, "dev", specs);
     MoveActor actor = new MoveActor(DEV1, false);
     String big = "a".repeat(70_000);
@@ -361,11 +361,11 @@ class MoveRulesTest {
             List.of(RunModels.role("developer", "dev1@example.com", "dev2@example.com")),
             List.of(),
             RunModels.start("start"),
-            RunModels.task("work", "developer", new Outcome("go", "next", "developer", true)),
+            RunModels.task("work", "developer", new Outcome("go", "next", "developer", true, null)),
             RunModels.task("next", "developer", RunModels.out("done", "end", null)),
             RunModels.end("end"));
     WorkflowModel model =
-        RunModels.withOutputs(base, "work", Map.of("prUrl", new OutputSpec("url", true)));
+        RunModels.withOutputs(base, "work", Map.of("prUrl", new OutputSpec("url", true, null)));
     RunState s = RunModels.state(model, "work", 0, list(DEV1), ids(DEV1), Map.of(), Map.of());
     MoveRequest r = new MoveRequest("work", "go", outputs("extra", "x"), null, null, 0, "k");
     Node from = model.nodes().get("work");
@@ -423,7 +423,7 @@ class MoveRulesTest {
             RunModels.task("b", "developer", RunModels.out("done", "end", null)),
             RunModels.end("end"));
     WorkflowModel model =
-        RunModels.withOutputs(base, "work", Map.of("score", new OutputSpec("number", false)));
+        RunModels.withOutputs(base, "work", Map.of("score", new OutputSpec("number", false, null)));
     RunRoleMembers members = RunModels.specMembers(model);
     Map<String, Object> previous = Map.of("work", Map.of("score", 2L));
     RunState s = RunModels.state(model, "work", 0, list(DEV1), ids(DEV1), Map.of(), previous);

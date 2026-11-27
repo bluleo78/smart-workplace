@@ -65,12 +65,14 @@ public record IssueWorkflowView(
   /**
    * 고를 수 있는 결과 하나.
    *
+   * @param name 결과의 표시 이름(name 없으면 key, ask 줄임은 질문·답변)
    * @param requiredOutputs 꼭 내놓아야 할 값(질문 결과는 빈 목록)
    * @param candidateAssignees 다음 담당 후보
    * @param assigneeRequired assigneeIds 가 필요한지 — decision 을 지나 목적을 미리 모르면 null
    */
   public record OutcomeView(
       String key,
+      String name,
       String toNode,
       List<RequiredOutput> requiredOutputs,
       boolean requireComment,
@@ -78,19 +80,21 @@ public record IssueWorkflowView(
       List<UserSummary> candidateAssignees,
       Boolean assigneeRequired) {}
 
-  /** 꼭 내놓아야 할 값의 키·형식. */
-  public record RequiredOutput(String key, String type) {}
+  /** 꼭 내놓아야 할 값의 키·표시 이름(name 없으면 key)·형식. */
+  public record RequiredOutput(String key, String name, String type) {}
 
   /**
    * 지나온 노드 하나.
    *
    * @param outcome 나간 결과(자동 노드는 null)
+   * @param outcomeName 나간 결과의 표시 이름(자동 노드는 null)
    * @param actor 나가게 한 사람(자동 노드는 null)
    */
   public record NodeRunSummary(
       String key,
       String name,
       String outcome,
+      String outcomeName,
       UserSummary actor,
       Instant enteredAt,
       Instant leftAt) {}

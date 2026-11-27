@@ -31,15 +31,16 @@ const runningView: IssueWorkflowViewRow = {
   outcomes: [
     {
       key: 'done',
+      name: '완료',
       toNode: 'review',
-      requiredOutputs: [{ key: 'prUrl', type: 'string' }],
+      requiredOutputs: [{ key: 'prUrl', name: 'PR 주소', type: 'string' }],
       requireComment: false,
       assignTo: 'reviewer',
       candidateAssignees: [lee],
       assigneeRequired: true,
     },
   ],
-  path: [{ key: 'plan', name: '계획', outcome: 'ok', actor: kim, enteredAt: '2026-11-22T01:00:00Z', leftAt: '2026-11-23T01:00:00Z' }],
+  path: [{ key: 'plan', name: '계획', outcome: 'ok', outcomeName: '확인', actor: kim, enteredAt: '2026-11-22T01:00:00Z', leftAt: '2026-11-23T01:00:00Z' }],
   remainingNodeKeys: ['review', 'end'],
   context: { plan: { summary: '요약' } },
 };
@@ -120,14 +121,16 @@ describe('get_issue_workflow', () => {
     expect(body.currentNode.assignees[0]).not.toHaveProperty('id');
     expect(body.outcomes[0]).toEqual({
       key: 'done',
+      name: '완료',
       toNode: 'review',
-      requiredOutputs: [{ key: 'prUrl', type: 'string' }],
+      requiredOutputs: [{ key: 'prUrl', name: 'PR 주소', type: 'string' }],
       requireComment: false,
       assignTo: 'reviewer',
       candidates: [{ username: 'lee', name: '이검토' }],
       assigneeRequired: true,
     });
     expect(body).toMatchObject({ runId: 11, status: 'RUNNING', revision: 3, versionNo: 2, remaining: ['review', 'end'] });
+    expect(body.path[0]).toMatchObject({ outcome: 'ok', outcomeName: '확인' });
     expect(body.path[0].actor).toEqual({ username: 'kim', name: '김개발' });
     expect(body.context).toEqual({ plan: { summary: '요약' } });
     expect(JSON.stringify(body)).not.toMatch(/"id":/);

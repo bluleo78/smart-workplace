@@ -245,6 +245,36 @@ it('nodeDrawer_outcomesAndMaxVisits', async () => {
   expect(doc(onYaml.mock.lastCall![0]).nodes.dev.maxVisits).toBeUndefined()
 })
 
+it('nodeDrawer_outcomeAndOutputDisplayName_writesYamlName', async () => {
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  fireEvent.click(screen.getByText('개발'))
+  await openPathsTab()
+  const outcomes = await screen.findByRole('region', { name: '결과 → 다음 노드' })
+  fireEvent.click(within(outcomes).getByRole('button', { name: '+ 추가' }))
+  fireEvent.change(within(outcomes).getByLabelText('done 표시 이름'), { target: { value: '완료' } })
+  expect(doc(onYaml.mock.lastCall![0]).nodes.dev.outcomes.done.name).toBe('완료')
+  const outputs = screen.getByRole('region', { name: '내놓을 값' })
+  fireEvent.click(within(outputs).getByRole('button', { name: '+ 추가' }))
+  fireEvent.change(within(outputs).getByLabelText('value_1 표시 이름'), { target: { value: '결과 링크' } })
+  expect(doc(onYaml.mock.lastCall![0]).nodes.dev.outputs.value_1.name).toBe('결과 링크')
+})
+
+// 입력 칸은 YAML 을 다시 읽어 채우므로, 쓸 때 공백을 걷으면 「빠른 」 의 끝 공백이 사라져 띄어쓰기를 칠 수 없다
+it('nodeDrawer_outcomeDisplayName_keepsTypedSpace', async () => {
+  const onYaml = vi.fn()
+  renderWithProviders(<Harness initial={FIXTURE} onYaml={onYaml} />)
+  fireEvent.click(screen.getByText('개발'))
+  await openPathsTab()
+  const outcomes = await screen.findByRole('region', { name: '결과 → 다음 노드' })
+  fireEvent.click(within(outcomes).getByRole('button', { name: '+ 추가' }))
+  const input = within(outcomes).getByLabelText('done 표시 이름') as HTMLInputElement
+  fireEvent.change(input, { target: { value: '빠른 ' } })
+  expect(input.value).toBe('빠른 ')
+  fireEvent.change(input, { target: { value: '빠른 확인' } })
+  expect(doc(onYaml.mock.lastCall![0]).nodes.dev.outcomes.done.name).toBe('빠른 확인')
+})
+
 it('nodeDrawer_deleteNode', async () => {
   const onYaml = vi.fn()
   renderWithProviders(<Harness initial={FIXTURE} onYaml={onYaml} />)

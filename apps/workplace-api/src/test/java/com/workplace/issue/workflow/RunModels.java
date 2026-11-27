@@ -98,7 +98,7 @@ final class RunModels {
 
   /** 결과 이동. */
   static Outcome out(String key, String to, String assignTo) {
-    return new Outcome(key, to, assignTo, false);
+    return new Outcome(key, to, assignTo, false, null);
   }
 
   /** assigneeRole 조건. */

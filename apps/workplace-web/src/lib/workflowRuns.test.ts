@@ -18,7 +18,7 @@ const u = (id: number, name: string) => ({ id, username: name, name })
 function visit(id: number, nodeKey: string, enteredAt: string, leftAt: string | null, extra: Partial<WorkflowNodeRun> = {}): WorkflowNodeRun {
   return {
     id, nodeKey, nodeName: null, visitNo: 1, status: leftAt ? 'COMPLETED' : 'ACTIVE', assignees: [], workflowAssigned: [],
-    outcome: null, outputs: null, commentId: null, waitingReason: null, error: null, actor: null, enteredAt, leftAt, viaReturn: false, ...extra,
+    outcome: null, outcomeName: null, outputs: null, commentId: null, waitingReason: null, error: null, actor: null, enteredAt, leftAt, viaReturn: false, ...extra,
   }
 }
 function detail(nodeRuns: WorkflowNodeRun[], status = 'WAITING', currentNode = 'b'): WorkflowRunDetail {
@@ -83,7 +83,7 @@ describe('workflowRuns', () => {
   it('runMoveRows_newestFirst_withAssigneeChange', () => {
     const runs = [
       visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z', { actor: u(1, '가') }),
-      visit(2, 'a', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작성', outcome: 'done', actor: u(2, '나') }),
+      visit(2, 'a', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작성', outcome: 'done', outcomeName: 'done', actor: u(2, '나') }),
       visit(3, 'b', '2026-01-01T00:10:00Z', null, { nodeName: '검토', workflowAssigned: [u(5, '김')] }),
     ]
     const rows = runMoveRows(detail(runs))
@@ -189,6 +189,16 @@ describe('workflowRuns', () => {
     expect(rows).toHaveLength(2)
     expect(rows[1].from).toBeNull()
     expect(rows[1].actorName).toBe('시작자')
+  })
+
+  it('runMoveRows_outcome_prefersServerName_thenDefaultName', () => {
+    const runs = [
+      visit(1, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z', { outcome: 'approve', outcomeName: '승인' }),
+      visit(2, 'b', '2026-01-01T00:10:00Z', '2026-01-01T00:20:00Z', { outcome: 'answered', outcomeName: '답변' }),
+      visit(3, 'c', '2026-01-01T00:20:00Z', null),
+    ]
+    const rows = runMoveRows(detail(runs))
+    expect(rows.map((r) => r.outcome)).toEqual(['답변', '승인', null])
   })
 
   // 같은 초 안에서 밀리초 유무가 섞여도(문자열 비교는 「…00Z」 > 「…00.5Z」) 방문 id 순서대로 이어진다.

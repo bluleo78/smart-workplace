@@ -11,7 +11,8 @@ import { IssueWorkflowBanner } from './IssueWorkflowBanner'
 
 const API = '/api/v1'
 const me = { id: 1, username: 'me', name: '나', kind: 'HUMAN' }
-const outcome = (o: object = {}) => ({ key: 'answered', toNode: 'dev', requiredOutputs: [], requireComment: false, assignTo: null, candidateAssignees: [], assigneeRequired: null, ...o })
+// 서버는 name 을 늘 풀어 보낸다(WP-2158) — 기본 픽스처는 key 와 같은 이름.
+const outcome = (o: Record<string, unknown> = {}) => ({ key: 'answered', name: (o.key as string | undefined) ?? 'answered', toNode: 'dev', requiredOutputs: [], requireComment: false, assignTo: null, candidateAssignees: [], assigneeRequired: null, ...o })
 function run(over: object = {}) {
   return {
     runId: 11,
@@ -108,7 +109,7 @@ describe('워크플로우 사람 차례 배너', () => {
 
   test('requiredOutputs_sentTyped', async () => {
     const moves: Record<string, unknown>[] = []
-    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'size', type: 'number' }, { key: 'ok', type: 'boolean' }] })] }), moves)
+    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'size', type: 'number', name: 'size' }, { key: 'ok', type: 'boolean', name: 'ok' }] })] }), moves)
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'answered' }))
     expect(screen.getByRole('button', { name: '넘기기' })).toBeDisabled()
@@ -123,7 +124,7 @@ describe('워크플로우 사람 차례 배너', () => {
     const moves: Record<string, unknown>[] = []
     const cand = { id: 5, username: 'c', name: '후보', kind: 'HUMAN' }
     setup(run({ outcomes: [
-      outcome({ key: 'a', candidateAssignees: [cand], assigneeRequired: true, requiredOutputs: [{ key: 'memo', type: 'string' }] }),
+      outcome({ key: 'a', candidateAssignees: [cand], assigneeRequired: true, requiredOutputs: [{ key: 'memo', type: 'string', name: 'memo' }] }),
       outcome({ key: 'b', candidateAssignees: [{ ...cand, id: 6, name: '다른후보' }], assigneeRequired: false }),
     ] }), moves)
     const user = userEvent.setup()
@@ -139,7 +140,7 @@ describe('워크플로우 사람 차례 배너', () => {
   })
 
   test('urlOutput_requiresParsableUrl', async () => {
-    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'link', type: 'url' }] })] }))
+    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'link', type: 'url', name: 'link' }] })] }))
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'answered' }))
     await user.type(screen.getByLabelText('link'), 'not a url')
@@ -151,7 +152,7 @@ describe('워크플로우 사람 차례 배너', () => {
 
   // 서버(OutputRules)와 같게 host 있는 http(s) 만 url — 'abc:def'·'javascript:x' 는 거절.
   test('urlOutput_rejectsNonHttpSchemes', async () => {
-    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'link', type: 'url' }] })] }))
+    setup(run({ outcomes: [outcome({ requiredOutputs: [{ key: 'link', type: 'url', name: 'link' }] })] }))
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'answered' }))
     for (const bad of ['abc:def', 'javascript:x']) {
@@ -419,7 +420,7 @@ describe('워크플로우 사람 차례 배너', () => {
   test('outcome_pick_announcesRequiredFieldsAndNoCandidate', async () => {
     const cand = { id: 5, username: 'dev', name: '개발자', kind: 'HUMAN' }
     setup(run({ outcomes: [
-      outcome({ key: 'a', requiredOutputs: [{ key: 'link', type: 'url' }], assigneeRequired: true, candidateAssignees: [cand] }),
+      outcome({ key: 'a', requiredOutputs: [{ key: 'link', type: 'url', name: 'link' }], assigneeRequired: true, candidateAssignees: [cand] }),
       outcome({ key: 'b', assigneeRequired: true }),
     ] }))
     const user = userEvent.setup()
@@ -428,6 +429,73 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(status).toHaveTextContent('「a」 결과를 골랐어요. 아래에서 필수 항목(link·다음 담당)을 채우고 의견을 적고 넘기기를 누르세요.')
     await user.click(screen.getByRole('button', { name: 'b' }))
     expect(status).toHaveTextContent('「b」 결과를 골랐어요. 넘길 수 있는 담당 후보가 없어 넘길 수 없어요.')
+  })
+
+  // WP-2158 — 단추·안내·입력 칸에 키 대신 표시 이름을 쓴다(키는 그대로 서버로 간다).
+  test('outcomeNames_shownInButtonsAnnounceAndOutputLabels', async () => {
+    const moves: Record<string, unknown>[] = []
+    setup(run({ outcomes: [
+      outcome({ key: 'approve', name: '승인', requiredOutputs: [{ key: 'tag', type: 'string', name: '태그' }] }),
+      outcome({ key: 'reject', name: 'reject' }),
+    ] }), moves)
+    const user = userEvent.setup()
+    const status = within(await screen.findByTestId('issue-workflow-banner')).getByRole('status')
+    expect(screen.getByRole('button', { name: '승인' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'reject' })).toBeInTheDocument()
+    expect(screen.queryByText('approve')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '승인' }))
+    expect(status).toHaveTextContent('「승인」 결과를 골랐어요')
+    expect(screen.getByRole('group', { name: '「승인」 결과 입력' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('태그'), 'v1')
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(moves).toHaveLength(1))
+    expect(moves[0]).toMatchObject({ outcome: 'approve', outputs: { tag: 'v1' } })
+  })
+
+  test('instructions_renderedAsMarkdown', async () => {
+    const base = run()
+    setup(run({ currentNode: { ...(base.currentNode as object), instructions: '### 확인할 것\n\n| 항목 | 값 |\n|---|---|\n| 태그 | v1 |\n\n- 하나\n- 둘' } }))
+    const banner = await screen.findByTestId('issue-workflow-banner')
+    expect(within(banner).getByRole('heading', { name: '확인할 것' })).toBeInTheDocument()
+    expect(within(banner).getByRole('table')).toBeInTheDocument()
+    expect(within(banner).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  test('longInstructions_collapsedWithToggle', async () => {
+    const base = run()
+    const long = Array.from({ length: 10 }, (_, i) => `줄 ${i + 1}`).join('\n\n')
+    setup(run({ currentNode: { ...(base.currentNode as object), instructions: long } }))
+    const user = userEvent.setup()
+    const toggle = await screen.findByRole('button', { name: '지시 보기' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByTestId('issue-workflow-instructions')).toHaveClass('max-h-28')
+    await user.click(toggle)
+    expect(screen.getByTestId('issue-workflow-instructions')).not.toHaveClass('max-h-28')
+    const open = screen.getByRole('button', { name: '접기' })
+    expect(open).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  test('blankLinesNotCounted_noToggle', async () => {
+    const base = run()
+    // 빈 줄 포함 7줄이지만 내용이 있는 줄은 4줄 — 접지 않는다
+    const text = ['가', '나', '다', '라'].join('\n\n')
+    setup(run({ currentNode: { ...(base.currentNode as object), instructions: text } }))
+    await screen.findByText('가', { exact: false })
+    expect(screen.queryByRole('button', { name: '지시 보기' })).not.toBeInTheDocument()
+  })
+
+  test('shortInstructions_noToggle', async () => {
+    const base = run()
+    setup(run({ currentNode: { ...(base.currentNode as object), instructions: '하나\n둘\n셋' } }))
+    await screen.findByText('하나', { exact: false })
+    expect(screen.queryByRole('button', { name: '지시 보기' })).not.toBeInTheDocument()
+  })
+
+  test('instructions_scriptNotRendered', async () => {
+    const base = run()
+    setup(run({ currentNode: { ...(base.currentNode as object), instructions: '안녕 <script>window.__x=1</script>' } }))
+    const banner = await screen.findByTestId('issue-workflow-banner')
+    expect(banner.querySelector('script')).toBeNull()
   })
 
   test('header_showsElapsedSinceEntered', async () => {

@@ -410,6 +410,28 @@ class WorkflowRunQueryApiTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("실행 상세 nodeRuns 에 고른 결과의 표시 이름 outcomeName 이 실린다")
+  void runDetail_nodeRunsCarryOutcomeName() {
+    long wf =
+        publish(
+            spec()
+                .replace(
+                    "      ready:     { to: dev,   assignTo: developer }",
+                    "      ready:     { to: dev,   assignTo: developer, name: 승인 }"));
+    long issue = issue(lead);
+    long runId = ok(startReq(issue, wf), lead).get("runId").asLong();
+    ok(moveReq(issue, "triage", "ready", List.of(dev1), 0, "k1"), lead);
+
+    JsonNode detail = ok(get(runPath(runId)), dev2);
+
+    JsonNode triage = detail.get("nodeRuns").get(1);
+    assertThat(triage.get("outcome").asString()).isEqualTo("ready");
+    assertThat(triage.get("outcomeName").asString()).isEqualTo("승인");
+    // 아직 결과를 고르지 않은 방문은 null
+    assertThat(detail.get("nodeRuns").get(2).get("outcomeName").isNull()).isTrue();
+  }
+
+  @Test
   @DisplayName("못 보는 프로젝트의 실행 상세는 없는 실행과 같은 404(구성원은 200)")
   void runDetail_unreadableProject_404() {
     long wf = publish(spec());

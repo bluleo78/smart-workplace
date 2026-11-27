@@ -55,6 +55,55 @@ class WorkflowModelJsonTest {
   }
 
   @Test
+  @DisplayName("결과·출력 name 은 있을 때만 칸이 생기고 왕복하며, 칸 없는 옛 JSON 은 null 로 읽는다")
+  void outcomeAndOutputName_roundTrips() throws IOException {
+    var outputs = new java.util.LinkedHashMap<String, WorkflowModel.OutputSpec>();
+    outputs.put("tag", new WorkflowModel.OutputSpec("string", false, "태그"));
+    outputs.put("raw", new WorkflowModel.OutputSpec("string", true, null));
+    var outcomes = new java.util.LinkedHashMap<String, WorkflowModel.Outcome>();
+    outcomes.put("approve", new WorkflowModel.Outcome("approve", "end", null, false, "승인"));
+    outcomes.put("drop", new WorkflowModel.Outcome("drop", "end", null, false, null));
+    var node =
+        new WorkflowModel.Node(
+            "dev",
+            "agent_task",
+            "개발",
+            null,
+            null,
+            null,
+            null,
+            outputs,
+            outcomes,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+    var nodes = new java.util.LinkedHashMap<String, WorkflowModel.Node>();
+    nodes.put("dev", node);
+    WorkflowModel m = new WorkflowModel("genia/workflow@1", "n", null, null, nodes, null, null);
+
+    String json = WorkflowModelJson.write(m);
+    JsonNode dev = JsonMappers.JACKSON2.readTree(json).get("nodes").get(0);
+
+    assertThat(dev.get("outcomes").get(0).get("name").asString()).isEqualTo("승인");
+    assertThat(dev.get("outcomes").get(1).has("name")).isFalse();
+    assertThat(dev.get("outputs").get(0).get("name").asString()).isEqualTo("태그");
+    assertThat(dev.get("outputs").get(1).has("name")).isFalse();
+    assertThat(WorkflowModelJson.read(json)).isEqualTo(m);
+
+    // 옛 JSON(name 칸 없음)도 예외 없이 name null 로 읽는다.
+    WorkflowModel legacy =
+        WorkflowModelJson.read(
+            WorkflowModelJson.write(m)
+                .replace(",\"name\":\"승인\"", "")
+                .replace(",\"name\":\"태그\"", ""));
+    assertThat(legacy.nodes().get("dev").outcomes().get("approve").name()).isNull();
+    assertThat(legacy.nodes().get("dev").outputs().get("tag").name()).isNull();
+  }
+
+  @Test
   @DisplayName("조건의 equals 값은 글·수·불리언을 구분해 왕복한다")
   void conditionEqualsValue_roundTrips() {
     var conds =

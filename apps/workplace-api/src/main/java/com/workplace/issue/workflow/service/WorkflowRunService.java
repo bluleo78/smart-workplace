@@ -17,6 +17,7 @@ import com.workplace.issue.workflow.domain.MoveRules.MovePlan;
 import com.workplace.issue.workflow.domain.MoveViolation;
 import com.workplace.issue.workflow.domain.NodeTypes;
 import com.workplace.issue.workflow.domain.OutputRules;
+import com.workplace.issue.workflow.domain.ReservedOutcomes;
 import com.workplace.issue.workflow.domain.RunRoleMembers;
 import com.workplace.issue.workflow.domain.RunState;
 import com.workplace.issue.workflow.domain.WorkflowModel;
@@ -85,7 +86,7 @@ public class WorkflowRunService {
   static final int QA_MAX = 50;
 
   /** 질문 대기 노드에서 질문한 AI 노드로 돌아가는 결과 키(WP-2093 챗 답 이동). */
-  static final String ANSWERED = "answered";
+  static final String ANSWERED = ReservedOutcomes.ANSWERED;
 
   /** 챗 답 이동의 멱등 키 앞머리 — 글 id 를 붙여 같은 글이 두 번 옮기지 않게 한다. */
   static final String CHAT_ANSWER_KEY_PREFIX = "chat-answer-";

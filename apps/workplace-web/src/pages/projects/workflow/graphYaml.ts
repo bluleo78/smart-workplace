@@ -8,6 +8,8 @@
  */
 import { Document, isMap, isScalar, isSeq, type Pair, parseDocument, Scalar, YAMLMap, type YAMLSeq } from 'yaml'
 
+import { outcomeDisplayName } from '@/lib/workflowNames'
+
 import { computeGraphLayout, findFreeSpot, type GraphLayoutResult, type VisibleGraph, visibleGraph } from './graphLayout'
 import { mergeEditedSource, pairKeyOf as pairKey, type RenameHint } from './sourcePreserve'
 
@@ -45,8 +47,9 @@ export interface NodeDetail {
   requires: string[]
   instructions?: string
   use: string[]
-  outputs: { key: string; type: string; required: boolean }[]
-  outcomes: { key: string; to: string; assignTo?: string; requireComment: boolean }[]
+  /** name 은 사람에게 보이는 표시 이름(WP-2158) — 없으면 key 를 보인다 */
+  outputs: { key: string; type: string; required: boolean; name?: string }[]
+  outcomes: { key: string; to: string; assignTo?: string; requireComment: boolean; name?: string }[]
   maxVisits?: number
   /** 오류가 났을 때 가는 곳(WP-2091) — 서랍이 도착 노드를 고르고 assignTo 는 읽기만 한다 */
   onError?: { to: string; assignTo?: string }
@@ -173,6 +176,17 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined
 }
 
+/** 표시 이름이 쓸 만한 값인지(공백뿐이면 이름이 없는 것) — 값 자체는 걷지 않는다. */
+function hasName(name: string | undefined): name is string {
+  return name !== undefined && name.trim() !== ''
+}
+
+/** 선택 칸 하나를 쓴다 — on 이면 값을 set 하고 아니면 칸을 지운다(주석·다른 칸은 그대로). */
+function setCell(map: YAMLMap, field: string, value: unknown, on: boolean) {
+  if (on) map.set(field, value)
+  else map.delete(field)
+}
+
 function edgeId(from: string, to: string, kind: GraphEdgeKind, label: string): string {
   return `${from}->${to}:${kind}:${label}`
 }
@@ -200,8 +214,9 @@ function readGraph(doc: Document): WorkflowGraph {
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
   const used = new Map<string, number>()
-  const add = (from: string, to: unknown, kind: GraphEdgeKind, label: string) => {
-    if (typeof to === 'string' && to) edges.push({ id: uniqueId(used, edgeId(from, to, kind, label)), from, to, kind, label })
+  // idLabel: 간선 id 에 쓰는 키 기반 라벨(이름을 바꿔도 id 가 흔들리지 않게). label 은 화면에 보이는 값
+  const add = (from: string, to: unknown, kind: GraphEdgeKind, label: string, idLabel: string = label) => {
+    if (typeof to === 'string' && to) edges.push({ id: uniqueId(used, edgeId(from, to, kind, idLabel)), from, to, kind, label })
   }
 
   for (const [key, raw] of Object.entries(rawNodes)) {
@@ -221,7 +236,7 @@ function readGraph(doc: Document): WorkflowGraph {
     // 선택 이동 — 결과 키가 ask 면 질문 경로 선
     if (isPlain(n.outcomes)) {
       for (const [ok, o] of Object.entries(n.outcomes as Record<string, Json>)) {
-        add(key, isPlain(o) ? o.to : undefined, ok === 'ask' ? 'ask' : 'outcome', ok)
+        add(key, isPlain(o) ? o.to : undefined, ok === 'ask' ? 'ask' : 'outcome', outcomeDisplayName(ok, isPlain(o) ? str(o.name) : undefined), ok)
       }
     }
     // decision 의 자동 이동
@@ -243,7 +258,7 @@ function readGraph(doc: Document): WorkflowGraph {
         virtual: true,
         virtualParent: key,
       })
-      add(key, vKey, 'ask', 'ask')
+      add(key, vKey, 'ask', outcomeDisplayName('ask'), 'ask')
       add(vKey, key, 'returnTo', '돌아가기')
     }
   }
@@ -290,17 +305,25 @@ export function readNodeDetail(yaml: string, key: string): NodeDetail | null {
     requires: strs(n.requires),
     instructions: str(n.instructions),
     use: strs(n.use),
-    outputs: ordered('outputs').map(([k, o]) => ({
-      key: k,
-      type: isPlain(o) ? (str(o.type) ?? 'string') : 'string',
-      required: isPlain(o) ? o.required === true : false,
-    })),
-    outcomes: ordered('outcomes').map(([k, o]) => ({
-      key: k,
-      to: isPlain(o) ? (str(o.to) ?? '') : '',
-      ...(isPlain(o) && str(o.assignTo) ? { assignTo: str(o.assignTo) } : {}),
-      requireComment: isPlain(o) && o.requireComment === true,
-    })),
+    outputs: ordered('outputs').map(([k, o]) => {
+      const name = isPlain(o) ? str(o.name) : undefined
+      return {
+        key: k,
+        type: isPlain(o) ? (str(o.type) ?? 'string') : 'string',
+        required: isPlain(o) ? o.required === true : false,
+        ...(name ? { name } : {}),
+      }
+    }),
+    outcomes: ordered('outcomes').map(([k, o]) => {
+      const name = isPlain(o) ? str(o.name) : undefined
+      return {
+        key: k,
+        to: isPlain(o) ? (str(o.to) ?? '') : '',
+        ...(isPlain(o) && str(o.assignTo) ? { assignTo: str(o.assignTo) } : {}),
+        requireComment: isPlain(o) && o.requireComment === true,
+        ...(name ? { name } : {}),
+      }
+    }),
     maxVisits: typeof n.maxVisits === 'number' ? n.maxVisits : undefined,
     ...(isPlain(n.onError) && str(n.onError.to)
       ? { onError: { to: str(n.onError.to) as string, ...(str(n.onError.assignTo) ? { assignTo: str(n.onError.assignTo) as string } : {}) } }
@@ -557,12 +580,14 @@ function applyOutputs(doc: Document, key: string, outputs: NodeDetail['outputs']
       else pair.key = doc.createNode(o.key)
     }
     // required 는 true 일 때만 쓰고 false 면 칸을 지운다(required: false 를 새로 만들지 않는다)
-    const spec = { type: o.type, ...(o.required ? { required: true } : {}) }
+    // 표시 이름은 입력한 그대로 쓴다(타이핑 중 공백이 지워지지 않게) — 공백뿐이면 이름이 없는 것(칸을 쓰지 않는다)
+    const nm = hasName(o.name) ? o.name : undefined
+    const spec = { type: o.type, ...(o.required ? { required: true } : {}), ...(nm ? { name: nm } : {}) }
     if (!pair) return doc.createPair(o.key, flowMap(doc, spec))
     if (isMap(pair.value)) {
       pair.value.set('type', o.type)
-      if (o.required) pair.value.set('required', true)
-      else pair.value.delete('required')
+      setCell(pair.value, 'required', true, o.required)
+      setCell(pair.value, 'name', nm, nm !== undefined)
     } else pair.value = flowMap(doc, spec)
     return pair
   })
@@ -664,10 +689,10 @@ function applyOutcomes(doc: Document, key: string, outcomes: NodeDetail['outcome
     }
     const existing = pair.value
     existing.set('to', o.to)
-    if (o.assignTo) existing.set('assignTo', o.assignTo)
-    else existing.delete('assignTo')
-    if (o.requireComment) existing.set('requireComment', true)
-    else existing.delete('requireComment')
+    setCell(existing, 'assignTo', o.assignTo, !!o.assignTo)
+    // 표시 이름은 입력 그대로 쓰고 공백뿐이면 칸을 지운다(주석·다른 칸은 그대로)
+    setCell(existing, 'name', o.name, hasName(o.name))
+    setCell(existing, 'requireComment', true, o.requireComment)
     return pair
   })
   return true
@@ -679,6 +704,7 @@ function outcomeValue(doc: Document, o: NodeDetail['outcomes'][number]): YAMLMap
     to: o.to,
     ...(o.assignTo ? { assignTo: o.assignTo } : {}),
     ...(o.requireComment ? { requireComment: true } : {}),
+    ...(hasName(o.name) ? { name: o.name } : {}),
   })
 }
 
