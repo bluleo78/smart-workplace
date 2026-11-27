@@ -92,6 +92,11 @@ export const RSVP_LABEL: Record<RsvpStatus, string> = {
   NEEDS_ACTION: '대기',
 }
 
+/** 내 RSVP 가 거절(DECLINED)인지 — 캘린더 보기의 거절 표시(흐림·취소선·「거절」 배지)를 켜는 기준(WP-2149). 미응답·수락·미정은 거절이 아니다. */
+export function isDeclinedByMe(e: Pick<CalendarEvent, 'myRsvpStatus'>): boolean {
+  return e.myRsvpStatus === 'DECLINED'
+}
+
 /** 참석 응답 요약 — "수락 2, 미정 1, 대기 2". 0명인 상태는 뺀다. 참석자가 없으면 빈 문자열. */
 export function rsvpSummary(attendees: Pick<Attendee, 'rsvpStatus'>[]): string {
   return (Object.entries(RSVP_LABEL) as [RsvpStatus, string][])

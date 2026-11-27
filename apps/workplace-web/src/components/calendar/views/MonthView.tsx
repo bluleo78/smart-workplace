@@ -4,10 +4,12 @@ import { format, isSameMonth, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { DeclinedTitle } from '@/components/calendar/declinedEvent'
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { dayKey, eventDisplayColor, eventsByDayKey, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
+import { isDeclinedByMe } from '@/lib/calendarEventView'
 import { calendarDayLabel, defaultMonthFocusIndex, nextMonthCellIndex } from '@/lib/calendarGridNav'
 import { withRange } from '@/lib/calendarMove'
 import { resolvePalette } from '@/lib/calendarPalette'
@@ -207,7 +209,7 @@ export function MonthView({
                       {format(day, 'd')}
                     </div>
 
-                    {/* 이벤트 칩 (셀 높이만큼) — DECLINED 는 반투명 처리 (이슈 #489) */}
+                    {/* 이벤트 칩 (셀 높이만큼) — 거절한 일정은 흐림·제목 취소선·「거절」 배지로 보인다 (이슈 #489, WP-2149) */}
                     {/* 끌어 옮기는 일정이 놓일 날 — 칸 전체를 덮는 반투명 테두리와 제목(WP-1328). 칸 안 칩을 밀어내지 않게 겹쳐 그린다. */}
                     {movedEvent && eventsOnDay([movedEvent], day).length > 0 && (
                       <div className="pointer-events-none absolute inset-0 z-10 flex items-end bg-primary/10 p-1 ring-2 ring-inset ring-primary">
@@ -269,6 +271,7 @@ function eventKey(e: CalendarEvent) {
 /**
  * 월 보기 일정 칩 — 누르면 일정을 연다. 칸 클릭(새 일정)으로 올라가지 않게 막는다.
  * dragHandlers 를 주면 끌어 다른 날로 옮길 수 있고(WP-1328), moving 이면 옮기는 중이라 원래 자리를 흐리게 그린다.
+ * 내가 거절한 일정은 흐리게(opacity-50) 하고 제목은 DeclinedTitle(「거절」 배지 + 제목 취소선)로 그린다(WP-2149).
  * +N 팝오버 안의 칩은 끌지 않는다(팝오버가 칸을 덮어 놓을 칸이 보이지 않는다).
  */
 function EventChip({
@@ -284,6 +287,7 @@ function EventChip({
   dragHandlers?: ReturnType<ReturnType<typeof useEventMoveDrag>['bind']>
   moving?: boolean
 }) {
+  const declined = isDeclinedByMe(e)
   return (
     <button
       type="button"
@@ -293,10 +297,10 @@ function EventChip({
         ev.stopPropagation()
         onSelect(e)
       }}
-      className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' || moving ? 'opacity-40' : ''}`}
+      className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${declined || moving ? 'opacity-50' : ''}`}
     >
       <ExtraTagDots event={e} />
-      {e.title}
+      <DeclinedTitle declined={declined}>{e.title}</DeclinedTitle>
     </button>
   )
 }

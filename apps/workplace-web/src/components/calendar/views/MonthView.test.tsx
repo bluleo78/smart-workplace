@@ -313,3 +313,49 @@ describe('MonthView 렌더 비용', () => {
     expect(screen.getByTestId('calendar-cell-2026-05-14').querySelector('[data-testid="calendar-event-9"]')).toBeNull()
   })
 })
+
+// 거절한 일정 표시 (WP-2149) — 흐림(opacity-50)·제목 취소선·「거절」 배지. 취소선은 제목 span 에만 둔다.
+describe('MonthView 거절 일정 (WP-2149)', () => {
+  const LONG = '거절한 아주 긴 제목의 외부 미팅 일정'
+
+  function renderDay(events: CalendarEvent[]) {
+    return renderWithProviders(
+      <MonthView events={events} issueDues={[]} anchor={new Date(2026, 10, 1)} onCreateAt={vi.fn()} onSelectEvent={vi.fn()} onSelectIssue={vi.fn()} />,
+    )
+  }
+  const accepted = calendarEvent({ id: 1, title: '수락한 일정', startsAt: '2026-11-21T01:00:00Z', endsAt: '2026-11-21T02:00:00Z', myRsvpStatus: 'ACCEPTED' })
+  const declined = calendarEvent({ id: 2, title: LONG, startsAt: '2026-11-21T03:00:00Z', endsAt: '2026-11-21T04:00:00Z', myRsvpStatus: 'DECLINED' })
+
+  it('거절한 칩은 흐리고 배지가 제목 앞에 있으며 제목에만 취소선이 있다', () => {
+    renderDay([accepted, declined])
+    const chip = screen.getByTestId('calendar-event-2')
+    expect(chip).toHaveClass('opacity-50')
+    expect(chip).not.toHaveClass('opacity-40')
+    expect(chip).not.toHaveClass('line-through')
+    const badge = within(chip).getByTestId('calendar-event-declined-badge')
+    const title = within(chip).getByText(LONG)
+    expect(title).toHaveClass('line-through')
+    expect(badge.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('수락한 칩에는 배지·취소선·흐림이 없다', () => {
+    renderDay([accepted, declined])
+    const chip = screen.getByTestId('calendar-event-1')
+    expect(within(chip).queryByTestId('calendar-event-declined-badge')).toBeNull()
+    expect(chip).not.toHaveClass('opacity-50')
+    expect(within(chip).getByText('수락한 일정')).not.toHaveClass('line-through')
+  })
+
+  it('「+N」 팝오버 안의 거절 칩에도 배지가 있다', async () => {
+    const user = userEvent.setup()
+    // 측정 전에는 칸당 3개만 그려 5건째부터 넘친다 — 거절 일정을 맨 뒤에 둔다.
+    const fillers = [3, 4, 5, 6, 7].map((n) =>
+      calendarEvent({ id: n, title: `채움 ${n}`, startsAt: `2026-11-21T0${n - 2}:00:00Z`, endsAt: `2026-11-21T0${n - 2}:30:00Z`, myRsvpStatus: 'ACCEPTED' }),
+    )
+    const late = { ...declined, startsAt: '2026-11-21T14:00:00Z', endsAt: '2026-11-21T15:00:00Z' }
+    renderDay([...fillers, late])
+    await user.click(screen.getByTestId('calendar-more-2026-11-21'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByTestId('calendar-event-declined-badge')).toBeInTheDocument()
+  })
+})
