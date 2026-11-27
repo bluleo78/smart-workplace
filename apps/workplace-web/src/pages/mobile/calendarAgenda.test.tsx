@@ -114,6 +114,25 @@ test('초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력
   expect(dialog.querySelectorAll('input, textarea, select')).toHaveLength(0)
 })
 
+test('거절한 일정 — 목록 행이 흐린 글자 + 「거절」 배지 + 제목 취소선, 수락한 일정은 그대로 (WP-2149)', async () => {
+  const at = { startsAt: kst('2026-10-13', '16:00'), endsAt: kst('2026-10-13', '17:00'), myRole: 'ATTENDEE' as const }
+  const declined = calendarEvent({ id: 60, title: '거절한 외부 미팅', myRsvpStatus: 'DECLINED', ...at })
+  const accepted = calendarEvent({ id: 61, title: '수락한 외부 미팅', myRsvpStatus: 'ACCEPTED', ...at })
+  const cal = stubCalendar({ events: [...baseEvents(), declined, accepted] })
+  openCalendar(cal.handlers)
+  const row = await screen.findByTestId('calendar-event-60')
+  const badge = within(row).getByTestId('calendar-event-declined-badge')
+  const title = within(row).getByText('거절한 외부 미팅')
+  expect(badge).toHaveTextContent('거절')
+  expect(title).toHaveClass('line-through')
+  expect(title.closest('.text-muted-foreground')).not.toBeNull()
+  // 배지가 제목보다 앞(긴 제목이 줄바꿈돼도 배지가 먼저 읽힌다)
+  expect(badge.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const acceptedRow = screen.getByTestId('calendar-event-61')
+  expect(within(acceptedRow).queryByTestId('calendar-event-declined-badge')).toBeNull()
+  expect(acceptedRow.querySelector('.line-through')).toBeNull()
+})
+
 test('이슈 마감 행 — ⚑ 마감·이슈 키, 그 날 묶음 건수에 들어가고, 누르면 이슈 상세로', async () => {
   const cal = stubCalendar()
   // 이슈 상세 화면은 띄우지 않는다 — 이동 주소만 본다.
