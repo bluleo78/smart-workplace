@@ -114,6 +114,13 @@ export function isRunActive(status: RunStatus): boolean {
   return ACTIVE_RUN_STATUSES.includes(status)
 }
 
+/** 그 노드의 마지막 방문(id 가 가장 큰)이 실패·차단으로 멈췄는지 — 멈춘(SUSPENDED) 실행의 지금 노드를 실패로 칠할지 가린다. */
+function stoppedAt(nodeRuns: WorkflowRunDetail['nodeRuns'], nodeKey: string): boolean {
+  let last: WorkflowRunDetail['nodeRuns'][number] | undefined
+  for (const v of nodeRuns) if (v.nodeKey === nodeKey && (!last || v.id > last.id)) last = v
+  return last?.status === 'FAILED' || last?.status === 'BLOCKED'
+}
+
 /**
  * 그래프 칠하기 — 정상 끝난(COMPLETED) 방문이 있는 노드는 passed, 실패(FAILED) 방문이 있고 지나온 적이 없으면 failed,
  * 실행이 활성이면 지금 노드는 current, 모델의 나머지는 unvisited. 실패 방문을 지나옴(체크)으로 칠하면 오해를 부른다.
@@ -128,7 +135,11 @@ export function paintRun(detail: WorkflowRunDetail): Record<string, NodePaint> {
     else if (visit.status === 'FAILED' && paint[visit.nodeKey] !== 'passed') paint[visit.nodeKey] = 'failed'
   }
   const current = detail.run.currentNode
-  if (isRunActive(detail.run.status) && current in paint) paint[current] = 'current'
+  // 멈춘 실행(SUSPENDED)의 지금 노드는 그 방문이 실패·막힘(FAILED·BLOCKED)으로 멈춘 때만 실패로 칠한다 — 질문 단계에서
+  // 막혀 멈췄을 때 곁 노드가 사람 차례(주황)로 보이지 않게 한다. 다른 까닭(상태 삭제·방문 상한 등)으로 멈춰 방문이 진행 중이면
+  // 그 노드에서 실패한 것이 아니므로 「지금」 그대로 둔다(WP-2157 리뷰 후속).
+  if (detail.run.status === 'SUSPENDED' && current in paint && stoppedAt(detail.nodeRuns, current)) paint[current] = 'failed'
+  else if (isRunActive(detail.run.status) && current in paint) paint[current] = 'current'
   return paint
 }
 
@@ -160,7 +171,7 @@ export interface RunMoveRow {
  * 이동 기록 — 방문마다 한 줄(앞 노드 → 이 노드), 시간 역순.
  * 이동을 한 사람·결과는 앞 방문이 가진 값이고, 첫 줄(시작)은 시작한 사람이다. assigned 는 이 방문에서 워크플로우가 담당으로 넣은 사람.
  * WP-2157: 가장 이른 방문이 start 노드이고 다음 방문이 있으면 「시작 → 첫 노드」 두 줄 대신 한 줄(from null, to 첫 노드)로 합친다.
- * 질문 단계로 들어간 줄에는 run.context._qa 의 질문 첫 줄을 붙인다(그 노드의 방문 목록 끝과 항목 목록 끝을 맞춰 짝지음).
+ * 질문 단계로 들어간 줄에는 run.context._qa 의 질문 첫 줄을 붙인다(원래 노드에서 질문해 들어온 방문만, 그 방문 목록 끝과 항목 목록 끝을 맞춰 짝지음).
  */
 export function runMoveRows(detail: WorkflowRunDetail): RunMoveRow[] {
   const visits = [...detail.nodeRuns].sort((a, b) => a.id - b.id)
@@ -168,12 +179,22 @@ export function runMoveRows(detail: WorkflowRunDetail): RunMoveRow[] {
   const names = runUserNames(detail)
   const qa = detail.run.context['_qa']
   const entries = Array.isArray(qa) ? (qa as { answerNode?: string; question?: unknown }[]) : []
-  // WP-2157: 서버는 최근 QA_MAX 개만 남기므로 앞이 잘릴 수 있다 — 노드별 방문 목록의 끝과 항목 목록의 끝을 맞춘다(가장 최근 방문 ↔ 가장 최근 항목).
-  const visitsOfNode = new Map<string, number[]>()
-  for (const v of visits) {
-    const ids = visitsOfNode.get(v.nodeKey)
+  // WP-2157: 질문과 짝지을 수 있는 방문 = 앞 방문이 이 질문 단계의 returnTo 노드이고, 그 방문의 결과가 이 질문 단계로 가는 결과인 방문
+  // (원래 노드에서 질문 결과로 들어온 방문 — 서버가 _qa 항목을 남기는 경우와 같다). recover MOVE_TO 로 들어온 방문은 결과 이동이
+  // 아니라 _qa 항목이 없으므로 짝에서 뺀다(같은 returnTo 노드에서 옮겨 와도 — 끼면 질문이 한 칸씩 밀린다).
+  const askVisitsOfNode = new Map<string, number[]>()
+  // 첫 방문은 앞 방문이 없어 질문으로 들어온 방문일 수 없다 — 1부터 본다.
+  for (let i = 1; i < visits.length; i++) {
+    const v = visits[i]
+    const prev = visits[i - 1]
+    const node = nodeByKey.get(v.nodeKey)
+    if (!node || !isQuestionPathNode(node.type, node.returnTo, node.outcomes.map((o) => o.key))) continue
+    if (prev.nodeKey !== node.returnTo || prev.outcome == null) continue
+    const owner = nodeByKey.get(prev.nodeKey)
+    if (!owner?.outcomes.some((o) => o.key === prev.outcome && o.to === v.nodeKey)) continue
+    const ids = askVisitsOfNode.get(v.nodeKey)
     if (ids) ids.push(v.id)
-    else visitsOfNode.set(v.nodeKey, [v.id])
+    else askVisitsOfNode.set(v.nodeKey, [v.id])
   }
   // 질문 항목을 답할 노드별로 한 번 묶어 둔다(방문마다 다시 거르지 않게).
   const entriesOfNode = new Map<string, { question?: unknown }[]>()
@@ -184,11 +205,10 @@ export function runMoveRows(detail: WorkflowRunDetail): RunMoveRow[] {
     else entriesOfNode.set(x.answerNode, [x])
   }
   const questionOf = (v: WorkflowNodeRun): string | null => {
-    const node = nodeByKey.get(v.nodeKey)
-    if (!node || !isQuestionPathNode(node.type, node.returnTo, node.outcomes.map((o) => o.key))) return null
-    const ids = visitsOfNode.get(v.nodeKey) ?? []
+    const ids = askVisitsOfNode.get(v.nodeKey)
+    if (!ids || !ids.includes(v.id)) return null
     const mine = entriesOfNode.get(v.nodeKey) ?? []
-    // 이 방문이 뒤에서 몇 번째인가 → 같은 뒤에서 몇 번째 항목. 항목이 더 적으면(앞이 잘림) 앞 방문은 null.
+    // 서버는 최근 QA_MAX 개만 남기므로 앞이 잘릴 수 있다 — 짝지을 방문 목록의 끝과 항목 목록의 끝을 맞춘다. 항목이 더 적으면 앞 방문은 null.
     const e = mine[mine.length - (ids.length - ids.indexOf(v.id))]
     if (!e || typeof e.question !== 'string') return null
     const line = questionFirstLine(e.question)

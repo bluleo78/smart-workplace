@@ -1,5 +1,6 @@
 // 워크플로우 탭 › 실행 — 왼쪽 실행 목록(글자 탭·필터 팝오버, 다음 쪽; WP-2157 두 칸·덜어내기)과 오른쪽 고른 실행 자리, 「그래프에 모아 보기」(WP-1991).
 // 고른 실행은 주소 `?run=<id>`, 모아 보기는 `?runsView=graph` 로 둬 공유·뒤로 가기가 되게 한다. 필터는 화면 상태다(주소 아님).
+import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -7,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/po
 import { ResultStatus } from '@/components/ResultStatus'
 import { Button } from '@/components/ui/button'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
-import { useWorkflowRun, useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
+import { invalidateRunListAndCounts, useWorkflowRun, useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
 import { formatRelativeTime } from '@/lib/formatters'
 import { ACTIVE_RUN_STATUSES, RUN_STATUS_DOT, RUN_STATUS_LABEL, RUN_STATUS_ORDER, type RunStatus } from '@/lib/workflow'
 import { runDetailOpenedText, type RunFilters, type WorkflowRunItem } from '@/lib/workflowRuns'
@@ -40,6 +41,7 @@ interface Props {
 /** 실행 목록 + 고른 실행 자리. 목록 머리에 글자 탭(진행 중·완료·전체)·필터 단추·모아 보기 단추를 둔다. */
 export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManage, canRecover, meId, runningCount, runningFailed, onRetryRunning, olderNotice }: Props) {
   const [params, setParams] = useSearchParams()
+  const queryClient = useQueryClient()
   const runId = Number(params.get('run')) || null
   const graphView = params.get('runsView') === 'graph'
   const [filters, setFilters] = useState<RunFilters>({})
@@ -67,6 +69,18 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
   // 노드 이름 — 게시 모델에서. 목록 줄이 currentNodeName 을 주지만 필터 후보에도 쓴다.
   const nodeOptions = (model?.nodes ?? []).filter((n) => n.type !== 'start' && n.type !== 'end')
 
+  /** 탭을 고르면 상태 select 를 비운다(WP-2157) — select 가 탭보다 앞서므로 남겨 두면 탭을 눌러도 목록이 안 바뀌어 보인다. */
+  function selectTab(next: RunTab) {
+    setTab(next)
+    setFilters((f) => ({ ...f, status: undefined }))
+  }
+
+  /** 상태 select 를 고르면 탭을 「전체」로 옮긴다(WP-2157) — 목록은 select 상태인데 「완료」 탭이 눌려 보이는 어긋남을 막는다. 비우면 전체 탭 그대로. */
+  function selectStatus(status: RunStatus | undefined) {
+    if (status) setTab('ALL')
+    setFilters((f) => ({ ...f, status }))
+  }
+
   /** 주소 검색값 하나를 바꾼다(push — 뒤로 가기가 이전 선택으로 돌아가게). */
   function setParam(name: string, value: string | null) {
     setParams((prev) => {
@@ -87,7 +101,7 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
               ['COMPLETED', byStatus ? `완료 ${byStatus.COMPLETED}` : '완료'],
               ['ALL', '전체']] as const).map(([key, text]) => (
               <button
-                key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}
+                key={key} type="button" aria-pressed={tab === key} onClick={() => selectTab(key)}
                 className={tab === key ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'}
               >
                 {text}
@@ -105,7 +119,7 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
                 <FilterSelect
                   id="run-filter-status" label="상태" allLabel="상태: 전체" value={filters.status ?? ''}
                   options={RUN_STATUS_ORDER.map((st) => ({ value: st, label: RUN_STATUS_LABEL[st] }))}
-                  onChange={(v) => setFilters((f) => ({ ...f, status: (v || undefined) as RunStatus | undefined }))}
+                  onChange={(v) => selectStatus((v || undefined) as RunStatus | undefined)}
                 />
                 <FilterSelect
                   id="run-filter-node" label="노드" allLabel="노드: 전체" value={filters.node ?? ''}
@@ -148,7 +162,7 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
           <div className="min-w-0 space-y-2 @3xl/runs:border-r">
             {runs.isError ? (
               <p role="alert" className="text-sm">
-                실행 목록을 불러오지 못했습니다. <Button variant="link" size="sm" onClick={() => { void runs.refetch(); if (counts.isError) void counts.refetch() }}>다시 불러오기</Button>
+                실행 목록을 불러오지 못했습니다. <Button variant="link" size="sm" onClick={() => void invalidateRunListAndCounts(queryClient, workflowId)}>다시 불러오기</Button>
               </p>
             ) : runs.isPending ? (
               <p className="text-sm text-muted-foreground">실행을 불러오는 중…</p>

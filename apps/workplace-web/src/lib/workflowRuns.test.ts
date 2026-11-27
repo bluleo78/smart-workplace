@@ -41,6 +41,24 @@ describe('workflowRuns', () => {
     expect(Object.values(done)).not.toContain('current')
   })
 
+  // WP-2157 리뷰 후속 — 멈춘 실행(조치 필요)의 지금 노드는 「지금」이 아니라 실패로 칠한다
+  it('paintRun_suspendedCurrentIsFailed', () => {
+    const runs = [
+      visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
+      visit(2, 'a', '2026-01-01T00:00:01Z', null, { status: 'BLOCKED' }),
+    ]
+    expect(paintRun(detail(runs, 'SUSPENDED', 'a'))).toEqual({ start: 'passed', a: 'failed', b: 'unvisited', end: 'unvisited' })
+  })
+
+  // WP-2157 리뷰: 방문 상한 초과 등으로 멈췄지만 지금 노드 방문이 실패·차단이 아니면 「지금」 그대로 보인다.
+  it('paintRun_suspendedWithoutFailedVisitStaysCurrent', () => {
+    const runs = [
+      visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
+      visit(2, 'a', '2026-01-01T00:00:01Z', null),
+    ]
+    expect(paintRun(detail(runs, 'SUSPENDED', 'a')).a).toBe('current')
+  })
+
   it('paintRun_loopAndUnknownNode', () => {
     const runs = [
       visit(1, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z'),
@@ -95,7 +113,7 @@ describe('workflowRuns', () => {
   it('runMoveRows_askRowCarriesQuestionFirstLine', () => {
     const runs = [
       visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
-      visit(2, 'work', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작업' }),
+      visit(2, 'work', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작업', outcome: 'ask' }),
       visit(3, 'work_ask', '2026-01-01T00:10:00Z', null, { nodeName: '질문 답변' }),
     ]
     const d = detail(runs)
@@ -109,9 +127,9 @@ describe('workflowRuns', () => {
   // WP-2157 리뷰: 서버가 앞 항목을 잘라 항목이 방문보다 적으면 끝에서 맞춘다 — 최근 방문에 최근 질문, 앞 방문은 null.
   it('runMoveRows_questionPairingAlignsFromEnd', () => {
     const runs = [
-      visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
+      visit(1, 'work', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z', { nodeName: '작업', outcome: 'ask' }),
       visit(2, 'work_ask', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '질문 답변' }),
-      visit(3, 'work', '2026-01-01T00:10:00Z', '2026-01-01T00:11:00Z', { nodeName: '작업' }),
+      visit(3, 'work', '2026-01-01T00:10:00Z', '2026-01-01T00:11:00Z', { nodeName: '작업', outcome: 'ask' }),
       visit(4, 'work_ask', '2026-01-01T00:11:00Z', null, { nodeName: '질문 답변' }),
     ]
     const d = detail(runs)
@@ -120,6 +138,40 @@ describe('workflowRuns', () => {
     const rows = runMoveRows(d)
     expect(rows[0].question).toBe('최근 질문')
     expect(rows.find((r) => r.id === '2')!.question).toBeNull()
+  })
+
+  // WP-2157 리뷰: recover MOVE_TO 로 다른 노드(review)에서 질문 단계로 들어온 방문은 _qa 항목이 없다 — 첫 질문 방문만 짝지어진다.
+  it('runMoveRows_recoverVisitIntoAskStepGetsNoQuestion', () => {
+    const runs = [
+      visit(1, 'work', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작업', outcome: 'ask' }),
+      visit(2, 'work_ask', '2026-01-01T00:10:00Z', '2026-01-01T00:11:00Z', { nodeName: '질문 답변' }),
+      visit(3, 'work', '2026-01-01T00:11:00Z', '2026-01-01T00:12:00Z', { nodeName: '작업' }),
+      visit(4, 'review', '2026-01-01T00:12:00Z', '2026-01-01T00:13:00Z', { nodeName: '리뷰' }),
+      visit(5, 'work_ask', '2026-01-01T00:13:00Z', null, { nodeName: '질문 답변' }),
+    ]
+    const d = detail(runs)
+    d.model = mkAskModel()
+    d.model.nodes.push({ ...d.model.nodes[1], key: 'review', name: '리뷰', outcomes: [] })
+    d.run.context = { _qa: [{ answerNode: 'work_ask', question: '첫 질문' }] }
+    const rows = runMoveRows(d)
+    expect(rows.find((r) => r.id === '2')!.question).toBe('첫 질문')
+    expect(rows.find((r) => r.id === '5')!.question).toBeNull()
+  })
+
+  // WP-2157 리뷰: 같은 질문 주인 노드에서 결과 없이(recover) 질문 단계로 들어온 방문도 _qa 항목이 없다.
+  it('runMoveRows_recoverFromOwnerWithoutOutcomeGetsNoQuestion', () => {
+    const runs = [
+      visit(1, 'work', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작업', outcome: 'ask' }),
+      visit(2, 'work_ask', '2026-01-01T00:10:00Z', '2026-01-01T00:11:00Z', { nodeName: '질문 답변' }),
+      visit(3, 'work', '2026-01-01T00:11:00Z', '2026-01-01T00:12:00Z', { nodeName: '작업' }),
+      visit(4, 'work_ask', '2026-01-01T00:12:00Z', null, { nodeName: '질문 답변' }),
+    ]
+    const d = detail(runs)
+    d.model = mkAskModel()
+    d.run.context = { _qa: [{ answerNode: 'work_ask', question: '첫 질문' }] }
+    const rows = runMoveRows(d)
+    expect(rows.find((r) => r.id === '2')!.question).toBe('첫 질문')
+    expect(rows.find((r) => r.id === '4')!.question).toBeNull()
   })
 
   it('runMoveRows_onlyStartVisit', () => {

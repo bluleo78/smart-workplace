@@ -3,6 +3,8 @@
 export const workflowRunKeys = {
   /** 실행 조회 전체 접두사 — 목록·상세·집계를 한꺼번에 무효화할 때. */
   all: ['workflow-runs'] as const,
+  /** 정의 하나의 실행 목록 접두사 — 필터와 무관하게 그 정의의 목록을 모두 무효화할 때(WP-2157). */
+  lists: (workflowId: number | undefined) => [...workflowRunKeys.all, 'list', workflowId] as const,
   /** 정의 하나의 실행 목록(필터별). */
   list: (workflowId: number | undefined, filters: unknown) => [...workflowRunKeys.all, 'list', workflowId, filters] as const,
   /** 실행 한 건의 상세. */

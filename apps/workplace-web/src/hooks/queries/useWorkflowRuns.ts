@@ -1,5 +1,5 @@
 // 워크플로우 실행 조회 서버 상태 훅 — 정의의 실행 목록·상세·노드별 진행 수·내 차례(WP-1991). 타입·순수 함수는 lib/workflowRuns.ts.
-import { keepPreviousData, skipToken, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, type QueryClient, skipToken, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { client } from '@/api/client'
 import type { MyWorkflowTurnList, RunFilters, WorkflowRunCounts, WorkflowRunDetail, WorkflowRunPage } from '@/lib/workflowRuns'
@@ -24,6 +24,17 @@ export function useWorkflowRuns(workflowId: number | undefined, filters: RunFilt
     getNextPageParam: (last) => last.nextCursor,
     placeholderData: keepPreviousData,
   })
+}
+
+/**
+ * 정의 하나의 실행 목록과 탭 숫자(run-counts)를 함께 다시 읽게 한다(WP-2157).
+ * 목록 줄과 탭 숫자는 같은 실행 상태에서 나오므로 어느 한쪽만 새로 읽으면 어긋난다 — 목록을 다시 읽는 모든 곳이 이 한 곳을 쓴다.
+ */
+export function invalidateRunListAndCounts(queryClient: QueryClient, workflowId: number | undefined) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: workflowRunKeys.lists(workflowId) }),
+    queryClient.invalidateQueries({ queryKey: workflowRunKeys.counts(workflowId) }),
+  ])
 }
 
 /** 실행 한 건의 상세 — 고른 실행이 없으면 묻지 않는다. */

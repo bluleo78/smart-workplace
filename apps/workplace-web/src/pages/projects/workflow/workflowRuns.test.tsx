@@ -137,6 +137,42 @@ it('statusSelectOverridesTab', async () => {
   expect(screen.getByRole('button', { name: '필터 1' })).toBeVisible()
 })
 
+// WP-2157 리뷰: select 로 상태를 고르면 탭이 「전체」로 옮겨 가고, 탭을 누르면 select 가 비워진다(어긋남 방지).
+it('statusSelect_movesTabToAll_andTabClearsSelect', async () => {
+  const { user, urls } = setup(undefined, { counts: { counts: {}, byStatus } })
+  await user.click(await screen.findByRole('button', { name: '완료 1' }))
+  await user.click(screen.getByRole('button', { name: '필터' }))
+  await user.selectOptions(screen.getByLabelText('상태'), '조치 필요')
+  await waitFor(() => expect(urls.at(-1)!.searchParams.get('status')).toBe('SUSPENDED'))
+  expect(screen.getByRole('button', { name: '완료 1' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('button', { name: '전체' })).toHaveAttribute('aria-pressed', 'true')
+  await user.keyboard('{Escape}')
+  await user.click(screen.getByRole('button', { name: '완료 1' }))
+  // 완료 목록은 앞서 읽어 캐시에 있어 요청이 더 가지 않는다 — 탭이 눌리고 select 가 비워져 필터 개수가 사라진 것으로 본다.
+  expect(await screen.findByRole('button', { name: '필터' })).toBeVisible()
+  expect(screen.getByRole('button', { name: '완료 1' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+// WP-2157 리뷰: 목록을 다시 불러오면 탭 숫자(run-counts)도 다시 읽는다.
+it('runsListRetry_refetchesCountsToo', async () => {
+  let listFail = true
+  let countCalls = 0
+  const { user } = setup(undefined, { counts: { counts: {}, byStatus } })
+  server.use(
+    http.get(base + '/workflows/42/runs', () => (listFail ? new HttpResponse(null, { status: 500 }) : HttpResponse.json({ items: [item(1)], nextCursor: null }))),
+    http.get(base + '/workflows/42/run-counts', () => {
+      countCalls += 1
+      return HttpResponse.json({ counts: {}, byStatus })
+    }),
+  )
+  const retry = await screen.findByRole('button', { name: '다시 불러오기' })
+  await waitFor(() => expect(countCalls).toBeGreaterThan(0))
+  const before = countCalls
+  listFail = false
+  await user.click(retry)
+  await waitFor(() => expect(countCalls).toBeGreaterThan(before))
+})
+
 it('tabsWithoutCountsWhenCountsFail', async () => {
   setup(undefined, { countsFail: true })
   expect(await screen.findByText('제목 1')).toBeVisible()

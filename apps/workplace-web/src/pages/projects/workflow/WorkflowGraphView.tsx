@@ -175,16 +175,24 @@ function CompactGraph({ model, readOnly, paint, durations, currentNode }: Omit<P
             {l.text}
           </div>
         ))}
-        {layout.askMarkers.map((m) => (
-          <div
-            key={m.askKey}
-            data-testid="graph-ask-marker"
-            className="absolute flex items-center justify-center truncate rounded-full border border-dashed px-2 text-xs text-muted-foreground"
-            style={{ left: m.x, top: m.y, width: m.width, height: m.height }}
-          >
-            {m.text}
-          </div>
-        ))}
+        {layout.askMarkers.map((m) => {
+          // WP-2157: 질문 표식도 본 노드와 같은 칠하기를 따른다 — 지나옴 ✓·실패 ×·안 감은 흐리게(칠하기가 없으면 기본 모양).
+          const state = paint?.[m.askKey]
+          const tone = state === 'failed' ? 'border-destructive/60' : state === 'unvisited' ? 'opacity-50' : ''
+          return (
+            <div
+              key={m.askKey}
+              data-testid="graph-ask-marker"
+              data-paint={state}
+              className={`absolute flex items-center justify-center gap-1 truncate rounded-full border border-dashed px-2 text-xs text-muted-foreground ${tone}`}
+              style={{ left: m.x, top: m.y, width: m.width, height: m.height }}
+            >
+              {state === 'passed' && <Check className="size-3 shrink-0" aria-label="지나온 노드" />}
+              {state === 'failed' && <X className="size-3 shrink-0 text-destructive" aria-label="실패한 노드" />}
+              <span className="truncate">{m.text}</span>
+            </div>
+          )
+        })}
         <ul className="m-0 list-none p-0" role="list">
           {layout.nodes.map((n) => {
             const node = byKey.get(n.key)!
@@ -219,21 +227,34 @@ function CompactGraph({ model, readOnly, paint, durations, currentNode }: Omit<P
               </li>
             )
           })}
-          {layout.askCurrent && (
-            <li
-              role="listitem"
-              data-node-key={layout.askCurrent.askKey}
-              data-paint="current"
-              className="absolute overflow-hidden rounded-md border border-warning bg-warning-subtle px-2 py-1 text-xs ring-2 ring-warning"
-              style={{ left: layout.askCurrent.x, top: layout.askCurrent.y, width: layout.askCurrent.width, height: layout.askCurrent.height }}
-            >
-              <div className="truncate text-sm font-medium text-warning-text">{byKey.get(layout.askCurrent.askKey)?.name ?? layout.askCurrent.askKey}</div>
-              <div className="truncate text-muted-foreground">
-                {/* 머문 시간(WP-2157 I2) — 지금 노드와 같은 형식. 값이 없으면 결과 문구로 대체한다(이름 없는 단계의 제목은 키라 「사람 차례」가 겹치지 않는다). */}
-                {durations?.[layout.askCurrent.askKey] != null ? formatDurationMs(durations[layout.askCurrent.askKey]) : `${layout.askCurrent.outcome} → 사람 차례`}
-              </div>
-            </li>
-          )}
+          {layout.askCurrent && (() => {
+            const ask = layout.askCurrent
+            // WP-2157: 곁 노드도 칠하기를 따른다 — 멈춘(SUSPENDED) 실행이 질문 단계에 있으면 failed 라 「지금」 주황이 아니다. 칠하기가 없으면 지금(주황).
+            const state = paint?.[ask.askKey] ?? 'current'
+            const cls = state === 'current'
+              ? 'border-warning bg-warning-subtle ring-2 ring-warning'
+              : paintClass[state]
+            return (
+              <li
+                role="listitem"
+                data-node-key={ask.askKey}
+                data-paint={state}
+                className={`absolute overflow-hidden rounded-md border px-2 py-1 text-xs ${cls}`}
+                style={{ left: ask.x, top: ask.y, width: ask.width, height: ask.height }}
+              >
+                <div className="flex items-center gap-1">
+                  <span className={`truncate text-sm font-medium ${state === 'current' ? 'text-warning-text' : ''}`}>{byKey.get(ask.askKey)?.name ?? ask.askKey}</span>
+                  {state === 'passed' && <Check className="ml-auto size-3 shrink-0 text-muted-foreground" aria-label="지나온 노드" />}
+                  {state === 'failed' && <X className="ml-auto size-3 shrink-0 text-destructive" aria-label="실패한 노드" />}
+                </div>
+                <div className="truncate text-muted-foreground">
+                  {/* 머문 시간(WP-2157 I2) — 지금 노드와 같은 형식. 값이 없으면 결과 문구로 대체한다(이름 없는 단계의 제목은 키라 「사람 차례」가 겹치지 않는다). */}
+                  {/* 지금 질문 대기가 아니면(실패·지나옴) 「사람 차례」를 붙이지 않는다 — 빨간 실패 칠과 어긋나지 않게(WP-2157 리뷰 후속). */}
+                  {durations?.[ask.askKey] != null ? formatDurationMs(durations[ask.askKey]) : state === 'current' ? `${ask.outcome} → 사람 차례` : ask.outcome}
+                </div>
+              </li>
+            )
+          })()}
         </ul>
       </div>
     </section>
