@@ -54,6 +54,17 @@ class CalendarEventNoteOccurrenceTest extends CalendarNoteTestBase {
         CALENDAR_EVENT_NOTE.EVENT_ID.eq(master).and(CALENDAR_EVENT_NOTE.OCCURRENCE_START.eq(occ)));
   }
 
+  /**
+   * 행의 실제 updated_at 을 읽는다(WP-2156) — prune 의 since 는 이 값과 같은 시계로 비교하므로, JVM now() 를 넘기면 컨테이너 시계가
+   * 앞설 때 행이 가드로 보호되어 지워지지 않는다.
+   */
+  private OffsetDateTime updatedAtOf(long eventId) {
+    return dsl.select(CALENDAR_EVENT.UPDATED_AT)
+        .from(CALENDAR_EVENT)
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .fetchOne(CALENDAR_EVENT.UPDATED_AT);
+  }
+
   @Test
   void moveThisOccurrence_keepsLink() {
     long master = weeklyEvent(ownerA);
@@ -203,14 +214,14 @@ class CalendarEventNoteOccurrenceTest extends CalendarNoteTestBase {
     List<Long> pruned =
         callInTenant(
             1L,
-            // since 는 픽스처 행 updated_at 보다 뒤 — prune 이 행을 지우는 기존(무가드) 동작을 그대로 유지한다.
-            () ->
-                extRepo.pruneEventsNotIn(
-                    calId,
-                    Set.of(),
-                    START.minusDays(1),
-                    START.plusMonths(1),
-                    OffsetDateTime.now()));
+            // since 는 행의 updated_at 보다 뒤 — 가드가 이 행을 건너뛰지 않아 prune 이 지우는 기존(무가드) 동작을 그대로 유지한다.
+            // JVM now() 가 아니라 행의 실제 값을 +1초 쓴다 — 컨테이너(DB) 시계가 앞서면 now() 로는 행이 가드로 보호돼 지워지지 않아 테스트가
+            // 흔들린다(WP-2156).
+            () -> {
+              OffsetDateTime since = updatedAtOf(ext).plusSeconds(1);
+              return extRepo.pruneEventsNotIn(
+                  calId, Set.of(), START.minusDays(1), START.plusMonths(1), since);
+            });
     assertThat(pruned).containsExactly(ext);
     assertThat(noteRows(ext)).isZero();
   }

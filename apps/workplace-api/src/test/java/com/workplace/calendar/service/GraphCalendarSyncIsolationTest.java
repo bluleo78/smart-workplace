@@ -423,20 +423,22 @@ class GraphCalendarSyncIsolationTest extends ExternalClientMockedTestBase {
   /**
    * pruneEventsNotIn 의 5번째 인자(since)는 수집 이전에 잡은 동기화 시작 시각이어야 한다(WP-2156 Review Focus 1).
    *
-   * <p>수집이 끝난 뒤 잡은 값이면 updated_at 가드가 앱과의 경합을 막지 못한다. 수집에 지연을 흉내내어 「동기화 시작」과 「prune 시각」을 시간으로 갈라
-   * 놓고, 모의 호출의 5번째 인자를 캡처해 단언한다.
+   * <p>수집이 끝난 뒤 잡은 값이면 updated_at 가드가 앱과의 경합을 막지 못한다. 수집이 시작한 순간과 동기화 호출 직전 시각을 각각 적어 두고, 그 두 시각
+   * 사이에 since 가 놓이는지 모의 호출의 5번째 인자를 캡처해 단언한다 — 벽시계 초 단위 허용폭에 기대지 않아 느린 CI 에서도 흔들리지 않는다.
    */
   @Test
   void sync_passes_collection_start_as_prune_since() {
     when(graphCalendarClient.listCalendars("tok")).thenReturn(List.of(cal("c1")));
-    // 수집에 1.5초 지연 — prune 은 수집이 끝난 뒤에 불리므로, prune 시점 값을 넘긴 배선은 (a) 의 1초 상한을 넘겨 걸린다.
+    // 수집에 1.5초 지연 — prune 은 수집이 끝난 뒤에 불리므로, 「동기화 시작」과 「prune 시각」이 시간으로 갈린다.
+    AtomicReference<OffsetDateTime> collectionStartedAt = new AtomicReference<>();
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("c1"), any(), any()))
         .thenAnswer(
             inv -> {
+              collectionStartedAt.set(OffsetDateTime.now(ZoneOffset.UTC));
               Thread.sleep(1500);
               return List.of(evt("e1", 1));
             });
-    // 동기화 호출 직전에 기록한 기준 시각 — scope.now() 는 sync() 진입 시점 값이라 이 값보다 조금 뒤다(±초 허용).
+    // 동기화 호출 직전에 기록한 기준 시각 — scope.now() 는 sync() 진입 시점 값이라 이 값보다 뒤다.
     OffsetDateTime beforeSync = OffsetDateTime.now(ZoneOffset.UTC);
 
     syncService.sync(ownerId, accountId);
@@ -449,10 +451,9 @@ class GraphCalendarSyncIsolationTest extends ExternalClientMockedTestBase {
     ArgumentCaptor<OffsetDateTime> since = ArgumentCaptor.forClass(OffsetDateTime.class);
     verify(extRepo).pruneEventsNotIn(eq(c1Id), any(), any(), any(), since.capture());
 
-    // (a) 동기화 호출 직전 기록한 now 보다 크게 나지 않는다(초 단위 허용) — 수집 뒤(prune 시각) 값을 잡은 배선은
-    // 1.5초 수집 지연 때문에 상한을 넘는다.
-    assertThat(since.getValue()).isBeforeOrEqualTo(beforeSync.plusSeconds(1));
-    // (b) 동기화 시작 시점 ±초 안이다 — 수집 시작 이전의 플레이스홀더(예: 수집 구간 시작 from)는 아래 경계에 걸린다.
-    assertThat(since.getValue()).isBetween(beforeSync.minusSeconds(1), beforeSync.plusSeconds(1));
+    // (a) 동기화 진입 시각은 수집 시작 이전이다 — 수집이 끝난 뒤(prune 시각) 값을 넘긴 배선은 수집 시작 뒤라 이 경계에 걸린다.
+    assertThat(since.getValue()).isBeforeOrEqualTo(collectionStartedAt.get());
+    // (b) 동기화 윈도우 시작(from) 같은 이전 시각이 아니다 — 동기화 호출 직전에 기록한 beforeSync 이후다.
+    assertThat(since.getValue()).isAfterOrEqualTo(beforeSync);
   }
 }
