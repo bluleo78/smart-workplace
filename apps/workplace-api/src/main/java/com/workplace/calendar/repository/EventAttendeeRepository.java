@@ -280,6 +280,14 @@ public class EventAttendeeRepository {
         .execute();
   }
 
+  /** 주최자 외 참석자(내부·외부 이메일)가 한 명이라도 있는지 — Outlook 전환 적격 판정용, 행을 모두 읽지 않는다(WP-2155). */
+  public boolean existsNonOrganizer(long eventId) {
+    return dsl.fetchExists(
+        dsl.select(EVENT_ATTENDEE.ID)
+            .from(EVENT_ATTENDEE)
+            .where(EVENT_ATTENDEE.EVENT_ID.eq(eventId).and(EVENT_ATTENDEE.ROLE.ne("ORGANIZER"))));
+  }
+
   /** 해당 이벤트에서 userId 가 ORGANIZER 역할인지 확인. */
   public boolean isOrganizer(long eventId, long userId) {
     return dsl.fetchExists(

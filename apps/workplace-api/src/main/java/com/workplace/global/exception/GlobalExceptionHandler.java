@@ -1076,6 +1076,16 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
   }
 
+  /** 참석자·반복 로컬 일정의 Outlook 캘린더 이동 미지원 → 422 (WP-2155). */
+  @ExceptionHandler(com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleLocalToExternalMove(
+      com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
+  }
+
   // 사용자 그룹 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.user.exception.UserGroupNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleUserGroupNotFound(

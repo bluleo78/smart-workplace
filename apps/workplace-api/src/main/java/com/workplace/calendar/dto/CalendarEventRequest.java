@@ -77,6 +77,23 @@ public record CalendarEventRequest(
         null);
   }
 
+  /** 태그만 뺀 사본(WP-2155) — tagIds=null 이라 태그를 건드리지 않는다. 로컬→Outlook 전환에서 태그를 Graph 연결 뒤 따로 쓰려고 쓴다. */
+  public CalendarEventRequest withoutTags() {
+    return new CalendarEventRequest(
+        title,
+        description,
+        startsAt,
+        endsAt,
+        allDay,
+        location,
+        color,
+        reminderMinutes,
+        recurrenceRule,
+        attendeeUserIds,
+        calendarId,
+        null);
+  }
+
   /** 종료가 시작보다 뒤인지 교차 검증 — 위반 시 400. */
   @AssertTrue(message = "종료 시각은 시작 시각보다 뒤여야 합니다")
   public boolean isValidRange() {
