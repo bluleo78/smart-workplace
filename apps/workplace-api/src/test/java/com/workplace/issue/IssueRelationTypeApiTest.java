@@ -1,6 +1,7 @@
 package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.AUDIT_LOG;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -25,7 +26,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,7 +74,7 @@ class IssueRelationTypeApiTest extends IntegrationTestBase {
     userId = withMembership(TestFixtures.createHuman(dsl));
     TestFixtures.grantRole(dsl, userId, "USER");
     agentId = createAgentUserWithMembership("relagent");
-    String key = "RT" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String key = uniqueProjectKey("RT");
     projectId = projectService.create(adminId, new CreateProjectRequest(key, "관계유형", "x")).id();
   }
 

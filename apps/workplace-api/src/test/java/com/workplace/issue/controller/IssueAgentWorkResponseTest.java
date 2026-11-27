@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -62,8 +63,7 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
   @Test
   void 상세_summary_와_내_이슈_목록에_agentWork_가_실리고_없으면_생략() throws Exception {
     long userId = createUser();
-    String key =
-        "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("AW");
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     var working =
         IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "작업중", null, "MID", null, userId);
@@ -91,8 +91,7 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
   @Test
   void SCHEDULED_작업의_nextRunAt_이_응답에_실리고_작업중이면_생략() throws Exception {
     long userId = createUser();
-    String key =
-        "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("AW");
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     var issue =
         IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "예약", null, "MID", null, userId);
@@ -124,8 +123,7 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
   @Test
   void 종료된_이슈의_남은_작업은_응답에서_빠진다() throws Exception {
     long userId = createUser();
-    String key =
-        "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("AW");
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     var done =
         IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "끝남", null, "MID", null, userId);

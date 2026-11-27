@@ -10,6 +10,7 @@ import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -245,8 +246,7 @@ class IssueImportTest extends IssueImportTestSupport {
   @Test
   void ownerOfOtherProject_403() throws Exception {
     long otherOwner = human();
-    String otherKey =
-        "IO" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String otherKey = uniqueProjectKey("IO");
     projectService.create(otherOwner, new CreateProjectRequest(otherKey, "남의 프로젝트", "x"));
     importAs(otherOwner, body("남의 소유자"))
         .andExpect(status().isForbidden())
@@ -320,8 +320,7 @@ class IssueImportTest extends IssueImportTestSupport {
 
   /** 소유자가 가진 다른 팀 프로젝트 하나(WP-1038 다른 프로젝트 에픽 부모용). 관리자는 멤버가 아니어도 ADMIN 우회로 읽을 수 있다. */
   private ProjectResponse otherTeamProject() {
-    String otherKey =
-        "IO" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String otherKey = uniqueProjectKey("IO");
     return projectService.create(owner, new CreateProjectRequest(otherKey, "다른 프로젝트", "x"));
   }
 

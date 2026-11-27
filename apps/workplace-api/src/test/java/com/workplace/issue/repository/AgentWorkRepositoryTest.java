@@ -2,6 +2,7 @@ package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -17,7 +18,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,9 +47,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   void setUp() {
     humanId = TestFixtures.createHuman(dsl);
     agentId = TestFixtures.createAgentNoToken(dsl);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
-    var project =
-        projectService.create(humanId, new CreateProjectRequest("W" + suffix, "PW-" + suffix, "x"));
+    String key = uniqueProjectKey("W");
+    var project = projectService.create(humanId, new CreateProjectRequest(key, "PW-" + key, "x"));
     projectId = project.id();
     issueId =
         IssueSeeds.insert(

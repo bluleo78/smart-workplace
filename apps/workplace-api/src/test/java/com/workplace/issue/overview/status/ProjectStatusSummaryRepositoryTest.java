@@ -2,6 +2,7 @@ package com.workplace.issue.overview.status;
 
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.support.IntegrationTestBase;
@@ -36,8 +37,7 @@ class ProjectStatusSummaryRepositoryTest extends IntegrationTestBase {
 
   /** 지정 유형 프로젝트를 만들고 id 를 돌려준다(deleted 면 soft-delete 표시). */
   private long project(String type, boolean deleted) {
-    String key =
-        ("SS" + UUID.randomUUID().toString().replace("-", "").toUpperCase()).substring(0, 8);
+    String key = uniqueProjectKey("SS");
     var step =
         dsl.insertInto(PROJECT)
             .set(PROJECT.KEY, key)

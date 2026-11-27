@@ -1,5 +1,6 @@
 package com.workplace.component;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -23,7 +24,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,7 +70,7 @@ class ComponentManagementTest extends IntegrationTestBase {
     memberId = human("USER");
     outsiderId = human("USER");
     adminId = human("ADMIN");
-    key = "CM" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("CM");
     // OPEN 프로젝트 — 비멤버도 읽을 수 있어 「읽기 가능한 비멤버」 케이스를 같은 프로젝트에서 본다.
     projectId =
         projectService.create(ownerId, new CreateProjectRequest(key, "구성요소", "x", "OPEN")).id();

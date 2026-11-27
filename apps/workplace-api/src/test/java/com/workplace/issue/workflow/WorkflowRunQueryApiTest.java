@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_VERSION;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -401,7 +402,7 @@ class WorkflowRunQueryApiTest extends IntegrationTestBase {
   }
 
   private static String newKey() {
-    return "WQ" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    return uniqueProjectKey("WQ");
   }
 
   private long newProject(String projectKey, long ownerId) {

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -74,7 +75,7 @@ class WorkflowAutoStartTest extends IntegrationTestBase {
     dev = human();
     dev2 = human();
     other = human();
-    key = "AS" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    key = uniqueProjectKey("AS");
     projectId = projectService.create(pm, new CreateProjectRequest(key, "자동 시작", "x", "TEAM")).id();
     TenantContext.set(1L);
     for (long id : List.of(dev, dev2, other)) {

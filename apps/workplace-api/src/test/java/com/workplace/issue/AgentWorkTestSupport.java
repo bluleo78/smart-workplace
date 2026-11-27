@@ -13,6 +13,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.auth.dto.IssueAgentKeyRequest;
@@ -140,9 +141,9 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     agentId = withMembership(createAgentUser("aw-agent"));
     userIds.add(agentId);
 
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
     var project =
-        projectService.create(humanId, new CreateProjectRequest("AW" + suffix, "P-aw", "x"));
+        projectService.create(
+            humanId, new CreateProjectRequest(uniqueProjectKey("AW"), "P-aw", "x"));
     projectId = project.id();
     projectKey = project.key();
     // 프로젝트 생성 시 소유자(human)는 자동 멤버 — AI 구성원·비담당 사람만 추가한다.

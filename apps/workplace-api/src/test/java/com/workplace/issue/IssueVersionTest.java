@@ -1,5 +1,6 @@
 package com.workplace.issue;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -111,7 +112,7 @@ class IssueVersionTest extends IssueVersionTestSupport {
   /** 다른 프로젝트·없는 버전 id 는 400 VERSION_NOT_FOUND. */
   @Test
   void otherProjectVersionRejected() throws Exception {
-    String otherKey = key.substring(0, 6) + "Z";
+    String otherKey = uniqueProjectKey("OV");
     long otherProject =
         projectService.create(ownerId, new CreateProjectRequest(otherKey, "다른", "x", "OPEN")).id();
     long foreign =

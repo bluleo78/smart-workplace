@@ -1,5 +1,6 @@
 package com.workplace.version;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -20,7 +21,6 @@ import com.workplace.version.dto.VersionSummary;
 import com.workplace.version.repository.VersionRepository;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +66,7 @@ class VersionManagementTest extends IntegrationTestBase {
     memberId = human("USER");
     outsiderId = human("USER");
     adminId = human("ADMIN");
-    key = "VM" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("VM");
     // OPEN 프로젝트 — 비멤버도 읽을 수 있어 「읽기 가능한 비멤버」 케이스를 같은 프로젝트에서 본다.
     projectId =
         projectService.create(ownerId, new CreateProjectRequest(key, "버전", "x", "OPEN")).id();

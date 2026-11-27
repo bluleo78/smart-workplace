@@ -1,6 +1,7 @@
 package com.workplace.cycle.service;
 
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -28,7 +29,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -411,7 +411,7 @@ class CycleCompleteServiceTest extends IntegrationTestBase {
 
   /** 고유 키로 프로젝트를 만든다(호출자가 OWNER). */
   private ProjectResponse newProject(Long ownerId) {
-    String key = "CC" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("CC");
     return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + key, "x"));
   }
 

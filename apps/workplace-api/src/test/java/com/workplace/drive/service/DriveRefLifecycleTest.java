@@ -217,8 +217,7 @@ class DriveRefLifecycleTest extends IntegrationTestBase {
   void issueSoftDelete_purgesChildSubtaskRefs() {
     // given: 오너 + 팀 프로젝트(SUBTASK 유형 존재) + 부모 TASK + 자식 SUBTASK
     long owner = seedUser("child-purge-owner");
-    String key =
-        "CP" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("CP");
     var project =
         projectService.create(owner, new CreateProjectRequest(key, "ChildPurgeTest", "x"));
 

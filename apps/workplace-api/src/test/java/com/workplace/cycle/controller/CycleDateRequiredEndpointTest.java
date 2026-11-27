@@ -1,6 +1,7 @@
 package com.workplace.cycle.controller;
 
 import static com.workplace.jooq.Tables.CYCLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -14,7 +15,6 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.LinkedHashMap;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +51,7 @@ class CycleDateRequiredEndpointTest extends IntegrationTestBase {
     TenantContext.set(1L);
     ownerId = withMembership(TestFixtures.createHuman(dsl));
     TestFixtures.grantRole(dsl, ownerId, "USER");
-    String key = "CD" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String key = uniqueProjectKey("CD");
     projectService.create(ownerId, new CreateProjectRequest(key, "사이클 기간", "x"));
     base = "/api/v1/projects/" + key + "/cycles";
   }

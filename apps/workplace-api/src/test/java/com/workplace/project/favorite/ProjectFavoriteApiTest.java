@@ -1,6 +1,7 @@
 package com.workplace.project.favorite;
 
 import static com.workplace.jooq.Tables.PROJECT_FAVORITE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,7 +18,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -156,7 +156,7 @@ class ProjectFavoriteApiTest extends IntegrationTestBase {
   }
 
   private String project(String type) {
-    String key = "PF" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String key = uniqueProjectKey("PF");
     projectService.create(ownerId, new CreateProjectRequest(key, "즐겨찾기", "x", type));
     return key;
   }

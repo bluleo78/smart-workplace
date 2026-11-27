@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
@@ -105,9 +106,7 @@ public final class OpenScenario {
 
   /** 지정 type 의 프로젝트를 삽입하고 ProjectRow 를 반환한다. key 는 유니크 자동생성. */
   private static ProjectRow insertProject(DSLContext dsl, String type, long ownerId) {
-    String key =
-        ("OS" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6))
-            .substring(0, 8);
+    String key = uniqueProjectKey("OS");
     var rec =
         dsl.insertInto(PROJECT)
             .set(PROJECT.KEY, key)

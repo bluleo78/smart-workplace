@@ -2,6 +2,7 @@ package com.workplace.wiki.report;
 
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
@@ -101,8 +102,7 @@ class ProjectReportSchedulerTest extends ExternalClientMockedTestBase {
 
   /** 테넌트에 TEAM 프로젝트와 리포트 설정(켬 여부·다음 실행)을 커밋하고 id 를 돌려준다. */
   private long project(long tenantId, boolean enabled, OffsetDateTime nextRunAt) {
-    String key =
-        ("PR" + UUID.randomUUID().toString().replace("-", "").toUpperCase()).substring(0, 8);
+    String key = uniqueProjectKey("PR");
     long id =
         callInTenant(
             tenantId,

@@ -2,6 +2,7 @@ package com.workplace.global.exception;
 
 import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -12,7 +13,6 @@ import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,7 +82,7 @@ class ForeignKeyViolationResponseTest extends IntegrationTestBase {
   /** 프로젝트 하나와 그 이슈 하나를 만들고 이슈 id 를 돌려준다. */
   private long seedIssue() {
     long owner = TestFixtures.createHuman(dsl);
-    String key = "F" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String key = uniqueProjectKey("F");
     var project = projectRepository.insert(key, "fk", null, owner, "TEAM", false);
     issueTypeService.seedSystemTypes(project.id(), true);
     return IssueSeeds.insert(

@@ -171,7 +171,7 @@ class AiStatusRunsApiTest extends AiStatusTestSupport {
    */
   private Work work(
       Instant assigned, String title, String state, Integer waitMin, Integer workMin) {
-    String key = "AR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("AR");
     long project = projectService.create(admin, new CreateProjectRequest(key, "P-ar", "x")).id();
     long issueId =
         IssueSeeds.insert(issueRepository, baseDsl, project, 1, title, null, "MID", null, admin)

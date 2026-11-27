@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.calendar.service.CalendarService;
@@ -57,7 +58,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     String s = tok();
     long projectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "N" + s.substring(0, 5))
+            .set(PROJECT.KEY, uniqueProjectKey("N"))
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, ownerId)
             .set(PROJECT.TYPE, projectType)

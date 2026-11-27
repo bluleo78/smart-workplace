@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.doReturn;
@@ -83,7 +84,7 @@ class WorkflowTimerSchedulerTest extends IntegrationTestBase {
     TenantContext.set(1L);
     long pm = human();
     long worker = human();
-    key = "WS" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    key = uniqueProjectKey("WS");
     projectId = projectService.create(pm, new CreateProjectRequest(key, "타이머", "x", "TEAM")).id();
     TenantContext.set(1L);
     projectService.addMember(pm, key, new AddMemberRequest(worker, "MEMBER"));

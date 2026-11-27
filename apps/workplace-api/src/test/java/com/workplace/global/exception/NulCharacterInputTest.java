@@ -1,5 +1,6 @@
 package com.workplace.global.exception;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -50,8 +51,8 @@ class NulCharacterInputTest extends IntegrationTestBase {
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"key\":\"NUL"
-                        + (System.nanoTime() % 1000)
+                    "{\"key\":\""
+                        + uniqueProjectKey("NUL")
                         + "\",\"name\":\"x\",\"type\":\"TEAM\",\"description\":\"a\\u0000b\"}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value(MESSAGE));

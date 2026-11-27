@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.WORKFLOW;
 import static com.workplace.jooq.Tables.WORKFLOW_MOVE_IDEMPOTENCY;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -1072,7 +1073,7 @@ class WorkflowRunApiTest extends IntegrationTestBase {
   }
 
   private static String newKey() {
-    return "WR" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    return uniqueProjectKey("WR");
   }
 
   private long newProject(String projectKey, long ownerId) {

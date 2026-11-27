@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.ISSUE_RELATION;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -34,7 +35,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,7 +74,7 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
     for (int i = 1; i <= 6; i++) {
       n.add(newIssue(key, "이슈 " + i));
     }
-    otherKey = "RO" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    otherKey = uniqueProjectKey("RO");
     projectService.create(owner, new CreateProjectRequest(otherKey, "다른 프로젝트", "x", "OPEN"));
     otherNumber = newIssue(otherKey, "다른 프로젝트 이슈");
   }

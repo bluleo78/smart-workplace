@@ -1,6 +1,7 @@
 package com.workplace.issue.controller;
 
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.AgentWorkTestSupport;
@@ -9,7 +10,6 @@ import com.workplace.project.dto.CreateProjectRequest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jooq.JSONB;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -134,11 +134,9 @@ class MentionsMeTest extends AgentWorkTestSupport {
     String otherKey =
         inTenant(
             () -> {
-              String suffix =
-                  UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
               var p =
                   projectService.create(
-                      humanId, new CreateProjectRequest("MB" + suffix, "P-mb", "x"));
+                      humanId, new CreateProjectRequest(uniqueProjectKey("MB"), "P-mb", "x"));
               projectMemberRepository.insert(p.id(), agentId, "MEMBER");
               return p.key();
             });
@@ -167,10 +165,8 @@ class MentionsMeTest extends AgentWorkTestSupport {
     String closedKey =
         inTenant(
             () -> {
-              String suffix =
-                  UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
               return projectService
-                  .create(humanId, new CreateProjectRequest("MC" + suffix, "P-mc", "x"))
+                  .create(humanId, new CreateProjectRequest(uniqueProjectKey("MC"), "P-mc", "x"))
                   .key();
             });
     int n = createHumanIssue(closedKey, "비공개").number();

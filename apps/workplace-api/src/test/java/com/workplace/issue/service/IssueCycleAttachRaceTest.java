@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -24,7 +25,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -64,7 +64,7 @@ class IssueCycleAttachRaceTest extends IntegrationTestBase {
     TestFixtures.grantRole(baseDsl, owner, "USER");
     TestFixtures.addMember(baseDsl, owner, 1L);
     users.add(owner);
-    projectKey = "C" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    projectKey = uniqueProjectKey("C");
     projectId =
         projectService
             .create(owner, new CreateProjectRequest(projectKey, "cycle attach", null))

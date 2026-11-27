@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -55,7 +56,7 @@ class ProjectLastOwnerRaceTest extends IntegrationTestBase {
     TenantContext.set(1L);
     alice = user("alice");
     bob = user("bob");
-    projectKey = "R" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    projectKey = uniqueProjectKey("R");
     projectId =
         projectService.create(alice, new CreateProjectRequest(projectKey, "owner race", null)).id();
     projectService.addMember(alice, projectKey, new AddMemberRequest(bob, "OWNER"));

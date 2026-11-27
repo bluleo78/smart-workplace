@@ -3,6 +3,7 @@ package com.workplace.issue.workflow;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.workflow.dto.CreateWorkflowRequest;
@@ -23,7 +24,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -85,7 +85,7 @@ class WorkflowPublishRaceTest extends IntegrationTestBase {
               long id =
                   baseDsl
                       .insertInto(PROJECT)
-                      .set(PROJECT.KEY, "WR" + UUID.randomUUID().toString().substring(0, 7))
+                      .set(PROJECT.KEY, uniqueProjectKey("WR"))
                       .set(PROJECT.NAME, "workflow race test")
                       .set(PROJECT.OWNER_ID, ownerId)
                       .returning(PROJECT.ID)

@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.NODE_RUN;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -84,7 +85,7 @@ class WorkflowRecoveryApiTest extends IntegrationTestBase {
     TenantContext.set(1L);
     pm = human();
     lead = human();
-    key = "WR" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    key = uniqueProjectKey("WR");
     projectId = projectService.create(pm, new CreateProjectRequest(key, "조치", "x", "TEAM")).id();
     TenantContext.set(1L);
     projectService.addMember(pm, key, new AddMemberRequest(lead, "MEMBER"));

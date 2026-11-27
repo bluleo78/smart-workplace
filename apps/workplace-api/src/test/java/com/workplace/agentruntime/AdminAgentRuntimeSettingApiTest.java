@@ -3,6 +3,7 @@ package com.workplace.agentruntime;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -33,7 +34,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -803,7 +803,7 @@ class AdminAgentRuntimeSettingApiTest extends IntegrationTestBase {
   /** AI 에게 작업 중(WORKING) 작업 한 건을 지금 시각으로 만든다 — 무소식(stale)이 아니어야 자리로 센다(WP-1775). */
   private void seedWorkingWork(long agent) {
     TenantContext.set(1L);
-    String key = "SU" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("SU");
     long project = projectService.create(admin, new CreateProjectRequest(key, "P-su", "x")).id();
     long issueId =
         IssueSeeds.insert(issueRepository, baseDsl, project, 1, "작업", null, "MID", null, admin)

@@ -543,11 +543,12 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
   @Test
   void projects_returnsMemberProjectsWithRepositoryOnlySortedByKey() throws Exception {
     long agent = newAgent();
-    String s = String.valueOf(System.nanoTime() % 100000);
-    long b = project("ZB" + s, "https://github.com/acme/b.git", null);
-    long a = project("ZA" + s, "https://github.com/acme/a.git", "develop");
-    long noRepo = project("ZC" + s, null, null);
-    project("ZD" + s, "https://github.com/acme/d.git", null); // 멤버 아님
+    String keyA = uniqueProjectKey("ZA");
+    String keyB = uniqueProjectKey("ZB");
+    long b = project(keyB, "https://github.com/acme/b.git", null);
+    long a = project(keyA, "https://github.com/acme/a.git", "develop");
+    long noRepo = project(uniqueProjectKey("ZC"), null, null);
+    project(uniqueProjectKey("ZD"), "https://github.com/acme/d.git", null); // 멤버 아님
     addProjectMember(b, agent);
     addProjectMember(a, agent);
     addProjectMember(noRepo, agent);
@@ -555,11 +556,11 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
     call(admin, get("/api/v1/admin/agents/" + agent + "/runtime-setting/projects"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(2))
-        .andExpect(jsonPath("$[0].projectKey").value("ZA" + s))
-        .andExpect(jsonPath("$[0].name").value("프로젝트 ZA" + s))
+        .andExpect(jsonPath("$[0].projectKey").value(keyA))
+        .andExpect(jsonPath("$[0].name").value("프로젝트 " + keyA))
         .andExpect(jsonPath("$[0].repositoryUrl").value("https://github.com/acme/a.git"))
         .andExpect(jsonPath("$[0].repositoryBranch").value("develop"))
-        .andExpect(jsonPath("$[1].projectKey").value("ZB" + s))
+        .andExpect(jsonPath("$[1].projectKey").value(keyB))
         .andExpect(jsonPath("$[1].repositoryBranch").isEmpty());
   }
 

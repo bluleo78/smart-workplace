@@ -1,5 +1,6 @@
 package com.workplace.issue;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -72,7 +73,7 @@ class IssueComponentTest extends IssueComponentTestSupport {
   /** 다른 프로젝트의 구성요소 id 는 400 COMPONENT_NOT_FOUND. */
   @Test
   void otherProjectComponentRejected() throws Exception {
-    String otherKey = key.substring(0, 6) + "Z";
+    String otherKey = uniqueProjectKey("OC");
     long otherProject =
         projectService.create(ownerId, new CreateProjectRequest(otherKey, "다른", "x", "OPEN")).id();
     long foreign =

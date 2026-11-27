@@ -3,6 +3,7 @@ package com.workplace.notify.push;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -34,7 +35,7 @@ class InboxPushEventTest extends IntegrationTestBase {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 5);
     long projectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "I" + s)
+            .set(PROJECT.KEY, uniqueProjectKey("I"))
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, owner)
             // 알림 목록은 프로젝트 조회 권한을 따진다(WP-491) — 권한과 무관한 테스트라 누구나 보는 OPEN 으로 둔다.

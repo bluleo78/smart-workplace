@@ -1,5 +1,6 @@
 package com.workplace.global.exception;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -7,7 +8,6 @@ import com.workplace.global.dto.ErrorResponse;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +35,7 @@ class DuplicateKeyViolationResponseTest extends IntegrationTestBase {
   @Test
   void 유일_인덱스에_걸린_동시_생성은_한국어_409() {
     long owner = TestFixtures.createHuman(dsl);
-    String key = "D" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String key = uniqueProjectKey("D");
     projectRepository.insert(key, "앞선 생성", null, owner, "TEAM", false);
     // 서비스의 key 중복 확인을 이미 지난 늦은 요청이 그대로 넣는 상황 — 유일 인덱스가 막는다.
     var ex =

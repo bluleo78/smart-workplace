@@ -3,6 +3,7 @@ package com.workplace.global;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -69,7 +70,7 @@ class WebUrlInResponsesTest extends IntegrationTestBase {
   /** 이슈 생성 응답과 상세 응답에 /projects/{KEY}/issues/{n} 주소가 실린다. */
   @Test
   void issue_create_and_detail_carry_url() throws Exception {
-    String key = "WU" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("WU");
     projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
 
     JsonNode created =

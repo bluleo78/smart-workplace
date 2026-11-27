@@ -3,6 +3,7 @@ package com.workplace.issue;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_EXTERNAL_LINK;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -27,7 +28,6 @@ import com.workplace.support.TestFixtures;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -666,7 +666,7 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
   }
 
   private static String randomKey(String prefix) {
-    return prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    return uniqueProjectKey(prefix);
   }
 
   private int newIssue(long caller, String projectKey, String title) {

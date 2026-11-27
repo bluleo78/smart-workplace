@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static com.workplace.jooq.Tables.WORKFLOW;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_VERSION;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -1405,7 +1406,7 @@ class WorkflowDefinitionApiTest extends IntegrationTestBase {
 
   /** 다른 시험과 겹치지 않는 프로젝트 키. */
   private static String newKey() {
-    return "WA" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    return uniqueProjectKey("WA");
   }
 
   /** ownerId 가 OWNER 인 프로젝트를 만든다. */

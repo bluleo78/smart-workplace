@@ -2,6 +2,7 @@ package com.workplace.airun.status;
 
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AI_RUN;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -95,7 +96,7 @@ class AiStatusOverviewApiTest extends AiStatusTestSupport {
 
   /** 위임 작업 한 건 — 배정(SUBMITTED) → waitMin 분 뒤 WORKING → 끝났으면 workMin 분 뒤 COMPLETED. */
   private void work(Instant assigned, int waitMin, Integer workMin) {
-    String key = "AS" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("AS");
     long project = projectService.create(admin, new CreateProjectRequest(key, "P-as", "x")).id();
     long issueId =
         IssueSeeds.insert(issueRepository, baseDsl, project, 1, "작업", null, "MID", null, admin)

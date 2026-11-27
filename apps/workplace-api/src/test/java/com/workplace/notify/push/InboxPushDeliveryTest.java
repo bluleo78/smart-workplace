@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -83,7 +84,7 @@ class InboxPushDeliveryTest extends ExternalClientMockedTestBase {
         new TransactionTemplate(txManager)
             .execute(
                 st -> {
-                  String k = "D" + UUID.randomUUID().toString().replace("-", "").substring(0, 5);
+                  String k = uniqueProjectKey("D");
                   long pid =
                       dsl.insertInto(PROJECT)
                           .set(PROJECT.KEY, k)

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_EXTERNAL_LINK;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -28,7 +29,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,8 +64,7 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
   @BeforeEach
   void seed() {
     seedProject("PL", "링크 변환");
-    String bKey =
-        "PB" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String bKey = uniqueProjectKey("PB");
     b = projectService.create(owner, new CreateProjectRequest(bKey, "에픽 쪽", "x"));
     parentEpicTypeId =
         relationTypeRepository.findByCode(IssueRelationBuiltIns.PARENT_EPIC).orElseThrow().id();
@@ -388,8 +387,7 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
   @Test
   void deletedProjects_neverFail_epicInDeletedProjectIsNotFound() throws Exception {
     // 지운 프로젝트의 에픽을 가리키는 링크 — 원본 키로도 Works 키로도 찾지 않는다.
-    String dKey =
-        "PD" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String dKey = uniqueProjectKey("PD");
     ProjectResponse d =
         projectService.create(owner, new CreateProjectRequest(dKey, "지울 프로젝트", "x"));
     IssueResponse epicD = create(d.key(), d.id(), "EPIC", "지울 에픽", null);
@@ -397,8 +395,7 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
     long byKey = link(inA("TASK", "키로"), keyOf(d, epicD), keyOf(d, epicD));
     long bySource = link(inA("TASK", "원본 키로"), "CL-55", "CL-55");
     // 지운 프로젝트 이슈에 달린 링크 — 판정 대상에서 빠진다(500 이 아니다).
-    String eKey =
-        "PE" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String eKey = uniqueProjectKey("PE");
     ProjectResponse e =
         projectService.create(owner, new CreateProjectRequest(eKey, "지울 자식 쪽", "x"));
     IssueResponse epicB = inB("EPIC", "B 에픽");

@@ -2,6 +2,7 @@ package com.workplace.project.service;
 
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 
 import com.workplace.project.dto.ProjectRow;
 import java.util.UUID;
@@ -23,9 +24,7 @@ public final class OpenFixtures {
    * @return ProjectRow 와 key 를 담은 FixtureResult
    */
   public static FixtureResult openProject(DSLContext dsl, long tenantId, long ownerId) {
-    String key =
-        ("OP" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6))
-            .substring(0, 8);
+    String key = uniqueProjectKey("OP");
     // project.tenant_id 는 DEFAULT(GUC) 사용 — RLS 가 올바른 테넌트에 배치
     var rec =
         dsl.insertInto(PROJECT)
