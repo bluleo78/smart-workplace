@@ -135,7 +135,12 @@ public class CalendarEventRepository {
         .as("tags_editable");
   }
 
-  /** 일정 생성 — calendarId resolve 완료 후 호출. 생성된 id 반환. */
+  /**
+   * 일정 생성 — calendarId resolve 완료 후 호출. 생성된 id 반환.
+   *
+   * <p>{@code updated_at} 을 앱 시계로 직접 넣는다 — insertWithExternalId 와 같은 값을 찍어 생성 경로 전체의 시계를 하나로
+   * 맞춘다(WP-2156).
+   */
   public long insert(long ownerId, long calendarId, CalendarEventRequest req) {
     return dsl.insertInto(CALENDAR_EVENT)
         .set(CALENDAR_EVENT.OWNER_ID, ownerId)
@@ -148,6 +153,7 @@ public class CalendarEventRepository {
         .set(CALENDAR_EVENT.LOCATION, nullIfBlank(req.location()))
         .set(CALENDAR_EVENT.COLOR, nullIfBlank(req.color()))
         .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(req.recurrenceRule()))
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
         .getId();
@@ -156,6 +162,9 @@ public class CalendarEventRepository {
   /**
    * external_id 동반 일정 생성 — write-through 생성 일정이 born-with-external_id 로 prune(읽기 동기화)에서 보호되도록 한다.
    * insert() 와 동일하되 EXTERNAL_ID 를 세팅한다.
+   *
+   * <p>{@code updated_at} 을 앱 시계로 넣는 이유는 insert() 와 같다(WP-2156) — prune {@code since}(앱 시계)와 같은 시계로
+   * 비교된다.
    */
   public long insertWithExternalId(
       long ownerId, long calendarId, CalendarEventRequest req, String externalId) {
@@ -171,6 +180,7 @@ public class CalendarEventRepository {
         .set(CALENDAR_EVENT.LOCATION, nullIfBlank(req.location()))
         .set(CALENDAR_EVENT.COLOR, nullIfBlank(req.color()))
         .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(req.recurrenceRule()))
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
         .getId();
@@ -292,9 +302,12 @@ public class CalendarEventRepository {
   /**
    * 로컬 일정을 외부(Outlook) 일정으로 연결한다(WP-2155) — Graph 에 만든 뒤 소속 캘린더·external_id 를 한 문장으로 설정한다.
    *
-   * <p>동기화 prune 은 external_id 가 없는 행을 보지 않으므로 연결 전의 행은 지워지지 않는다. 남는 위험은 Graph 생성 전에 calendarView 를
-   * 받아 둔 동기화가 이 연결이 커밋된 뒤 prune 하는 경우다 — 받은 목록에 새 id 가 없어 갓 연결한 일정을 지운다. 이 경합은 외부 쓰기 생성 경로
-   * (insertWithExternalId)와 같은 알려진 경합이라 따로 다룬다(이 메서드가 막아 주지 않는다).
+   * <p>여기 찍는 {@code updated_at}(앱 시계)이 동기화 prune 의 {@code since} 가드(WP-2156)가 비교하는 값이다 — 이 연결이 커밋된
+   * 뒤 prune 하려는 동기화는 수집 시작({@code since})이 이 시각보다 앞서 있어 갓 연결한 행을 건너뛴다. 정리 단계가 행을 지우지 못하게 하는 것은 이 값과
+   * 그 가드가 함께여서, {@code updated_at} 을 넣지 않으면 같은 경합이 이 경로에도 남는다 — insertWithExternalId 도 같은 이유로 생성
+   * 시점에 찍는다(WP-2156).
+   *
+   * <p>Graph 생성 전에 calendarView 를 받아 둔 동기화는 목록에 새 id 가 없어도 위 가드로 막힌다.
    */
   public void linkExternalEvent(long id, long calendarId, String externalId) {
     dsl.update(CALENDAR_EVENT)
