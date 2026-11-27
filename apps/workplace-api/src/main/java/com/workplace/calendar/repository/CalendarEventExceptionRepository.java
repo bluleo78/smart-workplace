@@ -94,6 +94,17 @@ public class CalendarEventExceptionRepository {
         .map(r -> r.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID));
   }
 
+  /**
+   * 마스터에 예외 행(취소·「이 회차만」 고친 회차)이 하나라도 있는가(WP-2155) — 규칙을 지운 마스터를 Outlook 단일 일정으로 전환할 때, 예외가 남아 있으면
+   * 그 회차들이 로컬에만 남아 갈라지므로 반복으로 본다.
+   */
+  public boolean hasExceptions(long eventId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CALENDAR_EVENT_EXCEPTION)
+            .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(eventId)));
+  }
+
   /** 그 회차가 취소(THIS 삭제)됐는가(WP-1701) — 취소된 회차에는 노트를 잇지 않는다. 예외 행이 없거나 취소가 아니면 false. */
   public boolean isCancelled(long eventId, OffsetDateTime occurrenceDate) {
     return dsl.fetchExists(

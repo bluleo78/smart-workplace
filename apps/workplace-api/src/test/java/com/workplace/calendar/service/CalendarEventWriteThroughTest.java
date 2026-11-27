@@ -58,6 +58,7 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
   @Autowired CalendarEventService eventService;
   @Autowired CalendarRepository calendarRepo;
   @Autowired DSLContext dsl;
+  @Autowired com.workplace.calendar.repository.CalendarEventExceptionRepository exceptionRepo;
   @Autowired EncryptionService encryption;
 
   private static final long TENANT_ID = 1L;
@@ -631,6 +632,34 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     assertThat(after.calendarId()).isEqualTo(extCalId);
     assertThat(after.recurrenceRule()).isNull();
     assertThat(externalIdOf(created.id())).isEqualTo("graph-cleared");
+  }
+
+  /**
+   * 예외 행(취소한 회차)이 남은 반복 마스터는 규칙을 지우며 「전체 일정」으로 옮겨도 반복으로 본다 — 로컬 ALL 수정은 예외를 지우지 않아 마스터만 Outlook 에
+   * 만들면 그 회차가 로컬에 갈라져 남기 때문이다. 422, Graph 미호출, 캘린더 그대로(WP-2155).
+   */
+  @Test
+  void update_recurring_with_exception_cleared_and_moved_is_rejected_422() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s -> exceptionRepo.insertCancellation(created.id(), created.startsAt().plusDays(1)));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(
+            com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
+        .hasMessageContaining("반복");
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
   }
 
   /** 로컬 일정을 외부 쓰기 캘린더로 직접 옮겨 둔 고아 상태를 만든다 — 서비스 경로는 Graph 생성을 타므로 DB 로 심는다(WP-2155). */

@@ -2258,25 +2258,26 @@ public class CalendarEventService {
               .orElse(null);
       if (conv != null) {
         boolean move = !Long.valueOf(targetId).equals(cur.calendarId());
-        // 반복은 수정한 뒤의 상태로 본다(WP-2155). 수정 요청은 전체 교체라 recurrenceRule=null 은 「반복 해제」다 — 단일 일정·「전체
-        // 일정」(ALL)
-        // 수정이면 요청 규칙만 본다. 반복 시리즈의 한 회차만 고치는 수정(THIS·THIS_AND_FOLLOWING)과 「이 일정만」 고친 회차(override 행,
-        // RRULE
-        // 없음)는 여전히 시리즈의 일부라 반복이다 — Outlook 에 단일 일정으로 만들면 시리즈와 갈라진다.
+        // 반복은 수정한 뒤의 상태로 본다(WP-2155). 수정 요청은 전체 교체라 recurrenceRule=null 은
+        // 「반복 해제」다 — 단일 일정·「전체 일정」(ALL) 수정이면 요청 규칙만 본다.
+        // 그래도 반복으로 보는 것: 한 회차만 고치는 수정(THIS·THIS_AND_FOLLOWING),
+        // 「이 일정만」 고친 회차(override 행, RRULE 없음), 예외 행(취소·override)이 남은 마스터.
+        // 로컬 ALL 수정은 기존 예외를 지우지 않아(v1b 한계) 마스터만 Outlook 에 만들면 그 회차들이 로컬에 갈라져 남는다.
         boolean wholeSeries = occurrenceDate == null || scope == EditScope.ALL;
         boolean recurring =
             hasRecurrence(req.recurrenceRule())
                 || (isRecurring(cur) && !wholeSeries)
-                || exceptionRepo.findMasterOccurrenceByOverride(id).isPresent();
+                || exceptionRepo.findMasterOccurrenceByOverride(id).isPresent()
+                || exceptionRepo.hasExceptions(id);
         // 참석자 조회는 반복이 아닐 때만 필요하다 — 반복이면 어차피 막히거나(이동) 로컬로 남는다(고아).
         boolean attendees = !recurring && hasNonOrganizerAttendees(id);
         if (move) {
           // 이동은 초대가 새거나 반복이 깨지므로 422 로 명시한다.
           if (recurring) throw LocalToExternalMoveNotSupportedException.recurring();
           if (attendees) throw LocalToExternalMoveNotSupportedException.withAttendees();
-          // 바깥 tx(AI·채팅 confirm) 안에서는 Graph 를 부를 수 없다 — 로컬로만 옮기면 「Outlook 캘린더에 있는 것처럼 보이지만 Outlook
-          // 에는
-          // 없는」 일정이 다시 생기므로 분명한 오류로 거절한다(WP-2155). 미리보기(validateUpdatable)도 같은 판정이라 승인 전에 막힌다.
+          // 바깥 tx(AI·채팅 confirm) 안에서는 Graph 를 부를 수 없다 — 로컬로만 옮기면
+          // 「Outlook 캘린더에 있는 것처럼 보이지만 Outlook 에는 없는」 일정이 다시 생기므로
+          // 분명한 오류로 거절한다(WP-2155). 미리보기(validateUpdatable)도 같은 판정이라 승인 전에 막힌다.
           if (ambientTx) throw new ExternalCalendarWriteInTransactionException();
         }
         // 고아 일정(이동 아님)에 참석자·반복이 있거나 바깥 tx 안이면 전환하지 않고 로컬 수정으로 둔다 — 그전까지 되던 편집을 막지 않는다.
