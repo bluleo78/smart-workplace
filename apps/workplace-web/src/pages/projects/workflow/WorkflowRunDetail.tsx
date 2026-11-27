@@ -7,8 +7,7 @@ import { Link } from 'react-router-dom'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { useWorkflowRun } from '@/hooks/queries/useWorkflowRuns'
-import { workflowRunKeys } from '@/hooks/queries/workflowRunKeys'
+import { invalidateRunListAndCounts, useWorkflowRun } from '@/hooks/queries/useWorkflowRuns'
 import { focusRow } from '@/hooks/useListFocusRescue'
 import { issueChatPath } from '@/lib/agentWork'
 import { isNotFoundError } from '@/lib/api-error'
@@ -136,8 +135,8 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
           issueId={run.issueId} projectKey={projectKey} revision={openRevision ?? run.revision}
           currentNode={node} model={detail.model} canManage={canManage} onDone={() => {
             void query.refetch()
-            // WP-2157: 조치로 상태가 바뀌면 목록 탭 숫자(run-counts)도 낡으므로 다시 읽게 한다.
-            void queryClient.invalidateQueries({ queryKey: workflowRunKeys.counts(workflowId) })
+            // WP-2157: 조치로 상태가 바뀌면 목록 줄·탭 숫자(run-counts)도 낡으므로 함께 다시 읽게 한다.
+            void invalidateRunListAndCounts(queryClient, workflowId)
           }}
         />
       )}

@@ -126,6 +126,8 @@ describe('실행 상세', () => {
       }),
       model: mkAskModel(),
     }
+    // WP-2157: 질문은 원래 노드(work)에서 질문해 들어온 방문에만 붙는다 — 앞 방문을 work 로 둔다.
+    d.nodeRuns[0] = visit(1, 'work', '작업', { actor: kim, outcome: 'ask', enteredAt: '2026-11-20T00:00:00Z', leftAt: '2026-11-20T01:00:00Z' })
     setup(d, { meId: 4 })
     // 배너와 이동 기록 둘 다 질문 첫 줄을 보인다.
     expect(await screen.findAllByText('「@박 @사용자 어느 쪽?」')).toHaveLength(2)

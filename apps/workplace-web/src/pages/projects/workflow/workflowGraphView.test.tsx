@@ -84,6 +84,25 @@ it('graphView_compactCurrentAskSideNode', () => {
   expect(side?.textContent?.match(/사람 차례/g)).toHaveLength(1)
 })
 
+// WP-2157 리뷰: 멈춘(SUSPENDED) 실행이 질문 단계에 있으면 곁 노드는 「지금」 주황이 아니라 실패로 칠한다.
+it('graphView_compactAskSideNode_followsPaintFailed', () => {
+  const { container } = render(<WorkflowGraphView model={dfbModel()} readOnly compact currentNode="dev_ask" paint={{ dev_ask: 'failed' }} />)
+  expect(container.querySelector('[data-node-key="dev_ask"][data-paint="current"]')).toBeNull()
+  const side = container.querySelector('[data-node-key="dev_ask"][data-paint="failed"]')
+  expect(side).not.toBeNull()
+  expect(side).not.toHaveClass('ring-warning')
+  expect(within(side as HTMLElement).getByLabelText('실패한 노드')).toBeInTheDocument()
+})
+
+// WP-2157 리뷰: 질문 표식도 칠하기를 따른다 — 지나온 질문은 ✓.
+it('graphView_compactAskMarker_followsPaint', () => {
+  render(<WorkflowGraphView model={dfbModel()} readOnly compact currentNode="review" paint={{ dev: 'passed', dev_ask: 'passed', review: 'current', review_ask: 'unvisited' }} />)
+  const markers = screen.getAllByTestId('graph-ask-marker')
+  const passed = markers.find((m) => m.getAttribute('data-paint') === 'passed')!
+  expect(within(passed).getByLabelText('지나온 노드')).toBeInTheDocument()
+  expect(markers.find((m) => m.getAttribute('data-paint') === 'unvisited')).toHaveClass('opacity-50')
+})
+
 it('graphView_compactCurrentAskSideNode_showsDwellTime', () => {
   const { container } = render(
     <WorkflowGraphView model={dfbModel()} readOnly compact currentNode="dev_ask" paint={{ dev_ask: 'current' }} durations={{ dev_ask: 125000 }} />,
