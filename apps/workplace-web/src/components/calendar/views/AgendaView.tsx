@@ -3,8 +3,10 @@ import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
+import { DeclinedTitle } from '@/components/calendar/declinedEvent'
 import { eventDisplayColor } from '@/lib/calendar'
 import { eventDate } from '@/lib/calendarAgenda'
+import { isDeclinedByMe } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatLocalClockTime24 } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -53,13 +55,17 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
               <span className="text-sm text-muted-foreground w-16 shrink-0">
                 {row.event.allDay ? '종일' : formatLocalClockTime24(row.event.startsAt)}
               </span>
-              {/* 색 점 — effectiveColor 기반 */}
+              {/* 색 점 — effectiveColor 기반. 거절한 일정(WP-2149)은 점을 흐리게 */}
               <span
-                className={`size-2 rounded-full shrink-0 self-center ${resolvePalette(eventDisplayColor(row.event)).dotClass}`}
+                className={`size-2 rounded-full shrink-0 self-center ${resolvePalette(eventDisplayColor(row.event)).dotClass} ${isDeclinedByMe(row.event) ? 'opacity-50' : ''}`}
                 aria-hidden="true"
               />
-              {/* 제목 */}
-              <span className="text-sm font-medium">{row.event.title}</span>
+              {/* 제목 — 거절한 일정(WP-2149)은 흐린 글자색 + 「거절」 배지 + 제목 취소선(모바일 목록과 같은 규칙) */}
+              <span className={`min-w-0 flex-1 break-words text-sm font-medium ${isDeclinedByMe(row.event) ? 'text-muted-foreground' : ''}`}>
+                <DeclinedTitle declined={isDeclinedByMe(row.event)} variant="plain">
+                  {row.event.title}
+                </DeclinedTitle>
+              </span>
             </button>
           ) : (
             <button

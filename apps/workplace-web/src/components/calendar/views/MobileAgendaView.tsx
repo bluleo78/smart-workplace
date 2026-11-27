@@ -3,8 +3,9 @@
 // 데이터는 CalendarPage 가 useAgendaChunks 로 조회해 넘긴다(AI 화면 컨텍스트에 같은 범위·건수를 싣기 위해). 데스크톱은 AgendaView 그대로.
 import { format, isSameDay, startOfDay } from 'date-fns'
 import { CalendarDays, Flag } from 'lucide-react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { DeclinedTitle } from '@/components/calendar/declinedEvent'
 import { NowLine } from '@/components/calendar/NowLine'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
@@ -20,6 +21,7 @@ import {
   agendaTimeLabels,
   agendaTitle,
 } from '@/lib/calendarAgenda'
+import { isDeclinedByMe } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -316,6 +318,9 @@ function EventRow({
   const sub = [eventCalendarLabel(event, myCalendarIds), event.location].filter(Boolean).join(' · ')
   // 시간 칸 첫 줄(시작)과 둘째 줄(끝). 둘째 줄이 없으면 한 줄(하루짜리 종일).
   const { start, end } = agendaTimeLabels(event, continuedOn)
+  // 내가 거절한 일정(WP-2149)은 제목 글자 muted·막대 투명도로 흐리게 + 제목에 「거절」 배지·취소선.
+  // 시각 칸은 건드리지 않는다 — 다음 일정 강조(text-primary)를 muted 가 덮지 않게.
+  const declined = isDeclinedByMe(event)
   return (
     <button
       type="button"
@@ -344,9 +349,9 @@ function EventRow({
       <Sep text=", " />
       <span
         aria-hidden="true"
-        className={cn('w-0.75 shrink-0 rounded-full', resolvePalette(eventDisplayColor(event)).dotClass, past && 'opacity-50')}
+        className={cn('w-0.75 shrink-0 rounded-full', resolvePalette(eventDisplayColor(event)).dotClass, (past || declined) && 'opacity-50')}
       />
-      <RowBody title={event.title} sub={sub} muted={past} />
+      <RowBody title={<DeclinedTitle declined={declined} variant="plain">{event.title}</DeclinedTitle>} sub={sub} muted={past || declined} />
     </button>
   )
 }
@@ -372,7 +377,7 @@ function DueRow({ marker, onSelect }: { marker: IssueDueMarker; onSelect: (m: Is
 }
 
 /** 행 본문 — 제목은 잘리지 않고 줄바꿈된다(모바일 월 보기 칩 잘림 문제를 푸는 핵심). muted = 끝난 일정(제목을 흐린 글자색으로). */
-function RowBody({ title, sub, muted = false }: { title: string; sub: string; muted?: boolean }) {
+function RowBody({ title, sub, muted = false }: { title: ReactNode; sub: string; muted?: boolean }) {
   return (
     <span className="min-w-0 flex-1">
       <span className={cn('block break-words text-sm font-medium leading-snug', muted && 'text-muted-foreground')}>{title}</span>
