@@ -13,6 +13,7 @@ import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
@@ -23,13 +24,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.awaitility.core.ConditionTimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.transaction.event.TransactionPhase;
@@ -60,6 +64,11 @@ class AssistantLimitWaitServiceTest extends IntegrationTestBase {
   @Autowired WorkspaceAssistantRepository workspaceRepo;
   @Autowired UserRepository userRepository;
 
+  // 한도 알림은 커밋 뒤 이 풀에서 notification 행으로 만들어진다 — 정리 전에 풀이 빌 때까지 기다려 사용자 삭제와 겹치지 않게 한다(WP-2163).
+  @Autowired
+  @Qualifier("notifyEventExecutor")
+  Executor notifyEventExecutor;
+
   private final List<Long> users = new ArrayList<>();
   private final List<Long> credentials = new ArrayList<>();
   private final List<Long> tenants = new ArrayList<>();
@@ -72,6 +81,14 @@ class AssistantLimitWaitServiceTest extends IntegrationTestBase {
 
   @AfterEach
   void tearDown() {
+    // 비동기 알림이 아직 행을 넣는 중이면 아래 지우기 뒤에 알림이 들어와 사용자 삭제가 FK 로 막힌다 — 먼저 풀이 비게 한다.
+    // 풀테스트 부하로 3초 안에 비지 않아도 정리는 이어 가야 한다(시간 초과 예외가 나면 삭제가 하나도 돌지 않고 행이 남는다) — 마지막 notification 삭제가
+    // 안전망이다.
+    try {
+      AsyncPools.awaitIdle(notifyEventExecutor);
+    } catch (ConditionTimeoutException e) {
+      // 풀이 늦게 비어도 정리를 막지 않는다.
+    }
     TenantContext.clear();
     List<Long> tenantIds = new ArrayList<>(tenants);
     tenantIds.add(1L);
@@ -94,14 +111,15 @@ class AssistantLimitWaitServiceTest extends IntegrationTestBase {
                 .execute();
           });
     }
-    deleteUsersRetrying(
+    cleanupInTenant(
+        1L,
         () -> {
           baseDsl
               .update(USER)
               .setNull(USER.PERSONAL_ASSISTANT_AGENT_ID)
               .where(USER.PERSONAL_ASSISTANT_AGENT_ID.in(users))
               .execute();
-          // 인박스 알림은 커밋 뒤 비동기로 늦게 들어올 수 있어 사용자 삭제와 같은 트랜잭션에서 한 번 더 지운다.
+          // 알림 풀이 빈 뒤라 새 알림이 더 들어오지 않는다 — 사용자 삭제와 같은 트랜잭션에서 남은 알림을 지운다.
           baseDsl
               .deleteFrom(NOTIFICATION)
               .where(NOTIFICATION.RECIPIENT_ID.in(users).or(NOTIFICATION.ACTOR_ID.in(users)))
@@ -112,24 +130,6 @@ class AssistantLimitWaitServiceTest extends IntegrationTestBase {
               .execute();
           baseDsl.deleteFrom(USER).where(USER.ID.in(users)).execute();
         });
-  }
-
-  /** 알림 비동기 스레드가 지우는 사이에 알림을 넣을 수 있어, FK 위반이면 잠시 뒤 다시 지운다(최대 약 3초). */
-  private void deleteUsersRetrying(Runnable deletes) {
-    for (int attempt = 1; ; attempt++) {
-      try {
-        cleanupInTenant(1L, deletes);
-        return;
-      } catch (org.springframework.dao.DataIntegrityViolationException e) {
-        if (attempt >= 30) throw e;
-        try {
-          Thread.sleep(100);
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt();
-          throw e;
-        }
-      }
-    }
   }
 
   private long human() {
