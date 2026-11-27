@@ -18,6 +18,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -422,7 +423,7 @@ class StagedFileClaimerTest extends IntegrationTestBase {
   private long seedIssue(long reporter) {
     long projectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "SFC" + (System.nanoTime() % 100000))
+            .set(PROJECT.KEY, uniqueProjectKey("SFC"))
             .set(PROJECT.NAME, "클레임 프로젝트")
             .set(PROJECT.OWNER_ID, reporter)
             .set(PROJECT.TENANT_ID, 1L)

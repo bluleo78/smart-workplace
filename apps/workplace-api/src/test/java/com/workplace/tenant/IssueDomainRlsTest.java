@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.support.IntegrationTestBase;
@@ -61,7 +62,7 @@ class IssueDomainRlsTest extends IntegrationTestBase {
               setGuc(tid2);
               Long pid =
                   dsl.insertInto(PROJECT)
-                      .set(PROJECT.KEY, "RLS" + (System.nanoTime() % 100000))
+                      .set(PROJECT.KEY, uniqueProjectKey("RLS"))
                       .set(PROJECT.NAME, "RLS Isolation Test Project")
                       .set(PROJECT.OWNER_ID, ownerId)
                       .set(PROJECT.TENANT_ID, tid2)
@@ -118,7 +119,7 @@ class IssueDomainRlsTest extends IntegrationTestBase {
               setGuc(tid2);
               Long pid =
                   dsl.insertInto(PROJECT)
-                      .set(PROJECT.KEY, "ISS" + (System.nanoTime() % 100000))
+                      .set(PROJECT.KEY, uniqueProjectKey("ISS"))
                       .set(PROJECT.NAME, "RLS Issue Test Project")
                       .set(PROJECT.OWNER_ID, userId)
                       .set(PROJECT.TENANT_ID, tid2)
@@ -201,7 +202,7 @@ class IssueDomainRlsTest extends IntegrationTestBase {
               setGuc(tid2);
               Long pid =
                   dsl.insertInto(PROJECT)
-                      .set(PROJECT.KEY, "AWR" + (System.nanoTime() % 100000))
+                      .set(PROJECT.KEY, uniqueProjectKey("AWR"))
                       .set(PROJECT.NAME, "RLS AgentWork Test Project")
                       .set(PROJECT.OWNER_ID, userId)
                       .set(PROJECT.TENANT_ID, tid2)

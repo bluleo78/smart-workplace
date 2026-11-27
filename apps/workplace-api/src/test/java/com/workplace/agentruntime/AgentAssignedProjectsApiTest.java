@@ -2,6 +2,7 @@ package com.workplace.agentruntime;
 
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -41,16 +42,12 @@ class AgentAssignedProjectsApiTest extends IntegrationTestBase {
   private long agent;
   private String key;
 
-  /** 다른 테스트의 프로젝트 키와 겹치지 않게 붙이는 꼬리. */
-  private String s;
-
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
     admin = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createHuman(dsl));
     agent = TestFixtures.activeMemberOfCurrentTenant(dsl, TestFixtures.createAgentNoToken(dsl));
     key = keyService.issueManaged(agent, 1L, null, null, "L1").plaintext();
-    s = String.valueOf(System.nanoTime() % 100000);
   }
 
   /** 테넌트 1 에 프로젝트를 만든다(저장소 주소는 null 가능). */
@@ -87,11 +84,17 @@ class AgentAssignedProjectsApiTest extends IntegrationTestBase {
   /** 멤버이고 저장소가 있는 프로젝트만 키 순 — 저장소 없음·멤버 아님·키 형식 위반은 빠진다. */
   @Test
   void projects_returnsOnlyMemberProjectsWithRepositoryAndValidKey() throws Exception {
-    long b = project("ZB" + s, "https://github.com/acme/b.git", null);
-    long a = project("ZA" + s, "https://github.com/acme/a.git", "develop");
-    long noRepo = project("ZC" + s, null, null);
-    project("ZD" + s, "https://github.com/acme/d.git", null); // 멤버 아님
-    long badKey = project("Z." + s, "https://github.com/acme/e.git", null); // 폴더·칸 이름이 될 수 없는 키
+    String keyA = uniqueProjectKey("ZA");
+    String keyB = uniqueProjectKey("ZB");
+    long b = project(keyB, "https://github.com/acme/b.git", null);
+    long a = project(keyA, "https://github.com/acme/a.git", "develop");
+    long noRepo = project(uniqueProjectKey("ZC"), null, null);
+    project(uniqueProjectKey("ZD"), "https://github.com/acme/d.git", null); // 멤버 아님
+    long badKey =
+        project(
+            "Z." + uniqueProjectKey("E", 8),
+            "https://github.com/acme/e.git",
+            null); // 폴더·칸 이름이 될 수 없는 키
     addMember(b);
     addMember(a);
     addMember(noRepo);
@@ -100,10 +103,10 @@ class AgentAssignedProjectsApiTest extends IntegrationTestBase {
     callAsAgent()
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(2))
-        .andExpect(jsonPath("$[0].projectKey").value("ZA" + s))
+        .andExpect(jsonPath("$[0].projectKey").value(keyA))
         .andExpect(jsonPath("$[0].repositoryUrl").value("https://github.com/acme/a.git"))
         .andExpect(jsonPath("$[0].repositoryBranch").value("develop"))
-        .andExpect(jsonPath("$[1].projectKey").value("ZB" + s))
+        .andExpect(jsonPath("$[1].projectKey").value(keyB))
         .andExpect(jsonPath("$[1].repositoryBranch").isEmpty());
   }
 

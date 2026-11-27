@@ -231,7 +231,7 @@ class MilestoneServiceTest extends IntegrationTestBase {
             .getId();
     Long phantomProjectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "RLM" + (System.nanoTime() % 100000))
+            .set(PROJECT.KEY, uniqueProjectKey("RLM"))
             .set(PROJECT.NAME, "phantom project")
             .set(PROJECT.OWNER_ID, phantomOwnerId)
             .set(PROJECT.TENANT_ID, tid2)

@@ -3,6 +3,7 @@ package com.workplace.issue.workflow;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -65,7 +66,7 @@ class WorkflowRepositoryTest extends IntegrationTestBase {
             () ->
                 baseDsl
                     .insertInto(PROJECT)
-                    .set(PROJECT.KEY, "WF" + (System.nanoTime() % 10_000_000))
+                    .set(PROJECT.KEY, uniqueProjectKey("WF"))
                     .set(PROJECT.NAME, "workflow repo test")
                     .set(PROJECT.OWNER_ID, ownerId)
                     .returning(PROJECT.ID)

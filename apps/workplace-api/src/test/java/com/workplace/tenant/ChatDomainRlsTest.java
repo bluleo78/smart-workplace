@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.chat.dto.ChatMessagePage;
@@ -240,7 +241,7 @@ class ChatDomainRlsTest extends IntegrationTestBase {
   private long insertIssueChain(Long tid2, Long userId) {
     long pid =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "CHT" + (System.nanoTime() % 100000))
+            .set(PROJECT.KEY, uniqueProjectKey("CHT"))
             .set(PROJECT.NAME, "RLS Chat Test Project")
             .set(PROJECT.OWNER_ID, userId)
             .set(PROJECT.TENANT_ID, tid2)

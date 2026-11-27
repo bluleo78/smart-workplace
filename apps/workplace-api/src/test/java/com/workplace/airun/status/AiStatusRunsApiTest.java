@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.AI_RUN;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -550,7 +551,7 @@ class AiStatusRunsApiTest extends AiStatusTestSupport {
       long project =
           baseDsl
               .insertInto(PROJECT)
-              .set(PROJECT.KEY, "XW" + (System.nanoTime() % 100000))
+              .set(PROJECT.KEY, uniqueProjectKey("XW"))
               .set(PROJECT.NAME, "other tenant project")
               .set(PROJECT.OWNER_ID, admin)
               .set(PROJECT.TENANT_ID, otherTenant)

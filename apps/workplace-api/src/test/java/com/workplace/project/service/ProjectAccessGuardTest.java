@@ -3,6 +3,7 @@ package com.workplace.project.service;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -86,8 +87,7 @@ class ProjectAccessGuardTest extends IntegrationTestBase {
     Long owner = createUser("team-owner");
     ProjectResponse team =
         projectService.create(
-            owner,
-            new CreateProjectRequest("TG" + (System.nanoTime() % 100000), "팀", null, "TEAM"));
+            owner, new CreateProjectRequest(uniqueProjectKey("TG"), "팀", null, "TEAM"));
     Long stranger = createUser("stranger");
 
     assertThatThrownBy(() -> accessGuard.assertMember(team.key(), stranger))
@@ -97,8 +97,7 @@ class ProjectAccessGuardTest extends IntegrationTestBase {
         .isInstanceOf(ProjectNotFoundException.class)
         .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
     assertThatThrownBy(
-            () ->
-                accessGuard.assertWithRole("NOPE" + (System.nanoTime() % 1000), stranger, "OWNER"))
+            () -> accessGuard.assertWithRole(uniqueProjectKey("NOPE"), stranger, "OWNER"))
         .isInstanceOf(ProjectNotFoundException.class)
         .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
 

@@ -2,6 +2,7 @@ package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.AGENT_SERVER_RUN;
 import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -75,7 +76,7 @@ class ServerAgentRunTest extends IntegrationTestBase {
     agent = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, owner));
     var project =
         projectService.create(
-            owner, new CreateProjectRequest("SAR" + (System.nanoTime() % 100000), "팀", null, null));
+            owner, new CreateProjectRequest(uniqueProjectKey("SAR"), "팀", null, null));
     key = project.key();
     projectMemberRepository.insert(project.id(), agent, "MEMBER");
     var issue =

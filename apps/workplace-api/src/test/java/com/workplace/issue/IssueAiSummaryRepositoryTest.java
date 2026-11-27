@@ -113,8 +113,7 @@ class IssueAiSummaryRepositoryTest extends IntegrationTestBase {
                       .getId();
 
               // projectService.create → IssueTypeDef 시드 포함, TenantContext 기반 tenant_id 채움
-              String projKey =
-                  "RA" + suffix.substring(0, Math.min(4, suffix.length())).toUpperCase();
+              String projKey = uniqueProjectKey("RA");
               long projId =
                   projectService
                       .create(ownerId, new CreateProjectRequest(projKey, "RLS AIS", "x"))

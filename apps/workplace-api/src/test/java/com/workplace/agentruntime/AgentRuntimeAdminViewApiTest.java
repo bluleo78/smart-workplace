@@ -3,6 +3,7 @@ package com.workplace.agentruntime;
 import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -566,7 +567,7 @@ class AgentRuntimeAdminViewApiTest extends IntegrationTestBase {
   @Test
   void projects_excludesDeletedProject() throws Exception {
     long agent = newAgent();
-    long p = project("ZE" + System.nanoTime() % 100000, "https://github.com/acme/e.git", null);
+    long p = project(uniqueProjectKey("ZE"), "https://github.com/acme/e.git", null);
     addProjectMember(p, agent);
     dsl.update(PROJECT)
         .set(PROJECT.DELETED_AT, OffsetDateTime.now())

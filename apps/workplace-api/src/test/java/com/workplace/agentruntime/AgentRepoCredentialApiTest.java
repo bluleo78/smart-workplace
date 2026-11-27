@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.AGENT_RUNTIME_SETTING;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -524,7 +525,7 @@ class AgentRepoCredentialApiTest extends IntegrationTestBase {
     TenantContext.set(1L);
     long project =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "ZR" + (System.nanoTime() % 1_000_000))
+            .set(PROJECT.KEY, uniqueProjectKey("ZR"))
             .set(PROJECT.NAME, "저장소 프로젝트")
             .set(PROJECT.OWNER_ID, admin)
             .set(PROJECT.TYPE, "TEAM")

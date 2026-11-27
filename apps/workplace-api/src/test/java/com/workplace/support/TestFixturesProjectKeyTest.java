@@ -33,7 +33,10 @@ class TestFixturesProjectKeyTest {
         .matches("^[A-Z][A-Z0-9]{1,9}$");
   }
 
-  /** 천 번을 만들어도 겹치지 않는다 — 36^8 가지라 겹칠 확률은 약 2억분의 1(만 번이면 5만분의 1로 이 테스트가 깜빡인다). */
+  /**
+   * 천 번을 만들어도 겹치지 않는다 — 36^8 가지라 겹칠 확률은 약 n²/2N ≈ 1.8e-7, 곧 약 560만분의 1(만 번이면 약 1.8e-5, 5만6천분의 1로 이
+   * 테스트가 깜빡인다).
+   */
   @Test
   void uniqueProjectKey_rarelyRepeats() {
     Set<String> keys = new HashSet<>();

@@ -26,6 +26,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.drive.dto.DriveSpaceResponse;
@@ -298,7 +299,7 @@ class DriveQuotaRepositoryTest extends IntegrationTestBase {
 
   private long seedProject() {
     return dsl.insertInto(PROJECT)
-        .set(PROJECT.KEY, "DQR" + (System.nanoTime() % 100000))
+        .set(PROJECT.KEY, uniqueProjectKey("DQR"))
         .set(PROJECT.NAME, "쿼터 프로젝트")
         .set(PROJECT.OWNER_ID, me)
         .set(PROJECT.TENANT_ID, 1L)
