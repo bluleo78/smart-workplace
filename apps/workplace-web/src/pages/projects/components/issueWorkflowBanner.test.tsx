@@ -452,6 +452,41 @@ describe('워크플로우 사람 차례 배너', () => {
     expect(moves[0]).toMatchObject({ outcome: 'approve', outputs: { tag: 'v1' } })
   })
 
+  // WP-2158 리뷰 후속 — 서버 name 이 없는 응답(옛 서버)이어도 단추·안내·입력 칸이 기본 이름·키로 보인다.
+  test('outcomeNamesMissing_fallBackToDefaultNameOrKey', async () => {
+    setup(run({ outcomes: [
+      outcome({ key: 'ask', name: undefined, requiredOutputs: [{ key: 'memo', type: 'string' }] }),
+      outcome({ key: 'approve', name: null }),
+    ] }))
+    const user = userEvent.setup()
+    const status = within(await screen.findByTestId('issue-workflow-banner')).getByRole('status')
+    expect(screen.getByRole('button', { name: '질문' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'approve' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '질문' }))
+    expect(status).toHaveTextContent('「질문」 결과를 골랐어요')
+    expect(status).toHaveTextContent('필수 항목(memo)')
+    expect(screen.getByRole('group', { name: '「질문」 결과 입력' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'memo' })).toBeInTheDocument()
+  })
+
+  // WP-2158 리뷰 후속 — 다른 노드로 넘어가면 펼쳐 둔 지시가 처음(접힘)으로 돌아간다.
+  test('longInstructions_nodeChange_resetsToCollapsed', async () => {
+    const long = Array.from({ length: 10 }, (_, i) => `줄 ${i + 1}`).join('\n\n')
+    const first = run({ currentNode: { ...(run().currentNode as object), instructions: long } })
+    // revision 은 그대로 둔다 — 본문(BannerBody)은 revision key 로 다시 마운트되므로, 노드만 바뀌어도 지시 key 가 접힘을 되돌리는지 따로 본다.
+    const next = run({ currentNode: { ...(run().currentNode as object), key: 'qa', name: 'QA 확인', instructions: long } })
+    const counter = { gets: 0 }
+    setup((gets) => (gets <= 1 ? first : next), [], {}, 200, counter)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '지시 보기' }))
+    expect(screen.getByRole('button', { name: '접기' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'answered' }))
+    await user.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(screen.getByTestId('issue-workflow-banner-title')).toHaveTextContent(/^QA 확인/))
+    expect(screen.getByRole('button', { name: '지시 보기' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByTestId('issue-workflow-instructions')).toHaveClass('max-h-28')
+  })
+
   test('instructions_renderedAsMarkdown', async () => {
     const base = run()
     setup(run({ currentNode: { ...(base.currentNode as object), instructions: '### 확인할 것\n\n| 항목 | 값 |\n|---|---|\n| 태그 | v1 |\n\n- 하나\n- 둘' } }))

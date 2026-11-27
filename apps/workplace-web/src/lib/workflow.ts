@@ -34,10 +34,11 @@ export interface WorkflowNodeView {
 
 export interface WorkflowOutcomeView {
   key: string
-  /** 표시 이름(WP-2158) — 서버가 name → 기본 이름 → key 로 풀어 준다. */
-  name: string
+  /** 표시 이름(WP-2158) — 서버가 name → 기본 이름 → key 로 풀어 준다. 옛 서버 응답엔 없을 수 있어 화면은 outcomeDisplayName 으로 읽는다. */
+  name?: string | null
   toNode: string
-  requiredOutputs: { key: string; type: 'string' | 'url' | 'number' | 'boolean'; name: string }[]
+  /** name: 출력 표시 이름(WP-2158) — 옛 서버 응답엔 없을 수 있어 화면은 outputDisplayName 으로 읽는다. */
+  requiredOutputs: { key: string; type: 'string' | 'url' | 'number' | 'boolean'; name?: string | null }[]
   requireComment: boolean
   assignTo: string | null
   candidateAssignees: WorkflowUser[]

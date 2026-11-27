@@ -3,6 +3,7 @@
 import { MENTION_TOKEN } from '@/components/mentions/chatMarkdown'
 
 import { ACTIVE_RUN_STATUSES, isQuestionPathNode, type RunStatus, type WorkflowUser } from './workflow'
+import { outcomeDisplayName } from './workflowNames'
 import type { WorkflowModel } from './workflows'
 
 /** 실행 목록 한 줄. */
@@ -35,8 +36,8 @@ export interface WorkflowNodeRun {
   assignees: WorkflowUser[]
   workflowAssigned: WorkflowUser[]
   outcome: string | null
-  /** 서버가 풀어 준 결과 표시 이름(WP-2158) — outcome 이 null 이면 null, 이전 서버 응답에는 없다 */
-  outcomeName: string | null
+  /** 서버가 풀어 준 결과 표시 이름(WP-2158) — outcome 이 null 이면 null, 이전 서버 응답에는 없다(그때는 outcomeDisplayName 으로 키·기본 이름) */
+  outcomeName?: string | null
   outputs: unknown
   commentId: number | null
   waitingReason: string | null
@@ -225,7 +226,8 @@ export function runMoveRows(detail: WorkflowRunDetail): RunMoveRow[] {
       from: prev ? (prev.nodeName ?? prev.nodeKey) : null,
       to: v.nodeName ?? v.nodeKey,
       actorName: prev ? (prev.actor?.name ?? null) : startedBy,
-      outcome: prev?.outcome ? prev.outcomeName : null,
+      // 옛 서버 응답(outcomeName 없음)이어도 빈칸이 아니라 키·기본 이름으로 보인다(WP-2158 리뷰 후속).
+      outcome: prev?.outcome ? outcomeDisplayName(prev.outcome, prev.outcomeName) : null,
       at: v.enteredAt,
       assigned: v.workflowAssigned.map((u) => u.name),
       question: questionOf(v),
