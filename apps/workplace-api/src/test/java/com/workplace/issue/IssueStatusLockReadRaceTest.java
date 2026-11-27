@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -27,7 +28,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -361,8 +361,7 @@ class IssueStatusLockReadRaceTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(String prefix) {
-    String key =
-        prefix + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey(prefix);
     ProjectResponse p =
         projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     projects.add(p.id());

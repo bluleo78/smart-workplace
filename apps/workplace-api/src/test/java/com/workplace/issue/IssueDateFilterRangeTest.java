@@ -1,6 +1,7 @@
 package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -56,7 +57,7 @@ class IssueDateFilterRangeTest extends IntegrationTestBase {
             .fetchOne()
             .getId();
     TenantContext.set(1L);
-    projKey = "DR" + suffix.substring(0, 4).toUpperCase();
+    projKey = uniqueProjectKey("DR");
     projectId =
         projectService.create(userId, new CreateProjectRequest(projKey, "DateRange", "x")).id();
   }

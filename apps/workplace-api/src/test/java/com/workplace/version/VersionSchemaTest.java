@@ -1,5 +1,6 @@
 package com.workplace.version;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -205,7 +206,9 @@ class VersionSchemaTest extends IntegrationTestBase {
                 "ver-" + suffix,
                 "ver-" + suffix + "@example.com")
             .get("id", Long.class);
-    return projectService.create(userId, new CreateProjectRequest("VR" + suffix, "Ver", "x")).id();
+    return projectService
+        .create(userId, new CreateProjectRequest(uniqueProjectKey("VR"), "Ver", "x"))
+        .id();
   }
 
   private long seedIssue(long projectId) {

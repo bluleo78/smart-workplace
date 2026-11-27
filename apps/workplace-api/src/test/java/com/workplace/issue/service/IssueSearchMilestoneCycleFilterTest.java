@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -64,7 +65,7 @@ class IssueSearchMilestoneCycleFilterTest extends IntegrationTestBase {
         .set(MEMBERSHIP.TENANT_ID, defaultTenantId())
         .set(MEMBERSHIP.STATUS, "ACTIVE")
         .execute();
-    String key = "MC" + s.replaceAll("[^a-zA-Z]", "").toUpperCase().concat("QQQQ").substring(0, 4);
+    String key = uniqueProjectKey("MC");
     project = projectService.create(ownerId, new CreateProjectRequest(key, "마일스톤·사이클", "x"));
     milestoneId =
         milestoneService

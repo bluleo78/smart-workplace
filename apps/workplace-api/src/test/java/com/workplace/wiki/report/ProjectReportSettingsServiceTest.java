@@ -2,6 +2,7 @@ package com.workplace.wiki.report;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_REVISION;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.jooq.impl.DSL.field;
@@ -26,7 +27,6 @@ import com.workplace.wiki.service.WikiSystemPageWriter;
 import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -483,8 +483,7 @@ class ProjectReportSettingsServiceTest extends ExternalClientMockedTestBase {
   }
 
   private ProjectResponse project(long owner, String type) {
-    String key =
-        "RP" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RP");
     return projectService.create(
         owner,
         new CreateProjectRequest("PERSONAL".equals(type) ? null : key, "리포트-" + key, null, type));

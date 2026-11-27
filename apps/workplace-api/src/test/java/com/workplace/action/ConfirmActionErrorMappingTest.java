@@ -3,6 +3,7 @@ package com.workplace.action;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
@@ -12,7 +13,6 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.exception.UserNotFoundException;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +56,7 @@ class ConfirmActionErrorMappingTest extends IntegrationTestBase {
         .set(MEMBERSHIP.TENANT_ID, 1L)
         .set(MEMBERSHIP.STATUS, "ACTIVE")
         .execute();
-    projectKey = "EM" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    projectKey = uniqueProjectKey("EM");
     projectService.create(owner, new CreateProjectRequest(projectKey, "에러 매핑", null));
   }
 

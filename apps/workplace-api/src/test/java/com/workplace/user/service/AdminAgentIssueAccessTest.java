@@ -3,6 +3,7 @@ package com.workplace.user.service;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -87,7 +88,7 @@ class AdminAgentIssueAccessTest extends IntegrationTestBase {
   void adminCreatedAgent_canListProjectIssues() throws Exception {
     Long ownerId = createHumanOwner();
     Long agentId = createAdminAgent();
-    String key = "AG" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("AG");
     var project = projectService.create(ownerId, new CreateProjectRequest(key, "에이전트 접근", "x"));
     memberRepository.insert(project.id(), agentId, "MEMBER");
 

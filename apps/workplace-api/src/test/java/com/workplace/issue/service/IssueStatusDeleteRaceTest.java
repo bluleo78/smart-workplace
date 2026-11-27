@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -26,7 +27,6 @@ import com.workplace.support.RowLockWaits;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -71,8 +71,7 @@ class IssueStatusDeleteRaceTest extends IntegrationTestBase {
     TestFixtures.grantRole(baseDsl, owner, "USER");
     TestFixtures.addMember(baseDsl, owner, 1L);
     users.add(owner);
-    String key =
-        "SDR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("SDR");
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     review =
         statusService
@@ -151,17 +150,7 @@ class IssueStatusDeleteRaceTest extends IntegrationTestBase {
             1L,
             () ->
                 projectService.create(
-                    owner,
-                    new CreateProjectRequest(
-                        "SDO"
-                            + UUID.randomUUID()
-                                .toString()
-                                .replace("-", "")
-                                .toUpperCase()
-                                .substring(0, 4),
-                        "O",
-                        "x",
-                        "TEAM")));
+                    owner, new CreateProjectRequest(uniqueProjectKey("SDO"), "O", "x", "TEAM")));
     try {
       long foreign =
           callInTenant(

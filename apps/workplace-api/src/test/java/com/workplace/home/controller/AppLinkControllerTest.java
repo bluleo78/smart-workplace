@@ -1,5 +1,6 @@
 package com.workplace.home.controller;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
@@ -93,7 +94,7 @@ class AppLinkControllerTest extends IntegrationTestBase {
     // 이슈 카드는 이슈 상세처럼 project:read 를 요구한다 — 실제 사람처럼 USER 역할을 준다.
     TestFixtures.grantRole(dsl, ownerId, "USER");
     TestFixtures.grantRole(dsl, strangerId, "USER");
-    projectKey = "AL" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+    projectKey = uniqueProjectKey("AL");
     var p =
         projectService.create(ownerId, new CreateProjectRequest(projectKey, "앱링크", "x", "TEAM"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "카드로 볼 이슈", null, "MID", null, ownerId);
@@ -812,8 +813,7 @@ class AppLinkControllerTest extends IntegrationTestBase {
   @Test
   void 이슈_키_상태_일괄_조회는_멤버가_아닌_TEAM_프로젝트_키가_섞여도_볼_수_있는_키만_준다() throws Exception {
     // stranger 가 주인인 TEAM 프로젝트 — owner 는 멤버가 아니라 볼 수 없다. 이슈는 실제로 있다.
-    String hiddenKey =
-        "HD" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+    String hiddenKey = uniqueProjectKey("HD");
     var hidden =
         projectService.create(strangerId, new CreateProjectRequest(hiddenKey, "숨김", "x", "TEAM"));
     TenantContext.set(1L);

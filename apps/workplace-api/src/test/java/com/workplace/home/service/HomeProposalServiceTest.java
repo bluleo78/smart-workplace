@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.ROLE_PERMISSION;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -117,7 +118,7 @@ class HomeProposalServiceTest extends IntegrationTestBase {
   @Test
   @DisplayName("이슈 승인 성공 — 결과에 내부 숫자 id 가 아니라 이슈 키(ABC-1)를 남긴다(AI 이슈 도구는 키 기준)")
   void confirm_issue_recordsIssueKey() throws Exception {
-    String key = "HP" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("HP");
     projectService.create(owner, new CreateProjectRequest(key, "확인카드 이슈", null));
     HomeProposalResponse p =
         record(

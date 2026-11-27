@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -81,9 +82,8 @@ class PersonalReportFactsServiceTest extends ExternalClientMockedTestBase {
   }
 
   private ProjectResponse newProject(long owner) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(
-        owner, new CreateProjectRequest("PR" + suffix, "개인-" + suffix, "x", "TEAM"));
+    String key = uniqueProjectKey("PR");
+    return projectService.create(owner, new CreateProjectRequest(key, "개인-" + key, "x", "TEAM"));
   }
 
   /** reporter 가 p 에 만든 담당자·이력 없는 이슈 — 범주·생성 시각·닫힌 시각을 덮어쓴다. */

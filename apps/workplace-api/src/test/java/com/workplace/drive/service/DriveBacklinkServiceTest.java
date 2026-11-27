@@ -3,6 +3,7 @@ package com.workplace.drive.service;
 
 import static com.workplace.drive.service.DriveExistenceHiding.assertHiddenLikeMissing;
 import static com.workplace.jooq.Tables.*;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -109,9 +110,7 @@ class DriveBacklinkServiceTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   private ProjectResponse newProject(long ownerId, String prefix) {

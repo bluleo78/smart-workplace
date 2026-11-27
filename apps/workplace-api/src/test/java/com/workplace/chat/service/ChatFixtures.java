@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
@@ -96,7 +97,7 @@ public class ChatFixtures {
           long watcher = insertUser("wat" + suffix);
           long outsider = insertUser("out" + suffix);
 
-          String projectKey = "C" + suffix.substring(0, 4).toUpperCase();
+          String projectKey = uniqueProjectKey("C");
           // reporter 를 owner 로 → 자동으로 project_member(OWNER) + system types 시드.
           ProjectResponse project =
               projectService.create(

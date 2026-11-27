@@ -69,9 +69,7 @@ class MailIssueDraftTest extends ExternalClientMockedTestBase {
   void setUp() {
     callerId = TestFixtures.createHuman(dsl);
     TenantContext.set(1L);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String raw = "ID" + suffix;
-    projectKey = raw.substring(0, Math.min(10, raw.length()));
+    projectKey = TestFixtures.uniqueProjectKey("ID");
     projectService.create(callerId, new CreateProjectRequest(projectKey, "이슈초안 테스트", "x"));
     when(assistantResolver.resolve(callerId)).thenReturn(MOCK_SPEC);
   }

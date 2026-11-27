@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -11,7 +12,6 @@ import com.workplace.support.TestFixtures;
 import com.workplace.wiki.report.ProjectReportSettingRepository.SettingRow;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSystemPageWriter;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,8 +40,7 @@ class ProjectReportSettingRepositoryTest extends ExternalClientMockedTestBase {
     TenantContext.set(1L);
     ownerId = withMembership(TestFixtures.createHuman(dsl));
     grantUserRole(ownerId);
-    String key =
-        "RS" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RS");
     ProjectResponse p =
         projectService.create(ownerId, new CreateProjectRequest(key, "설정-" + key, null, "TEAM"));
     projectId = p.id();

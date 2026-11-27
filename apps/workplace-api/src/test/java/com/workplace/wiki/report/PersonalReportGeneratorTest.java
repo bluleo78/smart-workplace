@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
@@ -101,7 +102,7 @@ class PersonalReportGeneratorTest extends ExternalClientMockedTestBase {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
     project =
         projectService.create(
-            me, new CreateProjectRequest("PG" + suffix, "보고-" + suffix, null, "TEAM"));
+            me, new CreateProjectRequest(uniqueProjectKey("PG"), "보고-" + suffix, null, "TEAM"));
     when(assistantResolver.resolveOrEmpty(me))
         .thenReturn(Optional.of(new AssistantSpec(ai, "m", "low", 4)));
     enableDaily(LocalTime.of(9, 0), true, NOW);

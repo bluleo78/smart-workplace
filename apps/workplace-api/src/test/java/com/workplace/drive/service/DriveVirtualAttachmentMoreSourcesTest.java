@@ -2,6 +2,7 @@
 package com.workplace.drive.service;
 
 import static com.workplace.jooq.Tables.*;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -714,9 +715,8 @@ class DriveVirtualAttachmentMoreSourcesTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(long ownerId, String prefix) {
-    String suffix = UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
     return projectService.create(
-        ownerId, new CreateProjectRequest(prefix + suffix, "P-" + prefix, "x"));
+        ownerId, new CreateProjectRequest(uniqueProjectKey(prefix), "P-" + prefix, "x"));
   }
 
   private long seedFile(long uploaderId, String name, OffsetDateTime expiresAt) {

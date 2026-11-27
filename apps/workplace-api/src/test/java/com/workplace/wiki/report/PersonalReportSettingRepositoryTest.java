@@ -1,6 +1,7 @@
 package com.workplace.wiki.report;
 
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -14,7 +15,6 @@ import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,8 +66,7 @@ class PersonalReportSettingRepositoryTest extends ExternalClientMockedTestBase {
 
   @Test
   void setTemplate_insertsDefaultsRow_andRoutesByKind() {
-    String key =
-        "PS" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PS");
     long projectId =
         projectService.create(userA, new CreateProjectRequest(key, "설정-" + key, null, "TEAM")).id();
     long page = writer.ensureReportsHome(projectId, userA).orElseThrow().reportsPageId();
@@ -193,8 +192,7 @@ class PersonalReportSettingRepositoryTest extends ExternalClientMockedTestBase {
 
   /** FK 를 만족하는 아무 노트 페이지 — 새 프로젝트 노트 공간의 「리포트」. */
   private long reportsPage() {
-    String key =
-        "PS" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PS");
     long projectId =
         projectService.create(userA, new CreateProjectRequest(key, "설정-" + key, null, "TEAM")).id();
     return writer.ensureReportsHome(projectId, userA).orElseThrow().reportsPageId();

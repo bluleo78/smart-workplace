@@ -12,6 +12,7 @@ import static com.workplace.jooq.Tables.ISSUE_VERSION;
 import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.PROJECT_VERSION;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -70,10 +71,9 @@ class ProjectReportFactsServiceTest extends ExternalClientMockedTestBase {
     dsl.update(USER).set(USER.NAME, "김담당").where(USER.ID.eq(owner)).execute();
     grantUserRole(owner);
     withMembership(owner);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RF");
     project =
-        projectService.create(
-            owner, new CreateProjectRequest("RF" + suffix, "리포트-" + suffix, "x", "TEAM"));
+        projectService.create(owner, new CreateProjectRequest(key, "리포트-" + key, "x", "TEAM"));
   }
 
   // ───────────── 시드 헬퍼 ─────────────

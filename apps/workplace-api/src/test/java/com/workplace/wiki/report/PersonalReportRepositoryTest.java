@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.name;
@@ -17,7 +18,6 @@ import com.workplace.wiki.report.PersonalReportRepository.ReserveStatus;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,8 +47,7 @@ class PersonalReportRepositoryTest extends ExternalClientMockedTestBase {
     userA = withMembership(TestFixtures.createHuman(dsl));
     grantUserRole(userA);
     userB = withMembership(TestFixtures.createHuman(dsl));
-    String key =
-        "PR" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PR");
     ProjectResponse p =
         projectService.create(userA, new CreateProjectRequest(key, "개인-" + key, null, "TEAM"));
     // page_id 는 wiki_page 외래 키라 실제 노트를 하나 빌린다.

@@ -3,6 +3,7 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.dto.UserSummary;
@@ -45,8 +46,7 @@ class IssueAssigneeRepositoryTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
+    return uniqueProjectKey(prefix);
   }
 
   private ProjectResponse newProject(Long ownerId, String prefix) {

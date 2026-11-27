@@ -1,6 +1,7 @@
 package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.project.dto.CreateProjectRequest;
@@ -8,7 +9,6 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,8 +39,7 @@ class ProjectStatusDefaultChoiceTest extends IntegrationTestBase {
     long owner = TestFixtures.createHuman(dsl);
     TestFixtures.grantRole(dsl, owner, "USER");
     TestFixtures.addMember(dsl, owner, 1L);
-    String key =
-        "PSD" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PSD");
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     seeded = fixtureDefault("IN_PROGRESS");
   }

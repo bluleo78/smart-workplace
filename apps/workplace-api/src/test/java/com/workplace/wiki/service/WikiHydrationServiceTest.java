@@ -1,6 +1,7 @@
 package com.workplace.wiki.service;
 
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -55,7 +56,7 @@ class WikiHydrationServiceTest extends IntegrationTestBase {
   }
 
   private String uniqueKey() {
-    return "WH" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    return uniqueProjectKey("WH");
   }
 
   /** resolveMentions: 유저+페이지+이슈 혼합 본문을 하이드레이션하고 비가시/비실존 대상은 제외한다. */

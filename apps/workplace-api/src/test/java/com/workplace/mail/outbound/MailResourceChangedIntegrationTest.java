@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
@@ -138,7 +139,7 @@ class MailResourceChangedIntegrationTest extends MailSyncTestSupport {
   @Test
   @DisplayName("메일→이슈 승격은 메시지 id 를 담은 mail updated 를 소유자에게")
   void promoteToIssue_publishesMailUpdatedWithMessageId() {
-    String key = "MR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("MR");
     projectService.create(owner, new CreateProjectRequest(key, "메일 rc", "x"));
     issueSourceIds.add(messageId);
     clearInvocations(registry);

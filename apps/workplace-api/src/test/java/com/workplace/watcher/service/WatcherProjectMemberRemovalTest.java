@@ -3,6 +3,7 @@ package com.workplace.watcher.service;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.repository.IssueRepository;
@@ -53,8 +54,7 @@ class WatcherProjectMemberRemovalTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(Long ownerId, String type) {
-    String key =
-        "WR" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("WR");
     return projectService.create(ownerId, new CreateProjectRequest(key, "P", "x", type));
   }
 

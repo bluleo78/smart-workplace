@@ -12,6 +12,7 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WORK_PROFILE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -117,9 +118,8 @@ class WorkProfileServiceTest extends ExternalClientMockedTestBase {
   }
 
   private ProjectResponse project(Long ownerId) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(
-        ownerId, new CreateProjectRequest("WF" + suffix, "P-WF" + suffix, "x", "TEAM"));
+    String key = uniqueProjectKey("WF");
+    return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + key, "x", "TEAM"));
   }
 
   /** 담당자·마감 없는 열린 이슈를 만들고 생성 시각을 정한다. */

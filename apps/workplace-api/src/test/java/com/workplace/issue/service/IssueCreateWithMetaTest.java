@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.*;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -87,8 +88,7 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return prefix + suffix;
+    return uniqueProjectKey(prefix);
   }
 
   /** 라벨·마일스톤·사이클만 지정한 생성 요청. */

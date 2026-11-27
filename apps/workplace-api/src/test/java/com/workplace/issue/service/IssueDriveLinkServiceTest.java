@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.*;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.*;
 
 import com.workplace.drive.dto.DriveLinkResponse;
@@ -73,8 +74,7 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
 
   /** 프로젝트 생성. */
   private ProjectResponse newProject(Long ownerId, String prefix) {
-    String key =
-        prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+    String key = uniqueProjectKey(prefix);
     return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + prefix, "x"));
   }
 
@@ -210,8 +210,7 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
 
   /** OPEN 프로젝트 생성 — 비멤버 테넌트 사용자도 이슈 생성·조회가 가능한 유형(WP-202). */
   private ProjectResponse newOpenProject(Long ownerId, String prefix) {
-    String key =
-        prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+    String key = uniqueProjectKey(prefix);
     return projectService.create(
         ownerId, new CreateProjectRequest(key, "P-" + prefix, "x", "OPEN"));
   }

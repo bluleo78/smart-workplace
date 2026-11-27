@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -199,9 +200,7 @@ class IssueAiSummaryEndpointTest extends ExternalClientMockedTestBase {
 
   /** 프로젝트 key 충돌 방지용 고유 키. */
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   /** projectId 로 프로젝트 key 조회 — IssueService.get 호출 시 필요. */

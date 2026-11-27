@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -14,7 +15,6 @@ import com.workplace.notify.service.NotificationService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +41,7 @@ class WorkflowTurnNotificationTest extends IntegrationTestBase {
     TenantContext.set(1L);
     assignee = member();
     owner = member();
-    String key = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 5).toUpperCase();
+    String key = uniqueProjectKey("T");
     long projectId =
         dsl.insertInto(PROJECT)
             .set(PROJECT.KEY, key)

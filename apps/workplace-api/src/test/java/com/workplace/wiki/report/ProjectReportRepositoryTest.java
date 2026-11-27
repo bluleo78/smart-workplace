@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.jooq.impl.DSL.field;
@@ -19,7 +20,6 @@ import com.workplace.wiki.report.ProjectReportRepository.Reserve;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,8 +51,7 @@ class ProjectReportRepositoryTest extends ExternalClientMockedTestBase {
     TenantContext.set(1L);
     long owner = withMembership(TestFixtures.createHuman(dsl));
     grantUserRole(owner);
-    String key =
-        "RR" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RR");
     ProjectResponse p =
         projectService.create(owner, new CreateProjectRequest(key, "회차-" + key, null, "TEAM"));
     projectId = p.id();

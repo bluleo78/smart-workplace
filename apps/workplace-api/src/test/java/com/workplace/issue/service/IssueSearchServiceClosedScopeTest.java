@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -53,9 +54,8 @@ class IssueSearchServiceClosedScopeTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(Long ownerId) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(
-        ownerId, new CreateProjectRequest("HC" + suffix, "P-HC" + suffix, "x"));
+    String key = uniqueProjectKey("HC");
+    return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + key, "x"));
   }
 
   /** 이슈를 만들고 상태를 직접 지정한다(상태 전이 검증은 이 테스트의 관심사가 아니다). */

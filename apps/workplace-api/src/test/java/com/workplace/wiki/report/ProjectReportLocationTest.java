@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -17,7 +18,6 @@ import com.workplace.wiki.report.ProjectReportLocation.Resolved;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.OffsetDateTime;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -168,8 +168,7 @@ class ProjectReportLocationTest extends ExternalClientMockedTestBase {
   }
 
   private ProjectResponse project() {
-    String key =
-        "RL" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RL");
     return projectService.create(ownerId, new CreateProjectRequest(key, "위치-" + key, null, "TEAM"));
   }
 }

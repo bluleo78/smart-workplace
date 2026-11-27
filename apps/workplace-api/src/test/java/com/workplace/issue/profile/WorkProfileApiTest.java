@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.not;
@@ -90,10 +91,10 @@ class WorkProfileApiTest extends ExternalClientMockedTestBase {
 
   /** 사용자가 지금 담당으로 끝낸 이슈 하나를 만들고 AI 분류로 READY 프로파일을 저장한다(점유 → 그 점유 토큰으로 워커 한 회). */
   private void readyProfile(Long me, String summary) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String projectKey = uniqueProjectKey("WA");
     ProjectResponse p =
         projectService.create(
-            me, new CreateProjectRequest("WA" + suffix, "P-WA" + suffix, "x", "TEAM"));
+            me, new CreateProjectRequest(projectKey, "P-" + projectKey, "x", "TEAM"));
     var created =
         issueService.create(
             me, p.key(), new CreateIssueRequest("끝낸 일", "본문", null, null, null, null, null, null));

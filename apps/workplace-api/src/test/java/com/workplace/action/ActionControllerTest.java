@@ -1,5 +1,6 @@
 package com.workplace.action;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,7 +11,6 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,9 +38,7 @@ class ActionControllerTest extends IntegrationTestBase {
     // 프로젝트 멤버(오너) 사용자 생성
     callerId = TestFixtures.createHuman(dsl);
     // 유니크 프로젝트 키 생성 후 프로젝트 생성 — caller 가 OWNER 멤버로 자동 등록됨
-    projectKey =
-        ("AC" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4))
-            .substring(0, 6);
+    projectKey = uniqueProjectKey("AC");
     projectService.create(
         callerId, new CreateProjectRequest(projectKey, "Action Test Project", null));
   }
