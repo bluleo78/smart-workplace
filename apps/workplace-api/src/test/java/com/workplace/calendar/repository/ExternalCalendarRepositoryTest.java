@@ -94,6 +94,19 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
   }
 
   /**
+   * DSLContext 로 calendar_event.updated_at 직접 조회.
+   *
+   * <p>updatedAtOf 는 테스트 보조 — prune 의 since(수집 시작)와 행의 연결 시각(updated_at)을 정확히 비교해야 하므로 삽입 시각을 직접 읽어
+   * 쓴다.
+   */
+  private OffsetDateTime updatedAtOf(long eventId) {
+    return dsl.select(CALENDAR_EVENT.UPDATED_AT)
+        .from(CALENDAR_EVENT)
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .fetchOne(CALENDAR_EVENT.UPDATED_AT);
+  }
+
+  /**
    * DSLContext 로 calendar_event 존재 여부 확인.
    *
    * <p>existsById 는 테스트 보조 — 생산 코드 노출 없이 DSL 직접 조회.
@@ -183,12 +196,94 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               OffsetDateTime anchor = sampleRow().startsAt();
               OffsetDateTime from = anchor.minusMonths(1);
               OffsetDateTime to = anchor.plusMonths(3);
-              var deleted = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to);
+              // since 는 행보다 뒤 — 수집 시작이 연결 시각 뒤라 가드를 지나 삭제 대상이 된다(WP-2156).
+              var deleted =
+                  repo.pruneEventsNotIn(
+                      calId, Set.of("keep"), from, to, updatedAtOf(gone).plusHours(1));
 
               // 지운 일정 id 를 돌려준다(WP-1733 — 참석자 알림용).
               assertThat(deleted).containsExactly(gone);
               assertThat(existsById(keep)).isTrue();
               assertThat(existsById(gone)).isFalse();
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
+  /**
+   * pruneEventsNotIn 은 since(수집 시작)보다 뒤에 연결·갱신된 행을 하나도 지우지 않는다(WP-2156 경합 방어).
+   *
+   * <p>같은 트랜잭션에 넣은 세 행의 updated_at 은 모두 t0(DEFAULT now() = 트랜잭션 시각) — since 가 t0 보다 앞이거나 정확히 t0
+   * 이면(경계) 세 행 모두 삭제에서 제외돼야 한다.
+   */
+  @Test
+  void pruneEventsNotIn_keeps_rows_linked_after_since() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              long ownerId = TestFixtures.createHuman(dsl);
+              long accountId = emailAccount(ownerId);
+              long calId =
+                  repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue", true, true);
+              long keepId = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow()).id();
+              long oldId = repo.upsertExternalEvent(ownerId, calId, "old", sampleRow()).id();
+              long newId = repo.upsertExternalEvent(ownerId, calId, "new", sampleRow()).id();
+
+              OffsetDateTime anchor = sampleRow().startsAt();
+              OffsetDateTime from = anchor.minusMonths(1);
+              OffsetDateTime to = anchor.plusMonths(3);
+              OffsetDateTime t0 = updatedAtOf(keepId);
+
+              // 가드: 수집 시작이 삽입 시각보다 앞이면 세 행 모두 updated_at >= since → 삭제 없음.
+              var deletedBefore =
+                  repo.pruneEventsNotIn(calId, Set.of("keep"), from, to, t0.minusHours(1));
+              assertThat(deletedBefore).isEmpty();
+              assertThat(existsById(keepId)).isTrue();
+              assertThat(existsById(oldId)).isTrue();
+              assertThat(existsById(newId)).isTrue();
+
+              // 경계: since == t0 도 보호 — 조건이 updated_at < since 이라 정확히 같은 시각 행은 살아남는다.
+              var deletedAtBoundary = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to, t0);
+              assertThat(deletedAtBoundary).isEmpty();
+              assertThat(existsById(keepId)).isTrue();
+              assertThat(existsById(oldId)).isTrue();
+              assertThat(existsById(newId)).isTrue();
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
+  /**
+   * pruneEventsNotIn 은 since 보다 앞에 연결된 행은 여전히 삭제한다(WP-2156 회귀 — 가드 때문에 prune 이 멈추지 않는다).
+   *
+   * <p>keep 집합의 행은 가드와 무관하게 유지된다.
+   */
+  @Test
+  void pruneEventsNotIn_deletes_rows_linked_before_since() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              long ownerId = TestFixtures.createHuman(dsl);
+              long accountId = emailAccount(ownerId);
+              long calId =
+                  repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue", true, true);
+              long keepId = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow()).id();
+              long oldId = repo.upsertExternalEvent(ownerId, calId, "old", sampleRow()).id();
+              long newId = repo.upsertExternalEvent(ownerId, calId, "new", sampleRow()).id();
+
+              OffsetDateTime anchor = sampleRow().startsAt();
+              OffsetDateTime from = anchor.minusMonths(1);
+              OffsetDateTime to = anchor.plusMonths(3);
+              OffsetDateTime t0 = updatedAtOf(keepId);
+
+              // 수집 시작이 삽입 시각 뒤 → keep 외 두 행은 삭제 대상.
+              var deleted = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to, t0.plusHours(1));
+              assertThat(deleted).containsExactlyInAnyOrder(oldId, newId);
+              assertThat(existsById(keepId)).isTrue();
+              assertThat(existsById(oldId)).isFalse();
+              assertThat(existsById(newId)).isFalse();
 
               status.setRollbackOnly();
               return null;

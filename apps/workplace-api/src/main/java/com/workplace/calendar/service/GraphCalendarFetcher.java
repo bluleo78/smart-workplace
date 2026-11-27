@@ -371,7 +371,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
           // 바뀐 일정의 변경 후 명단 — 새로 초대된 사람도 갱신되게(WP-1733).
           affected.addAll(attendeeRepo.findInternalUserIdsByEvents(changedEventIds));
           // 지워진 일정의 참석자 — 삭제 전에 읽어 둔 명단에서 꺼낸다(WP-1733).
-          for (long deletedId : extRepo.pruneEventsNotIn(calId, keep, scope.from(), scope.to())) {
+          for (long deletedId :
+              extRepo.pruneEventsNotIn(calId, keep, scope.from(), scope.to(), scope.now())) {
             affected.addAll(attendeesBefore.getOrDefault(deletedId, Set.of()));
           }
           return new PersistResult(calId, count, affected);
