@@ -203,8 +203,14 @@ class CalendarEventNoteOccurrenceTest extends CalendarNoteTestBase {
     List<Long> pruned =
         callInTenant(
             1L,
+            // since 는 픽스처 행 updated_at 보다 뒤 — prune 이 행을 지우는 기존(무가드) 동작을 그대로 유지한다.
             () ->
-                extRepo.pruneEventsNotIn(calId, Set.of(), START.minusDays(1), START.plusMonths(1)));
+                extRepo.pruneEventsNotIn(
+                    calId,
+                    Set.of(),
+                    START.minusDays(1),
+                    START.plusMonths(1),
+                    OffsetDateTime.now()));
     assertThat(pruned).containsExactly(ext);
     assertThat(noteRows(ext)).isZero();
   }

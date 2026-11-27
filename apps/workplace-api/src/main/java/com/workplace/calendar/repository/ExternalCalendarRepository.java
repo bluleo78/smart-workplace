@@ -170,15 +170,23 @@ public class ExternalCalendarRepository {
    * <p>윈도우 밖(예: 미래로 멀리 떨어진 write-through 생성 일정)은 calendarView 가 가져오지 못해 keep 에 들지 않으므로, 날짜 경계를 두지
    * 않으면 잘못 삭제된다(#502 — #501 stranded 버그의 거울상).
    *
+   * <p>이 시각 뒤에 연결·갱신된 행은 그 동기화의 정리가 모른다 — 수집 시작 뒤에 external_id 가 붙은 행을 같은 동기화가 지우지 않도록 건너뛰고 다음 동기화에
+   * 맡긴다(WP-2156 경합). {@link #eventIdsWithCategoriesWrittenAfter} 와 같은 관점이다.
+   *
    * @param calendarId 대상 컨테이너 id
    * @param keepExternalIds 유지할 external_id 집합
    * @param from 동기화 윈도우 시작(포함)
    * @param to 동기화 윈도우 끝(배타)
+   * @param since 동기화 수집 시작 시각(앱 서버 시계) — 이 시각 이후(같은 시각 포함)에 갱신된 행은 삭제하지 않는다
    * @return 삭제된 일정 id — 지워진 일정의 내부 참석자에게 알리려고 돌려준다(WP-1733, 참석자 행은 cascade 로 함께 사라지므로 명단은 호출자가 삭제
    *     전에 읽어 둔다)
    */
   public List<Long> pruneEventsNotIn(
-      long calendarId, Set<String> keepExternalIds, OffsetDateTime from, OffsetDateTime to) {
+      long calendarId,
+      Set<String> keepExternalIds,
+      OffsetDateTime from,
+      OffsetDateTime to,
+      OffsetDateTime since) {
     Condition cond =
         CALENDAR_EVENT
             .CALENDAR_ID
@@ -189,6 +197,8 @@ public class ExternalCalendarRepository {
     if (!keepExternalIds.isEmpty()) {
       cond = cond.and(CALENDAR_EVENT.EXTERNAL_ID.notIn(keepExternalIds));
     }
+    // 수집 시작 뒤에 연결·갱신된 행은 이 동기화가 모른다 — 같은 수준의 AND 로만 붙여 keep 조건을 침범하지 않는다(WP-2156).
+    cond = cond.and(CALENDAR_EVENT.UPDATED_AT.lt(since));
     return dsl.deleteFrom(CALENDAR_EVENT)
         .where(cond)
         .returning(CALENDAR_EVENT.ID)
