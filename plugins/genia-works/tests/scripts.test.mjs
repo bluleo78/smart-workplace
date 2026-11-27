@@ -2436,7 +2436,8 @@ tmuxTest('agentEvents_poke_sendsLoopToIdleClaudePane', async (t) => {
   assert.equal(wp.typed(), `${LOOP}\n`);
   assert.match(log(), /^poke WP sent$/m);
   // WP-2159 — 표시는 /loop 를 넣은 초(숫자 한 줄)다.
-  assert.match(readFileSync(pokeMark(aiDir(), 'WP'), 'utf8'), /^\d+\n?$/);
+  // 표시는 「넣은 초 넣기 전 대화 영역 지문」(WP-2159 리뷰 후속).
+  assert.match(readFileSync(pokeMark(aiDir(), 'WP'), 'utf8'), /^\d+ \d+-\d+\n$/);
 });
 
 // 보고 있는 칸(WP-1459) — 사람이 붙어 있어도 마지막 입력이 GW_ATTACHED_IDLE_SEC(기본 600초) 넘게 오래됐으면 막지 않는다.
@@ -2777,6 +2778,56 @@ tmuxTest('agentEvents_poke_sendsAgainAfterQuickTurnEnded', async (t) => {
   assert.doesNotMatch(log(), /noticed/);
 });
 
+// WP-2159 리뷰 후속 — 직전 /loop 뒤 GW_POKE_CONFIRM_SEC(기본 60초) 안이고 대화 영역이 넣은 때와 같으면(아직 /loop 를 그리지 않음)
+// idle 로 읽혀도 두 번째 /loop 를 넣지 않고 기다린다. 지문이 달라졌거나(회차가 돌고 끝남) 확인 창이 지났으면 넣는다.
+tmuxTest('agentEvents_poke_waitsWhileScreenUnchangedSinceLoop', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { retryMax: '2' });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n`);
+  const sentPrint = markPrint(d, 'WP');
+  assert.ok(sentPrint, '넣기 전 지문을 적는다');
+  // 30초 전에 넣었고 화면은 그대로 — 창 밖이지만 아직 그 회차가 그리지 않은 것.
+  writeFileSync(pokeMark(d, 'WP'), ago(30, sentPrint));
+  assert.equal((await poke('WP', 'WP-11', 'ASSIGNED')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.match(log(), /^poke WP pending$/m);
+  // 지문이 다르면(회차가 화면을 바꾸고 끝남) 넣는다.
+  writeFileSync(pokeMark(d, 'WP'), ago(30, '1-1'));
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n${LOOP}\n`);
+  // 확인 창(60초)이 지났으면 지문이 같아도 넣는다.
+  const again = markPrint(d, 'WP');
+  writeFileSync(pokeMark(d, 'WP'), ago(90, again));
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n${LOOP}\n${LOOP}\n`);
+});
+
+// WP-2159 리뷰 후속 — 확인 창은 기다린 시간도 센다: 화면이 그대로라 처음엔 pending 이어도 기다리다 확인 창을 넘기면 넣는다.
+tmuxTest('agentEvents_poke_pendingEndsWhenConfirmWindowPassesWhileWaiting', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { retryMax: '20', env: { GW_POKE_BURST_SEC: '0', GW_POKE_CONFIRM_SEC: '3' } });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n`);
+  const sentPrint = markPrint(d, 'WP');
+  // 1초 전에 넣음 — 몰아침 창 0초(바로 창 밖)·확인 창 3초로 두어, 기다리는 동안 확인 창이 지나는 것을 본다.
+  writeFileSync(pokeMark(d, 'WP'), ago(1, sentPrint));
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n${LOOP}\n`);
+  assert.match(log(), /^poke WP sent-after-wait$/m);
+});
+
+// WP-2159 리뷰 후속 — 시계가 뒤로 가 표시가 미래 시각이면(나이 음수) 창 안으로 읽지 않는다.
+tmuxTest('agentEvents_poke_futureMarkIsNotDebounced', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  writeFileSync(pokeMark(d, 'WP'), ago(-100));
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+});
+
 // WP-2159 — 옛 형식(빈 파일·숫자 아닌 내용) 표시는 시각을 못 읽으니 디바운스하지 않는다.
 tmuxTest('agentEvents_poke_legacyEmptyMarkIsNotDebounced', async (t) => {
   const { wrapper, tmux, d, log, poke } = pokeSetup(t);
@@ -2795,9 +2846,11 @@ tmuxTest('agentEvents_poke_legacyEmptyMarkIsNotDebounced', async (t) => {
 
 // WP-2159 — GW_POKE_BURST_SEC 가 숫자가 아니면 기본 5초로 돌아간다.
 tmuxTest('agentEvents_poke_burstSecNonNumericFallsBackToFive', async (t) => {
-  const { wrapper, tmux, log, poke } = pokeSetup(t, { env: { GW_POKE_BURST_SEC: 'abc' } });
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { env: { GW_POKE_BURST_SEC: 'abc' } });
   const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
   assert.equal((await poke('WP')).status, 0);
+  // 실제 두 poke 사이 시간에 기대지 않게 표시를 1초 전으로 둔다 — 5초 창 안이라 버려져야 한다(WP-2159 리뷰 후속).
+  writeFileSync(pokeMark(d, 'WP'), ago(1));
   assert.equal((await poke('WP')).status, 0);
   await settle();
   assert.equal(wp.typed(), `${LOOP}\n`);
@@ -2843,14 +2896,14 @@ tmuxTest('agentEvents_poke_allKeysForReconnect', async (t) => {
 });
 
 // 서버가 불안정하면 「wake - reconnect」가 1~2분마다 온다 — 그때마다 모든 칸에 /loop 를 넣지 않고 다시 붙음 깨우기는 간격(기본 600초)에 한 번만.
-// 키 알림(poke WP)은 이 간격에 막히지 않는다(키마다 60초 디바운스만).
+// 키 알림(poke WP)은 이 간격에 막히지 않는다(키마다 몰아침 창만 — WP-2159).
 tmuxTest('agentEvents_poke_reconnectWakesOncePerInterval', async (t) => {
   const { wrapper, tmux, d, log, poke } = pokeSetup(t);
   const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
   const hr = await fakeClaudePane(wrapper, tmux, 'HR', IDLE);
   assert.equal((await poke('-')).status, 0);
   await until(() => wp.typed().includes('\n') && hr.typed().includes('\n'));
-  // 키마다 60초 표시를 지워 「1분 넘게 지난 뒤 또 다시 붙음」을 흉내 낸다 — 다시 붙음 간격에만 걸려야 한다.
+  // 키마다 /loop 표시를 지워 「한참 지난 뒤 또 다시 붙음」을 흉내 낸다 — 다시 붙음 간격에만 걸려야 한다(WP-2159).
   rmSync(pokeMark(d, 'WP'), { force: true });
   rmSync(pokeMark(d, 'HR'), { force: true });
   assert.equal((await poke('-')).status, 0);
@@ -2924,7 +2977,10 @@ const pokeMark = (d, key) => {
   mkdirSync(join(d, 'state'), { recursive: true });
   return join(d, 'state', `poke-${key}`);
 };
-const ago = (secs) => `${Math.floor(Date.now() / 1000) - secs}\n`;
+/** 표시 한 줄 — secs 초 전(음수면 미래) 시각과, 주면 넣기 전 대화 영역 지문(WP-2159 리뷰 후속). */
+const ago = (secs, print) => `${Math.floor(Date.now() / 1000) - secs}${print ? ` ${print}` : ''}\n`;
+/** poke 표시에 적힌 넣기 전 대화 영역 지문(WP-2159 리뷰 후속). */
+const markPrint = (d, key) => readFileSync(pokeMark(d, key), 'utf8').trim().split(' ')[1];
 /** 기록(「시각 지문」)의 지문은 그대로 두고 시각만 secs 초 앞으로 당긴 줄 — 같은 화면을 그만큼 오래 본 것처럼. */
 const backdate = (d, key, secs) => `${Math.floor(Date.now() / 1000) - secs} ${readFileSync(idleMark(d, key), 'utf8').trim().split(' ')[1]}\n`;
 
