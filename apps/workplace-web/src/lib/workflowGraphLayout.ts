@@ -3,6 +3,7 @@
 import dagre from '@dagrejs/dagre'
 
 import { groupByEndpoints, joinEdgeLabels } from './parallelEdges'
+import { outcomeDisplayName } from './workflowNames'
 import type { WorkflowModel, WorkflowModelNode } from './workflows'
 
 export const GRAPH_NODE_WIDTH = 160
@@ -24,7 +25,7 @@ export interface WorkflowGraphLayout {
 
 /** 공개 모델에 이미 들어 있는 전이를 읽는다(outcomes·조건·기본·오류·돌아가기). 종료 노드에는 이어지는 단계가 없다. */
 export function outgoingEdges(node: WorkflowModelNode, model: WorkflowModel): { label: string; to: string }[] {
-  const edges = (node.outcomes ?? []).map((outcome) => ({ label: outcome.key, to: outcome.to }))
+  const edges = (node.outcomes ?? []).map((outcome) => ({ label: outcomeDisplayName(outcome.key, outcome.name), to: outcome.to }))
   const conditions = node.type === 'start' ? model.start : node.conditions
   for (const [index, condition] of (conditions ?? []).entries()) {
     edges.push({ label: `조건 ${index + 1}`, to: condition.to })

@@ -34,8 +34,10 @@ export interface WorkflowNodeView {
 
 export interface WorkflowOutcomeView {
   key: string
+  /** 표시 이름(WP-2158) — 서버가 name → 기본 이름 → key 로 풀어 준다. */
+  name: string
   toNode: string
-  requiredOutputs: { key: string; type: 'string' | 'url' | 'number' | 'boolean' }[]
+  requiredOutputs: { key: string; type: 'string' | 'url' | 'number' | 'boolean'; name: string }[]
   requireComment: boolean
   assignTo: string | null
   candidateAssignees: WorkflowUser[]
@@ -46,6 +48,8 @@ export interface WorkflowPathStep {
   key: string
   name: string | null
   outcome: string | null
+  /** 고른 결과의 표시 이름(WP-2158) — 결과가 없으면 null. */
+  outcomeName?: string | null
   actor: WorkflowUser | null
   enteredAt: string
   leftAt: string | null

@@ -8,6 +8,7 @@ import com.workplace.issue.workflow.domain.NodeTypes;
 import com.workplace.issue.workflow.domain.OutputRules;
 import com.workplace.issue.workflow.domain.RunRoleMembers;
 import com.workplace.issue.workflow.domain.RunState;
+import com.workplace.issue.workflow.domain.WorkflowDisplayNames;
 import com.workplace.issue.workflow.domain.WorkflowModel;
 import com.workplace.issue.workflow.domain.WorkflowModel.Condition;
 import com.workplace.issue.workflow.domain.WorkflowModel.Node;
@@ -153,6 +154,7 @@ class WorkflowRunViews {
       outcomeViews.add(
           new OutcomeView(
               o.key(),
+              WorkflowDisplayNames.outcome(o.key(), o.name()),
               o.to(),
               requiredOutputs(model, node, o),
               o.requireComment(),
@@ -169,6 +171,7 @@ class WorkflowRunViews {
               r.nodeKey(),
               n == null ? null : n.name(),
               r.outcome(),
+              outcomeName(n, r.outcome()),
               user(r.actorId(), users),
               r.enteredAt(),
               r.leftAt()));
@@ -188,6 +191,18 @@ class WorkflowRunViews {
         s.endedAt());
   }
 
+  /**
+   * 방문이 고른 결과의 표시 이름 — 실행이 고정한 모델의 노드·결과에서 찾고, 노드·결과가 모델에 없으면 key 기준(질문 줄임 기본 이름 포함). 결과가 없으면 null.
+   * 실행 상세({@link WorkflowRunQueryService})도 같이 쓴다.
+   */
+  static String outcomeName(Node node, String outcomeKey) {
+    if (outcomeKey == null) {
+      return null;
+    }
+    Outcome o = node == null ? null : node.outcomes().get(outcomeKey);
+    return WorkflowDisplayNames.outcome(outcomeKey, o == null ? null : o.name());
+  }
+
   /** 지나온 방문 — 지금 노드의 방문을 뺀 나머지(들어간 순서). */
   private static List<NodeRunRow> passedVisits(Snapshot s, NodeRunRow current) {
     // 같은 객체인지(identity)로 뺀다 — 같은 값의 다른 방문은 남긴다.
@@ -204,7 +219,9 @@ class WorkflowRunViews {
         .forEach(
             (key, spec) -> {
               if (spec.required()) {
-                out.add(new RequiredOutput(key, spec.type()));
+                out.add(
+                    new RequiredOutput(
+                        key, WorkflowDisplayNames.output(key, spec.name()), spec.type()));
               }
             });
     return List.copyOf(out);

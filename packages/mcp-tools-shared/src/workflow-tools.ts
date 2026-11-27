@@ -113,6 +113,7 @@ export function toIssueWorkflowView(v: IssueWorkflowViewRow) {
     },
     outcomes: (v.outcomes ?? []).map((o) => ({
       key: o.key,
+      name: o.name,
       toNode: o.toNode,
       requiredOutputs: o.requiredOutputs,
       requireComment: o.requireComment,
@@ -124,6 +125,7 @@ export function toIssueWorkflowView(v: IssueWorkflowViewRow) {
       key: p.key,
       name: p.name,
       outcome: p.outcome,
+      outcomeName: p.outcomeName,
       actor: p.actor ? toUserRef(p.actor) : null,
       enteredAt: p.enteredAt,
       leftAt: p.leftAt,
@@ -309,7 +311,7 @@ export function buildWorkflowTools(
       app: 'issue',
       kind: 'read',
       description:
-        "Issue's workflow run: current node with instructions and assignees, outcomes you can pick (required outputs, comment, next assignee candidates), " +
+        "Issue's workflow run: current node with instructions and assignees, outcomes you can pick (key to move by, display name; required outputs, comment, next assignee candidates), " +
         'path so far, remaining nodes, and revision to pass to move_issue_workflow.',
       inputSchema: issueWorkflowInput,
       async handler(args) {

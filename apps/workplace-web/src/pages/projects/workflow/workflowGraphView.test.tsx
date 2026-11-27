@@ -33,11 +33,11 @@ it('graphPaint_marksNodesAndDuration', () => {
 it('graphEdges_parallelEdgesShareOneLabel', () => {
   const { container } = render(<WorkflowGraphView model={mkAskModel()} readOnly />)
   const texts = [...container.querySelectorAll('svg text')].map((t) => t.textContent)
-  expect(texts.filter((t) => t === 'answered · 돌아가기')).toHaveLength(1)
-  expect(texts).not.toContain('answered')
+  expect(texts.filter((t) => t === '답변 · 돌아가기')).toHaveLength(1)
+  expect(texts).not.toContain('답변')
   expect(texts).not.toContain('돌아가기')
   // 보조기기용 목록은 간선마다 한 줄 그대로다.
   const list = within(node('work_ask')).getByRole('list', { name: '이어지는 단계' })
-  expect(within(list).getByText('answered → 작업')).toBeInTheDocument()
+  expect(within(list).getByText('답변 → 작업')).toBeInTheDocument()
   expect(within(list).getByText('돌아가기 → 작업')).toBeInTheDocument()
 })

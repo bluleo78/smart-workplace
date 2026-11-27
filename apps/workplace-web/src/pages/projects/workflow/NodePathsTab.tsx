@@ -16,6 +16,9 @@ import { workflowSelectClass } from './WorkflowVersions'
 
 const OUTPUT_TYPES = ['string', 'url', 'number', 'boolean']
 
+/** 결과·내놓을 값 표시 이름의 최대 글자 수 — 서버 워크플로우 스키마의 name 길이 한도(40)와 같다. */
+const WORKFLOW_NAME_MAX = 40
+
 /** 내놓을 값 줄의 안정 id 목록 — 키 목록이 바뀔 때 이어 쓴다. */
 interface RowIds { keys: string[]; ids: number[]; next: number }
 
@@ -105,6 +108,15 @@ function OutputRow({ output, others, readOnly, onChange, onRemove }: {
           />
           필수
         </label>
+        <Input
+          aria-label={output.key + ' 표시 이름'}
+          maxLength={WORKFLOW_NAME_MAX}
+          placeholder="표시 이름"
+          className="h-8 w-24 shrink-0"
+          value={output.name ?? ''}
+          disabled={readOnly}
+          onChange={(event) => onChange({ ...output, key: validKey(keyDraft) ?? output.key, name: event.target.value })}
+        />
         <Button type="button" variant="ghost" size="icon-sm" aria-label="값 지우기" disabled={readOnly} onClick={onRemove}>
           <X />
         </Button>
@@ -147,6 +159,18 @@ export function NodePathsTab({ yaml, graph, nodeKey, detail, readOnly, onChange,
         {detail.outcomes.map((outcome) => (
           <div key={outcome.key} className="flex items-center gap-1">
             <code className="w-20 shrink-0 truncate text-xs">{outcome.key}</code>
+            {/* 표시 이름 — 비우면 YAML 의 name 칸이 사라지고 기본 이름(또는 key)이 보인다 */}
+            <Input
+              aria-label={outcome.key + ' 표시 이름'}
+              maxLength={WORKFLOW_NAME_MAX}
+              placeholder="표시 이름"
+              className="h-8 w-24 shrink-0"
+              value={outcome.name ?? ''}
+              disabled={readOnly}
+              onChange={(event) => patch({
+                outcomes: detail.outcomes.map((o) => (o.key === outcome.key ? { ...o, name: event.target.value } : o)),
+              })}
+            />
             <select
               aria-label={outcome.key + ' 도착 노드'}
               className={workflowSelectClass + ' min-w-0 flex-1'}

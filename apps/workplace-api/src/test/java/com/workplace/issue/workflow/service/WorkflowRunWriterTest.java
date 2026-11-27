@@ -69,7 +69,7 @@ class WorkflowRunWriterTest {
   private static Node node(String key, String type, String role, String defaultTo, Integer max) {
     LinkedHashMap<String, Outcome> outcomes = new LinkedHashMap<>();
     if ("human_task".equals(type)) {
-      outcomes.put("done", new Outcome("done", "end", null, false));
+      outcomes.put("done", new Outcome("done", "end", null, false, null));
     }
     return new Node(
         key, type, null, role, null, null, null, null, outcomes, null, defaultTo, max, null, null,

@@ -307,6 +307,44 @@ class WorkflowRunApiTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("view 의 결과·출력·지나온 노드에 표시 이름이 실린다(name 없으면 key, ask 줄임은 질문)")
+  void view_carriesDisplayNames() {
+    String yaml =
+        spec()
+            .replace(
+                "      ready:     { to: dev,   assignTo: developer }",
+                "      ready:     { to: dev,   assignTo: developer, name: 승인 }")
+            .replace(
+                "outputs: { prUrl: { type: url, required: true } }",
+                "outputs: { prUrl: { type: url, required: true, name: 풀리퀘스트 } }");
+    long wf = publish(yaml);
+    long issue = issue(lead);
+    JsonNode started = ok(startReq(issue, wf, false), lead);
+    JsonNode needPlan = started.get("outcomes").get(0);
+    JsonNode ready = started.get("outcomes").get(1);
+    assertThat(needPlan.get("name").asString()).isEqualTo("need_plan");
+    assertThat(ready.get("key").asString()).isEqualTo("ready");
+    assertThat(ready.get("name").asString()).isEqualTo("승인");
+
+    JsonNode v = ok(moveReq(issue, "triage", "ready", null, List.of(dev1), null, 0, "k1"), lead);
+
+    JsonNode submitted = v.get("outcomes").get(0);
+    assertThat(submitted.get("name").asString()).isEqualTo("submitted");
+    assertThat(submitted.get("requiredOutputs").get(0).get("name").asString()).isEqualTo("풀리퀘스트");
+    assertThat(v.get("outcomes").get(1).get("name").asString()).isEqualTo("질문");
+    JsonNode triage = null;
+    for (JsonNode p : v.get("path")) {
+      if ("triage".equals(p.get("key").asString())) {
+        triage = p;
+      }
+    }
+    assertThat(triage).isNotNull();
+    assertThat(triage.get("outcomeName").asString()).isEqualTo("승인");
+    // 자동 노드(start)는 결과가 없어 outcomeName 도 null
+    assertThat(v.get("path").get(0).get("outcomeName").isNull()).isTrue();
+  }
+
+  @Test
   @DisplayName("이동은 워크플로우가 넣은 담당만 빼고 사람이 넣은 담당은 남긴다")
   void move_removesOnlyWorkflowAssigned() {
     long wf = publish(spec());

@@ -19,7 +19,7 @@ const turn = (runId: number, extra: object = {}) => ({
   workflowName: '기본 흐름', versionNo: 1, nodeKey: 'review', nodeName: '검토', enteredAt: '2026-11-20T01:00:00Z', handedBy: kim, question: '배포해도 될까요?', asking: false, ...extra,
 })
 
-const outcomeView = (key: string) => ({ key, to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] })
+const outcomeView = (key: string) => ({ key, name: key, to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] })
 const issueView = (runId: number, node: object = {}, outcomes: object[] = [outcomeView('approve')]) => ({
   runId, status: 'WAITING', revision: 3, workflowId: 42, versionNo: 1,
   currentNode: { key: 'review', name: '검토', type: 'human_task', roleKey: null, assignees: [me], enteredAt: '2026-11-20T01:00:00Z', nodeRunStatus: 'ACTIVE', instructions: null, ...node },

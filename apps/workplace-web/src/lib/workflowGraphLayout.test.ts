@@ -2,7 +2,22 @@ import { describe, expect, it } from 'vitest'
 
 import { mkAskModel, mkModel } from '@/test/kits/projects/workflowRunFixtures'
 
-import { layoutWorkflowGraph } from './workflowGraphLayout'
+import { layoutWorkflowGraph, outgoingEdges } from './workflowGraphLayout'
+import type { WorkflowModelNode } from './workflows'
+
+describe('outgoingEdges 결과 표시 이름', () => {
+  it('outgoingEdges_outcomeLabel_usesNameThenDefaultThenKey', () => {
+    const node = {
+      key: 'x', type: 'human_task', use: [], requires: [], outputs: [], conditions: [],
+      outcomes: [
+        { key: 'approve', name: '승인', to: 'x', requireComment: false },
+        { key: 'ask', to: 'y', requireComment: false },
+        { key: 'go', to: 'z', requireComment: false },
+      ],
+    } as unknown as WorkflowModelNode
+    expect(outgoingEdges(node, mkModel()).map((e) => e.label)).toEqual(['승인', '질문', 'go'])
+  })
+})
 
 describe('layoutWorkflowGraph', () => {
   it('layout_placesEveryNodeAndEdge', () => {
@@ -21,7 +36,7 @@ describe('layoutWorkflowGraph', () => {
     const g = layoutWorkflowGraph(mkAskModel())
     const back = g.edges.filter((e) => e.from === 'work_ask' && e.to === 'work')
     expect(back).toHaveLength(1)
-    expect(back[0].label).toBe('answered · 돌아가기')
+    expect(back[0].label).toBe('답변 · 돌아가기')
     expect(back[0].points.length).toBeGreaterThanOrEqual(2)
   })
   it('layout_mergesThreeParallelEdges', () => {
@@ -29,7 +44,7 @@ describe('layoutWorkflowGraph', () => {
     const ask = m.nodes.find((n) => n.key === 'work_ask')!
     ask.defaultTo = 'work'
     const back = layoutWorkflowGraph(m).edges.filter((e) => e.from === 'work_ask' && e.to === 'work')
-    expect(back.map((e) => e.label)).toEqual(['answered · 기본 · 돌아가기'])
+    expect(back.map((e) => e.label)).toEqual(['답변 · 기본 · 돌아가기'])
   })
   it('layout_keepsOppositeDirectionEdgesSeparate', () => {
     const g = layoutWorkflowGraph(mkModel())

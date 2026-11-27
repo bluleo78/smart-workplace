@@ -72,8 +72,8 @@ export interface WorkflowModelNode {
   instructions?: string
   use: string[]
   requires: string[]
-  outputs: { key: string; type: string; required: boolean }[]
-  outcomes: { key: string; to: string; assignTo?: string; requireComment: boolean }[]
+  outputs: { key: string; type: string; required: boolean; name?: string }[]
+  outcomes: { key: string; name?: string; to: string; assignTo?: string; requireComment: boolean }[]
   conditions: WorkflowCondition[]
   defaultTo?: string
   maxVisits?: number

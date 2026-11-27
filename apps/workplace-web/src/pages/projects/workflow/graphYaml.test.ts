@@ -350,6 +350,22 @@ start:
     expect(doc(connectOutcome(y, 'a', 'done', 'b')).nodes.a.outcomes).toEqual({ done: { to: 'b' } })
   })
 
+  it('updateNode_표시이름_공백뿐이면_칸을_지우고_앞뒤공백은_입력_그대로_쓴다', () => {
+    const y = 'nodes:\n  a:\n    type: agent_task\n    outputs:\n      r: { type: string, name: 옛 }\n    outcomes:\n      ok: { to: b, name: 옛 }\n  b: { type: end }\n'
+    const blank = updateNode(y, 'a', {
+      outputs: [{ key: 'r', type: 'string', required: false, name: '  ' }],
+      outcomes: [{ key: 'ok', to: 'b', requireComment: false, name: '  ' }],
+    })
+    expect(doc(blank).nodes.a.outcomes.ok).toEqual({ to: 'b' })
+    expect(doc(blank).nodes.a.outputs.r).toEqual({ type: 'string' })
+    const padded = updateNode(y, 'a', {
+      outputs: [{ key: 'r', type: 'string', required: false, name: ' 결과 ' }],
+      outcomes: [{ key: 'ok', to: 'b', requireComment: false, name: ' 승인 ' }],
+    })
+    expect(doc(padded).nodes.a.outcomes.ok).toEqual({ to: 'b', name: ' 승인 ' })
+    expect(doc(padded).nodes.a.outputs.r).toEqual({ type: 'string', name: ' 결과 ' })
+  })
+
   it('updateNode_nullOutcomes_writesOutcomes', () => {
     const y = 'nodes:\n  a:\n    type: agent_task\n    outcomes:\n  b: { type: end }\n'
     const out = updateNode(y, 'a', { outcomes: [{ key: 'ok', to: 'b', requireComment: false }] })
@@ -981,6 +997,52 @@ describe('graphYaml 최종 리뷰(마지막 라운드) finding 1~6', () => {
 
 // WP-2040 6번 코드 리뷰 — 위 describe 들은 앞 라운드 finding 번호를 쓰므로 새로 나눈다.
 // 완료 기준: 그래프 편집 후 layout 관련 줄만 바뀌고 손대지 않은 줄은 글자 그대로다(줄 diff 로 고정).
+describe('graphYaml 결과·출력 표시 이름(WP-2158)', () => {
+  const Y = [
+    'nodes:',
+    '  a:',
+    '    type: human_task',
+    '    outcomes:',
+    '      approve: { to: b, name: 승인 }  # 승인 주석',
+    '      go: { to: b }',
+    '    outputs:',
+    '      url: { type: url, name: 주소 }',
+    '  b:',
+    '    type: end',
+    '',
+  ].join('\n')
+  const detailOf = (y: string) => readNodeDetail(y, 'a')!
+  it('parseWorkflowGraph_outcomeEdgeLabel_usesName_keepsKeyBasedId', () => {
+    const g = (parseWorkflowGraph(Y) as { graph: WorkflowGraph }).graph
+    const e = g.edges.filter((x) => x.from === 'a')
+    expect(e.map((x) => x.label)).toEqual(['승인', 'go'])
+    expect(e[0].id).toContain('approve')
+  })
+  it('readNodeDetail_readsNames', () => {
+    expect(detailOf(Y).outcomes[0].name).toBe('승인')
+    expect(detailOf(Y).outcomes[1].name).toBeUndefined()
+    expect(detailOf(Y).outputs[0].name).toBe('주소')
+  })
+  it('updateNode_outcomeName_writesAndRemoves', () => {
+    const d = detailOf(Y)
+    const w1 = updateNode(Y, 'a', { outcomes: d.outcomes.map((o) => (o.key === 'approve' ? { ...o, name: '반려' } : o)) })
+    expect(doc(w1).nodes.a.outcomes.approve.name).toBe('반려')
+    expect(w1).toContain('# 승인 주석')
+    const w2 = updateNode(Y, 'a', { outcomes: d.outcomes.map((o) => (o.key === 'approve' ? { ...o, name: '' } : o)) })
+    expect(doc(w2).nodes.a.outcomes.approve).toEqual({ to: 'b' })
+    expect(w2).toContain('# 승인 주석')
+    const w3 = updateNode(Y, 'a', { outcomes: d.outcomes.map((o) => (o.key === 'go' ? { ...o, name: '이동' } : o)) })
+    expect(doc(w3).nodes.a.outcomes.go.name).toBe('이동')
+  })
+  it('updateNode_outputName_writesAndRemoves', () => {
+    const d = detailOf(Y)
+    const w1 = updateNode(Y, 'a', { outputs: d.outputs.map((o) => ({ ...o, name: '링크' })) })
+    expect(doc(w1).nodes.a.outputs.url).toEqual({ type: 'url', name: '링크' })
+    const w2 = updateNode(Y, 'a', { outputs: d.outputs.map((o) => ({ ...o, name: '' })) })
+    expect(doc(w2).nodes.a.outputs.url).toEqual({ type: 'url' })
+  })
+})
+
 describe('graphYaml 6번 코드 리뷰', () => {
   // Important 1 — 빈 흐름 맵(layout: {})에 항목을 넣어도 전문 재직렬화로 떨어지지 않는다.
   // (허용 쪽: 원문이 흐름 자리면 추가 결과도 흐름 한 줄 — 계획 Task 5 Step 3 약속.

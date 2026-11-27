@@ -1092,14 +1092,16 @@ export interface IssueWorkflowViewRow {
   } | null;
   outcomes: {
     key: string;
+    /** 표시 이름(WP-2158) — 서버가 풀어 준 값(비지 않음). 이동에는 key 를 쓴다. */
+    name: string;
     toNode: string;
-    requiredOutputs: { key: string; type: string }[];
+    requiredOutputs: { key: string; name: string; type: string }[];
     requireComment: boolean;
     assignTo: string | null;
     candidateAssignees: WorkflowUserRow[];
     assigneeRequired: boolean | null;
   }[];
-  path: { key: string; name: string; outcome: string | null; actor: WorkflowUserRow | null; enteredAt: string; leftAt: string | null }[];
+  path: { key: string; name: string; outcome: string | null; outcomeName: string | null; actor: WorkflowUserRow | null; enteredAt: string; leftAt: string | null }[];
   remainingNodeKeys: string[];
   context: Record<string, unknown>;
 }

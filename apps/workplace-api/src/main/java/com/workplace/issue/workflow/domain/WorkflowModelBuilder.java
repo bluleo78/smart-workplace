@@ -137,7 +137,11 @@ final class WorkflowModelBuilder {
               outcomes.put(
                   k,
                   new WorkflowModel.Outcome(
-                      k, str(o.get("to")), str(o.get("assignTo")), bool(o.get("requireComment"))));
+                      k,
+                      str(o.get("to")),
+                      str(o.get("assignTo")),
+                      bool(o.get("requireComment")),
+                      str(o.get("name"))));
             });
 
     String askRole = null;
@@ -158,12 +162,14 @@ final class WorkflowModelBuilder {
                     + ParseSession.clip(askKey)
                     + "' 가 이미 있습니다. ask 를 지우거나 노드 이름을 바꿔 주세요.",
             askPath);
-      } else if (outcomes.containsKey("ask")) {
+      } else if (outcomes.containsKey(ReservedOutcomes.ASK)) {
         s.errorAt(
             "ASK_CONFLICT", "ask 줄임이 만들 결과 'ask' 가 이미 있습니다. ask 줄임을 지우거나 결과 이름을 바꿔 주세요.", askPath);
       } else {
         askRole = str(entries(f.get("ask")).get("role"));
-        outcomes.put("ask", new WorkflowModel.Outcome("ask", askKey, askRole, true));
+        outcomes.put(
+            ReservedOutcomes.ASK,
+            new WorkflowModel.Outcome(ReservedOutcomes.ASK, askKey, askRole, true, null));
       }
     }
 
@@ -173,7 +179,9 @@ final class WorkflowModelBuilder {
             (k, v) -> {
               Map<String, Node> o = entries(v);
               outputs.put(
-                  k, new WorkflowModel.OutputSpec(str(o.get("type")), bool(o.get("required"))));
+                  k,
+                  new WorkflowModel.OutputSpec(
+                      str(o.get("type")), bool(o.get("required")), str(o.get("name"))));
             });
 
     List<WorkflowModel.Condition> conditions = new ArrayList<>();
@@ -215,7 +223,9 @@ final class WorkflowModelBuilder {
       LinkedHashMap<String, WorkflowModel.Node> nodes,
       ParseSession s) {
     LinkedHashMap<String, WorkflowModel.Outcome> answered = new LinkedHashMap<>();
-    answered.put("answered", new WorkflowModel.Outcome("answered", key, "keep", true));
+    answered.put(
+        ReservedOutcomes.ANSWERED,
+        new WorkflowModel.Outcome(ReservedOutcomes.ANSWERED, key, "keep", true, null));
     nodes.put(
         askKey,
         new WorkflowModel.Node(

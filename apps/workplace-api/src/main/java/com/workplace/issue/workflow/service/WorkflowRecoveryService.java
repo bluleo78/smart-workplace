@@ -9,6 +9,7 @@ import com.workplace.issue.workflow.domain.MoveRules;
 import com.workplace.issue.workflow.domain.MoveRules.MovePlan;
 import com.workplace.issue.workflow.domain.MoveViolation;
 import com.workplace.issue.workflow.domain.NodeTypes;
+import com.workplace.issue.workflow.domain.ReservedOutcomes;
 import com.workplace.issue.workflow.domain.RunState;
 import com.workplace.issue.workflow.domain.WorkflowModel;
 import com.workplace.issue.workflow.domain.WorkflowModel.Node;
@@ -54,7 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorkflowRecoveryService {
 
   /** 조치가 만든 가짜 결과의 키 — 판정 함수가 결과를 요구해서 쓰고, 저장하지 않는다. */
-  private static final String RECOVER_OUTCOME = "_recover";
+  private static final String RECOVER_OUTCOME = ReservedOutcomes.RECOVER;
 
   /** 조치 CANCEL 의 취소 사유(이슈 닫힘의 ISSUE_CLOSED 와 가른다). */
   private static final String CANCEL_REASON = "RECOVER";
@@ -151,7 +152,7 @@ public class WorkflowRecoveryService {
       // 연쇄를 멈추게 한 이동의 assignTo 는 남아 있지 않다 — 생략(지금 방문 담당 기준)으로 보고, 못 정하면 도착 노드 역할에서 고른다.
       relocate(
           c,
-          withRoleFallback(c, new Outcome(RECOVER_OUTCOME, c.node().key(), null, false)),
+          withRoleFallback(c, new Outcome(RECOVER_OUTCOME, c.node().key(), null, false, null)),
           comment,
           WorkflowRunWriter.RETRIED);
       return;
@@ -220,7 +221,7 @@ public class WorkflowRecoveryService {
     }
     relocate(
         c,
-        new Outcome(RECOVER_OUTCOME, target.to(), target.assignTo(), false),
+        new Outcome(RECOVER_OUTCOME, target.to(), target.assignTo(), false, null),
         comment,
         WorkflowRunWriter.ON_ERROR_MOVED);
   }
@@ -240,7 +241,7 @@ public class WorkflowRecoveryService {
       throw WorkflowException.recoverTargetInvalid(false);
     }
     // 대상에 머문 적이 없어 keep 기준이 비면 대상 역할에서 고른다.
-    Outcome keep = new Outcome(RECOVER_OUTCOME, toNode, AssigneeResolution.KEEP, false);
+    Outcome keep = new Outcome(RECOVER_OUTCOME, toNode, AssigneeResolution.KEEP, false, null);
     relocate(c, withRoleFallback(c, keep), comment, WorkflowRunWriter.OVERRIDE_MOVED);
   }
 
@@ -257,7 +258,7 @@ public class WorkflowRecoveryService {
     if (stop == null || stop.roleKey() == null) {
       return first;
     }
-    return new Outcome(first.key(), first.to(), stop.roleKey(), false);
+    return new Outcome(first.key(), first.to(), stop.roleKey(), false, null);
   }
 
   // ───────────────────────── 취소 ─────────────────────────

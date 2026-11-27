@@ -215,6 +215,7 @@ public class WorkflowRunQueryService {
               WorkflowRunViews.summaries(r.assigneeIds(), users),
               WorkflowRunViews.summaries(r.workflowAssignedIds(), users),
               r.outcome(),
+              WorkflowRunViews.outcomeName(model.nodes().get(r.nodeKey()), r.outcome()),
               r.outputsJson(),
               r.commentId(),
               r.waitingReason(),

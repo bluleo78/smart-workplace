@@ -893,9 +893,9 @@ class WorkflowValidatorTest {
     for (int i = 0; i < count; i++) {
       String next = i == count - 1 ? "end" : "n" + (i + 1);
       Map<String, WorkflowModel.Outcome> outcomes = new LinkedHashMap<>();
-      outcomes.put("next", new WorkflowModel.Outcome("next", next, null, false));
+      outcomes.put("next", new WorkflowModel.Outcome("next", next, null, false, null));
       if (i == count - 1) {
-        outcomes.put("again", new WorkflowModel.Outcome("again", "n0", null, false));
+        outcomes.put("again", new WorkflowModel.Outcome("again", "n0", null, false, null));
       }
       nodes.put("n" + i, hand("n" + i, "human_task", "owner", outcomes));
     }
@@ -1285,7 +1285,7 @@ class WorkflowValidatorTest {
               null,
               List.of(),
               List.of(),
-              Map.of("v", new WorkflowModel.OutputSpec(type, false)),
+              Map.of("v", new WorkflowModel.OutputSpec(type, false, null)),
               new LinkedHashMap<>(),
               List.of(),
               null,

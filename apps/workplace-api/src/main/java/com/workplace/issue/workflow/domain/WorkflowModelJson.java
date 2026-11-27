@@ -120,6 +120,7 @@ public final class WorkflowModelJson {
               so.put("key", k);
               so.put("type", spec.type());
               so.put("required", spec.required());
+              putIfPresent(so, "name", spec.name());
             });
     ArrayNode outcomes = o.putArray("outcomes");
     n.outcomes()
@@ -131,6 +132,7 @@ public final class WorkflowModelJson {
               oo.put("to", oc.to());
               putIfPresent(oo, "assignTo", oc.assignTo());
               oo.put("requireComment", oc.requireComment());
+              putIfPresent(oo, "name", oc.name());
             });
     ArrayNode conditions = o.putArray("conditions");
     n.conditions().forEach(c -> conditions.add(writeCondition(c)));
@@ -158,7 +160,8 @@ public final class WorkflowModelJson {
     for (JsonNode e : o.path("outputs")) {
       outputs.put(
           text(e, "key"),
-          new WorkflowModel.OutputSpec(text(e, "type"), e.path("required").asBoolean(false)));
+          new WorkflowModel.OutputSpec(
+              text(e, "type"), e.path("required").asBoolean(false), text(e, "name")));
     }
     LinkedHashMap<String, WorkflowModel.Outcome> outcomes = new LinkedHashMap<>();
     for (JsonNode oc : o.path("outcomes")) {
@@ -168,7 +171,8 @@ public final class WorkflowModelJson {
               text(oc, "key"),
               text(oc, "to"),
               text(oc, "assignTo"),
-              oc.path("requireComment").asBoolean(false)));
+              oc.path("requireComment").asBoolean(false),
+              text(oc, "name")));
     }
     List<WorkflowModel.Condition> conditions = new ArrayList<>();
     for (JsonNode c : o.path("conditions")) {

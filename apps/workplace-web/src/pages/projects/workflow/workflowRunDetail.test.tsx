@@ -13,7 +13,7 @@ const kim = { id: 3, username: 'kim', name: '김', kind: 'HUMAN' as const }
 const park = { id: 4, username: 'park', name: '박', kind: 'HUMAN' as const }
 const lee = { id: 5, username: 'lee', name: '이', kind: 'HUMAN' as const }
 const visit = (id: number, nodeKey: string, nodeName: string, extra: object = {}) => ({
-  id, nodeKey, nodeName, visitNo: 1, status: 'COMPLETED', assignees: [], workflowAssigned: [], outcome: null, outputs: null,
+  id, nodeKey, nodeName, visitNo: 1, status: 'COMPLETED', assignees: [], workflowAssigned: [], outcome: null, outcomeName: null, outputs: null,
   commentId: null, waitingReason: null, error: null, actor: null, enteredAt: '2026-11-20T01:00:00Z', leftAt: '2026-11-20T02:00:00Z', viaReturn: false, ...extra,
 })
 
@@ -25,7 +25,7 @@ function detail(status: string, current: object = {}, run: object = {}) {
       startedBy: kim, startedAt: '2026-11-20T00:00:00Z', endedAt: null, context: {}, ...run,
     },
     nodeRuns: [
-      visit(1, 'a', '작성', { actor: kim, outcome: 'done', enteredAt: '2026-11-20T00:00:00Z', leftAt: '2026-11-20T01:00:00Z' }),
+      visit(1, 'a', '작성', { actor: kim, outcome: 'done', outcomeName: 'done', enteredAt: '2026-11-20T00:00:00Z', leftAt: '2026-11-20T01:00:00Z' }),
       visit(2, 'b', '검토', { status: 'ACTIVE', assignees: [park], workflowAssigned: [lee], enteredAt: '2026-11-20T01:00:00Z', leftAt: null, ...current }),
     ],
     events: [],
@@ -36,7 +36,7 @@ function detail(status: string, current: object = {}, run: object = {}) {
 const issueView = (revision = 3) => ({
   runId: 7, status: 'WAITING', revision, workflowId: 42, versionNo: 2,
   currentNode: { key: 'b', name: '검토', type: 'human_task', roleKey: null, assignees: [park], enteredAt: '2026-11-20T01:00:00Z', nodeRunStatus: 'ACTIVE', instructions: null },
-  outcomes: [{ key: 'approve', to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] }],
+  outcomes: [{ key: 'approve', name: 'approve', to: 'end', requireComment: false, requiredOutputs: [], assigneeRequired: false, candidateAssignees: [] }],
   path: [], remainingNodeKeys: [], context: {},
 })
 

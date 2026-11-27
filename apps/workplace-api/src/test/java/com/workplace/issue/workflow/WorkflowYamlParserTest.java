@@ -120,9 +120,9 @@ class WorkflowYamlParserTest {
     assertThat(ask.timeout().after()).isEqualTo(Duration.ofHours(24));
     assertThat(ask.timeout().then()).isEqualTo("remind");
     assertThat(ask.outcomes().get("answered"))
-        .isEqualTo(new WorkflowModel.Outcome("answered", "dev", "keep", true));
+        .isEqualTo(new WorkflowModel.Outcome("answered", "dev", "keep", true, null));
     assertThat(m.nodes().get("dev").outcomes().get("ask"))
-        .isEqualTo(new WorkflowModel.Outcome("ask", "dev_ask", "owner", true));
+        .isEqualTo(new WorkflowModel.Outcome("ask", "dev_ask", "owner", true, null));
     assertThat(m.nodes().get("dev").outcomes().keySet()).containsExactly("submitted", "ask");
 
     int askLine = lineOf(yaml, "ask: { role: owner }");
@@ -247,6 +247,57 @@ class WorkflowYamlParserTest {
     assertThat(unknown.line()).isEqualTo(lineOf(yaml, "bogus: 1"));
     assertThat(unknown.column()).isEqualTo(5);
     assertThat(unknown.nodeKey()).isEqualTo("dev");
+  }
+
+  /** name 칸을 둔 dev 노드 하나짜리 정의를 만든다(결과·출력 name 시나리오 공용). */
+  private static String withNames(String outcomeName, String outputName) {
+    return HEAD
+        + "nodes:\n"
+        + START_END
+        + "  dev:\n"
+        + "    type: agent_task\n"
+        + "    name: 개발\n"
+        + "    role: developer\n"
+        + "    outputs:\n"
+        + "      tag: { type: string, name: "
+        + outputName
+        + " }\n"
+        + "    outcomes:\n"
+        + "      approve: { to: end, name: "
+        + outcomeName
+        + " }\n"
+        + "      drop: { to: end }\n"
+        + TAIL;
+  }
+
+  @Test
+  @DisplayName("결과·출력의 name 을 읽고, 없으면 null 이다")
+  void outcomeAndOutputName() {
+    ParseResult r = parse(withNames("승인", "태그"));
+
+    assertThat(r.problems()).isEmpty();
+    WorkflowModel.Node dev = r.model().nodes().get("dev");
+    assertThat(dev.outcomes().get("approve").name()).isEqualTo("승인");
+    assertThat(dev.outcomes().get("drop").name()).isNull();
+    assertThat(dev.outputs().get("tag").name()).isEqualTo("태그");
+  }
+
+  @Test
+  @DisplayName("결과·출력 name 은 1~40자만 허용한다(41자·빈 글은 스키마 위반 1건, 40자는 통과)")
+  void outcomeAndOutputName_lengthLimits() {
+    String forty = "가".repeat(40);
+    assertThat(parse(withNames(forty, forty)).problems()).isEmpty();
+
+    ParseResult longOutcome = parse(withNames("가".repeat(41), "태그"));
+    assertThat(longOutcome.problems()).hasSize(1);
+    assertThat(codes(longOutcome)).containsExactly("SCHEMA_VALUE");
+    ParseResult longOutput = parse(withNames("승인", "가".repeat(41)));
+    assertThat(longOutput.problems()).hasSize(1);
+    assertThat(codes(longOutput)).containsExactly("SCHEMA_VALUE");
+
+    ParseResult emptyOutcome = parse(withNames("''", "태그"));
+    assertThat(emptyOutcome.problems()).hasSize(1);
+    assertThat(codes(emptyOutcome)).containsExactly("SCHEMA_VALUE");
   }
 
   @Test

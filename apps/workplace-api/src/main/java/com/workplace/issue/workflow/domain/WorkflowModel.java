@@ -103,14 +103,15 @@ public record WorkflowModel(
     }
   }
 
-  /** 결과 한 개의 이동: 도착 노드, 담당을 바꿀 역할(keep 은 그대로), 의견 필수 여부. */
-  public record Outcome(String key, String to, String assignTo, boolean requireComment) {}
+  /** 결과 한 개의 이동: 도착 노드, 담당을 바꿀 역할(keep 은 그대로), 의견 필수 여부, 표시 이름(없으면 null — 화면은 key 로 대신한다). */
+  public record Outcome(
+      String key, String to, String assignTo, boolean requireComment, String name) {}
 
   /** decision·start 조건. assigneeRole 또는 (contextKey, equalsValue) 중 하나만 채워진다. */
   public record Condition(String assigneeRole, String contextKey, Object equalsValue, String to) {}
 
-  /** 노드가 내놓을 값의 명세. */
-  public record OutputSpec(String type, boolean required) {}
+  /** 노드가 내놓을 값의 명세. {@code name} 은 표시 이름(없으면 null). */
+  public record OutputSpec(String type, boolean required, String name) {}
 
   /** 기한: 지나면 {@code then}(remind|escalate). */
   public record Timeout(Duration after, String then) {}

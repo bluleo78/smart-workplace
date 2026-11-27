@@ -103,7 +103,8 @@
       "additionalProperties": false,
       "properties": {
         "type": { "type": "string", "enum": ["string", "url", "number", "boolean"] },
-        "required": { "type": "boolean", "description": "꼭 내놓아야 하는지(기본 false)" }
+        "required": { "type": "boolean", "description": "꼭 내놓아야 하는지(기본 false)" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 40, "description": "표시 이름" }
       }
     },
     "Outcome": {
@@ -113,7 +114,8 @@
       "properties": {
         "to": { "type": "string", "description": "도착 노드 키" },
         "assignTo": { "type": "string", "description": "넘길 때 담당을 바꿀 역할 키(keep 은 그대로)" },
-        "requireComment": { "type": "boolean", "description": "의견을 꼭 적어야 하는지(기본 false)" }
+        "requireComment": { "type": "boolean", "description": "의견을 꼭 적어야 하는지(기본 false)" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 40, "description": "표시 이름" }
       }
     },
     "Target": {

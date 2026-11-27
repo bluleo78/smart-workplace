@@ -3,9 +3,10 @@
 // 보일 조건(WAITING · human_task · 내가 담당)이 아니면 아무것도 그리지 않는다.
 // 결과가 answered 뿐인 질문 경로 노드(returnTo 있음)는 그리지 않는다(WP-2093) — 질문이 이슈 챗에 와 있고 챗 답 글이 실행을 움직이므로 결과 단추가 필요 없다.
 // 질문 노드에 다른 결과도 있으면 배너는 보이되 answered 단추만 뺀다(답은 챗으로).
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -79,9 +80,9 @@ function readOutput(o: RequiredOutput, raw: string | boolean | undefined): { val
  */
 function announceText(outcome: WorkflowOutcomeView | undefined, noCandidate: boolean): string {
   if (!outcome) return ''
-  const head = `「${outcome.key}」 결과를 골랐어요.`
+  const head = `「${outcome.name}」 결과를 골랐어요.`
   if (noCandidate) return `${head} 넘길 수 있는 담당 후보가 없어 넘길 수 없어요.`
-  const required = [...outcome.requiredOutputs.map((o) => o.key), ...(outcome.assigneeRequired ? ['다음 담당'] : [])]
+  const required = [...outcome.requiredOutputs.map((o) => o.name), ...(outcome.assigneeRequired ? ['다음 담당'] : [])]
   const fields = required.length > 0 ? `필수 항목(${required.join('·')})을 채우고 ` : ''
   const comment = outcome.requireComment ? '의견(필수)' : '의견'
   return `${head} 아래에서 ${fields}${comment}을 적고 넘기기를 누르세요.`
@@ -174,6 +175,34 @@ export function IssueWorkflowBanner({ issueId, projectKey, meId, posted, onPoste
     />
   )
 }
+
+/** 접어 둘 기준 — 글 줄 수·글자 수(렌더 높이가 아니라 글로 판정해 jsdom 에서도 같게 동작한다). */
+const INSTRUCTIONS_COLLAPSE_LINES = 6
+const INSTRUCTIONS_COLLAPSE_CHARS = 400
+
+/**
+ * 노드 지시를 마크다운으로 그린다(WP-2158) — 이슈 댓글과 같은 앱 렌더러라 표·목록·제목이 서식대로 보이고 원시 HTML 은 막힌다.
+ * 길면(빈 줄을 뺀 6줄 초과 또는 400자 초과) 처음엔 높이를 제한해 접어 두고 「지시 보기」로 펼친다 — 결과 단추가 화면 밖으로 밀리지 않게.
+ */
+const Instructions = memo(function Instructions({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const long = useMemo(
+    () => text.split('\n').filter((l) => l.trim() !== '').length > INSTRUCTIONS_COLLAPSE_LINES || text.length > INSTRUCTIONS_COLLAPSE_CHARS,
+    [text],
+  )
+  return (
+    <div className="space-y-1">
+      <div className={long && !open ? 'max-h-28 overflow-hidden' : undefined} data-testid="issue-workflow-instructions">
+        <MarkdownMessage className="text-xs text-muted-foreground">{text}</MarkdownMessage>
+      </div>
+      {long && (
+        <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? '접기' : '지시 보기'}
+        </Button>
+      )}
+    </div>
+  )
+})
 
 function BannerBody({
   run,
@@ -298,13 +327,13 @@ function BannerBody({
         {cur.enteredAt && <span className="ml-1 text-xs font-normal">{`· ${formatRelativeTime(cur.enteredAt)}`}</span>}
       </div>
       {q && <p>{`「${q}」`}</p>}
-      {cur.instructions && <p className="text-xs text-muted-foreground">{cur.instructions}</p>}
+      {cur.instructions && <Instructions text={cur.instructions} />}
       {/* 질문 노드(WP-2093) — 질문에 대한 답은 결과 단추가 아니라 이슈 챗 글로 한다. */}
       {cur.returnTo && <p className="text-xs text-muted-foreground">질문에 대한 답은 이슈 챗에 쓰면 돼요.</p>}
       <div className="flex flex-wrap gap-2">
         {outcomes.map((o) => (
           <Button key={o.key} type="button" size="sm" variant={picked === o.key ? 'default' : 'outline'} aria-pressed={picked === o.key} onClick={() => pick(o.key)}>
-            {o.key}
+            {o.name}
           </Button>
         ))}
       </div>
@@ -314,19 +343,19 @@ function BannerBody({
         </Button>
       )}
       {outcome && (
-        <div role="group" aria-label={`「${outcome.key}」 결과 입력`} className="space-y-2">
+        <div role="group" aria-label={`「${outcome.name}」 결과 입력`} className="space-y-2">
           {outcome.requiredOutputs.map((o) => (
             <label key={o.key} className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-xs text-muted-foreground">{o.key}</span>
+              <span className="w-24 shrink-0 text-xs text-muted-foreground">{o.name}</span>
               {o.type === 'boolean' ? (
                 <Checkbox
-                  aria-label={o.key}
+                  aria-label={o.name}
                   checked={outputs[o.key] === true}
                   onCheckedChange={(c) => setOutputs((s) => ({ ...s, [o.key]: c === true }))}
                 />
               ) : (
                 <Input
-                  aria-label={o.key}
+                  aria-label={o.name}
                   type={o.type === 'number' ? 'number' : 'text'}
                   value={typeof outputs[o.key] === 'string' ? (outputs[o.key] as string) : ''}
                   onChange={(e) => setOutputs((s) => ({ ...s, [o.key]: e.target.value }))}
