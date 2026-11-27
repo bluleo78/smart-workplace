@@ -2,6 +2,7 @@ package com.workplace.calendar.service;
 
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -56,6 +58,7 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
   @Autowired CalendarEventService eventService;
   @Autowired CalendarRepository calendarRepo;
   @Autowired DSLContext dsl;
+  @Autowired com.workplace.calendar.repository.CalendarEventExceptionRepository exceptionRepo;
   @Autowired EncryptionService encryption;
 
   private static final long TENANT_ID = 1L;
@@ -531,6 +534,696 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     eventService.update(
         ownerId, created.id(), edit, com.workplace.calendar.dto.EditScope.ALL, null);
     verify(calendarTransport, never()).updateEvent(anyLong(), any(), any(), any());
+  }
+
+  // ── 로컬 → 외부 쓰기 캘린더 이동 적격성(WP-2155) ───────────────────────────
+
+  /** 외부 이동 요청 — 제목·시각만 채우고 대상 캘린더만 지정한다. */
+  private CalendarEventRequest moveReq(Long targetCalId) {
+    return new CalendarEventRequest(
+        "이동",
+        null,
+        OffsetDateTime.parse("2026-07-10T09:00:00Z"),
+        OffsetDateTime.parse("2026-07-10T10:00:00Z"),
+        false,
+        null,
+        null,
+        null,
+        null,
+        null,
+        targetCalId);
+  }
+
+  /** 참석자가 있는 로컬 일정은 Outlook 캘린더로 옮길 수 없다 — 422, Graph 미호출, 소속 캘린더 불변(WP-2155). */
+  @Test
+  void update_local_event_with_attendee_move_to_external_is_rejected_422() {
+    long inviteeId =
+        new TransactionTemplate(txManager)
+            .execute(s -> withMembership(TestFixtures.createHuman(dsl)));
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventRequest withAttendee =
+        new CalendarEventRequest(
+            "참석자 회의",
+            null,
+            OffsetDateTime.parse("2026-07-10T09:00:00Z"),
+            OffsetDateTime.parse("2026-07-10T10:00:00Z"),
+            false,
+            null,
+            null,
+            null,
+            null,
+            List.of(inviteeId),
+            localCal);
+    CalendarEventResponse created = eventService.create(ownerId, withAttendee);
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(
+            com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
+        .hasMessageContaining("참석자");
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
+  }
+
+  /** 반복 로컬 일정은 Outlook 캘린더로 옮길 수 없다 — 422, Graph 미호출(WP-2155). */
+  @Test
+  void update_local_recurring_event_move_to_external_is_rejected_422() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    req(extCalId, "FREQ=DAILY;COUNT=3"),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(
+            com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
+        .hasMessageContaining("반복");
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /**
+   * 수정 요청은 전체 교체라 recurrenceRule=null 은 「반복 해제」다 — 반복을 풀며 「전체 일정」으로 옮기면 결과가 단일 일정이므로 Outlook 에 만들고
+   * 연결한다(WP-2155).
+   */
+  @Test
+  void update_recurring_event_cleared_and_moved_whole_series_converts() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-cleared");
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+
+    eventService.update(
+        ownerId, created.id(), moveReq(extCalId), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+    CalendarEventResponse after = eventService.get(ownerId, created.id());
+    assertThat(after.calendarId()).isEqualTo(extCalId);
+    assertThat(after.recurrenceRule()).isNull();
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-cleared");
+  }
+
+  /**
+   * 예외 행(취소한 회차)이 남은 반복 마스터는 규칙을 지우며 「전체 일정」으로 옮겨도 반복으로 본다 — 로컬 ALL 수정은 예외를 지우지 않아 마스터만 Outlook 에
+   * 만들면 그 회차가 로컬에 갈라져 남기 때문이다. 422, Graph 미호출, 캘린더 그대로(WP-2155).
+   */
+  @Test
+  void update_recurring_with_exception_cleared_and_moved_is_rejected_422() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s -> exceptionRepo.insertCancellation(created.id(), created.startsAt().plusDays(1)));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(
+            com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
+        .hasMessageContaining("반복");
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
+  }
+
+  /** 로컬 일정을 외부 쓰기 캘린더로 직접 옮겨 둔 고아 상태를 만든다 — 서비스 경로는 Graph 생성을 타므로 DB 로 심는다(WP-2155). */
+  private void forceIntoExternalCalendar(long eventId) {
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s ->
+                dsl.update(CALENDAR_EVENT)
+                    .set(CALENDAR_EVENT.CALENDAR_ID, extCalId)
+                    .where(CALENDAR_EVENT.ID.eq(eventId))
+                    .execute());
+  }
+
+  /** 참석자 있는 고아 일정(이동 아님) 편집은 막히지 않는다 — 200, Graph 생성 미호출, 필드 갱신(WP-2155). */
+  @Test
+  void update_orphan_with_attendee_without_move_succeeds_without_graph_create() {
+    long inviteeId =
+        new TransactionTemplate(txManager)
+            .execute(s -> withMembership(TestFixtures.createHuman(dsl)));
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(
+            ownerId,
+            new CalendarEventRequest(
+                "고아 참석자",
+                null,
+                OffsetDateTime.parse("2026-07-10T09:00:00Z"),
+                OffsetDateTime.parse("2026-07-10T10:00:00Z"),
+                false,
+                null,
+                null,
+                null,
+                null,
+                List.of(inviteeId),
+                localCal));
+    forceIntoExternalCalendar(created.id());
+
+    eventService.update(
+        ownerId, created.id(), moveReq(null), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("이동");
+  }
+
+  /** 반복을 유지한 반복 고아 일정(이동 아님) 편집은 422 없이 로컬 수정으로 통과한다 — 요청이 규칙을 그대로 실어 보낸다(WP-2155). */
+  @Test
+  void update_orphan_recurring_without_move_succeeds_without_422() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+    forceIntoExternalCalendar(created.id());
+
+    eventService.update(
+        ownerId,
+        created.id(),
+        req(null, "FREQ=DAILY;COUNT=3"),
+        com.workplace.calendar.dto.EditScope.ALL,
+        null);
+
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).recurrenceRule())
+        .isEqualTo("FREQ=DAILY;COUNT=3");
+  }
+
+  /** 읽기전용 외부 캘린더로의 이동은 기존대로 409 — 전환 대상이 아니다(WP-2155). */
+  @Test
+  void update_local_event_move_to_readonly_external_is_rejected_409() {
+    long roCal =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.insertInto(CALENDAR)
+                        .set(CALENDAR.OWNER_ID, ownerId)
+                        .set(CALENDAR.NAME, "읽기전용")
+                        .set(CALENDAR.COLOR, "gray")
+                        .set(CALENDAR.IS_DEFAULT, false)
+                        .set(CALENDAR.POSITION, 3)
+                        .set(CALENDAR.EXTERNAL_ACCOUNT_ID, accountId)
+                        .set(CALENDAR.EXTERNAL_ID, "gcal-ro")
+                        .set(CALENDAR.IS_READ_ONLY, true)
+                        .set(CALENDAR.TENANT_ID, TENANT_ID)
+                        .returning(CALENDAR.ID)
+                        .fetchOne()
+                        .getId());
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(roCal),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(com.workplace.calendar.exception.ReadOnlyCalendarException.class);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /** 행의 external_id — 전환 뒤 Graph 연결 확인용(WP-2155). */
+  private String externalIdOf(long eventId) {
+    return new TransactionTemplate(txManager)
+        .execute(
+            s ->
+                dsl.select(CALENDAR_EVENT.EXTERNAL_ID)
+                    .from(CALENDAR_EVENT)
+                    .where(CALENDAR_EVENT.ID.eq(eventId))
+                    .fetchOne(CALENDAR_EVENT.EXTERNAL_ID));
+  }
+
+  /** 단일 로컬 일정을 Outlook 쓰기 캘린더로 옮기며 수정하면 Graph 에 만들고 external_id 를 연결한다(WP-2155). */
+  @Test
+  void update_local_event_move_to_external_creates_in_graph_and_links_externalId() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-new-1");
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    eventService.update(
+        ownerId, created.id(), moveReq(extCalId), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport)
+        .createEvent(eq(ownerId), any(), eq("gcal-write"), argThat(w -> "이동".equals(w.subject())));
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-new-1");
+    CalendarEventResponse after = eventService.get(ownerId, created.id());
+    assertThat(after.calendarId()).isEqualTo(extCalId);
+    assertThat(after.external()).isTrue();
+  }
+
+  /** 이미 Outlook 쓰기 캘린더에 있으나 external_id 가 없는 고아 일정은 수정할 때 Graph 에 만들어 연결한다(자가 치유, WP-2155). */
+  @Test
+  void update_orphan_event_in_external_calendar_creates_in_graph() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-orphan-1");
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+    forceIntoExternalCalendar(created.id());
+
+    eventService.update(
+        ownerId, created.id(), moveReq(null), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport, org.mockito.Mockito.times(1))
+        .createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-orphan-1");
+  }
+
+  /** Graph 생성이 실패하면 예외를 그대로 전파하고 로컬 행(캘린더·제목·external_id)은 바뀌지 않는다(WP-2155). */
+  @Test
+  void update_local_move_to_external_graph_failure_keeps_local_unchanged() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenThrow(new ExternalCalendarWriteException("Graph 실패", new RuntimeException("503")));
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(ExternalCalendarWriteException.class);
+
+    CalendarEventResponse after = eventService.get(ownerId, created.id());
+    assertThat(after.calendarId()).isEqualTo(localCal);
+    assertThat(after.title()).isEqualTo("회의");
+    assertThat(externalIdOf(created.id())).isNull();
+  }
+
+  /** 낡은 expectedUpdatedAt 은 Graph 를 부르기 전에 409 — 화면이 본 뒤 바뀐 일정이 Outlook 에 만들어지지 않는다(WP-2155). */
+  @Test
+  void update_local_move_to_external_stale_version_conflicts_before_graph() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null,
+                    created.updatedAt().minusSeconds(60)))
+        .isInstanceOf(com.workplace.calendar.exception.CalendarEventConflictException.class);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /** 외부 캘린더의 연동 계정이 호출자의 것이 아니면(끊김·삭제와 같은 조회 실패) 전환 대상이 아니다 — Graph 없이 캘린더만 옮긴다(WP-2155). */
+  @Test
+  void update_local_move_to_external_whose_account_was_deleted_moves_locally() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+    // 계정 행을 지우면 캘린더가 같이 지워지므로, 호출자 계정으로 조회되지 않는 다른 사용자의 계정으로 바꿔 끊김을 흉내 낸다.
+    final long stranger =
+        new TransactionTemplate(txManager).execute(s -> TestFixtures.createHuman(dsl));
+    final long foreignAcc =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.insertInto(EMAIL_ACCOUNT)
+                        .set(EMAIL_ACCOUNT.USER_ID, stranger)
+                        .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, stranger + "@iacloud.kr")
+                        .set(EMAIL_ACCOUNT.PROVIDER, "M365_GRAPH")
+                        .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, encryption.encrypt("RT"))
+                        .set(EMAIL_ACCOUNT.AI_ENABLED, false)
+                        .set(EMAIL_ACCOUNT.TENANT_ID, TENANT_ID)
+                        .returning(EMAIL_ACCOUNT.ID)
+                        .fetchOne()
+                        .getId());
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(
+              s ->
+                  dsl.update(CALENDAR)
+                      .set(CALENDAR.EXTERNAL_ACCOUNT_ID, foreignAcc)
+                      .where(CALENDAR.ID.eq(extCalId))
+                      .execute());
+
+      eventService.update(
+          ownerId, created.id(), moveReq(extCalId), com.workplace.calendar.dto.EditScope.ALL, null);
+
+      verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+      assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(extCalId);
+    } finally {
+      cleanupInTenant(
+          TENANT_ID,
+          () -> {
+            dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.OWNER_ID.eq(ownerId)).execute();
+            dsl.deleteFrom(CALENDAR).where(CALENDAR.OWNER_ID.eq(ownerId)).execute();
+            dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(foreignAcc)).execute();
+            dsl.execute("DELETE FROM \"user\" WHERE id = ?", stranger);
+          });
+    }
+  }
+
+  /** 범주를 못 쓰는 공유 M365 캘린더로 태그와 함께 옮기면 409 — Graph 호출·로컬 변경 없음(WP-2155). */
+  @Test
+  void update_local_move_to_shared_external_with_tags_is_rejected_409() {
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    withTags(moveReq(extCalId), List.of(tagId)),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(ExternalEventTagNotSupportedException.class);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
+  }
+
+  // ── 전환의 태그·연결 실패·반복 회차·바깥 tx(WP-2155 최종 리뷰) ───────────────────
+
+  /** 일정의 태그 연결 출처 목록 — APP 연결이 남았는지 확인용(WP-2155). */
+  private List<String> tagSourcesOf(long eventId) {
+    return new TransactionTemplate(txManager)
+        .execute(
+            s ->
+                dsl.select(CALENDAR_EVENT_TAG.SOURCE)
+                    .from(CALENDAR_EVENT_TAG)
+                    .where(CALENDAR_EVENT_TAG.EVENT_ID.eq(eventId))
+                    .fetch(CALENDAR_EVENT_TAG.SOURCE));
+  }
+
+  /** 내 사서함 캘린더로 태그를 실어 옮기면 연결 뒤 Outlook 범주로 써 넣는다 — 내 사서함 여부를 tx 안에서 읽어야 한다(RLS, WP-2155). */
+  @Test
+  void update_move_to_own_mailbox_with_tags_writes_outlook_categories() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("고객사", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-conv-t1");
+    liveCategories("graph-conv-t1", List.of());
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    CalendarEventResponse after =
+        eventService.update(
+            ownerId,
+            created.id(),
+            withTags(moveReq(extCalId), List.of(tagId)),
+            com.workplace.calendar.dto.EditScope.ALL,
+            null);
+
+    verify(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-conv-t1"), eq(List.of("고객사")));
+    assertThat(tagNames(after)).containsExactly("고객사");
+    assertThat(tagSourcesOf(created.id())).containsExactly("OUTLOOK");
+  }
+
+  /** 태그를 보내지 않은 이동은 지금 붙은 앱 태그를 Outlook 범주로 옮긴다 — APP 연결은 남지 않는다(다시 뗄 수 있게, WP-2155). */
+  @Test
+  void update_plain_move_to_own_mailbox_moves_app_tags_to_outlook() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-conv-t2");
+    liveCategories("graph-conv-t2", List.of());
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(localCal, null), List.of(tagId)));
+    assertThat(tagSourcesOf(created.id())).containsExactly("APP");
+
+    eventService.update(
+        ownerId, created.id(), moveReq(extCalId), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-conv-t2"), eq(List.of("운영")));
+    assertThat(tagSourcesOf(created.id())).containsExactly("OUTLOOK");
+  }
+
+  /** 앱 태그가 붙은 일정을 범주를 못 쓰는 공유 캘린더로 그냥 옮겨도 409 — 태그가 조용히 갇히지 않게 Graph 전에 막는다(WP-2155). */
+  @Test
+  void update_plain_move_of_app_tagged_event_to_shared_external_is_rejected_409() {
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(localCal, null), List.of(tagId)));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(ExternalEventTagNotSupportedException.class);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
+  }
+
+  /**
+   * 연결 tx 가 실패하면(동기화가 같은 id 를 먼저 들임 — uq_event_external) 방금 만든 Outlook 일정을 지우고 원래 오류를 던진다(WP-2155).
+   */
+  @Test
+  void update_move_link_failure_deletes_created_graph_event_and_keeps_local() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse synced = eventService.create(ownerId, req(localCal, null));
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s ->
+                dsl.update(CALENDAR_EVENT)
+                    .set(CALENDAR_EVENT.CALENDAR_ID, extCalId)
+                    .set(CALENDAR_EVENT.EXTERNAL_ID, "graph-dup")
+                    .where(CALENDAR_EVENT.ID.eq(synced.id()))
+                    .execute());
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-dup");
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+    verify(calendarTransport).deleteEvent(eq(ownerId), any(), eq("graph-dup"));
+    CalendarEventResponse after = eventService.get(ownerId, created.id());
+    assertThat(after.calendarId()).isEqualTo(localCal);
+    assertThat(after.title()).isEqualTo("회의");
+    assertThat(externalIdOf(created.id())).isNull();
+  }
+
+  /**
+   * Graph 생성 사이에 같은 일정이 이미 연결되면(동시 저장·버전 없는 재요청) 잠금 뒤 다시 보고 409 — 앞선 연결을 덮어쓰지 않고 방금 만든 Outlook 일정은
+   * 지운다(WP-2155).
+   */
+  @Test
+  void update_move_already_linked_under_lock_conflicts_and_deletes_created_graph_event() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+    // Graph 호출 중에 다른 요청이 먼저 연결을 끝낸 상황을 흉내 낸다.
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenAnswer(
+            inv -> {
+              new TransactionTemplate(txManager)
+                  .executeWithoutResult(
+                      s ->
+                          dsl.update(CALENDAR_EVENT)
+                              .set(CALENDAR_EVENT.EXTERNAL_ID, "graph-first")
+                              .where(CALENDAR_EVENT.ID.eq(created.id()))
+                              .execute());
+              return "graph-second";
+            });
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(com.workplace.calendar.exception.CalendarEventConflictException.class);
+
+    verify(calendarTransport).deleteEvent(eq(ownerId), any(), eq("graph-second"));
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-first");
+    CalendarEventResponse after = eventService.get(ownerId, created.id());
+    assertThat(after.calendarId()).isEqualTo(localCal);
+    assertThat(after.title()).isEqualTo("회의");
+  }
+
+  /**
+   * 이미 Outlook id 가 있지만 계정이 끊겨 로컬처럼 보이는 일정은 전환하지 않는다 — Graph 생성 없이 예전처럼 로컬 이동, external_id
+   * 유지(WP-2155).
+   */
+  @Test
+  void update_event_with_external_id_but_disconnected_moves_locally_without_graph_create() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s ->
+                dsl.update(CALENDAR_EVENT)
+                    .set(CALENDAR_EVENT.EXTERNAL_ID, "graph-stale")
+                    .where(CALENDAR_EVENT.ID.eq(created.id()))
+                    .execute());
+
+    eventService.update(
+        ownerId, created.id(), moveReq(extCalId), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    verify(calendarTransport, never()).deleteEvent(anyLong(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(extCalId);
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-stale");
+  }
+
+  /** 「이 일정만」 고친 회차(override, RRULE 없음)도 반복으로 보아 Outlook 캘린더 이동은 422 — Graph 미호출(WP-2155). */
+  @Test
+  void update_override_occurrence_move_to_external_is_rejected_422() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse series =
+        eventService.create(ownerId, req(localCal, "FREQ=DAILY;COUNT=3"));
+    OffsetDateTime occ = OffsetDateTime.parse("2026-07-11T09:00:00Z");
+    CalendarEventResponse override =
+        eventService.update(
+            ownerId,
+            series.id(),
+            new CalendarEventRequest(
+                "고친 회차", null, occ, occ.plusHours(1), false, null, null, null, null, null, null),
+            com.workplace.calendar.dto.EditScope.THIS,
+            occ);
+    assertThat(override.id()).isNotEqualTo(series.id());
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    override.id(),
+                    moveReq(extCalId),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(
+            com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException.class)
+        .hasMessageContaining("반복");
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /** 앱 태그가 붙은 고아 일정이 공유 캘린더에 있으면 전환하지 않고 로컬 수정으로 통과한다 — 저장마다 409 가 나지 않는다(WP-2155). */
+  @Test
+  void update_orphan_with_app_tag_in_shared_external_edits_locally() {
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(localCal, null), List.of(tagId)));
+    forceIntoExternalCalendar(created.id());
+
+    eventService.update(
+        ownerId, created.id(), moveReq(null), com.workplace.calendar.dto.EditScope.ALL, null);
+
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("이동");
+    assertThat(tagSourcesOf(created.id())).containsExactly("APP");
+  }
+
+  /** 바깥 tx(AI·채팅 confirm) 안의 고아 일정 편집은 전환하지 않고 예전처럼 로컬 수정으로 통과한다 — 409 가 나지 않는다(WP-2155). */
+  @Test
+  void update_orphan_without_move_within_ambient_tx_edits_locally() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+    forceIntoExternalCalendar(created.id());
+
+    new TransactionTemplate(txManager)
+        .execute(
+            s ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    moveReq(null),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null));
+
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("이동");
+    assertThat(externalIdOf(created.id())).isNull();
+  }
+
+  /**
+   * 바깥 tx(AI·채팅 confirm) 안의 로컬→Outlook 이동은 분명한 오류로 거절한다 — 로컬로만 옮기면 「Outlook 에 없는」 일정이 다시 생긴다. Graph
+   * 미호출, 소속 캘린더 불변(WP-2155).
+   */
+  @Test
+  void update_move_to_external_within_ambient_tx_is_rejected() {
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
+
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(txManager)
+                    .execute(
+                        s ->
+                            eventService.update(
+                                ownerId,
+                                created.id(),
+                                moveReq(extCalId),
+                                com.workplace.calendar.dto.EditScope.ALL,
+                                null)))
+        .isInstanceOf(
+            com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException.class);
+
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+    assertThat(eventService.get(ownerId, created.id()).calendarId()).isEqualTo(localCal);
+  }
+
+  /**
+   * 전환 뒤 Outlook 범주 쓰기가 일시 오류로 실패해도 저장은 성공으로 돌려주고 태그 없이 둔다 — 일정은 이미 Outlook 에 연결됐고, 다시 저장하면 중복 생성되기
+   * 때문이다. 앱 태그(APP)는 남기지 않는다(남기면 다시는 뗄 수 없다)(WP-2155).
+   */
+  @Test
+  void update_move_to_own_mailbox_categories_transient_failure_keeps_conversion_without_tags() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-conv-fail");
+    liveCategories("graph-conv-fail", List.of());
+    org.mockito.Mockito.doThrow(
+            new ExternalCalendarWriteException("Graph 범주 쓰기 실패", new RuntimeException("503")))
+        .when(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-conv-fail"), anyList());
+    long localCal = calendarRepo.insert(ownerId, "개인", "green", true, 1);
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(localCal, null), List.of(tagId)));
+
+    CalendarEventResponse result =
+        eventService.update(
+            ownerId,
+            created.id(),
+            moveReq(extCalId),
+            com.workplace.calendar.dto.EditScope.ALL,
+            null);
+
+    assertThat(result.calendarId()).isEqualTo(extCalId);
+    assertThat(externalIdOf(created.id())).isEqualTo("graph-conv-fail");
+    assertThat(tagSourcesOf(created.id())).isEmpty();
   }
 
   // ── delete write-through (Task 9) ──────────────────────────────────────────

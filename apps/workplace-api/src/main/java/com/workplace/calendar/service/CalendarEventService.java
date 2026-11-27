@@ -19,6 +19,7 @@ import com.workplace.calendar.exception.ExternalEventAttendeeNotOrganizerExcepti
 import com.workplace.calendar.exception.ExternalEventMoveNotSupportedException;
 import com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException;
 import com.workplace.calendar.exception.ExternalEventTagNotSupportedException;
+import com.workplace.calendar.exception.LocalToExternalMoveNotSupportedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
@@ -788,7 +789,7 @@ public class CalendarEventService {
 
   /** RRULE 이 있는 반복 마스터인가. */
   private static boolean isRecurring(CalendarEventResponse e) {
-    return e.recurrenceRule() != null && !e.recurrenceRule().isBlank();
+    return hasRecurrence(e.recurrenceRule());
   }
 
   /** cursor 문자열 → offset. 없거나 숫자가 아니거나 음수면 0(잘못된 커서가 400 이 아니라 첫 페이지로). */
@@ -1065,9 +1066,14 @@ public class CalendarEventService {
       OffsetDateTime expectedUpdatedAt) {
     // ① resolve — 사전검증과 같은 술어(checkUpdatable: RRULE·색·owner(404)·RO(409)·회차 식별자·이동 대상 캘린더·외부
     // 일정 제약)를 돌리고 외부 쓰기 컨텍스트를 얻는다. 검증은 RLS 읽기를 포함하므로 반드시 tx 안에서 수행한다(#492).
+    // 호출자(AI·채팅 confirm)의 바깥 tx 는 txTemplate 에 들어가기 전에 본다 — 안에서는 늘 열려 있다.
+    // 바깥 tx 안에서는 Graph 를 부를 수 없어 고아 편집은 로컬 수정, Outlook 캘린더로의 이동은 거절한다(WP-2155).
+    boolean ambientTx = TransactionSynchronizationManager.isActualTransactionActive();
     ExternalWriteCtx ctx =
         txTemplate.execute(
-            s -> checkUpdatable(callerId, id, req, scope, occurrenceDate, expectedUpdatedAt));
+            s ->
+                checkUpdatable(
+                    callerId, id, req, scope, occurrenceDate, expectedUpdatedAt, ambientTx));
 
     if (ctx.external()) {
       // ② 외부 쓰기 → Graph HTTP (tx 밖). 가드: 호출자 ambient tx(AI·채팅 confirm) 안이면 REQUIRED txTemplate 이 그
@@ -1126,6 +1132,11 @@ public class CalendarEventService {
       return req.tagIds() == null ? updatedExternal : applyOutlookTags(callerId, id, req.tagIds());
     }
 
+    if (ctx.conversion() != null) {
+      return convertLocalToExternal(
+          callerId, id, req, scope, occurrenceDate, expectedUpdatedAt, ctx.conversion());
+    }
+
     return txTemplate.execute(
         s -> {
           List<Long> beforeAttendees = internalAttendeeIds(id);
@@ -1140,6 +1151,83 @@ public class CalendarEventService {
               callerId);
           return updated;
         });
+  }
+
+  /**
+   * 로컬 일정을 Outlook 쓰기 캘린더 일정으로 전환한다(WP-2155) — 이동 수정과 고아 일정 자가 치유가 같이 쓴다. Graph 에 먼저 만들고(tx 밖) 성공한
+   * 뒤에만 로컬 필드 갱신·캘린더 이동·external_id 연결을 한 tx 로 한다 — Graph 가 실패하면 로컬은 그대로라 같은 요청을 다시 보내도 안전하다. 태그는
+   * Graph 연결 뒤 tx 밖에서 Outlook 범주로 써 넣는다(실패해도 일정은 이미 Outlook 에 있어 로그만 남긴다 — 다시 저장하면 중복 생성되므로).
+   */
+  private CalendarEventResponse convertLocalToExternal(
+      long callerId,
+      long id,
+      CalendarEventRequest req,
+      EditScope scope,
+      OffsetDateTime occurrenceDate,
+      OffsetDateTime expectedUpdatedAt,
+      ExternalConversion conv) {
+    // 가드: 호출자 ambient tx 안이면 아래 Graph HTTP 가 tx 안에서 실행된다 — 기존 외부 쓰기 경로와 같이 차단한다.
+    if (TransactionSynchronizationManager.isActualTransactionActive()) {
+      throw new ExternalCalendarWriteInTransactionException();
+    }
+    CalendarTransport transport = transportFor(conv.account().provider());
+    String externalId =
+        transport.createEvent(
+            callerId, conv.account(), conv.externalCalendarId(), toGraphWrite(req, null));
+    CalendarEventResponse converted;
+    try {
+      converted =
+          txTemplate.execute(
+              s -> {
+                // 행을 잠근 뒤 external_id 를 다시 본다(WP-2155) — 사전검증 뒤 같은 일정이 이미 연결됐으면
+                // (동시 저장·버전 없는 AI/MCP 재요청) 덮어쓰면 앞서 만든 Outlook 일정이 고아가 된다. 409 로 끝내고
+                // 방금 만든 쪽은 아래에서 지운다. 전환 대상은 override 가 아닌 단일 일정이라 자기 행만 잠근다
+                // (lockSeriesFor 와 같은 순서).
+                repo.lockForUpdate(id);
+                var ref =
+                    repo.findExternalRef(id)
+                        .orElseThrow(() -> new CalendarEventNotFoundException(id));
+                if (ref.eventExternalId() != null) throw new CalendarEventConflictException();
+                List<Long> beforeAttendees = internalAttendeeIds(id);
+                // 태그는 연결 뒤 Outlook 범주로 쓰므로 여기서는 뺀다(앱 태그로 붙지 않게).
+                doUpdateLocal(
+                    callerId, id, req.withoutTags(), scope, occurrenceDate, expectedUpdatedAt);
+                repo.linkExternalEvent(id, conv.calendarId(), externalId);
+                // 내 앱 태그(APP 연결)는 뗀다(WP-2155) — 연결된 일정의 태그 편집은 OUTLOOK 연결만 보므로 남겨 두면 다시는 뗄 수 없다. 붙어
+                // 있어야 할 태그는 conv.tagIds() 로 아래에서 Outlook 범주로 다시 붙인다.
+                tagService.replaceAppTags(callerId, id, List.of());
+                publishEventChanged(
+                    ResourceChangedEvent.OP_UPDATED,
+                    id,
+                    repo.findOwnerId(id).orElse(callerId),
+                    beforeAttendees,
+                    callerId);
+                return get(callerId, id);
+              });
+    } catch (RuntimeException e) {
+      // 연결 tx 가 실패하면(잠금 뒤 버전 충돌·동시 삭제·이미 연결됨·동기화가 먼저 들인 같은 id) 방금 만든 Outlook 일정은 어디에도 이어지지 않아
+      // 다음 동기화에서 중복으로 들어오고 다시 시도할 때마다 늘어난다(WP-2155). 지우기는 최선을 다할 뿐 — 실패해도 원래 오류를 돌려준다.
+      try {
+        transport.deleteEvent(callerId, conv.account(), externalId);
+      } catch (RuntimeException deleteFailure) {
+        log.warn(
+            "전환 실패 뒤 Outlook 일정 되돌리기 실패 — 중복이 남을 수 있다. eventId={} externalId={}",
+            id,
+            externalId,
+            deleteFailure);
+      }
+      throw e;
+    }
+    // 태그(WP-2155) — 범주는 내 사서함 달력에만 써 넣을 수 있고(공유 캘린더에 태그가 있으면 사전검증이 409), 써 넣을 태그가 있을 때만 부른다.
+    if (!conv.ownMailbox() || conv.tagIds().isEmpty()) return converted;
+    try {
+      return applyOutlookTags(callerId, id, conv.tagIds());
+    } catch (RuntimeException e) {
+      // 일정은 이미 Outlook 에 만들어져 연결됐다 — 어떤 태그 오류든(쓰기 실패·자격 증명·계정 판정 409 등) 저장 실패로 돌려주면 사용자가 다시
+      // 저장하게 되므로 로그만 남기고 전환된 일정을 돌려준다(WP-2155).
+      log.warn("전환된 M365 일정의 Outlook 범주 써 넣기 실패 — 태그 없이 둔다. eventId={}", id, e);
+      return txTemplate.execute(s -> get(callerId, id));
+    }
   }
 
   /**
@@ -1223,11 +1311,12 @@ public class CalendarEventService {
       EmailAccountResponse account,
       String externalId,
       Long currentCalendarId,
-      String storedDescription) {
+      String storedDescription,
+      ExternalConversion conversion) {
 
     /** 외부 일정이 아니거나 연동이 끊긴 로컬 컨텍스트. */
     static ExternalWriteCtx local(Long currentCalendarId) {
-      return new ExternalWriteCtx(false, null, null, currentCalendarId, null);
+      return new ExternalWriteCtx(false, null, null, currentCalendarId, null, null);
     }
 
     /** 외부 동기화 일정 컨텍스트. */
@@ -1236,7 +1325,38 @@ public class CalendarEventService {
         String externalId,
         Long currentCalendarId,
         String storedDescription) {
-      return new ExternalWriteCtx(true, account, externalId, currentCalendarId, storedDescription);
+      return new ExternalWriteCtx(
+          true, account, externalId, currentCalendarId, storedDescription, null);
+    }
+
+    /**
+     * 로컬 일정을 외부 쓰기 캘린더로 옮기는 전환 컨텍스트(WP-2155). external 은 false 그대로 — 아직 외부 일정이 아니다(Graph 생성은 실행
+     * 단계에서 conversion 을 보고 한다).
+     */
+    static ExternalWriteCtx converting(Long currentCalendarId, ExternalConversion conversion) {
+      return new ExternalWriteCtx(false, null, null, currentCalendarId, null, conversion);
+    }
+  }
+
+  /**
+   * 로컬→외부 전환 대상(WP-2155) — 옮겨 갈 외부 쓰기 캘린더와 그 계정·Graph 캘린더 id, 그리고 tx 안에서 정해 둔 내 사서함 여부와 전환 뒤
+   * Outlook 범주로 써 넣을 태그. 앞의 셋은 resolveConversionTarget 이, 뒤의 둘은 convertingCtx 가 채운다.
+   */
+  private record ExternalConversion(
+      long calendarId,
+      EmailAccountResponse account,
+      String externalCalendarId,
+      boolean ownMailbox,
+      List<Long> tagIds) {
+
+    /** 대상만 정한 상태 — 태그 판정 전. */
+    ExternalConversion(long calendarId, EmailAccountResponse account, String externalCalendarId) {
+      this(calendarId, account, externalCalendarId, false, List.of());
+    }
+
+    /** 내 사서함 여부·써 넣을 태그를 실은 사본(WP-2155). */
+    ExternalConversion withTags(boolean ownMailbox, List<Long> tagIds) {
+      return new ExternalConversion(calendarId, account, externalCalendarId, ownMailbox, tagIds);
     }
   }
 
@@ -2055,7 +2175,9 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
-    checkUpdatable(callerId, id, req, scope, occurrenceDate, null);
+    // 사전검증은 확인 카드 경로(바깥 tx 안 실행)만 부른다 — 실행과 같게 고아 일정 편집은 전환 없이 로컬로 판정한다(WP-2155). 후속 #548 이
+    // confirm 실행을 바깥 tx 밖으로 빼면 여기도 false 로 바꿔야 실행과 판정이 맞는다.
+    checkUpdatable(callerId, id, req, scope, occurrenceDate, null, true);
   }
 
   /**
@@ -2071,7 +2193,8 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate,
-      OffsetDateTime expectedUpdatedAt) {
+      OffsetDateTime expectedUpdatedAt,
+      boolean ambientTx) {
     // #852: 수정은 참석자를 바꾸지 않는다(로컬·외부 모두). 받아서 무시하면 "수정했는데 참석자 반영 안 됨"이 조용히 생기므로 거절하고
     // 참석자 API 로 안내한다. 웹 편집 폼은 수정 시 attendeeUserIds 를 보내지 않는다.
     if (!req.attendeeUserIdsOrEmpty().isEmpty()) {
@@ -2118,11 +2241,110 @@ public class CalendarEventService {
       if (req.calendarId() != null && !req.calendarId().equals(ctx.currentCalendarId())) {
         throw new ExternalEventMoveNotSupportedException();
       }
-    } else if (req.calendarId() != null) {
+    } else {
       // 로컬 일정의 이동 대상 — 모든 로컬 수정 경로(단일·ALL·THIS·THIS_AND_FOLLOWING)가 resolveCalendarId 로 같은 검사를 한다.
-      calendarService.requireWritableCalendar(callerId, req.calendarId());
+      if (req.calendarId() != null) {
+        calendarService.requireWritableCalendar(callerId, req.calendarId());
+      }
+      // 대상은 요청 캘린더, 없으면 현재 캘린더다(WP-2155) — 이미 Outlook 쓰기 캘린더에 있는 로컬 일정(고아)도 전환 대상이 된다.
+      long targetId = req.calendarId() != null ? req.calendarId() : cur.calendarId();
+      // 로컬 캘린더면 findExternalRef 한 번(가벼운 조회)으로 비어 돌아와 기존 로컬 경로를 그대로 탄다.
+      // 이미 Outlook id 가 있는 일정(계정이 끊겨 로컬처럼 보이는 동기화 일정)은 전환 대상이 아니다(WP-2155) — 전환하면 잠금 아래 재확인이
+      // 409 를 내며 방금 만든 Outlook 일정을 지우는 헛걸음만 하고, 그전까지 되던 로컬 이동도 막힌다.
+      ExternalConversion conv =
+          resolveConversionTarget(callerId, targetId)
+              .filter(
+                  c -> repo.findExternalRef(id).map(r -> r.eventExternalId() == null).orElse(true))
+              .orElse(null);
+      if (conv != null) {
+        boolean move = !Long.valueOf(targetId).equals(cur.calendarId());
+        // 반복은 수정한 뒤의 상태로 본다(WP-2155). 수정 요청은 전체 교체라 recurrenceRule=null 은
+        // 「반복 해제」다 — 단일 일정·「전체 일정」(ALL) 수정이면 요청 규칙만 본다.
+        // 그래도 반복으로 보는 것: 한 회차만 고치는 수정(THIS·THIS_AND_FOLLOWING),
+        // 「이 일정만」 고친 회차(override 행, RRULE 없음), 예외 행(취소·override)이 남은 마스터.
+        // 로컬 ALL 수정은 기존 예외를 지우지 않아(v1b 한계) 마스터만 Outlook 에 만들면 그 회차들이 로컬에 갈라져 남는다.
+        boolean wholeSeries = occurrenceDate == null || scope == EditScope.ALL;
+        boolean recurring =
+            hasRecurrence(req.recurrenceRule())
+                || (isRecurring(cur) && !wholeSeries)
+                || exceptionRepo.findMasterOccurrenceByOverride(id).isPresent()
+                || exceptionRepo.hasExceptions(id);
+        // 참석자 조회는 반복이 아닐 때만 필요하다 — 반복이면 어차피 막히거나(이동) 로컬로 남는다(고아).
+        boolean attendees = !recurring && hasNonOrganizerAttendees(id);
+        if (move) {
+          // 이동은 초대가 새거나 반복이 깨지므로 422 로 명시한다.
+          if (recurring) throw LocalToExternalMoveNotSupportedException.recurring();
+          if (attendees) throw LocalToExternalMoveNotSupportedException.withAttendees();
+          // 바깥 tx(AI·채팅 confirm) 안에서는 Graph 를 부를 수 없다 — 로컬로만 옮기면
+          // 「Outlook 캘린더에 있는 것처럼 보이지만 Outlook 에는 없는」 일정이 다시 생기므로
+          // 분명한 오류로 거절한다(WP-2155). 미리보기(validateUpdatable)도 같은 판정이라 승인 전에 막힌다.
+          if (ambientTx) throw new ExternalCalendarWriteInTransactionException();
+        }
+        // 고아 일정(이동 아님)에 참석자·반복이 있거나 바깥 tx 안이면 전환하지 않고 로컬 수정으로 둔다 — 그전까지 되던 편집을 막지 않는다.
+        // 다음 일반 편집 때 전환된다(WP-2155).
+        if (!recurring && !attendees && !ambientTx) {
+          return convertingCtx(
+              callerId, ctx, cur, conv, req, occurrenceDate, expectedUpdatedAt, move);
+        }
+      }
     }
     return ctx;
+  }
+
+  /**
+   * 적격 전환 컨텍스트를 만들며 Graph 호출 전에 확인할 것을 본다(WP-2155) — 낡은 화면의 버전(409)과, 범주를 쓸 수 없는 공유 M365 캘린더에 태그를
+   * 싣는 요청(409). 로컬 일정의 버전 확인은 원래 잠금 아래 doUpdateLocal 에서 하지만 전환은 Graph 에 먼저 만들기 때문에 여기서도 본다.
+   */
+  private ExternalWriteCtx convertingCtx(
+      long callerId,
+      ExternalWriteCtx localCtx,
+      CalendarEventResponse cur,
+      ExternalConversion conv,
+      CalendarEventRequest req,
+      OffsetDateTime occurrenceDate,
+      OffsetDateTime expectedUpdatedAt,
+      boolean move) {
+    requireVersion(callerId, cur, occurrenceDate, expectedUpdatedAt);
+    // 내 사서함 여부는 여기(tx 안)에서 읽어 실어 둔다(WP-2155) — calendar 는 FORCE RLS 라 tx 밖에서 읽으면 GUC 가 없어 행이 안 보이고
+    // 거짓 false 가 되어 태그가 조용히 빠졌다(#492 와 같은 함정).
+    boolean ownMailbox = calendarRepo.isOwnMailbox(conv.calendarId());
+    // 전환 뒤 붙어 있어야 할 태그(WP-2155) — 요청이 태그를 보냈으면 그것, 안 보냈으면 지금 붙은 내 앱 태그. 전환하면 앱 태그(APP 연결)는
+    // Outlook 범주(OUTLOOK 연결)로 옮겨야 다시 뗄 수 있다.
+    List<Long> tagIds =
+        req.tagIds() != null
+            ? req.tagIds().stream().filter(Objects::nonNull).distinct().toList()
+            : tagService.appTagIds(callerId, cur.id());
+    // 범주를 써 넣을 수 없는 공유 M365 캘린더로 태그를 가져가면 Graph 에 만들기 전에 409 — 생성 경로와 같은 판정이다. 고아 일정(이동 아님)은
+    // 참석자·반복처럼 전환하지 않고 로컬 수정으로 둔다 — 막으면 그전까지 되던 편집이 저장마다 409 가 된다(WP-2155).
+    if (!tagIds.isEmpty() && !ownMailbox) {
+      if (!move) return localCtx;
+      throw new ExternalEventTagNotSupportedException();
+    }
+    return ExternalWriteCtx.converting(cur.calendarId(), conv.withTags(ownMailbox, tagIds));
+  }
+
+  /** RRULE 이 실제로 있는지 — null·공백은 「반복 아님」. */
+  private static boolean hasRecurrence(String rrule) {
+    return rrule != null && !rrule.isBlank();
+  }
+
+  /**
+   * 이동 대상 캘린더가 쓸 수 있는 외부(Outlook) 캘린더인지 해석한다(WP-2155). 외부 연결이 있고 읽기전용이 아니며 호출자의 계정이 조회될 때만 값이 있다 —
+   * 그 밖(로컬 캘린더·읽기전용·계정 끊김)은 비어 기존 로컬 이동 경로를 그대로 탄다.
+   */
+  private Optional<ExternalConversion> resolveConversionTarget(long callerId, long calendarId) {
+    var ext = calendarRepo.findExternalRef(calendarId).orElse(null);
+    if (ext == null || ext.externalAccountId() == null || ext.readOnly()) {
+      return Optional.empty();
+    }
+    return emailAccountRepo
+        .findByIdAndUser(callerId, ext.externalAccountId())
+        .map(acc -> new ExternalConversion(calendarId, acc, ext.externalId()));
+  }
+
+  /** 주최자 외 참석자(내부·외부 이메일 모두)가 한 명이라도 있는지 — 있으면 Outlook 으로 옮길 때 초대가 새어 나간다(WP-2155). */
+  private boolean hasNonOrganizerAttendees(long eventId) {
+    return attendeeRepo.existsNonOrganizer(eventId);
   }
 
   /**

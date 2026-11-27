@@ -283,6 +283,22 @@ public class CalendarTagRepository {
     insertLinks(eventId, tagIds, SOURCE_APP);
   }
 
+  /**
+   * 한 일정에 붙은 이 사용자의 APP 연결 태그 id(태그 id 순, WP-2155) — 로컬 일정을 Outlook 캘린더로 옮길 때 요청이 태그를 보내지 않았으면 이
+   * 태그를 Outlook 범주로 옮겨 붙인다.
+   */
+  public List<Long> appTagIds(long userId, long eventId) {
+    return dsl.select(CALENDAR_EVENT_TAG.TAG_ID)
+        .from(CALENDAR_EVENT_TAG)
+        .join(CALENDAR_TAG)
+        .on(CALENDAR_TAG.ID.eq(CALENDAR_EVENT_TAG.TAG_ID))
+        .where(CALENDAR_TAG.USER_ID.eq(userId))
+        .and(CALENDAR_EVENT_TAG.EVENT_ID.eq(eventId))
+        .and(CALENDAR_EVENT_TAG.SOURCE.eq(SOURCE_APP))
+        .orderBy(CALENDAR_EVENT_TAG.TAG_ID)
+        .fetch(CALENDAR_EVENT_TAG.TAG_ID);
+  }
+
   /** 한 일정에 여러 태그 연결을 넣는다 — 이미 있는 (tag, event) 는 건드리지 않는다. */
   private void insertLinks(long eventId, Collection<Long> tagIds, String source) {
     if (tagIds.isEmpty()) return;

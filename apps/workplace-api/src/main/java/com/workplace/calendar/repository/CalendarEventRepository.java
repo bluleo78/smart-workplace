@@ -290,6 +290,22 @@ public class CalendarEventRepository {
   }
 
   /**
+   * 로컬 일정을 외부(Outlook) 일정으로 연결한다(WP-2155) — Graph 에 만든 뒤 소속 캘린더·external_id 를 한 문장으로 설정한다.
+   *
+   * <p>동기화 prune 은 external_id 가 없는 행을 보지 않으므로 연결 전의 행은 지워지지 않는다. 남는 위험은 Graph 생성 전에 calendarView 를
+   * 받아 둔 동기화가 이 연결이 커밋된 뒤 prune 하는 경우다 — 받은 목록에 새 id 가 없어 갓 연결한 일정을 지운다. 이 경합은 외부 쓰기 생성 경로
+   * (insertWithExternalId)와 같은 알려진 경합이라 따로 다룬다(이 메서드가 막아 주지 않는다).
+   */
+  public void linkExternalEvent(long id, long calendarId, String externalId) {
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
+        .set(CALENDAR_EVENT.EXTERNAL_ID, externalId)
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+        .where(CALENDAR_EVENT.ID.eq(id))
+        .execute();
+  }
+
+  /**
    * 단건 조회 — callerId 가 owner 이거나 참석자인 경우에만 반환(없으면 Optional.empty → service 가 404 처리).
    * event_reminder 를 left join 해 reminderMinutes 포함.
    */

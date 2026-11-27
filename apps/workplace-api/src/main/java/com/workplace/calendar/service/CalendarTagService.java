@@ -260,6 +260,14 @@ public class CalendarTagService {
   }
 
   /**
+   * 앱 일정에 붙은 내 앱 태그 id(WP-2155) — 로컬 일정을 Outlook 캘린더로 옮기는 요청이 태그를 보내지 않았을 때 Outlook 범주로 옮겨 붙일 태그다.
+   * 전환 대상은 단일 일정(고친 회차 아님)이라 일정 id 그대로 본다. 호출자의 tx 안에서 부른다(RLS).
+   */
+  public List<Long> appTagIds(long callerId, long eventId) {
+    return tagRepo.appTagIds(callerId, eventId);
+  }
+
+  /**
    * 일정 저장(수정) 요청에 실린 태그 사전 확인(WP-801) — 일정을 쓰기 전에, 읽기 트랜잭션 안에서 setEventTags 와 같은 판정을 한다: 볼 수 없는 일정
    * 404, 범주를 써 넣을 수 없는 M365 일정 409(태그 주인 확인보다 먼저 — 무엇을 보내든 바꿀 수 없다), 남의 태그·없는 태그 404. 일정 본문(또는
    * Graph PATCH)이 저장된 뒤에야 태그가 거절돼 「일정은 바뀌었는데 오류」가 되지 않게 한다.
