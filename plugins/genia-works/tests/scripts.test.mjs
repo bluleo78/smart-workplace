@@ -2435,6 +2435,8 @@ tmuxTest('agentEvents_poke_sendsLoopToIdleClaudePane', async (t) => {
   await until(() => wp.typed().includes('\n'));
   assert.equal(wp.typed(), `${LOOP}\n`);
   assert.match(log(), /^poke WP sent$/m);
+  // WP-2159 — 표시는 /loop 를 넣은 초(숫자 한 줄)다.
+  assert.match(readFileSync(pokeMark(aiDir(), 'WP'), 'utf8'), /^\d+\n?$/);
 });
 
 // 보고 있는 칸(WP-1459) — 사람이 붙어 있어도 마지막 입력이 GW_ATTACHED_IDLE_SEC(기본 600초) 넘게 오래됐으면 막지 않는다.
@@ -2523,6 +2525,24 @@ tmuxTest('agentEvents_poke_noticesImmediatelyThenWaitsForIdle', async (t) => {
   assert.equal(wp.typed(), `${NOTICE('WP-1451')}${LOOP}\n`);
   assert.equal(log(), 'poke WP noticed WP-1451\npoke WP sent-after-wait\n');
   assert.ok(existsSync(pokeMark(d, 'WP')));
+});
+
+// WP-2159: 직전 /loop 30초 뒤(몰아침 창 5초 밖)에 일하는 칸으로 온 알림은 버리지 않는다 — 안내 한 줄 뒤 쉬게 되면 /loop 를 넣는다.
+tmuxTest('agentEvents_poke_busyWithinMinuteNoticesThenLoops', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t, { retryMax: '20' });
+  mkdirSync(join(d, 'state'), { recursive: true });
+  writeFileSync(pokeMark(d, 'WP'), ago(30));
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', BUSY, IDLE);
+  const p = poke('WP', 'WP-11', 'ISSUE_CHAT_MENTION');
+  await until(() => log().includes('poke WP noticed WP-11'));
+  await settle(1500);
+  assert.equal(log(), 'poke WP noticed WP-11\n', '일하는 동안에는 안내만 가고 debounced 로 끝나지 않는다');
+  wp.finish();
+  assert.equal((await p).status, 0);
+  await until(() => wp.typed().includes(LOOP));
+  await settle();
+  assert.equal(wp.typed(), `${NOTICE('WP-11')}${LOOP}\n`);
+  assert.equal(log(), 'poke WP noticed WP-11\npoke WP sent-after-wait\n');
 });
 
 tmuxTest('agentEvents_poke_noticeDebouncedStillSendsLoopWhenIdle', async (t) => {
@@ -2742,8 +2762,52 @@ tmuxTest('agentEvents_poke_skipsFreshPaneAndOpeningKey', async (t) => {
   assert.match(log(), /^poke HR sent-after-wait$/m);
 });
 
+// WP-2159 — 몰아침 창(5초) 밖이면 칸 상태로 정한다: 빠른 회차가 이미 끝나 idle 이면 새 알림에 /loop 를 다시 넣는다.
+tmuxTest('agentEvents_poke_sendsAgainAfterQuickTurnEnded', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  assert.equal((await poke('WP')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n`);
+  // 회차가 30초 전에 시작해 금방 끝난 것 — 칸은 그대로 idle.
+  writeFileSync(pokeMark(d, 'WP'), ago(30));
+  assert.equal((await poke('WP', 'WP-11', 'ASSIGNED')).status, 0);
+  await until(() => wp.typed() === `${LOOP}\n${LOOP}\n`);
+  assert.equal(log().split('\n').filter((l) => l === 'poke WP sent').length, 2, log());
+  assert.doesNotMatch(log(), /debounced/);
+  assert.doesNotMatch(log(), /noticed/);
+});
+
+// WP-2159 — 옛 형식(빈 파일·숫자 아닌 내용) 표시는 시각을 못 읽으니 디바운스하지 않는다.
+tmuxTest('agentEvents_poke_legacyEmptyMarkIsNotDebounced', async (t) => {
+  const { wrapper, tmux, d, log, poke } = pokeSetup(t);
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  const hr = await fakeClaudePane(wrapper, tmux, 'HR', IDLE);
+  writeFileSync(pokeMark(d, 'WP'), '');
+  writeFileSync(pokeMark(d, 'HR'), 'x\n');
+  assert.equal((await poke('WP')).status, 0);
+  assert.equal((await poke('HR')).status, 0);
+  await until(() => wp.typed().includes('\n') && hr.typed().includes('\n'));
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.equal(hr.typed(), `${LOOP.replace('work-loop WP', 'work-loop HR')}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+  assert.match(log(), /^poke HR sent$/m);
+});
+
+// WP-2159 — GW_POKE_BURST_SEC 가 숫자가 아니면 기본 5초로 돌아간다.
+tmuxTest('agentEvents_poke_burstSecNonNumericFallsBackToFive', async (t) => {
+  const { wrapper, tmux, log, poke } = pokeSetup(t, { env: { GW_POKE_BURST_SEC: 'abc' } });
+  const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
+  assert.equal((await poke('WP')).status, 0);
+  assert.equal((await poke('WP')).status, 0);
+  await settle();
+  assert.equal(wp.typed(), `${LOOP}\n`);
+  assert.match(log(), /^poke WP sent$/m);
+  assert.match(log(), /^poke WP debounced$/m);
+});
+
 tmuxTest('agentEvents_poke_debouncesRepeatedWakes', async (t) => {
-  const { wrapper, tmux, log, poke } = pokeSetup(t);
+  // 몰아침 창을 넉넉히(60초) — 느린 CI 에서 poke 사이가 기본 5초를 넘어 깜빡 실패하지 않게(WP-2159).
+  const { wrapper, tmux, log, poke } = pokeSetup(t, { env: { GW_POKE_BURST_SEC: '60' } });
   const wp = await fakeClaudePane(wrapper, tmux, 'WP', IDLE);
   // 한꺼번에 여럿, 그 뒤 또 하나 — 칸에는 한 번만 들어간다.
   await Promise.all([poke('WP'), poke('WP'), poke('WP')]);

@@ -33,7 +33,7 @@
 #   칸 명령의 첫 /loop 가 아직 제출되지 않았을 수 있어 겹쳐 넣지 않는다.
 #   쉬지 않으면(busy·typing·unknown·attached·starting) 알림을 버리지 않고 키 잠금을 쥔 채 15초마다 다시 보며 5분까지 기다리다 쉬게 되면 넣는다 —
 #   일하는 중에 온 알림을 다음 정기 확인(20~30분 뒤)까지 미루지 않게. 간격·한도(초)는 GW_POKE_RETRY_SEC·GW_POKE_RETRY_MAX 로 바꿀 수 있다(테스트용).
-#   같은 키는 60초에 한 번만 넣고(<AI 폴더>/state/poke-<키> — 넣었을 때만 표시), 동시 poke 는 키마다 잠가(poke-<키>.lock) 하나만 한다 —
+#   같은 키는 /loop 를 넣은 직후 몰아침 창(GW_POKE_BURST_SEC, 기본 5초) 안에서만 한 번으로 묶고(<AI 폴더>/state/poke-<키> 에 넣은 초 — 넣었을 때만 표시; WP-2159), 창 밖은 칸 상태(쉬면 /loop, 일하면 안내 뒤 기다림)로 처리하며, 동시 poke 는 키마다 잠가(poke-<키>.lock) 하나만 한다 —
 #   기다리는 poke 가 있으면 뒤의 poke 는 아무것도 남기지 않고 끝난다(기다리는 쪽이 맡는다).
 #   결과는 끝에 한 번 events.log 에 「poke <키> <sent|sent-after-wait|busy|typing|unknown|attached|starting|dead|debounced|no-pane|not-claude|failed>」
 #   한 줄로 남긴다(기다렸다 넣었으면 sent-after-wait, 한도까지 못 넣었으면 마지막 이유 — open 과 같은 방식).
@@ -41,7 +41,7 @@
 #   기다리지 않고 바로 「[genia-works 알림] <이슈 키> <종류> — 하던 일 사이에 확인해 주세요」 한 줄을 넣는다(poke 한 번에 한 번). Claude Code 는 일하는 중에 친 입력을 줄 세워
 #   단계 사이에 모델에 보여 주므로 안전하다. 안내는 /loop 를 대신하지 않는다 — 칸의 /loop 일정이 끊겼을 수 있어(11-09 사고) 안내 뒤에도 위처럼 쉬기를 기다려
 #   쉬게 되면 /loop 를 넣고(한도까지 못 쉬면 안내만 남고 busy 기록), 일하는 중에 /loop 를 겹쳐 넣지는 않는다. 같은 이슈 키는 GW_NOTICE_SEC(기본 300초)에 한 번만
-#   (<AI 폴더>/state/notice-<이슈 키> 에 넣은 초 — 넣었을 때만), 이슈 키가 다르면 따로 센다. /loop 의 60초 디바운스(poke-<키>)는 안내가 쓰지도 바꾸지도 않는다.
+#   (<AI 폴더>/state/notice-<이슈 키> 에 넣은 초 — 넣었을 때만), 이슈 키가 다르면 따로 센다. /loop 의 몰아침 표시(poke-<키>)는 안내가 쓰지도 바꾸지도 않는다(WP-2159).
 #   쉬는 칸에 /loop 를 넣기 전에 비우기 표시가 있으면 먼저 /clear(WP-1714) — try_clear 가 넣으면 대화 영역 지문이 바뀔 때까지 1초씩 GW_CLEAR_WAIT_SEC(기본 15초)
 #   기다리고, 안 바뀌어도 칸을 다시 읽어 idle 이면 /loop 를 넣는다(깨어남을 잃지 않는다). 비우기는 poke 한 번에 한 번만 해 본다.
 #   이슈 키·종류가 없거나 그 모양이 아니면(다시 붙음 -·sweep) 안내 없이 위의 기다렸다 넣는 동작 그대로다.
@@ -528,7 +528,7 @@ do_sweep() {
       continue
     fi
     # 비워도 되는 칸이면 비운다(WP-1714) — 화면이 바뀌므로 1시간 기록을 지금부터 다시 센다(지문은 비워 다음 표본에서 새로 잡는다).
-    # 같은 키로 poke 가 /loop 를 넣는 중이면(60초 안에 넣었거나 잠금이 잡혀 있음) 넣지 않는다 — /clear 가 /loop 와 섞여 깨어남을 잃지 않게.
+    # 같은 키로 poke 가 /loop 를 넣는 중이면(막 넣었거나 — poke-<키> 파일의 mtime 이 1분 안 — 잠금이 잡혀 있음) 넣지 않는다. 이 판정은 몰아침 창과 별개로 mtime 기준을 그대로 둔다(WP-2159) — /clear 가 /loop 와 섞여 깨어남을 잃지 않게.
     # 잠금은 하위 셸에서 잡는다(gw_dir_lock 의 EXIT trap 이 kill_children_on_exit 의 trap 을 덮어쓰지 않게 — 하위 셸이 끝나면 잠금이 풀린다).
     # 건너뛰어도 아래 idle 기록 처리는 그대로 이어진다.
     if [ -f "$state/clear-ok-$k" ] && [ -z "$(find "$state/poke-$k" -mmin -1 2>/dev/null)" ] &&
@@ -549,7 +549,7 @@ do_sweep() {
       continue
     fi
     [ $((now - since)) -ge "$secs" ] || continue
-    # 1시간 넘게 쉬었다 — 기존 poke 경로로 넣는다(막 뜬 칸·입력 중 판정·60초 디바운스·잠금을 poke 가 다시 지킨다). 시각은 넣든 못 넣든 지금으로 고쳐
+    # 1시간 넘게 쉬었다 — 기존 poke 경로로 넣는다(막 뜬 칸·입력 중 판정·몰아침 창·잠금을 poke 가 다시 지킨다). 시각은 넣든 못 넣든 지금으로 고쳐
     # 같은 칸을 1시간에 한 번만 건드린다. 칸마다 뒤에서(일하는 칸을 기다리는 사이 다른 칸이 밀리지 않게).
     printf '%s %s\n' "$now" "$print" > "$mark"
     GW_POKE_CLI=$cli "$here/agent-events" poke "$aidir" "$k" </dev/null >/dev/null 2>&1 &
@@ -628,7 +628,7 @@ try_clear() {
 
 # 일하는 칸에 안내 한 줄(WP-1459) — do_poke 가 busy 칸에서 poke 한 번에 한 번 부른다($key·$issue·$kind·$pane 을 쓴다). 같은 이슈 키는 GW_NOTICE_SEC(기본 300초)에 한 번.
 # 안내 뒤에도 do_poke 는 쉬기를 기다려 /loop 를 넣는다 — 안내는 /loop 를 대신하지 않는다.
-# /loop 표시(poke-<키>)는 건드리지 않는다 — 안내는 회차를 시작하지 않으므로 뒤의 /loop 디바운스를 늦추면 안 된다.
+# /loop 표시(poke-<키>)는 건드리지 않는다 — 안내는 회차를 시작하지 않으므로 뒤의 /loop 몰아침 창 판정을 늦추면 안 된다(WP-2159).
 do_notice() {
   mark="$state/notice-$issue"
   gap=${GW_NOTICE_SEC:-300}
@@ -684,8 +684,12 @@ do_poke() {
   # 잡지 못하면 다른 poke 가 넣는 중이거나 쉬기를 기다리는 중이다 — 그쪽이 맡으므로 남기지 않고 끝낸다.
   # sweep 도 /clear 를 넣는 잠깐(1초 안) 이 잠금을 쥔다(WP-1714) — 그 틈에 온 알림을 버리지 않게 3초(0.1초 × 30)까지 다시 잡아 본다.
   gw_dir_lock "$state/poke-$key.lock" 30 || exit 0
-  # 60초 안에 넣었으면 그 /loop 회차가 아직 돌고 있다 — 몰아친 알림마다 넣지 않는다.
-  if [ -n "$(find "$stamp" -mmin -1 2>/dev/null)" ]; then
+  # WP-2159: 몰아침 창(기본 5초) 안에 넣었으면 같은 알림 묶음이라 다시 넣지 않는다. 창 밖은 칸 상태로 정한다 —
+  # 아래에서 칸이 idle 이면 그 회차가 이미 끝난 것이니 새 알림에 /loop 를 다시 넣고, 일하는 중이면 busy 경로가 맡는다.
+  # 표시는 /loop 를 넣은 초(숫자)다. 빈 파일 등 옛 형식은 시각을 못 읽으니 디바운스하지 않는다.
+  burst=${GW_POKE_BURST_SEC:-5}
+  case "$burst" in ''|*[!0-9]*) burst=5 ;; esac
+  if age=$(gw_stamp_age "$stamp") && [ "$age" -lt "$burst" ]; then
     note poke "$key" debounced
     exit 0
   fi
@@ -737,7 +741,7 @@ do_poke() {
     fi
     # 일하는 칸 — 이슈 키·종류가 있으면 기다리지 않고 안내 한 줄을 먼저 넣는다(WP-1459). busy 는 입력 상자가 빈 때뿐이라(친 글자는 typing) 글자가 섞이지 않는다.
     # 안내는 이 poke 에서 한 번만 하고(notice_ok 를 끈다) 끝내지 않는다 — 칸의 /loop 일정이 끊겼을 수 있어(11-09 사고) 안내만으로는 회차가 다시 돌지 않는다.
-    # 그래서 아래 기다림을 이어 가 쉬게 되면 /loop 를 넣는다. 직전 /loop 60초 안에는 위의 디바운스가 먼저 끝내므로 안내도 가지 않는다.
+    # 그래서 아래 기다림을 이어 가 쉬게 되면 /loop 를 넣는다. 직전 /loop 몰아침 창(기본 5초) 안에는 위의 debounced 가 먼저 끝내므로 안내도 가지 않고, 창 밖이면 안내 뒤 기다려 /loop 를 넣는다(WP-2159).
     if [ "$notice_ok" = 1 ] && [ "$st" = busy ]; then
       do_notice
       notice_ok=0
@@ -755,7 +759,8 @@ do_poke() {
     note poke "$key" failed
     exit 0
   fi
-  : > "$stamp"
+  # WP-2159: 몰아침 창 판정용으로 넣은 초를 적는다.
+  date +%s > "$stamp"
   if [ "$waited" -gt 0 ]; then note poke "$key" sent-after-wait; else note poke "$key" sent; fi
   exit 0
 }
