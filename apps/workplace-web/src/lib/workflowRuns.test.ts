@@ -201,6 +201,19 @@ describe('workflowRuns', () => {
     expect(rows.map((r) => r.outcome)).toEqual(['답변', '승인', null])
   })
 
+  // WP-2158 리뷰 후속 — 옛 서버 응답(outcomeName 없음)이어도 결과가 빈칸이 아니라 기본 이름·키로 보인다.
+  it('runMoveRows_outcomeNameMissing_fallsBackToDefaultNameOrKey', () => {
+    const runs = [
+      visit(1, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z', { outcome: 'approve' }),
+      visit(2, 'b', '2026-01-01T00:10:00Z', '2026-01-01T00:20:00Z', { outcome: 'ask', outcomeName: null }),
+      visit(3, 'c', '2026-01-01T00:20:00Z', null),
+    ]
+    // 옛 서버 모양 — 칸 자체가 없다(null 과 따로 본다).
+    delete (runs[0] as { outcomeName?: string | null }).outcomeName
+    const rows = runMoveRows(detail(runs))
+    expect(rows.map((r) => r.outcome)).toEqual(['질문', 'approve', null])
+  })
+
   // 같은 초 안에서 밀리초 유무가 섞여도(문자열 비교는 「…00Z」 > 「…00.5Z」) 방문 id 순서대로 이어진다.
   it('runMoveRows_mixedMillisSameSecond_ordersByVisitId', () => {
     const runs = [

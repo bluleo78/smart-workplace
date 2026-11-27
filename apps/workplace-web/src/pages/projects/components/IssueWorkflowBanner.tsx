@@ -27,6 +27,7 @@ import {
   type WorkflowNodeView,
   type WorkflowOutcomeView,
 } from '@/lib/workflow'
+import { outcomeDisplayName, outputDisplayName } from '@/lib/workflowNames'
 import { pendingQuestion } from '@/lib/workflowRuns'
 
 interface Props {
@@ -80,9 +81,9 @@ function readOutput(o: RequiredOutput, raw: string | boolean | undefined): { val
  */
 function announceText(outcome: WorkflowOutcomeView | undefined, noCandidate: boolean): string {
   if (!outcome) return ''
-  const head = `「${outcome.name}」 결과를 골랐어요.`
+  const head = `「${outcomeDisplayName(outcome.key, outcome.name)}」 결과를 골랐어요.`
   if (noCandidate) return `${head} 넘길 수 있는 담당 후보가 없어 넘길 수 없어요.`
-  const required = [...outcome.requiredOutputs.map((o) => o.name), ...(outcome.assigneeRequired ? ['다음 담당'] : [])]
+  const required = [...outcome.requiredOutputs.map((o) => outputDisplayName(o.key, o.name)), ...(outcome.assigneeRequired ? ['다음 담당'] : [])]
   const fields = required.length > 0 ? `필수 항목(${required.join('·')})을 채우고 ` : ''
   const comment = outcome.requireComment ? '의견(필수)' : '의견'
   return `${head} 아래에서 ${fields}${comment}을 적고 넘기기를 누르세요.`
@@ -266,6 +267,8 @@ function BannerBody({
   // 스크린리더용 안내 — 고른 결과와 아래에 폼이 붙었음을 알린다(보이는 모양은 그대로, 초점도 옮기지 않는다).
   // 왜: 폼은 단추 뒤에 조용히 붙어 스크린리더 사용자가 알 수 없었다. status 는 고르기 전에도 있어야 변경이 낭독된다.
   const announce = announceText(outcome, noCandidate)
+  // 고른 결과의 표시 이름 — 입력 묶음 aria 에 쓴다.
+  const outcomeLabel = outcome ? outcomeDisplayName(outcome.key, outcome.name) : ''
 
   // 결과를 바꾸면 이전 결과에서 채운 담당·출력은 비운다 — 다른 결과의 후보 밖 사람이 그대로 실려 가지 않게.
   function pick(key: string) {
@@ -327,13 +330,14 @@ function BannerBody({
         {cur.enteredAt && <span className="ml-1 text-xs font-normal">{`· ${formatRelativeTime(cur.enteredAt)}`}</span>}
       </div>
       {q && <p>{`「${q}」`}</p>}
-      {cur.instructions && <Instructions text={cur.instructions} />}
+      {/* 노드(방문)가 바뀌면 key 로 새로 마운트해 접힘 상태를 처음(접힘)으로 되돌린다(WP-2158 리뷰 후속). */}
+      {cur.instructions && <Instructions key={`${cur.key}:${cur.enteredAt ?? ''}`} text={cur.instructions} />}
       {/* 질문 노드(WP-2093) — 질문에 대한 답은 결과 단추가 아니라 이슈 챗 글로 한다. */}
       {cur.returnTo && <p className="text-xs text-muted-foreground">질문에 대한 답은 이슈 챗에 쓰면 돼요.</p>}
       <div className="flex flex-wrap gap-2">
         {outcomes.map((o) => (
           <Button key={o.key} type="button" size="sm" variant={picked === o.key ? 'default' : 'outline'} aria-pressed={picked === o.key} onClick={() => pick(o.key)}>
-            {o.name}
+            {outcomeDisplayName(o.key, o.name)}
           </Button>
         ))}
       </div>
@@ -343,26 +347,29 @@ function BannerBody({
         </Button>
       )}
       {outcome && (
-        <div role="group" aria-label={`「${outcome.name}」 결과 입력`} className="space-y-2">
-          {outcome.requiredOutputs.map((o) => (
-            <label key={o.key} className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-xs text-muted-foreground">{o.name}</span>
-              {o.type === 'boolean' ? (
-                <Checkbox
-                  aria-label={o.name}
-                  checked={outputs[o.key] === true}
-                  onCheckedChange={(c) => setOutputs((s) => ({ ...s, [o.key]: c === true }))}
-                />
-              ) : (
-                <Input
-                  aria-label={o.name}
-                  type={o.type === 'number' ? 'number' : 'text'}
-                  value={typeof outputs[o.key] === 'string' ? (outputs[o.key] as string) : ''}
-                  onChange={(e) => setOutputs((s) => ({ ...s, [o.key]: e.target.value }))}
-                />
-              )}
-            </label>
-          ))}
+        <div role="group" aria-label={`「${outcomeLabel}」 결과 입력`} className="space-y-2">
+          {outcome.requiredOutputs.map((o) => {
+            const label = outputDisplayName(o.key, o.name)
+            return (
+              <label key={o.key} className="flex items-center gap-2">
+                <span className="w-24 shrink-0 text-xs text-muted-foreground">{label}</span>
+                {o.type === 'boolean' ? (
+                  <Checkbox
+                    aria-label={label}
+                    checked={outputs[o.key] === true}
+                    onCheckedChange={(c) => setOutputs((s) => ({ ...s, [o.key]: c === true }))}
+                  />
+                ) : (
+                  <Input
+                    aria-label={label}
+                    type={o.type === 'number' ? 'number' : 'text'}
+                    value={typeof outputs[o.key] === 'string' ? (outputs[o.key] as string) : ''}
+                    onChange={(e) => setOutputs((s) => ({ ...s, [o.key]: e.target.value }))}
+                  />
+                )}
+              </label>
+            )
+          })}
           {outcome.candidateAssignees.length > 0 && (
             <RadioGroup
               aria-label="다음 담당"
