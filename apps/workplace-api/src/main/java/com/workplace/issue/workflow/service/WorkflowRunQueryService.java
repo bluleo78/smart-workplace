@@ -36,6 +36,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,9 +55,15 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class WorkflowRunQueryService {
 
-  /** 실행 상태 값 — 목록 status 거르기는 이 값 하나만 받는다(Global 「workflow_run.status」). */
+  /**
+   * 목록 status 허용값 — 실행 상태 다섯(Global 「workflow_run.status」)과, 진행 중 묶음 {@code ACTIVE}(WP-2157,
+   * RUNNING·WAITING·SUSPENDED).
+   */
   private static final Set<String> RUN_STATUSES =
-      Set.of("RUNNING", "WAITING", "SUSPENDED", "COMPLETED", "CANCELED");
+      Stream.concat(
+              WorkflowRunRepository.ALL_STATUSES.stream(),
+              Stream.of(WorkflowRunRepository.ACTIVE_GROUP))
+          .collect(Collectors.toUnmodifiableSet());
 
   /** 쪽 크기 기본값·상한(설계 §11 「30개(최대 100)」). */
   public static final int DEFAULT_SIZE = 30;
@@ -83,7 +91,7 @@ public class WorkflowRunQueryService {
    * 정의의 실행 목록 한 쪽 — 최신순(id 내림차순). 입력 검사(400)는 정의를 읽을 수 있음(404)을 확인한 뒤에 한다 — 못 보는 정의에 대해 입력 오류로 있음을
    * 드러내지 않게.
    *
-   * @param status 실행 상태 하나(null 이면 모두)
+   * @param status 실행 상태 하나 또는 ACTIVE(RUNNING·WAITING·SUSPENDED 묶음)(null 이면 모두)
    * @param node 지금 노드 키(null 이면 모두)
    * @param assigneeId 지금 노드 담당(null 이면 모두)
    * @param cursor 앞 응답의 nextCursor(null 이면 처음)
@@ -313,7 +321,9 @@ public class WorkflowRunQueryService {
     WorkflowRow workflow =
         workflowRepository.findById(workflowId).orElseThrow(WorkflowException::notFound);
     readableProject(workflow.projectId(), callerId);
-    return new WorkflowRunCounts(runRepository.countActiveByNode(workflow.id()));
+    return new WorkflowRunCounts(
+        runRepository.countActiveByNode(workflow.id()),
+        runRepository.countByStatus(workflow.id(), workflow.projectId()));
   }
 
   /**

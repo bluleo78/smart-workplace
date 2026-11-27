@@ -59,7 +59,7 @@ function setup(body: object | (() => object), opts: { canManage?: boolean; canRe
 describe('실행 상세', () => {
   it('runDetail_paintsPassedCurrentUnvisited', async () => {
     setup(detail('WAITING'))
-    expect(await screen.findByText(/실행 #7 · 버전 2/)).toBeVisible()
+    expect(await screen.findByText(/실행 #7 · v2/)).toBeVisible()
     expect(screen.getByText(/김 시작/)).toBeVisible()
     expect(screen.getByRole('link', { name: '이슈 열기 ↗' })).toHaveAttribute('href', '/projects/WP/issues/70')
     const paint = (key: string) => document.querySelector(`[data-node-key="${key}"]`)!.getAttribute('data-paint')
@@ -68,13 +68,12 @@ describe('실행 상세', () => {
     expect(paint('end')).toBe('unvisited')
   })
 
-  // 사람 차례(WAITING) 상태 배지가 warning 색을 갖는지 본다 — 색 매핑이 빠지면 목록·상세에서 상태가 눈에 안 띈다.
-  it('runDetail_waitingBadgeUsesWarningTone', async () => {
+  // 사람 차례(WAITING) 상태 글자가 warning 색을 갖는지 본다 — 색 매핑이 빠지면 목록·상세에서 상태가 눈에 안 띈다.
+  it('runDetail_waitingStatusMetaUsesWarningTone', async () => {
     setup(detail('WAITING'))
-    await screen.findByText(/실행 #7 · 버전 2/)
-    // 같은 글자가 그래프 노드에도 있어 배지(data-slot)만 골라낸다.
-    const badge = screen.getAllByText('사람 차례').find((el) => el.getAttribute('data-slot') === 'badge')
-    expect(badge).toHaveClass('bg-warning-subtle', 'text-warning-text')
+    await screen.findByText(/실행 #7 · v2/)
+    // 머리 메타의 상태 글자(● 사람 차례)가 warning 글자색을 갖는다.
+    expect(screen.getByText('● 사람 차례')).toHaveClass('text-warning-text')
   })
 
   it('waitingBanner_answerMovesRun', async () => {
@@ -107,7 +106,7 @@ describe('실행 상세', () => {
     await r.user.click(await screen.findByRole('button', { name: 'approve' }))
     await r.user.click(screen.getByRole('button', { name: '넘기기' }))
     await waitFor(() => expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument())
-    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /WP-70/ })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'WP-70 로그인 개선' })).toHaveFocus())
   })
 
   it('waitingBanner_notAssignee_showsQuestionOnly', async () => {
@@ -128,7 +127,9 @@ describe('실행 상세', () => {
       model: mkAskModel(),
     }
     setup(d, { meId: 4 })
-    expect(await screen.findByText('「@박 @사용자 어느 쪽?」')).toBeVisible()
+    // 배너와 이동 기록 둘 다 질문 첫 줄을 보인다.
+    expect(await screen.findAllByText('「@박 @사용자 어느 쪽?」')).toHaveLength(2)
+    expect(within(screen.getByTestId('run-waiting-banner')).getByText('「@박 @사용자 어느 쪽?」')).toBeVisible()
     expect(screen.queryByText(/- A/)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: '챗에서 답하기' })).toHaveAttribute('href', '/projects/WP/issues/70?chat=1')
     expect(screen.queryByTestId('issue-workflow-banner')).not.toBeInTheDocument()
@@ -217,14 +218,93 @@ describe('실행 상세', () => {
     await waitFor(() => expect(gets.detail).toBeGreaterThan(before))
   })
 
+  it('runDetail_headerTitleOnceWithColoredStatusMeta', async () => {
+    setup(detail('RUNNING'))
+    const h2 = await screen.findByRole('heading', { level: 2 })
+    expect(h2).toHaveTextContent(/^WP-70 로그인 개선$/)
+    const meta = screen.getByText(/실행 #7/).closest('p')!
+    expect(within(meta).getByText(/AI 작업 중/)).toHaveClass('text-ai-accent')
+    expect(meta).toHaveTextContent('WP-70')
+  })
+
+  it('runDetail_actionMenuOnlyWhenSuspended', async () => {
+    const first = setup(detail('RUNNING'))
+    await screen.findByRole('heading', { level: 2 })
+    expect(screen.queryByRole('button', { name: '실행 메뉴' })).not.toBeInTheDocument()
+    first.unmount()
+    const { user } = setup(detail('SUSPENDED', { status: 'BLOCKED', error: 'x' }))
+    await user.click(await screen.findByRole('button', { name: '실행 메뉴' }))
+    await user.click(await screen.findByRole('menuitem', { name: '조치 고르기' }))
+    expect(await screen.findByRole('radio', { name: '다시 시도' })).toBeVisible()
+  })
+
+  it('runDetail_askBannerChatLinkKept', async () => {
+    const d = {
+      ...detail('WAITING', { nodeKey: 'work_ask', nodeName: '질문 답변' }, { currentNode: 'work_ask', context: { _qa: [{ answerNode: 'work_ask', question: '어느 쪽?', answer: null }] } }),
+      model: mkAskModel(),
+    }
+    setup(d, { meId: 4 })
+    expect(await screen.findByRole('link', { name: '챗에서 답하기' })).toHaveAttribute('href', '/projects/WP/issues/70?chat=1')
+  })
+
+  it('runDetail_moveHistoryStartOneRow', async () => {
+    setup(detail('WAITING'))
+    await screen.findByRole('heading', { level: 2 })
+    const region = within(screen.getByRole('region', { name: '이동 기록' }))
+    expect(region.getByText('워크플로우 시작 → 작성')).toBeVisible()
+    expect(region.queryByText(/^시작 → /)).toBeNull()
+  })
+
+  it('runDetail_moveHistoryAskQuestionLine', async () => {
+    const d = detail('WAITING', { nodeKey: 'work_ask', nodeName: '질문 답변' }, { currentNode: 'work_ask', context: { _qa: [{ answerNode: 'work_ask', question: '어느 쪽?\n- A', answer: null }] } })
+    d.nodeRuns = [visit(1, 'work', '작업', { actor: kim, outcome: 'ask' }), d.nodeRuns[1]]
+    setup({ ...d, model: mkAskModel() })
+    await screen.findByRole('heading', { level: 2 })
+    const region = within(screen.getByRole('region', { name: '이동 기록' }))
+    expect(region.getByText('「어느 쪽?」')).toBeVisible()
+    expect(region.queryByText(/- A/)).toBeNull()
+  })
+
+  // WP-2157 리뷰: 끝난 실행(CANCELED)은 currentNode 가 질문 노드여도 주황 곁 노드를 그리지 않는다.
+  it('runDetail_endedRunHasNoCurrentSideNode', async () => {
+    const d = {
+      ...detail('CANCELED', { nodeKey: 'work_ask', nodeName: '질문 답변', status: 'COMPLETED', leftAt: '2026-11-20T02:00:00Z' }, { currentNode: 'work_ask' }),
+      model: mkAskModel(),
+    }
+    d.nodeRuns = [visit(1, 'work', '작업', { actor: kim, outcome: 'ask' }), d.nodeRuns[1]]
+    setup(d)
+    await screen.findByRole('heading', { level: 2 })
+    expect(document.querySelector('[data-node-key="work_ask"][data-paint="current"]')).toBeNull()
+  })
+
+  // WP-2157 리뷰: 첫 방문이 start 가 아니면 「워크플로우 시작」으로 합치지 않고 그 노드 이름을 보인다.
+  it('runDetail_singleNonStartVisitShowsNodeName', async () => {
+    const d = detail('RUNNING')
+    d.nodeRuns = [visit(2, 'a', '작성', { status: 'ACTIVE', leftAt: null })]
+    d.run.currentNode = 'a'
+    setup(d)
+    await screen.findByRole('heading', { level: 2 })
+    const region = within(screen.getByRole('region', { name: '이동 기록' }))
+    expect(region.getByText('워크플로우 시작 → 작성')).toBeVisible()
+  })
+
+  // WP-2157 리뷰: 상세 영역의 접근 이름은 이슈 키 + 제목(WP-2053).
+  it('runDetail_regionNameHasIssueKeyAndTitle', async () => {
+    setup(detail('WAITING'))
+    await screen.findByRole('heading', { level: 2 })
+    expect(screen.getByRole('region', { name: 'WP-70 로그인 개선' })).toBeVisible()
+  })
+
   it('moveLog_rowsNewestFirst', async () => {
     setup(detail('WAITING'))
     await screen.findByText(/실행 #7/)
     const items = within(screen.getByRole('region', { name: '이동 기록' })).getAllByRole('listitem')
     expect(items).toHaveLength(2)
-    expect(items[0]).toHaveTextContent('작성 → 검토 · 김 · 결과 「done」')
+    expect(items[0]).toHaveTextContent('작성 → 검토')
+    expect(items[0]).toHaveTextContent('김 · 결과 done')
     expect(items[0]).toHaveTextContent('담당 → 이')
-    expect(items[1]).toHaveTextContent('워크플로우 시작 · 김')
+    expect(items[1]).toHaveTextContent('워크플로우 시작 → 작성')
+    expect(items[1]).toHaveTextContent('김')
   })
 
   // 서버 조치는 이슈 쓰기 + 프로젝트 구성원이 필요하다 — 구성원이 아니면 단추를 그리지 않는다(이유 문구는 그대로).

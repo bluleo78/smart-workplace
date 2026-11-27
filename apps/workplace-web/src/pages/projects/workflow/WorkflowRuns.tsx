@@ -1,15 +1,15 @@
-// 워크플로우 탭 › 실행 — 왼쪽 실행 목록(상태·노드·담당 필터, 다음 쪽)과 오른쪽 고른 실행 자리, 「그래프에 모아 보기」(WP-1991).
+// 워크플로우 탭 › 실행 — 왼쪽 실행 목록(글자 탭·필터 팝오버, 다음 쪽; WP-2157 두 칸·덜어내기)과 오른쪽 고른 실행 자리, 「그래프에 모아 보기」(WP-1991).
 // 고른 실행은 주소 `?run=<id>`, 모아 보기는 `?runsView=graph` 로 둬 공유·뒤로 가기가 되게 한다. 필터는 화면 상태다(주소 아님).
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { ResultStatus } from '@/components/ResultStatus'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
 import { useWorkflowRun, useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
 import { formatRelativeTime } from '@/lib/formatters'
-import { RUN_STATUS_LABEL, RUN_STATUS_TONE, type RunStatus } from '@/lib/workflow'
+import { ACTIVE_RUN_STATUSES, RUN_STATUS_DOT, RUN_STATUS_LABEL, RUN_STATUS_ORDER, type RunStatus } from '@/lib/workflow'
 import { runDetailOpenedText, type RunFilters, type WorkflowRunItem } from '@/lib/workflowRuns'
 import { useWorkflowVersion, type WorkflowModel } from '@/lib/workflows'
 
@@ -17,7 +17,8 @@ import { WorkflowGraphView } from './WorkflowGraphView'
 import { WorkflowRunDetail } from './WorkflowRunDetail'
 import { workflowSelectClass } from './WorkflowVersions'
 
-const STATUSES: RunStatus[] = ['SUSPENDED', 'WAITING', 'RUNNING', 'COMPLETED', 'CANCELED']
+/** 목록 글자 탭 — 진행 중(ACTIVE)·완료·전체(WP-2157). 값이 곧 서버 status 라 ALL 만 상태 없음이다. 화면 상태다. */
+type RunTab = 'ACTIVE' | 'COMPLETED' | 'ALL'
 
 interface Props {
   workflowId: number
@@ -27,7 +28,7 @@ interface Props {
   /** 멈춘 실행에 조치를 할 수 있는 사람(프로젝트 구성원) — 실행 상세로 넘긴다. */
   canRecover: boolean
   meId: number
-  /** 진행 중인 실행 수 — 버전별 activeRuns 합계(WorkflowTab 의 versions 조회). 모르면 null. */
+  /** 진행 중인 실행 수 — 버전별 activeRuns 합계(WorkflowTab 의 versions 조회). 탭 숫자는 byStatus 가 쓰고, 이 값은 실수 조회 실패 안내 판정에만 쓴다. 모르면 null. */
   runningCount: number | null
   /** 실행 수 조회 실패 — 다시 불러오기를 보인다. */
   runningFailed: boolean
@@ -36,16 +37,25 @@ interface Props {
   olderNotice?: string | null
 }
 
-/** 실행 목록 + 고른 실행 자리. 목록 머리에 진행 중 수 문구를 두고 필터·모아 보기 단추를 둔다. */
+/** 실행 목록 + 고른 실행 자리. 목록 머리에 글자 탭(진행 중·완료·전체)·필터 단추·모아 보기 단추를 둔다. */
 export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManage, canRecover, meId, runningCount, runningFailed, onRetryRunning, olderNotice }: Props) {
   const [params, setParams] = useSearchParams()
   const runId = Number(params.get('run')) || null
   const graphView = params.get('runsView') === 'graph'
   const [filters, setFilters] = useState<RunFilters>({})
-  const hasFilter = Object.values(filters).some((v) => v !== undefined)
+  const [tab, setTab] = useState<RunTab>('ACTIVE')
+  const filterCount = Object.values(filters).filter((v) => v !== undefined).length
+  const hasFilter = filterCount > 0
+  // 상태 select 를 고르면 탭의 상태보다 앞선다 — 서버에 보낼 상태는 select 값 ?? 탭 값.
+  const tabStatus: RunFilters['status'] = tab === 'ALL' ? undefined : tab
+  const queryFilters: RunFilters = { ...filters, status: filters.status ?? tabStatus }
 
-  const runs = useWorkflowRuns(workflowId, filters, !graphView)
-  const counts = useWorkflowRunCounts(workflowId, graphView)
+  const runs = useWorkflowRuns(workflowId, queryFilters, !graphView)
+  // 탭 숫자(byStatus)와 그래프 배지(counts)가 같은 조회를 쓰므로 목록·그래프 보기 모두 읽는다.
+  const counts = useWorkflowRunCounts(workflowId, true)
+  const byStatus = counts.data?.byStatus
+  const activeCount = byStatus ? ACTIVE_RUN_STATUSES.reduce((sum, st) => sum + byStatus[st], 0) : null
+  const versionCountFailed = runningCount === null && runningFailed
   const published = useWorkflowVersion(workflowId, activeVersionNo)
   const members = useProjectMembers(projectKey)
   // 상세와 같은 쿼리 키라 요청이 늘지 않는다 — 열림 안내 문구(이슈 키)를 얻으려고 읽는다(WP-2053).
@@ -69,59 +79,83 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* 문구의 값은 예전과 같은 출처(versions 의 activeRuns 합계) — 실패하면 다시 불러오기를 보인다. */}
-        {runningCount === null && runningFailed ? (
-          <span role="alert" className="text-sm">
-            실행 수를 불러오지 못했습니다. <Button variant="link" size="sm" onClick={onRetryRunning}>다시 불러오기</Button>
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">{runningCount === null ? '실행 수를 불러오는 중…' : `진행 중인 실행 ${runningCount}개`}</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* 진행 중 수 문구는 글자 탭 숫자로 대체. 실행 수 조회 실패 알림은 머리 아래에 남긴다. */}
+        {!graphView && (
+          <div className="flex items-center gap-3 text-sm">
+            {([['ACTIVE', activeCount === null ? '진행 중' : `진행 중 ${activeCount}`],
+              ['COMPLETED', byStatus ? `완료 ${byStatus.COMPLETED}` : '완료'],
+              ['ALL', '전체']] as const).map(([key, text]) => (
+              <button
+                key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}
+                className={tab === key ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
         )}
-        <FilterSelect
-          id="run-filter-status" label="상태" allLabel="상태: 전체" value={filters.status ?? ''}
-          options={STATUSES.map((st) => ({ value: st, label: RUN_STATUS_LABEL[st] }))}
-          onChange={(v) => setFilters((f) => ({ ...f, status: (v || undefined) as RunStatus | undefined }))}
-        />
-        <FilterSelect
-          id="run-filter-node" label="노드" allLabel="노드: 전체" value={filters.node ?? ''}
-          options={nodeOptions.map((n) => ({ value: n.key, label: n.name ?? n.key }))}
-          onChange={(v) => setFilters((f) => ({ ...f, node: v || undefined }))}
-        />
-        <FilterSelect
-          id="run-filter-assignee" label="담당" allLabel="담당: 전체" value={filters.assigneeId ?? ''}
-          options={(members.data ?? []).map((m) => ({ value: m.userId, label: m.name }))}
-          onChange={(v) => setFilters((f) => ({ ...f, assigneeId: v ? Number(v) : undefined }))}
-        />
-        <Button
-          size="sm" variant={graphView ? 'secondary' : 'ghost'} aria-pressed={graphView} className="ml-auto"
-          onClick={() => setParam('runsView', graphView ? null : 'graph')}
-        >
-          그래프에 모아 보기
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {!graphView && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="ghost">{filterCount > 0 ? `필터 ${filterCount}` : '필터'}</Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" aria-label="실행 필터" className="flex w-auto flex-col gap-2">
+                <FilterSelect
+                  id="run-filter-status" label="상태" allLabel="상태: 전체" value={filters.status ?? ''}
+                  options={RUN_STATUS_ORDER.map((st) => ({ value: st, label: RUN_STATUS_LABEL[st] }))}
+                  onChange={(v) => setFilters((f) => ({ ...f, status: (v || undefined) as RunStatus | undefined }))}
+                />
+                <FilterSelect
+                  id="run-filter-node" label="노드" allLabel="노드: 전체" value={filters.node ?? ''}
+                  options={nodeOptions.map((n) => ({ value: n.key, label: n.name ?? n.key }))}
+                  onChange={(v) => setFilters((f) => ({ ...f, node: v || undefined }))}
+                />
+                <FilterSelect
+                  id="run-filter-assignee" label="담당" allLabel="담당: 전체" value={filters.assigneeId ?? ''}
+                  options={(members.data ?? []).map((m) => ({ value: m.userId, label: m.name }))}
+                  onChange={(v) => setFilters((f) => ({ ...f, assigneeId: v ? Number(v) : undefined }))}
+                />
+              </PopoverContent>
+            </Popover>
+          )}
+          <Button
+            size="sm" variant={graphView ? 'secondary' : 'ghost'} aria-pressed={graphView}
+            onClick={() => setParam('runsView', graphView ? null : 'graph')}
+          >
+            그래프에 모아 보기
+          </Button>
+        </div>
       </div>
+      {/* WP-2157: 실행 수 조회 실패 — 숫자가 조용히 비지 않게 안내와 다시 불러오기를 둔다. 버전 기반 실행 수 실패가 먼저(겹치면 하나만). */}
+      {(versionCountFailed || counts.isError) && (
+        <span role="alert" className="block text-sm">
+          실행 수를 불러오지 못했습니다. <Button variant="link" size="sm" onClick={versionCountFailed ? onRetryRunning : () => void counts.refetch()}>다시 불러오기</Button>
+        </span>
+      )}
       {graphView ? (
-        <GraphBody model={model} activeVersionNo={activeVersionNo} isError={published.isError} onRetry={() => void published.refetch()} badges={counts.data}
+        <GraphBody model={model} activeVersionNo={activeVersionNo} isError={published.isError} onRetry={() => void published.refetch()} badges={counts.data?.counts}
           notice={olderNotice ?? null} onShowList={() => setParam('runsView', null)} />
       ) : (
-        <div className="grid min-w-0 items-start gap-3 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="grid min-w-0 items-start gap-4 @3xl/runs:grid-cols-[300px_minmax(0,1fr)]">
           {/* WP-2053: 줄을 고르면 상세가 열렸음을 스크린리더에 알린다. 포커스는 옮기지 않는다(목록 탐색 유지). 영역은 늘 하나만 마운트.
               다른 워크플로우의 실행이면 상세가 그 안내(role=alert)를 보이므로 「열었습니다」는 알리지 않는다. */}
           <ResultStatus
             conditionKey={String(runId ?? '')} ready={runQuery.isSuccess && runQuery.data.run.workflowId === workflowId}
             text={runQuery.data ? runDetailOpenedText(runQuery.data.run.issueKey) : ''} testId="run-detail-status"
           />
-          <div className="min-w-0 space-y-2">
+          <div className="min-w-0 space-y-2 @3xl/runs:border-r">
             {runs.isError ? (
               <p role="alert" className="text-sm">
-                실행 목록을 불러오지 못했습니다. <Button variant="link" size="sm" onClick={() => void runs.refetch()}>다시 불러오기</Button>
+                실행 목록을 불러오지 못했습니다. <Button variant="link" size="sm" onClick={() => { void runs.refetch(); if (counts.isError) void counts.refetch() }}>다시 불러오기</Button>
               </p>
             ) : runs.isPending ? (
               <p className="text-sm text-muted-foreground">실행을 불러오는 중…</p>
             ) : items.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{hasFilter ? '조건에 맞는 실행이 없습니다' : '아직 실행이 없습니다'}</p>
+              <p className="text-sm text-muted-foreground">{hasFilter || tab !== 'ALL' ? '조건에 맞는 실행이 없습니다' : '아직 실행이 없습니다'}</p>
             ) : (
-              <ul className="space-y-1">
+              <ul className="divide-y">
                 {items.map((item) => (
                   <RunRow key={item.runId} item={item} selected={item.runId === runId} onSelect={() => setParam('run', String(item.runId))} />
                 ))}
@@ -143,20 +177,22 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
   )
 }
 
-/** 목록 한 줄 — 상태 칩·이슈 키·제목·지금 노드·담당·머문 시간. 줄 전체가 단추다. */
+/** 목록 한 줄(WP-2157) — 상태 점+제목, 아래 회색 메타(이슈 키·지금 노드·담당·머문 시간). 사람 차례는 메타가 주황. 줄 전체가 단추다. */
 function RunRow({ item, selected, onSelect }: { item: WorkflowRunItem; selected: boolean; onSelect: () => void }) {
+  const meta = [item.issueKey, item.currentNodeName ?? item.currentNode, item.assignees.map((a) => a.name).join(', '), formatRelativeTime(item.enteredAt)]
+    .filter(Boolean).join(' · ')
   return (
     <li>
       <button
         type="button" aria-current={selected || undefined} onClick={onSelect}
-        className={'flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-md border p-2 text-left text-sm hover:bg-muted/50 ' + (selected ? 'bg-muted' : '')}
+        className={'block w-full space-y-0.5 border-l-2 px-3 py-2 text-left text-sm hover:bg-muted/50 ' + (selected ? 'border-primary bg-muted' : 'border-transparent')}
       >
-        <Badge variant="outline" className={RUN_STATUS_TONE[item.status]}>{RUN_STATUS_LABEL[item.status]}</Badge>
-        <span className="font-medium">{item.issueKey}</span>
-        <span className="min-w-0 flex-1 truncate">{item.title}</span>
-        <span className="text-xs text-muted-foreground">{item.currentNodeName ?? item.currentNode}</span>
-        <span className="text-xs text-muted-foreground">{item.assignees.map((a) => a.name).join(', ')}</span>
-        <span className="text-xs text-muted-foreground">{formatRelativeTime(item.enteredAt)}</span>
+        <span className="flex items-center gap-2">
+          <span className={'size-2 shrink-0 rounded-full ' + RUN_STATUS_DOT[item.status]} aria-hidden="true" />
+          <span className="sr-only">{RUN_STATUS_LABEL[item.status]}</span>
+          <span className="min-w-0 truncate font-medium">{item.title}</span>
+        </span>
+        <span className={'block truncate text-xs ' + (item.status === 'WAITING' ? 'text-warning-text' : 'text-muted-foreground')}>{meta}</span>
       </button>
     </li>
   )

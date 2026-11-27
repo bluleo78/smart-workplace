@@ -2,7 +2,7 @@
 // 이슈 하나에 걸린 실행의 시작·이동·조치는 lib/workflow.ts, 정의 편집·게시는 lib/workflows.ts. 응답 모양은 서버 WorkflowRunPage·WorkflowRunDetail·MyWorkflowTurn 과 같다.
 import { MENTION_TOKEN } from '@/components/mentions/chatMarkdown'
 
-import { isRunStatusEnded, type RunStatus, type WorkflowUser } from './workflow'
+import { ACTIVE_RUN_STATUSES, isQuestionPathNode, type RunStatus, type WorkflowUser } from './workflow'
 import type { WorkflowModel } from './workflows'
 
 /** 실행 목록 한 줄. */
@@ -91,14 +91,15 @@ export interface MyWorkflowTurn {
 
 /** 실행 목록 필터 — 서버가 상태는 값 하나만 받는다. */
 export interface RunFilters {
-  status?: RunStatus
+  status?: RunStatus | 'ACTIVE'
   node?: string
   assigneeId?: number
 }
 
-/** 노드별 진행 중 실행 수 응답(GET /workflows/{id}/run-counts). */
+/** run-counts 응답(GET /workflows/{id}/run-counts) — 노드별 진행 중 수와 상태별 실행 수(WP-2157). */
 export interface WorkflowRunCounts {
   counts: Record<string, number>
+  byStatus: Record<RunStatus, number>
 }
 
 /** 내 차례 응답(GET /me/workflow-turns). */
@@ -109,8 +110,8 @@ export interface MyWorkflowTurnList {
 export type NodePaint = 'passed' | 'failed' | 'current' | 'unvisited'
 
 /** 실행이 아직 어딘가에서 기다리거나 도는 중인가(끝난 실행에는 「지금 노드」가 없다). */
-function isRunActive(status: RunStatus): boolean {
-  return !isRunStatusEnded(status)
+export function isRunActive(status: RunStatus): boolean {
+  return ACTIVE_RUN_STATUSES.includes(status)
 }
 
 /**
@@ -149,26 +150,74 @@ export interface RunMoveRow {
   outcome: string | null
   at: string
   assigned: string[]
+  /** 질문 단계로 들어간 줄의 질문 첫 줄(멘션은 이름으로) — 아니거나 원문이 없으면 null(WP-2157). */
+  question: string | null
+  /** 방문이 start 노드 하나뿐인 시작 줄 — 화면이 「워크플로우 시작」만 보인다(WP-2157). */
+  soleStart: boolean
 }
 
 /**
  * 이동 기록 — 방문마다 한 줄(앞 노드 → 이 노드), 시간 역순.
  * 이동을 한 사람·결과는 앞 방문이 가진 값이고, 첫 줄(시작)은 시작한 사람이다. assigned 는 이 방문에서 워크플로우가 담당으로 넣은 사람.
+ * WP-2157: 가장 이른 방문이 start 노드이고 다음 방문이 있으면 「시작 → 첫 노드」 두 줄 대신 한 줄(from null, to 첫 노드)로 합친다.
+ * 질문 단계로 들어간 줄에는 run.context._qa 의 질문 첫 줄을 붙인다(그 노드의 방문 목록 끝과 항목 목록 끝을 맞춰 짝지음).
  */
 export function runMoveRows(detail: WorkflowRunDetail): RunMoveRow[] {
   const visits = [...detail.nodeRuns].sort((a, b) => a.id - b.id)
-  const rows = visits.map((v, i): RunMoveRow => {
+  const nodeByKey = new Map(detail.model.nodes.map((n) => [n.key, n]))
+  const names = runUserNames(detail)
+  const qa = detail.run.context['_qa']
+  const entries = Array.isArray(qa) ? (qa as { answerNode?: string; question?: unknown }[]) : []
+  // WP-2157: 서버는 최근 QA_MAX 개만 남기므로 앞이 잘릴 수 있다 — 노드별 방문 목록의 끝과 항목 목록의 끝을 맞춘다(가장 최근 방문 ↔ 가장 최근 항목).
+  const visitsOfNode = new Map<string, number[]>()
+  for (const v of visits) {
+    const ids = visitsOfNode.get(v.nodeKey)
+    if (ids) ids.push(v.id)
+    else visitsOfNode.set(v.nodeKey, [v.id])
+  }
+  // 질문 항목을 답할 노드별로 한 번 묶어 둔다(방문마다 다시 거르지 않게).
+  const entriesOfNode = new Map<string, { question?: unknown }[]>()
+  for (const x of entries) {
+    if (!x || x.answerNode === undefined) continue
+    const list = entriesOfNode.get(x.answerNode)
+    if (list) list.push(x)
+    else entriesOfNode.set(x.answerNode, [x])
+  }
+  const questionOf = (v: WorkflowNodeRun): string | null => {
+    const node = nodeByKey.get(v.nodeKey)
+    if (!node || !isQuestionPathNode(node.type, node.returnTo, node.outcomes.map((o) => o.key))) return null
+    const ids = visitsOfNode.get(v.nodeKey) ?? []
+    const mine = entriesOfNode.get(v.nodeKey) ?? []
+    // 이 방문이 뒤에서 몇 번째인가 → 같은 뒤에서 몇 번째 항목. 항목이 더 적으면(앞이 잘림) 앞 방문은 null.
+    const e = mine[mine.length - (ids.length - ids.indexOf(v.id))]
+    if (!e || typeof e.question !== 'string') return null
+    const line = questionFirstLine(e.question)
+    return line == null ? null : mentionTokensAsNames(line, names)
+  }
+  const startedBy = detail.run.startedBy?.name ?? null
+  // 방문마다 한 줄(앞 방문 → 이 방문). 첫 방문은 시작 줄(시작한 사람).
+  const rows: RunMoveRow[] = visits.map((v, i) => {
     const prev = i > 0 ? visits[i - 1] : null
     return {
       id: String(v.id),
       from: prev ? (prev.nodeName ?? prev.nodeKey) : null,
       to: v.nodeName ?? v.nodeKey,
-      actorName: prev ? (prev.actor?.name ?? null) : (detail.run.startedBy?.name ?? null),
+      actorName: prev ? (prev.actor?.name ?? null) : startedBy,
       outcome: prev ? prev.outcome : null,
       at: v.enteredAt,
       assigned: v.workflowAssigned.map((u) => u.name),
+      question: questionOf(v),
+      soleStart: false,
     }
   })
+  if (visits.length > 1 && nodeByKey.get(visits[0].nodeKey)?.type === 'start') {
+    // 시작 줄을 다음 줄에 합친다 — 0번 줄을 빼고 1번 줄을 「시작 → 첫 노드」(시작자·첫 방문 시각)로 고친다.
+    const [start, first] = rows
+    rows.splice(0, 2, { ...first, from: null, actorName: start.actorName, outcome: null, at: start.at })
+  } else if (visits.length === 1 && nodeByKey.get(visits[0].nodeKey)?.type === 'start') {
+    // 방문이 start 하나뿐(다음 단계 전)이면 화면이 「→」 없이 시작만 보이게 표시한다.
+    rows[0].soleStart = true
+  }
   return rows.reverse()
 }
 

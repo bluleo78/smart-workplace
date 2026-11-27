@@ -2,7 +2,7 @@ import { Check, X } from 'lucide-react'
 import { useMemo } from 'react'
 
 import { formatDurationMs } from '@/lib/formatters'
-import { layoutWorkflowGraph, outgoingEdges } from '@/lib/workflowGraphLayout'
+import { layoutCompactRunGraph, layoutWorkflowGraph, outgoingEdges } from '@/lib/workflowGraphLayout'
 import type { NodePaint } from '@/lib/workflowRuns'
 import type { WorkflowModel } from '@/lib/workflows'
 
@@ -32,13 +32,22 @@ interface Props {
   durations?: Record<string, number>
   /** 노드 키 → 진행 중 실행 수(그래프에 모아 보기). 0·없음은 배지를 그리지 않는다. */
   badges?: Record<string, number>
+  /** 실행 상세용 compact 그리기(WP-2157) — 질문 단계는 곁 표식, 라벨은 되돌아가는 간선에만. */
+  compact?: boolean
+  /** compact 에서 지금 노드 키 — 질문 단계면 원래 노드 옆에 주황 곁 노드로 그린다. */
+  currentNode?: string | null
 }
 
 /**
  * 읽기 전용 워크플로우 그래프 — dagre 가 계산한 자리에 노드를 절대 위치 div 로, 간선을 SVG path 로 그린다.
  * 편집 탭의 그래프 보기와 실행 상세·그래프에 모아 보기가 같은 컴포넌트를 쓴다.
  */
-export function WorkflowGraphView({ model, readOnly, paint, durations, badges }: Props) {
+export function WorkflowGraphView({ model, readOnly, paint, durations, badges, compact, currentNode }: Props) {
+  if (compact) return <CompactGraph model={model} readOnly={readOnly} paint={paint} durations={durations} currentNode={currentNode ?? null} />
+  return <FullGraph model={model} readOnly={readOnly} paint={paint} durations={durations} badges={badges} />
+}
+
+function FullGraph({ model, readOnly, paint, durations, badges }: Omit<Props, 'compact' | 'currentNode'>) {
   // dagre 레이아웃은 비싸다 — 상세가 분 단위 now 로 다시 그려도 모델이 같으면 다시 계산하지 않는다.
   const layout = useMemo(() => layoutWorkflowGraph(model), [model])
   const byKey = new Map(model.nodes.map((n) => [n.key, n]))
@@ -108,6 +117,123 @@ export function WorkflowGraphView({ model, readOnly, paint, durations, badges }:
               </li>
             )
           })}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * compact 실행 그래프(WP-2157) — 본 흐름은 한 줄, 질문 단계는 원래 노드 옆 점선 표식(지금 노드면 주황 곁 노드).
+ * 노드는 이름(+지나옴 ✓·실패 ×)과 머문 시간만 보이고 종류 줄·정방향 라벨은 없다. 좁은 칸이라 가로로 넘치면 스크롤.
+ */
+function CompactGraph({ model, readOnly, paint, durations, currentNode }: Omit<Props, 'compact' | 'currentNode' | 'badges'> & { currentNode: string | null }) {
+  const layout = useMemo(() => layoutCompactRunGraph(model, currentNode), [model, currentNode])
+  const byKey = new Map(model.nodes.map((n) => [n.key, n]))
+  // 지금 질문 곁 노드와 원래 노드를 잇는 짧은 선(WP-2157) — 곁 노드가 없으면 null.
+  const askCurrent = layout.askCurrent
+  const askOwner = askCurrent ? layout.nodes.find((n) => n.key === askCurrent.owner)! : null
+  return (
+    <section aria-label="게시된 워크플로우 그래프" data-read-only={readOnly} className="overflow-x-auto">
+      <div className="relative mx-auto" style={{ width: layout.width, height: layout.height }}>
+        <svg className="absolute inset-0 text-muted-foreground" width={layout.width} height={layout.height} aria-hidden="true">
+          <defs>
+            <marker id="wf-arrow-c" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+            </marker>
+            <marker id="wf-arrow-c-ok" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" className="fill-success" />
+            </marker>
+          </defs>
+          {layout.edges.map((e, i) => {
+            if (e.points.length < 2) return null
+            // 지나온 노드에서 지나온·지금 노드로 가는 간선은 초록으로 — 어디까지 왔는지 선으로도 읽힌다.
+            const ok = paint?.[e.from] === 'passed' && (paint?.[e.to] === 'passed' || paint?.[e.to] === 'current')
+            return (
+              <path
+                key={i}
+                d={e.points.map((p, j) => `${j === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')}
+                fill="none"
+                className={ok ? 'text-success' : undefined}
+                stroke="currentColor"
+                strokeWidth={1.25}
+                markerEnd={ok ? 'url(#wf-arrow-c-ok)' : 'url(#wf-arrow-c)'}
+              />
+            )
+          })}
+          {askCurrent && askOwner && (
+            <line x1={askOwner.x + askOwner.width} y1={askOwner.y + askOwner.height / 2} x2={askCurrent.x} y2={askCurrent.y + askCurrent.height / 2} stroke="currentColor" strokeWidth={1.25} />
+          )}
+        </svg>
+        {layout.backLabels.map((l) => (
+          <div
+            key={`${l.from}>${l.to}`}
+            data-testid="graph-back-label"
+            className="absolute truncate text-right text-[11px] leading-4 text-muted-foreground"
+            style={{ left: l.x, top: l.y, width: l.width, height: l.height }}
+          >
+            {l.text}
+          </div>
+        ))}
+        {layout.askMarkers.map((m) => (
+          <div
+            key={m.askKey}
+            data-testid="graph-ask-marker"
+            className="absolute flex items-center justify-center truncate rounded-full border border-dashed px-2 text-xs text-muted-foreground"
+            style={{ left: m.x, top: m.y, width: m.width, height: m.height }}
+          >
+            {m.text}
+          </div>
+        ))}
+        <ul className="m-0 list-none p-0" role="list">
+          {layout.nodes.map((n) => {
+            const node = byKey.get(n.key)!
+            const state = paint?.[n.key]
+            const dur = durations?.[n.key]
+            // 지금 노드 링 — 사람 차례는 주황, 그 밖은 기본 색.
+            const cls = state === 'current'
+              ? `bg-card ring-2 ${node.type === 'human_task' ? 'ring-warning' : 'ring-primary'}`
+              : paintClass[state ?? 'none']
+            return (
+              <li
+                key={n.key}
+                role="listitem"
+                data-node-key={n.key}
+                data-paint={state}
+                className={`absolute overflow-hidden rounded-md border px-2 py-1 text-xs ${cls}`}
+                style={{ left: n.x, top: n.y, width: n.width, height: n.height }}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="truncate text-sm font-medium" title={node.key}>{node.name ?? node.key}</span>
+                  {state === 'passed' && <Check className="ml-auto size-3 shrink-0 text-muted-foreground" aria-label="지나온 노드" />}
+                  {state === 'failed' && <X className="ml-auto size-3 shrink-0 text-destructive" aria-label="실패한 노드" />}
+                </div>
+                {dur != null && <div className="text-muted-foreground">{formatDurationMs(dur)}</div>}
+                <ul className="sr-only" aria-label="이어지는 단계">
+                  {outgoingEdges(node, model).map((edge, i) => (
+                    <li key={i}>
+                      {edge.label} → {byKey.get(edge.to)?.name ?? edge.to}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            )
+          })}
+          {layout.askCurrent && (
+            <li
+              role="listitem"
+              data-node-key={layout.askCurrent.askKey}
+              data-paint="current"
+              className="absolute overflow-hidden rounded-md border border-warning bg-warning-subtle px-2 py-1 text-xs ring-2 ring-warning"
+              style={{ left: layout.askCurrent.x, top: layout.askCurrent.y, width: layout.askCurrent.width, height: layout.askCurrent.height }}
+            >
+              <div className="truncate text-sm font-medium text-warning-text">{byKey.get(layout.askCurrent.askKey)?.name ?? layout.askCurrent.askKey}</div>
+              <div className="truncate text-muted-foreground">
+                {/* 머문 시간(WP-2157 I2) — 지금 노드와 같은 형식. 값이 없으면 결과 문구로 대체한다(이름 없는 단계의 제목은 키라 「사람 차례」가 겹치지 않는다). */}
+                {durations?.[layout.askCurrent.askKey] != null ? formatDurationMs(durations[layout.askCurrent.askKey]) : `${layout.askCurrent.outcome} → 사람 차례`}
+              </div>
+            </li>
+          )}
         </ul>
       </div>
     </section>

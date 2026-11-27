@@ -37,7 +37,7 @@ export function useWorkflowRun(runId: number | null) {
   })
 }
 
-/** 노드별 진행 중 실행 수(그래프 배지) — 「그래프에 모아 보기」일 때만 묻는다. */
+/** run-counts 전체(노드별 진행 중 수 + 상태별 실행 수) — enabled 일 때만 묻는다. */
 export function useWorkflowRunCounts(workflowId: number | undefined, enabled: boolean) {
   return useQuery({
     queryKey: workflowRunKeys.counts(workflowId),
@@ -46,7 +46,7 @@ export function useWorkflowRunCounts(workflowId: number | undefined, enabled: bo
         ? ({ signal }) =>
             client
               .get<WorkflowRunCounts>(`/workflows/${workflowId}/run-counts`, { signal })
-              .then((r) => r.data.counts)
+              .then((r) => r.data)
         : skipToken,
   })
 }
