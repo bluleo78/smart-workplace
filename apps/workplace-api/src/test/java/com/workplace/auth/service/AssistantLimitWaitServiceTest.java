@@ -82,13 +82,9 @@ class AssistantLimitWaitServiceTest extends IntegrationTestBase {
   @AfterEach
   void tearDown() {
     // 비동기 알림이 아직 행을 넣는 중이면 아래 지우기 뒤에 알림이 들어와 사용자 삭제가 FK 로 막힌다 — 먼저 풀이 비게 한다.
-    // 풀테스트 부하로 3초 안에 비지 않아도 정리는 이어 가야 한다(시간 초과 예외가 나면 삭제가 하나도 돌지 않고 행이 남는다) — 마지막 notification 삭제가
-    // 안전망이다.
-    try {
-      AsyncPools.awaitIdle(notifyEventExecutor);
-    } catch (ConditionTimeoutException e) {
-      // 풀이 늦게 비어도 정리를 막지 않는다.
-    }
+    // 풀테스트 부하로 3초 안에 비지 않으면 시간 초과 예외가 삭제를 가로막지 않게 잡고, 경고를 남긴 뒤 한 번 더 기다린다.
+    // 그래도 비지 않으면 정리를 이어 가며, 사용자 삭제 직전의 notification 삭제가 마지막 안전망이다.
+    awaitNotifyPoolIdle();
     TenantContext.clear();
     List<Long> tenantIds = new ArrayList<>(tenants);
     tenantIds.add(1L);
@@ -130,6 +126,22 @@ class AssistantLimitWaitServiceTest extends IntegrationTestBase {
               .execute();
           baseDsl.deleteFrom(USER).where(USER.ID.in(users)).execute();
         });
+  }
+
+  /** 알림 풀이 빌 때까지 기다린다 — 시간 초과면 경고 로그를 남기고 한 번 더 기다리며, 끝내 비지 않아도 예외 없이 돌아온다. */
+  private void awaitNotifyPoolIdle() {
+    for (int attempt = 1; attempt <= 2; attempt++) {
+      try {
+        AsyncPools.awaitIdle(notifyEventExecutor);
+        return;
+      } catch (ConditionTimeoutException e) {
+        System.getLogger(AssistantLimitWaitServiceTest.class.getName())
+            .log(
+                System.Logger.Level.WARNING,
+                "알림 풀이 3초 안에 비지 않았습니다(시도 {0}/2) — 정리를 이어 갑니다",
+                attempt);
+      }
+    }
   }
 
   private long human() {
