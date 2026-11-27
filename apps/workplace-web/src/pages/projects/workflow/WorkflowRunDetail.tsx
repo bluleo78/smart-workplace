@@ -1,18 +1,22 @@
 // 워크플로우 실행 상세(WP-1991) — 머리·사람 차례/조치 필요 배너·그래프(지나온 노드 칠하기)·이동 기록.
 // 왜: 어느 이슈가 어느 단계에서 누구를 기다리는지 한 화면에서 보고, 막힌 실행은 여기서 바로 조치하게 한다.
+import { useQueryClient } from '@tanstack/react-query'
+import { MoreHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Badge } from '@/components/ui/badge'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { useWorkflowRun } from '@/hooks/queries/useWorkflowRuns'
+import { workflowRunKeys } from '@/hooks/queries/workflowRunKeys'
 import { focusRow } from '@/hooks/useListFocusRescue'
 import { issueChatPath } from '@/lib/agentWork'
 import { isNotFoundError } from '@/lib/api-error'
 import { issuePath } from '@/lib/appUrl'
 import { formatDateTimeMinute } from '@/lib/formatters'
-import { isAskWaitingState, RUN_STATUS_LABEL, RUN_STATUS_TONE } from '@/lib/workflow'
+import { isAskWaitingState, RUN_STATUS_DOT, RUN_STATUS_LABEL, RUN_STATUS_TEXT } from '@/lib/workflow'
 import {
+  isRunActive,
   mentionTokensAsNames,
   nodeDurationsMs,
   paintRun,
@@ -44,6 +48,7 @@ interface Props {
 /** 실행 상세 — 고른 실행 하나를 읽어 그린다. 없으면(404) 안내만 보이고 목록은 그대로 남는다(부모가 따로 그린다). */
 export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, canRecover, meId }: Props) {
   const query = useWorkflowRun(runId)
+  const queryClient = useQueryClient()
   const headingId = useId()
   // WP-2055 리뷰 후속: 배너에서 넘긴 뒤 다음 단계가 남의 차례라 배너가 물러나면 초점을 실행 제목으로 옮긴다(body 로 떨어지지 않게).
   // 제목은 탭 순서에 없으니 초점 받는 동안만 tabindex=-1 을 단다(focusRow). 배너 효과가 렌더마다 다시 돌지 않게 참조를 고정한다.
@@ -62,6 +67,8 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
   }, [])
   const durations = useMemo(() => (detail ? nodeDurationsMs(detail, now) : undefined), [detail, now])
   const rows = useMemo(() => (detail ? runMoveRows(detail) : []), [detail])
+  // 조치 창 — 창을 열 때의 revision 을 고정한다(열린 동안 상세가 새로 고쳐져도 이 값으로 보냄). null 이면 닫힘. 배너 단추와 ⋯ 메뉴가 같은 창을 연다.
+  const [openRevision, setOpenRevision] = useState<number | null>(null)
 
   if (query.isError) {
     if (isNotFoundError(query.error)) return <p role="alert" className="text-sm">실행을 찾을 수 없습니다</p>
@@ -84,59 +91,105 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
   const latestStopped = latest?.status === 'FAILED' || latest?.status === 'BLOCKED'
   const visit = atCurrent.find((v) => v.leftAt == null) ?? (run.status === 'SUSPENDED' && latestStopped ? latest : null)
 
+  const node = detail.model.nodes.find((n) => n.key === run.currentNode)
+  const currentName = node?.name ?? run.currentNode
+  const assigneeNames = (visit?.assignees ?? []).map((u) => u.name).join(', ')
+  const meta = [
+    currentName,
+    assigneeNames || null,
+    run.issueKey,
+    `실행 #${run.runId}`,
+    `v${run.versionNo}`,
+    `${formatDateTimeMinute(run.startedAt)}${run.startedBy ? ` ${run.startedBy.name} 시작` : ''}`,
+  ].filter(Boolean).join(' · ')
+  // 메뉴는 modal={false} — 메뉴에서 조치 창(Dialog)을 열 때 body 에 pointer-events:none·낡은 포커스 트랩이 남지 않게 한다.
+  const canAct = run.status === 'SUSPENDED' && canRecover
+
   return (
     // WP-2053: 상세를 영역(region)·제목(h2)으로 둔다 — 스크린리더 영역 탐색에서 어느 실행인지 보인다.
     // 열림 안내는 목록 쪽 ResultStatus 가 읽으므로 여기서 포커스를 옮기지 않는다(목록 줄에서 계속 탐색하게).
     <section aria-labelledby={headingId} className="min-w-0 space-y-3" data-testid="run-detail">
-      <div className="space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className={RUN_STATUS_TONE[run.status]}>{RUN_STATUS_LABEL[run.status]}</Badge>
-          <h2 ref={headingRef} id={headingId} className="flex min-w-0 flex-1 items-center gap-2 text-base font-normal">
-            {/* 두 span 사이 공백 — 없으면 영역 이름이 「WP-1제목 1」로 붙어 읽힌다(WP-2053 리뷰). */}
-            <span className="font-medium">{run.issueKey}</span>{' '}
-            <span className="min-w-0 flex-1 truncate">{run.title}</span>
-          </h2>
-          <Link className="text-xs text-primary hover:underline" to={issuePath(projectKey, run.issueNumber)}>이슈 열기 ↗</Link>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <h2 ref={headingRef} id={headingId} className="truncate text-base font-medium"><span className="sr-only">{`${run.issueKey} `}</span>{run.title}</h2>
+          <p className="text-xs text-muted-foreground">
+            <span className={RUN_STATUS_TEXT[run.status]}>{`● ${RUN_STATUS_LABEL[run.status]}`}</span>
+            <span>{` · ${meta}`}</span>
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {`실행 #${run.runId} · 버전 ${run.versionNo} · ${formatDateTimeMinute(run.startedAt)}${run.startedBy ? ` · ${run.startedBy.name} 시작` : ''}`}
-        </p>
+        <Link className="shrink-0 text-xs text-primary hover:underline" to={issuePath(projectKey, run.issueNumber)}>이슈 열기 ↗</Link>
+        {canAct && (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label="실행 메뉴"><MoreHorizontal className="size-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setOpenRevision(run.revision)}>조치 고르기</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
-      <RunBanner detail={detail} visit={visit} projectKey={projectKey} canManage={canManage} canRecover={canRecover} meId={meId} onLeave={focusHeading} onDone={() => void query.refetch()} />
-      <WorkflowGraphView model={detail.model} readOnly paint={paint} durations={durations} />
-      <section aria-label="이동 기록" className="space-y-1">
-        <h3 className="text-sm font-medium">이동 기록</h3>
-        <ul className="space-y-1 text-sm">
-          {rows.map((r) => (
-            <li key={r.id}>
-              {r.from === null ? '워크플로우 시작' : `${r.from} → ${r.to}`}
-              {r.actorName ? ` · ${r.actorName}` : ''}
-              {r.outcome ? ` · 결과 「${r.outcome}」` : ''}
-              {` · ${formatDateTimeMinute(r.at)}`}
-              {r.assigned.length > 0 ? ` · 담당 → ${r.assigned.join(', ')}` : ''}
-            </li>
-          ))}
-        </ul>
-      </section>
+      <RunBanner detail={detail} visit={visit} projectKey={projectKey} canRecover={canRecover} meId={meId} onLeave={focusHeading} onPickRecover={() => setOpenRevision(run.revision)} />
+      {canAct && (
+        <RecoverDialog
+          open={openRevision !== null} onOpenChange={(o) => { if (!o) setOpenRevision(null) }}
+          issueId={run.issueId} projectKey={projectKey} revision={openRevision ?? run.revision}
+          currentNode={node} model={detail.model} canManage={canManage} onDone={() => {
+            void query.refetch()
+            // WP-2157: 조치로 상태가 바뀌면 목록 탭 숫자(run-counts)도 낡으므로 다시 읽게 한다.
+            void queryClient.invalidateQueries({ queryKey: workflowRunKeys.counts(workflowId) })
+          }}
+        />
+      )}
+      {/* 컨테이너 쿼리 — 상세 칸 자체 폭이 충분할 때만 그래프 | 이동 기록 두 칸, 좁으면 위아래. */}
+      <div className="@container/run-detail">
+        <div className="grid gap-4 @xl/run-detail:grid-cols-[minmax(0,1fr)_240px]">
+          <WorkflowGraphView model={detail.model} readOnly paint={paint} durations={durations} compact currentNode={isRunActive(run.status) ? run.currentNode : null} />
+          <section aria-label="이동 기록" className="min-w-0 space-y-2 @xl/run-detail:border-l @xl/run-detail:pl-4">
+            <h3 className="text-sm font-medium">이동 기록</h3>
+            <ul className="space-y-2.5 text-sm">
+              {rows.map((r, i) => {
+                const first = r.from !== null ? `${r.from} → ${r.to}` : r.soleStart ? '워크플로우 시작' : `워크플로우 시작 → ${r.to}`
+                const second = [
+                  r.actorName,
+                  r.outcome ? `결과 ${r.outcome}` : null,
+                  formatDateTimeMinute(r.at),
+                  r.assigned.length > 0 ? `담당 → ${r.assigned.join(', ')}` : null,
+                ].filter(Boolean).join(' · ')
+                // 가장 최근 줄의 점은 진행 중이면 상태 색, 그 밖은 지나온 초록.
+                const dot = i === 0 && isRunActive(run.status) ? RUN_STATUS_DOT[run.status] : 'bg-success'
+                return (
+                  <li key={r.id} className="flex gap-2">
+                    <span className={`mt-1.5 size-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
+                    <div className="min-w-0">
+                      <div className="font-medium">{first}</div>
+                      <div className="text-xs text-muted-foreground">{second}</div>
+                      {r.question && <div className="text-xs">{`「${r.question}」`}</div>}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        </div>
+      </div>
     </section>
   )
 }
 
 /** 상태별 배너 — 사람 차례(주황)·조치 필요(빨강). 그 밖의 상태는 배너가 없다. */
-function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onLeave, onDone }: {
+function RunBanner({ detail, visit, projectKey, canRecover, meId, onLeave, onPickRecover }: {
   detail: RunDetail
   visit: RunDetail['nodeRuns'][number] | null
   projectKey: string
-  canManage: boolean
   canRecover: boolean
   meId: number
   /** 내가 넘겨 사람 차례 배너가 물러났을 때 — 초점을 둘 곳(실행 제목). */
   onLeave: () => void
-  onDone: () => void
+  /** 「조치 고르기」 — 상세가 가진 조치 창을 연다. */
+  onPickRecover: () => void
 }) {
   const { run, model } = detail
-  // 창을 열 때의 revision 을 고정한다 — 창이 열린 동안 상세가 새로 고쳐져도 이 값으로 보낸다. null 이면 닫힘.
-  const [openRevision, setOpenRevision] = useState<number | null>(null)
   const node = model.nodes.find((n) => n.key === run.currentNode)
 
   if (run.status === 'WAITING' && node?.type === 'human_task') {
@@ -151,8 +204,8 @@ function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onL
         <div className="space-y-1 rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm" data-testid="run-waiting-banner">
           <div className="font-medium text-warning-text">{`${node.name ?? node.key} — 질문 대기`}</div>
           {first && <p>{`「${first}」`}</p>}
-          <Link className="text-xs text-primary hover:underline" to={issueChatPath(projectKey, run.issueNumber)}>챗에서 답하기</Link>
           {assignees.length > 0 && <p className="text-xs">{`담당: ${assignees.map((a) => a.name).join(', ')}`}</p>}
+          <Button asChild variant="outline" size="sm"><Link to={issueChatPath(projectKey, run.issueNumber)}>챗에서 답하기</Link></Button>
         </div>
       )
     }
@@ -174,14 +227,7 @@ function RunBanner({ detail, visit, projectKey, canManage, canRecover, meId, onL
       <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm" data-testid="run-suspended-banner">
         <div className="font-medium text-destructive">{`${node?.name ?? run.currentNode} — 조치 필요`}</div>
         <p>{reason}</p>
-        {canRecover && <Button size="sm" variant="outline" onClick={() => setOpenRevision(run.revision)}>조치 고르기</Button>}
-        {canRecover && (
-          <RecoverDialog
-            open={openRevision !== null} onOpenChange={(o) => { if (!o) setOpenRevision(null) }}
-            issueId={run.issueId} projectKey={projectKey} revision={openRevision ?? run.revision}
-            currentNode={node} model={model} canManage={canManage} onDone={onDone}
-          />
-        )}
+        {canRecover && <Button size="sm" variant="outline" onClick={onPickRecover}>조치 고르기</Button>}
       </div>
     )
   }

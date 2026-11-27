@@ -689,10 +689,12 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
       </TabsContent>
       <TabsContent value="runs" className={`${PANE} space-y-3`}>
         <h2 className="sr-only">실행</h2>
-        {/* 진행 중인 실행 수 문구는 목록 머리(WorkflowRuns)로 옮겼다. */}
+        {/* 진행 중 수는 목록 글자 탭(WorkflowRuns, byStatus)이 보인다. runningCount·runningFailed 는 versions 기반 폴백·실패 알림용. */}
+        <div className="@container/runs">
         <WorkflowRuns workflowId={id} projectKey={project.key} activeVersionNo={activeVersionNo} canManage={canManage} canRecover={project.viewerIsMember} meId={user?.id ?? 0}
           runningCount={running} runningFailed={running === null && versions.isError} onRetryRunning={() => void versions.refetch()}
           olderNotice={olderNotice} />
+        </div>
       </TabsContent>
       <TabsContent value="versions" className={`${PANE} space-y-3`}>
         <h2 className="sr-only">게시 이력</h2>

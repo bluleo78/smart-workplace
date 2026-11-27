@@ -812,9 +812,9 @@ it('tab_viewParamOpensRunsPanel', async () => {
   )
   renderWorkflow({ search: '?view=runs' })
   expect(await screen.findByRole('tab', { name: /^실행/, selected: true })).toBeVisible()
-  expect(await screen.findByText('아직 실행이 없습니다')).toBeVisible()
-  // 목록 보기에서도 versions 의 activeRuns 합계(3+1)를 보인다.
-  expect(await screen.findByText('진행 중인 실행 4개')).toBeVisible()
+  expect(await screen.findByText('조건에 맞는 실행이 없습니다')).toBeVisible()
+  // 문구는 글자 탭으로 대체(WP-2157) — 목록 머리에 탭이 보인다.
+  expect(await screen.findByRole('button', { name: /^진행 중/ })).toBeVisible()
 })
 
 // WP-2044 탭이 versions 의 옛 버전 activeRuns(v1 1개)를 모아 보기 안내로 넘긴다 — 배선 확인.
@@ -889,11 +889,12 @@ it('tab_runsPanel_recover_refreshesActiveRunCount', async () => {
     http.post('/api/v1/issues/70/workflow/recover', () => HttpResponse.json({ runId: 7, status: 'CANCELLED', revision: 4, workflowId: 42, versionNo: 2, currentNode: null, outcomes: [], path: [], remainingNodeKeys: [], context: {} })),
     http.get('/api/v1/projects/WP/members', () => HttpResponse.json([])),
   )
-  expect(await screen.findByText('진행 중인 실행 3개')).toBeVisible()
+  await waitFor(() => expect(versionsCalls).toBe(1))
   await userEvent.click(await screen.findByRole('button', { name: '조치 고르기' }))
   await userEvent.click(screen.getByRole('radio', { name: '실행 취소' }))
   await userEvent.click(screen.getByRole('button', { name: '확인' }))
-  expect(await screen.findByText('진행 중인 실행 2개')).toBeVisible()
+  // 문구는 탭 숫자로 바뀌었다(WP-2157) — 조치 뒤 버전 요약을 다시 읽는지(alert·게시 확인 수의 출처)만 본다.
+  await waitFor(() => expect(versionsCalls).toBeGreaterThan(1))
 })
 
 it('workflowTab_managerGraphEditsDraft', async () => {

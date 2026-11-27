@@ -41,7 +41,14 @@ import org.springframework.stereotype.Repository;
 public class WorkflowRunRepository {
 
   /** 활성 실행 상태 — 이슈당 하나만 허용하는 부분 유일 색인의 조건과 같다. */
-  private static final List<String> ACTIVE = List.of("RUNNING", "WAITING", "SUSPENDED");
+  public static final List<String> ACTIVE_STATUSES = List.of("RUNNING", "WAITING", "SUSPENDED");
+
+  /** 실행 상태 다섯 전부(WP-2157) — 상태별 수의 0 채우기·목록 status 허용값이 같은 어휘를 쓴다. */
+  public static final List<String> ALL_STATUSES =
+      List.of("RUNNING", "WAITING", "SUSPENDED", "COMPLETED", "CANCELED");
+
+  /** 목록 status 로 받는 진행 중 묶음 이름 — 상태 값이 아니라 {@link #ACTIVE_STATUSES} 를 가리킨다(WP-2157). */
+  public static final String ACTIVE_GROUP = "ACTIVE";
 
   private final DSLContext dsl;
 
@@ -75,7 +82,7 @@ public class WorkflowRunRepository {
   public Optional<RunRow> findActiveByIssue(long issueId) {
     return dsl.selectFrom(WORKFLOW_RUN)
         .where(WORKFLOW_RUN.ISSUE_ID.eq(issueId))
-        .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+        .and(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES))
         .fetchOptional()
         .map(WorkflowRunRows::toRun);
   }
@@ -88,7 +95,8 @@ public class WorkflowRunRepository {
     return dsl.selectFrom(WORKFLOW_RUN)
         .where(WORKFLOW_RUN.ISSUE_ID.eq(issueId))
         .orderBy(
-            DSL.when(WORKFLOW_RUN.STATUS.in(ACTIVE), 0).otherwise(1).asc(), WORKFLOW_RUN.ID.desc())
+            DSL.when(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES), 0).otherwise(1).asc(),
+            WORKFLOW_RUN.ID.desc())
         .limit(1)
         .fetchOptional()
         .map(WorkflowRunRows::toRun);
@@ -239,7 +247,7 @@ public class WorkflowRunRepository {
         .set(WORKFLOW_RUN.ENDED_AT, utc(endedAt))
         .set(WORKFLOW_RUN.REVISION, WORKFLOW_RUN.REVISION.plus(1))
         .where(WORKFLOW_RUN.ISSUE_ID.in(issueIds))
-        .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+        .and(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES))
         .returning()
         .fetch(WorkflowRunRows::toRun);
   }
@@ -255,7 +263,7 @@ public class WorkflowRunRepository {
             .set(WORKFLOW_RUN.REVISION, WORKFLOW_RUN.REVISION.plus(1))
             .where(WORKFLOW_RUN.ID.eq(runId))
             .and(WORKFLOW_RUN.REVISION.eq(expectedRevision))
-            .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+            .and(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES))
             .execute()
         == 1;
   }
@@ -431,14 +439,13 @@ public class WorkflowRunRepository {
       int limit) {
     var current = NODE_RUN.as("cur");
     var other = NODE_RUN.as("nr");
-    Condition where =
-        WORKFLOW_VERSION
-            .WORKFLOW_ID
-            .eq(workflowId)
-            .and(ISSUE.PROJECT_ID.eq(projectId))
-            .and(ISSUE.DELETED_AT.isNull());
+    Condition where = workflowRunScope(workflowId, projectId);
     if (status != null) {
-      where = where.and(WORKFLOW_RUN.STATUS.eq(status));
+      // WP-2157: "ACTIVE" 는 상태 값이 아니라 진행 중 묶음(RUNNING·WAITING·SUSPENDED)이다.
+      where =
+          ACTIVE_GROUP.equals(status)
+              ? where.and(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES))
+              : where.and(WORKFLOW_RUN.STATUS.eq(status));
     }
     if (node != null) {
       where = where.and(WORKFLOW_RUN.CURRENT_NODE.eq(node));
@@ -501,7 +508,7 @@ public class WorkflowRunRepository {
         WORKFLOW_VERSION
             .WORKFLOW_ID
             .eq(workflowId)
-            .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+            .and(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES))
             .and(ISSUE.DELETED_AT.isNull());
     Map<Long, Integer> out = new LinkedHashMap<>();
     dsl.select(WORKFLOW_RUN.WORKFLOW_VERSION_ID, count())
@@ -599,13 +606,46 @@ public class WorkflowRunRepository {
         .join(ISSUE)
         .on(ISSUE.ID.eq(WORKFLOW_RUN.ISSUE_ID))
         .where(WORKFLOW.ID.eq(workflowId))
-        .and(WORKFLOW_RUN.STATUS.in(ACTIVE))
+        .and(WORKFLOW_RUN.STATUS.in(ACTIVE_STATUSES))
         .and(WORKFLOW_RUN.CURRENT_NODE.isNotNull())
         .and(ISSUE.DELETED_AT.isNull())
         .groupBy(WORKFLOW_RUN.CURRENT_NODE)
         .orderBy(WORKFLOW_RUN.CURRENT_NODE)
         .forEach(r -> out.put(r.value1(), r.value2()));
     return out;
+  }
+
+  /**
+   * 정의의 실행 상태별 수(WP-2157 실행 탭 합계). 목록({@code findRunsOfWorkflow})과 같은 범위 — 모든 버전의 실행을 세되 그 프로젝트의 이슈
+   * 실행만 세고 삭제된 이슈의 실행은 뺀다(탭 합계가 목록에 보이는 수와 어긋나지 않게). 다섯 상태 키를 0 포함해 모두 담는다.
+   */
+  public Map<String, Integer> countByStatus(long workflowId, long projectId) {
+    Map<String, Integer> out = new LinkedHashMap<>();
+    for (String s : ALL_STATUSES) {
+      out.put(s, 0);
+    }
+    dsl.select(WORKFLOW_RUN.STATUS, count())
+        .from(WORKFLOW_RUN)
+        .join(WORKFLOW_VERSION)
+        .on(WORKFLOW_VERSION.ID.eq(WORKFLOW_RUN.WORKFLOW_VERSION_ID))
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(WORKFLOW_RUN.ISSUE_ID))
+        .where(workflowRunScope(workflowId, projectId))
+        .groupBy(WORKFLOW_RUN.STATUS)
+        .forEach(r -> out.put(r.value1(), r.value2()));
+    return out;
+  }
+
+  /**
+   * 정의의 실행 범위 조건(WP-2157) — 목록과 상태별 수가 함께 쓴다. 모든 버전의 실행이되 정의의 프로젝트 이슈 것만, 삭제된 이슈는 뺀다. 호출하는 쪽 쿼리가
+   * WORKFLOW_VERSION·ISSUE 를 조인해 둬야 한다.
+   */
+  private static Condition workflowRunScope(long workflowId, long projectId) {
+    return WORKFLOW_VERSION
+        .WORKFLOW_ID
+        .eq(workflowId)
+        .and(ISSUE.PROJECT_ID.eq(projectId))
+        .and(ISSUE.DELETED_AT.isNull());
   }
 
   /** Instant 를 DB 시각 칸에 넣을 UTC OffsetDateTime 으로. */

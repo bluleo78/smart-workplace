@@ -472,3 +472,186 @@ test('workflowTab_noChanges_headerFitsOneLineAt1440', { tag: '@layout' }, async 
   const switchBox = await page.getByRole('switch', { name: '워크플로우 사용' }).boundingBox()
   expect(Math.abs(switchBox!.y + switchBox!.height / 2 - (tabsBox!.y + tabsBox!.height / 2))).toBeLessThan(tabsBox!.height / 2)
 })
+
+// ---- 실행 탭 두 칸 배치(WP-2157) ----
+const runUser = { id: 3, username: 'kim', name: '김', kind: 'HUMAN' }
+const runNode = (key: string, type: string, extra: object = {}) => ({
+  key, type, use: [], requires: [], outputs: [], outcomes: [], conditions: [], ...extra,
+})
+const runOutcome = (key: string, to: string) => ({ key, to, requireComment: false })
+
+/** DFB 데모 모델 — start→dev(done→review, ask→dev_ask), review(merged→end, rework→dev, ask→review_ask). */
+function dfbRunModel() {
+  return {
+    schema: 'v1', roles: [], shared: [], start: [], layout: [],
+    nodes: [
+      runNode('start', 'start', { outcomes: [runOutcome('go', 'dev')] }),
+      runNode('dev', 'human_task', { name: '개발', outcomes: [runOutcome('done', 'review'), runOutcome('ask', 'dev_ask')] }),
+      runNode('dev_ask', 'human_task', { returnTo: 'dev', outcomes: [runOutcome('answered', 'dev')] }),
+      runNode('review', 'human_task', { name: '리뷰', outcomes: [runOutcome('merged', 'end'), runOutcome('rework', 'dev'), runOutcome('ask', 'review_ask')] }),
+      runNode('review_ask', 'human_task', { returnTo: 'review', outcomes: [runOutcome('answered', 'review')] }),
+      runNode('end', 'end'),
+    ],
+  }
+}
+
+const runVisit = (id: number, nodeKey: string, nodeName: string | null, extra: object = {}) => ({
+  id, nodeKey, nodeName, visitNo: 1, status: 'COMPLETED', assignees: [], workflowAssigned: [], outcome: null, outputs: null,
+  commentId: null, waitingReason: null, error: null, actor: null, enteredAt: '2026-11-20T01:00:00Z', leftAt: '2026-11-20T02:00:00Z', viaReturn: false, ...extra,
+})
+
+/** 실행 상세 응답 — run 1 은 dev 에서 진행 중(RUNNING), run 2 는 dev_ask 질문 대기(WAITING). */
+function runDetailBody(runId: number) {
+  const asking = runId === 2
+  return {
+    run: {
+      runId, workflowId: 42, versionNo: 2, issueId: runId * 10, issueNumber: runId * 10, issueKey: 'WP-' + runId * 10, title: '로그인 개선 ' + runId,
+      status: asking ? 'WAITING' : 'RUNNING', revision: 3, currentNode: asking ? 'dev_ask' : 'dev',
+      startedBy: runUser, startedAt: '2026-11-20T00:00:00Z', endedAt: null, context: {},
+    },
+    nodeRuns: asking
+      ? [
+        runVisit(1, 'start', null, { outcome: 'go', actor: runUser, enteredAt: '2026-11-20T00:00:00Z', leftAt: '2026-11-20T00:00:01Z' }),
+        runVisit(2, 'dev', '개발', { outcome: 'ask', actor: runUser, enteredAt: '2026-11-20T00:00:01Z', leftAt: '2026-11-20T01:00:00Z' }),
+        runVisit(3, 'dev_ask', null, { status: 'ACTIVE', assignees: [runUser], enteredAt: '2026-11-20T01:00:00Z', leftAt: null }),
+      ]
+      : [
+        runVisit(1, 'start', null, { outcome: 'go', actor: runUser, enteredAt: '2026-11-20T00:00:00Z', leftAt: '2026-11-20T00:00:01Z' }),
+        runVisit(2, 'dev', '개발', { status: 'ACTIVE', assignees: [runUser], enteredAt: '2026-11-20T00:00:01Z', leftAt: null }),
+      ],
+    events: [],
+    model: dfbRunModel(),
+  }
+}
+
+/** 실행 탭이 부르는 목록·건수·상세·게시 버전·프로젝트 구성원을 스텁한다. */
+async function mockRunsTab(page: Page) {
+  await mockWorkflow(page)
+  // 게시 버전이 있어야 실행 탭이 열린다 — 활성 버전 2 로 덮는다(나중에 등록한 라우트가 먼저 응답).
+  await page.route('**/api/v1/workflows/42', (route) => route.fulfill({
+    json: {
+      id: 42, projectId: 7, name: '작업 정리', enabled: true, activeVersion: { no: 2, createdAt: '2026-11-22T10:00:00Z', createdBy: null },
+      draftYaml: 'name: 작업 정리\nnodes:\n  review:\n    type: agent_task', draftUpdatedAt: '2026-11-22T10:00:00Z', draftProblems: [],
+    },
+  }))
+  await page.route('**/api/v1/projects/7/workflows', (route) => route.fulfill({
+    json: [{ id: 42, name: '작업 정리', enabled: true, activeVersionNo: 2, draftChanged: false }],
+  }))
+  const item = (runId: number, status: string, node: string, nodeName: string) => ({
+    runId, issueId: runId * 10, issueNumber: runId * 10, issueKey: 'WP-' + runId * 10, title: '로그인 개선 ' + runId, status, currentNode: node,
+    currentNodeName: nodeName, assignees: [runUser], enteredAt: new Date(Date.now() - 3600_000).toISOString(),
+    startedAt: '2026-11-20T00:00:00Z', versionNo: 2,
+  })
+  await page.route('**/api/v1/workflows/42/runs?*', (route) => route.fulfill({
+    json: { items: [item(1, 'RUNNING', 'dev', '개발'), item(2, 'WAITING', 'dev_ask', '질문 답변')], nextCursor: null },
+  }))
+  await page.route('**/api/v1/workflows/42/run-counts', (route) => route.fulfill({
+    json: { counts: { dev: 1, dev_ask: 1 }, byStatus: { RUNNING: 1, WAITING: 1, SUSPENDED: 0, COMPLETED: 0, CANCELED: 0 } },
+  }))
+  await page.route('**/api/v1/workflows/42/versions', (route) => route.fulfill({
+    json: [{ versionNo: 2, createdAt: '2026-11-22T10:00:00Z', createdBy: null, activeRuns: 2 }],
+  }))
+  await page.route('**/api/v1/workflows/42/versions/2', (route) => route.fulfill({
+    json: { versionNo: 2, sourceYaml: 'name: 작업 정리', model: dfbRunModel() },
+  }))
+  await page.route('**/api/v1/workflow-runs/*', (route) => route.fulfill({
+    json: runDetailBody(Number(new URL(route.request().url()).pathname.split('/').pop())),
+  }))
+  await page.route('**/api/v1/projects/WP/members', (route) => route.fulfill({
+    json: [{ userId: 3, username: 'kim', name: '김', kind: 'HUMAN', role: 'MEMBER', createdAt: null }],
+  }))
+}
+
+type RunBox = { x: number; y: number; width: number; height: number }
+const runOverlap = (a: RunBox, b: RunBox) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+test('workflowRuns_listBesideDetail_graphBesideHistory_at1280', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockRunsTab(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/projects/WP/workflow?view=runs&run=1')
+  const detail = page.getByTestId('run-detail')
+  await expect(detail).toBeVisible()
+  const graph = page.getByRole('region', { name: '게시된 워크플로우 그래프' })
+  const history = page.getByRole('region', { name: '이동 기록' })
+  await expect(graph).toBeVisible()
+  await expect(history).toBeVisible()
+  const row = page.getByRole('button', { name: /로그인 개선 1/ })
+  await expect(row).toBeVisible()
+
+  const rowBox = (await row.boundingBox())!
+  const detailBox = (await detail.boundingBox())!
+  const graphBox = (await graph.boundingBox())!
+  const historyBox = (await history.boundingBox())!
+  // 목록 | 상세 두 칸 — 목록 줄이 상세 왼쪽에 있고 윗선이 가깝다
+  expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(detailBox.x + 1)
+  expect(Math.abs(rowBox.y - detailBox.y)).toBeLessThan(40)
+  // 그래프 | 이동 기록 두 칸
+  expect(graphBox.x + graphBox.width).toBeLessThanOrEqual(historyBox.x + 1)
+  expect(Math.abs(graphBox.y - historyBox.y)).toBeLessThan(40)
+})
+
+test('workflowRuns_stacksOnMobile_390', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockRunsTab(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/projects/WP/workflow?view=runs&run=2')
+  const detail = page.getByTestId('run-detail')
+  await expect(detail).toBeVisible()
+  const graph = page.getByRole('region', { name: '게시된 워크플로우 그래프' })
+  const history = page.getByRole('region', { name: '이동 기록' })
+  await expect(history).toBeVisible()
+  const lastRow = page.getByRole('button', { name: /로그인 개선 2/ })
+  await expect(lastRow).toBeVisible()
+
+  const lastRowBox = (await lastRow.boundingBox())!
+  const detailBox = (await detail.boundingBox())!
+  const graphBox = (await graph.boundingBox())!
+  const historyBox = (await history.boundingBox())!
+  // 좁은 폭은 목록 위·상세 아래, 그래프 위·이동 기록 아래로 쌓인다
+  expect(detailBox.y).toBeGreaterThanOrEqual(lastRowBox.y + lastRowBox.height - 1)
+  expect(historyBox.y).toBeGreaterThanOrEqual(graphBox.y + graphBox.height - 1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
+test('workflowRunGraph_compactBoxesInsideNoOverlap_at1280', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  await mockRunsTab(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/projects/WP/workflow?view=runs&run=2')
+  const graph = page.getByRole('region', { name: '게시된 워크플로우 그래프' })
+  await expect(graph).toBeVisible()
+  // 질문 대기 중이라 dev_ask 곁 노드(주황)와 review 쪽 질문 표식이 함께 보인다
+  await expect(graph.locator('li[data-node-key="dev_ask"][data-paint="current"]')).toBeVisible()
+  await expect(page.getByTestId('graph-ask-marker')).toHaveCount(1)
+  await expect(page.getByTestId('graph-back-label')).toHaveCount(1)
+
+  // 안쪽 캔버스 = section 바로 아래 div — 모든 상자가 그 안에 있어야 하고 서로 겹치지 않는다
+  const canvas = (await graph.locator(':scope > div').boundingBox())!
+  const targets = graph.locator('li[data-node-key], [data-testid="graph-back-label"], [data-testid="graph-ask-marker"]')
+  const count = await targets.count()
+  expect(count).toBeGreaterThanOrEqual(6)
+  const boxes: { name: string; box: RunBox }[] = []
+  for (let i = 0; i < count; i += 1) {
+    const el = targets.nth(i)
+    const box = await el.boundingBox()
+    // 상자가 없으면(숨김) 건너뛰지 않고 실패시킨다 — 아래 개수 단언이 잡는다
+    if (!box) continue
+    const name = (await el.getAttribute('data-node-key')) ?? (await el.getAttribute('data-testid')) ?? String(i)
+    boxes.push({ name, box })
+  }
+  expect(boxes.length).toBe(count)
+  for (const { name, box } of boxes) {
+    expect(box.x, name + ' left').toBeGreaterThanOrEqual(canvas.x - 1)
+    expect(box.y, name + ' top').toBeGreaterThanOrEqual(canvas.y - 1)
+    expect(box.x + box.width, name + ' right').toBeLessThanOrEqual(canvas.x + canvas.width + 1)
+    expect(box.y + box.height, name + ' bottom').toBeLessThanOrEqual(canvas.y + canvas.height + 1)
+  }
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      expect(runOverlap(boxes[i].box, boxes[j].box), `${boxes[i].name} × ${boxes[j].name}`).toBe(false)
+    }
+  }
+  // WP-2157 I1: 지금(주황) 곁 노드가 그래프 칸(section)의 보이는 사각형 안에 스크롤 없이 들어와야 한다 — 가로 스크롤 뒤로 잘리면 실패
+  const section = (await graph.boundingBox())!
+  const current = boxes.find((b) => b.name === 'dev_ask')!.box
+  expect(current.x, 'current left').toBeGreaterThanOrEqual(section.x - 1)
+  expect(current.x + current.width, 'current right').toBeLessThanOrEqual(section.x + section.width + 1)
+})

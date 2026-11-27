@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
+import { mkAskModel, mkModel } from '@/test/kits/projects/workflowRunFixtures'
 
 import {
   mentionTokensAsNames,
@@ -69,14 +69,74 @@ describe('workflowRuns', () => {
       visit(3, 'b', '2026-01-01T00:10:00Z', null, { nodeName: '검토', workflowAssigned: [u(5, '김')] }),
     ]
     const rows = runMoveRows(detail(runs))
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(2)
     expect(rows[0].to).toBe('검토')
     expect(rows[0].from).toBe('작성')
     expect(rows[0].assigned).toEqual(['김'])
     expect(rows[0].actorName).toBe('나')
     expect(rows[0].outcome).toBe('done')
-    expect(rows[2].from).toBeNull()
-    expect(rows[2].actorName).toBe('시작자')
+    expect(rows[1].from).toBeNull()
+    expect(rows[1].actorName).toBe('시작자')
+  })
+
+  it('runMoveRows_mergesStartIntoOneRow', () => {
+    const runs = [
+      visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
+      visit(2, 'work', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작업', outcome: 'ask', actor: u(2, '나') }),
+      visit(3, 'work_ask', '2026-01-01T00:10:00Z', null, { nodeName: '질문 답변' }),
+    ]
+    const d = { ...detail(runs), model: mkAskModel() }
+    const rows = runMoveRows(d)
+    expect(rows.map((r) => [r.from, r.to])).toEqual([['작업', '질문 답변'], [null, '작업']])
+    expect(rows[1].actorName).toBe('시작자')
+    expect(rows[1].at).toBe('2026-01-01T00:00:00Z')
+  })
+
+  it('runMoveRows_askRowCarriesQuestionFirstLine', () => {
+    const runs = [
+      visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
+      visit(2, 'work', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '작업' }),
+      visit(3, 'work_ask', '2026-01-01T00:10:00Z', null, { nodeName: '질문 답변' }),
+    ]
+    const d = detail(runs)
+    d.model = mkAskModel()
+    d.run.context = { _qa: [{ answerNode: 'work_ask', question: '장비 카드 배치를 어떻게 할까요?\n1안…' }] }
+    const rows = runMoveRows(d)
+    expect(rows[0].question).toBe('장비 카드 배치를 어떻게 할까요?')
+    expect(rows[1].question).toBeNull()
+  })
+
+  // WP-2157 리뷰: 서버가 앞 항목을 잘라 항목이 방문보다 적으면 끝에서 맞춘다 — 최근 방문에 최근 질문, 앞 방문은 null.
+  it('runMoveRows_questionPairingAlignsFromEnd', () => {
+    const runs = [
+      visit(1, 'start', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z'),
+      visit(2, 'work_ask', '2026-01-01T00:00:01Z', '2026-01-01T00:10:00Z', { nodeName: '질문 답변' }),
+      visit(3, 'work', '2026-01-01T00:10:00Z', '2026-01-01T00:11:00Z', { nodeName: '작업' }),
+      visit(4, 'work_ask', '2026-01-01T00:11:00Z', null, { nodeName: '질문 답변' }),
+    ]
+    const d = detail(runs)
+    d.model = mkAskModel()
+    d.run.context = { _qa: [{ answerNode: 'work_ask', question: '최근 질문' }] }
+    const rows = runMoveRows(d)
+    expect(rows[0].question).toBe('최근 질문')
+    expect(rows.find((r) => r.id === '2')!.question).toBeNull()
+  })
+
+  it('runMoveRows_onlyStartVisit', () => {
+    const rows = runMoveRows(detail([visit(1, 'start', '2026-01-01T00:00:00Z', null, { nodeName: '시작' })]))
+    expect(rows).toHaveLength(1)
+    expect(rows[0].from).toBeNull()
+    expect(rows[0].to).toBe('시작')
+  })
+
+  it('runMoveRows_noStartVisit', () => {
+    const rows = runMoveRows(detail([
+      visit(1, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', { nodeName: '작성' }),
+      visit(2, 'b', '2026-01-01T00:01:00Z', null, { nodeName: '검토' }),
+    ]))
+    expect(rows).toHaveLength(2)
+    expect(rows[1].from).toBeNull()
+    expect(rows[1].actorName).toBe('시작자')
   })
 
   // 같은 초 안에서 밀리초 유무가 섞여도(문자열 비교는 「…00Z」 > 「…00.5Z」) 방문 id 순서대로 이어진다.
@@ -87,7 +147,7 @@ describe('workflowRuns', () => {
       visit(3, 'b', '2026-01-01T00:00:01.500Z', null, { nodeName: '검토' }),
     ]
     const rows = runMoveRows(detail(runs))
-    expect(rows.map((r) => r.to)).toEqual(['검토', '작성', 'start'])
+    expect(rows.map((r) => r.to)).toEqual(['검토', '작성'])
     expect(rows[0].from).toBe('작성')
   })
 

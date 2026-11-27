@@ -257,6 +257,68 @@ class WorkflowRunQueryApiTest extends IntegrationTestBase {
     assertThat(ok(get(runsPath(wf) + "?size=100"), dev2).get("items")).hasSize(1);
   }
 
+  /** 실행 상태를 행으로 바로 바꾼다(시험 준비). */
+  private void setRunStatus(long runId, String status) {
+    dsl.update(WORKFLOW_RUN)
+        .set(WORKFLOW_RUN.STATUS, status)
+        .where(WORKFLOW_RUN.ID.eq(runId))
+        .execute();
+  }
+
+  @Test
+  @DisplayName("WP-2157 status=ACTIVE 는 RUNNING·WAITING·SUSPENDED 묶음, 소문자는 400")
+  void runs_filterByActiveGroup() {
+    long wf = publish(spec());
+    long running = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    long waiting = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    long suspended = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    long completed = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    long canceled = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    setRunStatus(waiting, "WAITING");
+    setRunStatus(suspended, "SUSPENDED");
+    setRunStatus(completed, "COMPLETED");
+    setRunStatus(canceled, "CANCELED");
+
+    assertThat(runIds(ok(get(runsPath(wf) + "?status=ACTIVE"), dev2).get("items")))
+        .containsExactly(suspended, waiting, running);
+    assertCode(
+        expect(get(runsPath(wf) + "?status=active"), dev2, 400), "WORKFLOW_INVALID_RUN_STATUS");
+  }
+
+  @Test
+  @DisplayName("WP-2157 run-counts.byStatus 는 다섯 상태 전부(0 포함)를 세고 삭제된 이슈는 뺀다")
+  void runCounts_byStatus() {
+    long wf = publish(spec());
+    // 옛 버전(v1) 실행 하나 — 새 버전을 게시한 뒤에도 byStatus 가 모든 버전을 센다는 근거(RUNNING 1건)
+    ok(startReq(issue(lead), wf), lead);
+    ok(
+        put(API + "/workflows/" + wf + "/draft")
+            .content(json("yaml", spec().replace("triage", "sorting"))),
+        pm);
+    ok(post(API + "/workflows/" + wf + "/publish"), pm);
+    long r2 = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    long r3 = ok(startReq(issue(lead), wf), lead).get("runId").asLong();
+    long goneIssue = issue(lead);
+    long r4 = ok(startReq(goneIssue, wf), lead).get("runId").asLong();
+    setRunStatus(r2, "WAITING");
+    setRunStatus(r3, "COMPLETED");
+    setRunStatus(r4, "COMPLETED");
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(ISSUE.ID.eq(goneIssue))
+        .execute();
+
+    JsonNode by = ok(get(API + "/workflows/" + wf + "/run-counts"), dev2).get("byStatus");
+    assertThat(fieldsOf(by))
+        .containsExactlyInAnyOrder("RUNNING", "WAITING", "SUSPENDED", "COMPLETED", "CANCELED");
+    // RUNNING 1 = 옛 버전(v1) 실행. 최신 버전 것만 셌다면 0 이 된다.
+    assertThat(by.get("RUNNING").asInt()).isEqualTo(1);
+    assertThat(by.get("WAITING").asInt()).isEqualTo(1);
+    assertThat(by.get("SUSPENDED").asInt()).isZero();
+    assertThat(by.get("COMPLETED").asInt()).isEqualTo(1);
+    assertThat(by.get("CANCELED").asInt()).isZero();
+  }
+
   @Test
   @DisplayName("삭제된 이슈의 실행은 목록에서 빠지고 상세는 404")
   void runs_hidesDeletedIssue() {

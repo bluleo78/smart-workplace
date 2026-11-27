@@ -28,7 +28,7 @@ public class WorkflowRunController {
 
   private final WorkflowRunQueryService queryService;
 
-  /** 정의의 실행 목록 — 최신순 cursor, status·node·assigneeId 로 거른다. */
+  /** 정의의 실행 목록 — 최신순 cursor, status(ACTIVE = 진행 중 묶음, WP-2157)·node·assigneeId 로 거른다. */
   @GetMapping("/workflows/{id}/runs")
   @RequirePermission("project:read")
   public ResponseEntity<WorkflowRunPage> runs(

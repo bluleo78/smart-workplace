@@ -62,6 +62,8 @@ export function renderWorkflow({ manager = true, empty = false, enterTab = true,
     http.get(base + '/workflows/43', () => HttpResponse.json({
       ...workflowDetail, id: 43, name: '다른 워크플로우', activeVersion: null, draftYaml: 'name: 다른 초안',
     })),
+    // 실행 목록 머리의 글자 탭 숫자(WP-2157) — 기본은 모두 0.
+    http.get(base + '/workflows/:id/run-counts', () => HttpResponse.json({ counts: {}, byStatus: { RUNNING: 0, WAITING: 0, SUSPENDED: 0, COMPLETED: 0, CANCELED: 0 } })),
     http.get(base + '/workflows/42/versions', () => HttpResponse.json([
       { versionNo: 2, createdAt: draftTime, createdBy: null, activeRuns: 3 },
       { versionNo: 1, createdAt: '2026-11-21T10:00:00Z', createdBy: null, activeRuns: 1 },

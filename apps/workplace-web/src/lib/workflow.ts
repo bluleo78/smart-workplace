@@ -89,10 +89,34 @@ export const RUN_STATUS_TONE: Record<RunStatus, string> = {
   CANCELED: 'bg-muted text-muted-foreground',
 }
 
+/** 실행 상태 글자 색(WP-2157) — 칩 없이 글자만 보이는 자리용. 같은 상태는 RUN_STATUS_TONE 과 같은 계열. */
+export const RUN_STATUS_TEXT: Record<RunStatus, string> = {
+  RUNNING: 'text-ai-accent',
+  WAITING: 'text-warning-text',
+  SUSPENDED: 'text-destructive',
+  COMPLETED: 'text-success-text',
+  CANCELED: 'text-muted-foreground',
+}
+
+/** 실행 상태 점 색(WP-2157) — 목록 줄·필터 앞의 작은 점용. */
+export const RUN_STATUS_DOT: Record<RunStatus, string> = {
+  RUNNING: 'bg-ai-accent',
+  WAITING: 'bg-warning',
+  SUSPENDED: 'bg-destructive',
+  COMPLETED: 'bg-success',
+  CANCELED: 'bg-muted-foreground',
+}
+
 export const issueWorkflowKey = issueWorkflowKeys.detail
 
 /** 멈춘 실행의 조치 종류 — 서버 recover 의 action. 카드의 메뉴·확인 창과 훅이 함께 쓴다. */
 export type RecoverAction = 'RETRY' | 'ON_ERROR' | 'MOVE_TO' | 'CANCEL'
+
+/** 진행 중으로 치는 실행 상태(서버 status=ACTIVE 와 같은 집합) — 탭 숫자 합·진행 판정이 함께 쓴다(WP-2157). */
+export const ACTIVE_RUN_STATUSES: readonly RunStatus[] = ['RUNNING', 'WAITING', 'SUSPENDED']
+
+/** 목록 필터·표시에서 쓰는 실행 상태 순서 — 조치가 필요한 것부터(WP-2157). */
+export const RUN_STATUS_ORDER: readonly RunStatus[] = ['SUSPENDED', 'WAITING', 'RUNNING', 'COMPLETED', 'CANCELED']
 
 /** 실행 상태가 끝(완료·취소)인가 — 끝났다고 보는 상태 집합의 단일 정의. */
 export function isRunStatusEnded(status: RunStatus): boolean {
@@ -132,7 +156,19 @@ export function isAskWaitingState(
   returnTo: string | null | undefined,
   outcomeKeys: readonly string[],
 ): boolean {
-  return status === 'WAITING' && nodeType === 'human_task' && !!returnTo && outcomeKeys.every((k) => k === ANSWERED_OUTCOME)
+  return status === 'WAITING' && isQuestionPathNode(nodeType, returnTo, outcomeKeys)
+}
+
+/**
+ * 질문 단계인가(WP-2157) — 실행 상태와 무관하게 노드 모양만 본다: human_task 이고 returnTo 가 있으며 결과가 모두 `answered`(빈 배열은 아님).
+ * 표준 질문 경로(expandAsk)가 만드는 모양이라, 이동 기록이 이 단계로 들어간 줄에 질문 첫 줄을 붙이는 데도 쓴다.
+ */
+export function isQuestionPathNode(
+  type: string | null | undefined,
+  returnTo: string | null | undefined,
+  outcomeKeys: readonly string[],
+): boolean {
+  return type === 'human_task' && !!returnTo && outcomeKeys.length > 0 && outcomeKeys.every((k) => k === ANSWERED_OUTCOME)
 }
 
 export function useIssueWorkflow(issueId: number | undefined) {
