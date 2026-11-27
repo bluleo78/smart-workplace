@@ -1,6 +1,7 @@
 package com.workplace.wiki.report;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -23,7 +24,6 @@ import com.workplace.wiki.service.WikiSystemPageWriter;
 import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,8 +67,7 @@ class ProjectReportCardServiceTest extends ExternalClientMockedTestBase {
   void seed() {
     TenantContext.set(1L);
     ownerId = human();
-    String key =
-        "RC" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RC");
     project =
         projectService.create(ownerId, new CreateProjectRequest(key, "카드-" + key, null, "TEAM"));
     home = writer.ensureReportsHome(project.id(), ownerId).orElseThrow();

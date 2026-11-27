@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
@@ -1318,7 +1319,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   private static String uniqueKey(String prefix) {
-    return prefix + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    return uniqueProjectKey(prefix);
   }
 
   /** 호출자 프로젝트에 이슈를 만든다(제목으로 식별). */

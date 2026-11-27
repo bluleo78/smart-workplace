@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.support.RowLockWaits.awaitLockWaiter;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -83,7 +84,7 @@ class UpdateDeleteRaceNotFoundTest extends IntegrationTestBase {
   void seed() {
     TenantContext.set(1L);
     owner = user();
-    key = "U" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("U");
     projectId = projectService.create(owner, new CreateProjectRequest(key, "race", null)).id();
   }
 

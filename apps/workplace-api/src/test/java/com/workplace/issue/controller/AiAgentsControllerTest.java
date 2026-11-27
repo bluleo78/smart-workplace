@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
@@ -582,7 +583,7 @@ class AiAgentsControllerTest extends IntegrationTestBase {
   }
 
   private static String key(String prefix) {
-    return prefix + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    return uniqueProjectKey(prefix);
   }
 
   private void projectMember(long project, long userId) {

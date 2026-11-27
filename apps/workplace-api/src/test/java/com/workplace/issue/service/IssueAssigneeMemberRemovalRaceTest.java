@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -57,8 +58,7 @@ class IssueAssigneeMemberRemovalRaceTest extends IntegrationTestBase {
     TenantContext.set(1L);
     owner = user("o");
     member = user("m");
-    String key =
-        "ARR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("ARR");
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     issueService.create(
         owner,

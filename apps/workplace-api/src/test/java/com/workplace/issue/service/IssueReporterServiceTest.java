@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -63,8 +64,7 @@ class IssueReporterServiceTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(Long ownerId, String prefix, String type) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
+    String key = uniqueProjectKey(prefix);
     return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + prefix, "x", type));
   }
 

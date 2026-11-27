@@ -3,6 +3,7 @@ package com.workplace.issue.overview.status;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -68,10 +69,8 @@ class ProjectStatusSummaryServiceTest extends ExternalClientMockedTestBase {
     owner = TestFixtures.createHuman(dsl);
     grantUserRole(owner);
     withMembership(owner);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    project =
-        projectService.create(
-            owner, new CreateProjectRequest("PS" + suffix, "상태-" + suffix, "x", "TEAM"));
+    String key = uniqueProjectKey("PS");
+    project = projectService.create(owner, new CreateProjectRequest(key, "상태-" + key, "x", "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(owner, "m", "low", 4)));
     when(assistantResolver.hasWorkspaceAssistant()).thenReturn(true);

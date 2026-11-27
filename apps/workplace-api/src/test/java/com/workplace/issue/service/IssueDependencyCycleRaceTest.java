@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -55,7 +56,7 @@ class IssueDependencyCycleRaceTest extends IntegrationTestBase {
   void seed() {
     TenantContext.set(1L);
     owner = user();
-    key = "D" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("D");
     projectId = projectService.create(owner, new CreateProjectRequest(key, "dep race", null)).id();
     new TransactionTemplate(txManager)
         .executeWithoutResult(

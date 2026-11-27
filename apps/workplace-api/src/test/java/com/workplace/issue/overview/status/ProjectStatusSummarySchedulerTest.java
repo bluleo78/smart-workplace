@@ -2,6 +2,7 @@ package com.workplace.issue.overview.status;
 
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -90,8 +91,7 @@ class ProjectStatusSummarySchedulerTest extends ExternalClientMockedTestBase {
 
   /** 테넌트에 TEAM 프로젝트를 커밋하고 id 를 돌려준다(정리 목록에 넣는다). */
   private long project(long tenantId) {
-    String key =
-        ("PZ" + UUID.randomUUID().toString().replace("-", "").toUpperCase()).substring(0, 8);
+    String key = uniqueProjectKey("PZ");
     long id =
         callInTenant(
             tenantId,

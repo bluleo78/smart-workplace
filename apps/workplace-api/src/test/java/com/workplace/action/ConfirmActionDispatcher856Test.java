@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -94,7 +95,7 @@ class ConfirmActionDispatcher856Test extends IntegrationTestBase {
     owner = seedHuman("USER");
     member = seedHuman("USER");
     foreigner = TestFixtures.createHuman(dsl);
-    projectKey = "PC" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    projectKey = uniqueProjectKey("PC");
     projectService.create(owner, new CreateProjectRequest(projectKey, "#856 테스트", null));
   }
 

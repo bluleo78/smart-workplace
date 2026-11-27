@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -12,7 +13,6 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,11 +46,12 @@ class ImportUserResolverTest extends IntegrationTestBase {
   @BeforeEach
   void setUp() {
     TenantContext.set(1L);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 4).toUpperCase();
     long owner = TestFixtures.createHuman(baseDsl);
     TestFixtures.ensureActiveMember(baseDsl, owner, 1L);
     projectId =
-        projectService.create(owner, new CreateProjectRequest("IR" + suffix, "Import", "x")).id();
+        projectService
+            .create(owner, new CreateProjectRequest(uniqueProjectKey("IR"), "Import", "x"))
+            .id();
     m1 = member();
     m2 = member();
     outsider = TestFixtures.createHuman(baseDsl);

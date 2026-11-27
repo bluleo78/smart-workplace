@@ -3,6 +3,7 @@ package com.workplace.issue;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.LABEL;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -34,7 +35,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -154,8 +154,7 @@ class IssueImportHistoryTest extends IssueImportTestSupport {
 
   @Test
   void statusOfOtherProject_400() throws Exception {
-    String otherKey =
-        "IO" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    String otherKey = uniqueProjectKey("IO");
     long otherId = projectService.create(owner, new CreateProjectRequest(otherKey, "다른", "x")).id();
     long foreign = statuses(otherId).get(0).id();
     Map<String, Object> e = entry("STATUS_CHANGED", userB, "2026-06-11T10:00:00+09:00");

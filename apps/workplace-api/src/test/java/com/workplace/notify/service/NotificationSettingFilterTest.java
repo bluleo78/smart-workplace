@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.calendar.service.CalendarService;
@@ -314,7 +315,7 @@ class NotificationSettingFilterTest extends IntegrationTestBase {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 5);
     long projectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "F" + s)
+            .set(PROJECT.KEY, uniqueProjectKey("F"))
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, ownerId)
             .set(PROJECT.TYPE, "OPEN")

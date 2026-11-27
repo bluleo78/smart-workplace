@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -199,11 +200,6 @@ class ActionServiceConfirmTest extends IntegrationTestBase {
         .isInstanceOf(AccessDeniedException.class);
   }
 
-  /** key 충돌 방지용 유니크 suffix. 규칙 ^[A-Z][A-Z0-9]{1,9}$ 준수: 최대 9자 이내로 자름. */
-  private String uniqueSuffix() {
-    return UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 7);
-  }
-
   @Test
   void project_create_project_확인_시_생성() throws Exception {
     // project:write 권한으로 프로젝트 생성 — 호출자가 OWNER 로 자동 등록됨.
@@ -212,7 +208,7 @@ class ActionServiceConfirmTest extends IntegrationTestBase {
         service.confirm(
             caller,
             "project.create_project",
-            params("{\"key\":\"N" + uniqueSuffix() + "\",\"name\":\"새 프로젝트\"}"));
+            params("{\"key\":\"" + uniqueProjectKey("N") + "\",\"name\":\"새 프로젝트\"}"));
     assertThat(result).isNotNull();
     assertThat(result).isInstanceOf(ProjectResponse.class);
   }
@@ -241,7 +237,7 @@ class ActionServiceConfirmTest extends IntegrationTestBase {
   void project_delete_project_확인_시_삭제() throws Exception {
     // project:write + project:manage 로 생성 후 소프트삭제.
     long caller = userWith("project:read", "project:write", "project:manage");
-    String key = "D" + uniqueSuffix();
+    String key = uniqueProjectKey("D");
     // 프로젝트 먼저 생성(호출자가 OWNER 로 자동 등록됨)
     service.confirm(
         caller, "project.create_project", params("{\"key\":\"" + key + "\",\"name\":\"삭제 대상\"}"));
@@ -341,7 +337,7 @@ class ActionServiceConfirmTest extends IntegrationTestBase {
     // project:write + project:manage 로 프로젝트 생성 후 다른 사용자 멤버 추가.
     long caller = userWith("project:read", "project:write", "project:manage");
     long newMember = userWith("project:read");
-    String key = "M" + uniqueSuffix();
+    String key = uniqueProjectKey("M");
     // TEAM 프로젝트 생성(호출자 OWNER 자동 등록)
     service.confirm(
         caller,

@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.jooq.impl.DSL.field;
@@ -39,7 +40,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.Optional;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,8 +82,7 @@ class ProjectReportGenerateNowTest extends ExternalClientMockedTestBase {
   void seed() {
     TenantContext.set(1L);
     owner = human();
-    String key =
-        "RN" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RN");
     project =
         projectService.create(owner, new CreateProjectRequest(key, "리포트-" + key, null, "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())

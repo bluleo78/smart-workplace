@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,7 +25,6 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.exception.UserNotFoundException;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -105,8 +105,7 @@ class ConfirmActionValidateTest extends IntegrationTestBase {
 
   /** 유니크 프로젝트 키 생성 (대문자 알파벳+숫자, 2~10자). */
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return prefix + suffix;
+    return uniqueProjectKey(prefix);
   }
 
   private ObjectNode params() {

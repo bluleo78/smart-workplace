@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -84,8 +85,7 @@ class IssueAssigneeDepartmentLeaveRaceTest extends IntegrationTestBase {
         .set(USER_GROUP_MEMBER.TARGET_ID, member)
         .set(USER_GROUP_MEMBER.TENANT_ID, 1L)
         .execute();
-    String key =
-        "ADL" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("ADL");
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     issueService.create(
         owner,

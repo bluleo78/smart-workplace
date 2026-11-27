@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
@@ -103,7 +104,7 @@ public final class PersonalContextFixtures {
   /** 새 프로젝트에 메일 출처(MAIL, envelopeId) 이슈 1건. */
   public static IssueSeed linkedIssue(
       DSLContext dsl, long reporterId, long envelopeId, String title, String status) {
-    String key = "LK" + (System.nanoTime() % 1_000_000);
+    String key = uniqueProjectKey("LK");
     long project =
         dsl.insertInto(PROJECT)
             .set(PROJECT.KEY, key)

@@ -1,6 +1,7 @@
 package com.workplace.label;
 
 import static com.workplace.jooq.Tables.LABEL;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -23,7 +24,6 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +60,7 @@ class LabelNameCommaTest extends IntegrationTestBase {
     userId = TestFixtures.createHuman(dsl);
     grantUserRole(userId);
     TestFixtures.activeMemberOfCurrentTenant(dsl, userId);
-    key = ("LC" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase()).substring(0, 6);
+    key = uniqueProjectKey("LC");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     projectId = proj.id();
     // 일반 생성으로 이슈 1번을 만든다 — 번호 시퀀스가 따라 올라가야 테스트 안의 이슈 생성이 번호 충돌 없이 라벨 검증까지 간다.

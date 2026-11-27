@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -60,8 +61,7 @@ class WatcherMemberRemovalRaceTest extends IntegrationTestBase {
     TenantContext.set(1L);
     owner = user("o");
     member = user("m");
-    String key =
-        "WRR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("WRR");
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     issueId =
         IssueSeeds.insert(issueRepository, baseDsl, project.id(), 1, "t1", null, "MID", null, owner)

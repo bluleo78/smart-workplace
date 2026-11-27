@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -56,7 +57,7 @@ class IssueChatNotificationTest extends IntegrationTestBase {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 5);
     long projectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "Q" + s)
+            .set(PROJECT.KEY, uniqueProjectKey("Q"))
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, reporterId)
             .set(PROJECT.TYPE, projectType)

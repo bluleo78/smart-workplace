@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -85,9 +86,8 @@ class IssueChildrenPageTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
     return projectService.create(
-        owner, new CreateProjectRequest(prefix + suffix, "P-" + prefix, "x", "TEAM"));
+        owner, new CreateProjectRequest(uniqueProjectKey(prefix), "P-" + prefix, "x", "TEAM"));
   }
 
   /** 생성 요청 — 유형·부모 번호·부모 키만 고른다. */

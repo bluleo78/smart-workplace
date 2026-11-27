@@ -14,6 +14,7 @@ import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.when;
@@ -368,9 +369,9 @@ class AiCapacitySamplerTest extends ExternalClientMockedTestBase {
   }
 
   private ProjectResponse project(long owner) {
-    String s = UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("CS");
     ProjectResponse p =
-        projectService.create(owner, new CreateProjectRequest("CS" + s, "P-CS" + s, "x", "TEAM"));
+        projectService.create(owner, new CreateProjectRequest(key, "P-" + key, "x", "TEAM"));
     projects.add(p.id());
     return p;
   }

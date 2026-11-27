@@ -3,6 +3,7 @@ package com.workplace.issue.controller;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,7 +60,7 @@ class IssueReplaceNullElementEndpointTest extends IntegrationTestBase {
         .set(USER_ROLE.ROLE_ID, roleId)
         .execute();
     TestFixtures.activeMemberOfCurrentTenant(dsl, userId);
-    key = ("NE" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase()).substring(0, 6);
+    key = uniqueProjectKey("NE");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
   }

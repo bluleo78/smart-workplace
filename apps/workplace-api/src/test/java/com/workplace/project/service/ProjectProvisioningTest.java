@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -93,8 +94,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
 
   /** 유니크 key 생성 (대문자/숫자 2~10자). */
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
+    return uniqueProjectKey(prefix);
   }
 
   @Test

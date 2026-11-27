@@ -2,6 +2,7 @@ package com.workplace.wiki.report;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_REVISION;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -18,7 +19,6 @@ import com.workplace.wiki.report.PersonalReportSettingRepository.SettingRow;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,8 +73,7 @@ class PersonalReportTemplateTest extends ExternalClientMockedTestBase {
 
   /** 내가 OWNER 인 다른 공간 — 새 프로젝트의 노트 공간. */
   private long otherSpace() {
-    String key =
-        "PT" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PT");
     long projectId =
         projectService
             .create(userId, new CreateProjectRequest(key, "템플릿-" + key, null, "TEAM"))

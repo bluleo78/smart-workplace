@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
@@ -46,7 +47,7 @@ public class MeIssuesTestFixtures {
 
     // projectA: caller 가 owner → 자동 project_member(OWNER) + system types 시드. caller 담당 이슈
     // 1건(IN_PROGRESS).
-    String keyA = "A" + suffix.substring(0, 4).toUpperCase();
+    String keyA = uniqueProjectKey("A");
     ProjectResponse projectA =
         projectService.create(caller, new CreateProjectRequest(keyA, "PA-" + suffix, "x"));
     var issueA =
@@ -56,7 +57,7 @@ public class MeIssuesTestFixtures {
     setStatus(issueA.id(), "IN_PROGRESS");
 
     // projectB: caller 가 owner → 자동 멤버. caller 담당 이슈 1건(TODO default).
-    String keyB = "B" + suffix.substring(0, 4).toUpperCase();
+    String keyB = uniqueProjectKey("B");
     ProjectResponse projectB =
         projectService.create(caller, new CreateProjectRequest(keyB, "PB-" + suffix, "x"));
     var issueB =
@@ -65,7 +66,7 @@ public class MeIssuesTestFixtures {
     insertAssignee(issueB.id(), caller, caller);
 
     // projectC: other 가 owner → caller 는 비멤버. caller 담당으로 보이는 이슈 1건(멤버십 필터 검증용).
-    String keyC = "C" + suffix.substring(0, 4).toUpperCase();
+    String keyC = uniqueProjectKey("C");
     ProjectResponse projectC =
         projectService.create(other, new CreateProjectRequest(keyC, "PC-" + suffix, "x"));
     var issueC =
@@ -88,8 +89,7 @@ public class MeIssuesTestFixtures {
 
   /** owner 가 소유한(자동 멤버) 새 프로젝트 — 키는 무작위라 테스트끼리 겹치지 않는다. */
   public ProjectRef project(long owner, String name) {
-    String key =
-        "G" + UUID.randomUUID().toString().replaceAll("-", "").substring(0, 5).toUpperCase();
+    String key = uniqueProjectKey("G");
     ProjectResponse p = projectService.create(owner, new CreateProjectRequest(key, name, "x"));
     return new ProjectRef(p.id(), p.key());
   }

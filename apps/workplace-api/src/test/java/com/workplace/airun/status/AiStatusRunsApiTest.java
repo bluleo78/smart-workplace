@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.AI_RUN;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -170,7 +171,7 @@ class AiStatusRunsApiTest extends AiStatusTestSupport {
    */
   private Work work(
       Instant assigned, String title, String state, Integer waitMin, Integer workMin) {
-    String key = "AR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("AR");
     long project = projectService.create(admin, new CreateProjectRequest(key, "P-ar", "x")).id();
     long issueId =
         IssueSeeds.insert(issueRepository, baseDsl, project, 1, title, null, "MID", null, admin)
@@ -550,7 +551,7 @@ class AiStatusRunsApiTest extends AiStatusTestSupport {
       long project =
           baseDsl
               .insertInto(PROJECT)
-              .set(PROJECT.KEY, "XW" + (System.nanoTime() % 100000))
+              .set(PROJECT.KEY, uniqueProjectKey("XW"))
               .set(PROJECT.NAME, "other tenant project")
               .set(PROJECT.OWNER_ID, admin)
               .set(PROJECT.TENANT_ID, otherTenant)

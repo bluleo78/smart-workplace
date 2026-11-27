@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -16,7 +17,6 @@ import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -246,8 +246,7 @@ class PersonalReportLocationTest extends ExternalClientMockedTestBase {
 
   /** 내가 OWNER 인 다른 공간 — 새 프로젝트의 노트 공간. */
   private long otherSpace() {
-    String key =
-        "PL" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PL");
     long projectId =
         projectService.create(me, new CreateProjectRequest(key, "위치-" + key, null, "TEAM")).id();
     return writer.ensureProjectSpace(projectId).orElseThrow();

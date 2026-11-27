@@ -3,6 +3,7 @@ package com.workplace.issue.controller;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,9 +61,7 @@ class IssueCycleMoveEndpointTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   /** userId 용 access token 발급 (Bearer 헤더 본문). */

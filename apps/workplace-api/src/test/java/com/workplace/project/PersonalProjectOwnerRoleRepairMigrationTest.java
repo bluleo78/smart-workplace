@@ -1,6 +1,7 @@
 package com.workplace.project;
 
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.project.dto.AddMemberRequest;
@@ -10,7 +11,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,8 +39,7 @@ class PersonalProjectOwnerRoleRepairMigrationTest extends IntegrationTestBase {
     var personal =
         projectService.create(owner, new CreateProjectRequest(null, "개인V203", null, "PERSONAL"));
     projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
-    String teamKey =
-        "RP" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 6);
+    String teamKey = uniqueProjectKey("RP");
     var team = projectService.create(owner, new CreateProjectRequest(teamKey, "팀V203", null));
     projectService.addMember(owner, team.key(), new AddMemberRequest(agent, "OWNER"));
     // 결함이 남긴 상태: 개인 프로젝트의 AGENT 가 OWNER, 주인이 MEMBER.

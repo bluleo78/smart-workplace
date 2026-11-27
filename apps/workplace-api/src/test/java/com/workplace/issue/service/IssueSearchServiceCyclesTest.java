@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -51,9 +52,7 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   private ProjectResponse newProject(Long ownerId, String prefix) {

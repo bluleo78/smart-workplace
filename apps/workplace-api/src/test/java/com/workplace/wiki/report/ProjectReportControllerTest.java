@@ -1,5 +1,6 @@
 package com.workplace.wiki.report;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -25,7 +26,6 @@ import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.service.WikiSystemPageWriter;
 import java.util.Optional;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,8 +59,7 @@ class ProjectReportControllerTest extends ExternalClientMockedTestBase {
   void seed() {
     TenantContext.set(1L);
     ownerId = human();
-    String key =
-        "RC" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RC");
     project =
         projectService.create(ownerId, new CreateProjectRequest(key, "리포트-" + key, null, "TEAM"));
   }
@@ -172,7 +171,7 @@ class ProjectReportControllerTest extends ExternalClientMockedTestBase {
     // 시드는 요청 전에 — MockMvc 요청이 끝나면 테넌트 문맥이 비워진다.
     ProjectResponse other =
         projectService.create(
-            ownerId, new CreateProjectRequest("O" + project.key(), "다른", null, "TEAM"));
+            ownerId, new CreateProjectRequest(uniqueProjectKey("O"), "다른", null, "TEAM"));
     long otherSpace = writer.ensureProjectSpace(other.id()).orElseThrow();
     long outside = writer.createPage(ownerId, otherSpace, null, "밖").id();
     long member = human();

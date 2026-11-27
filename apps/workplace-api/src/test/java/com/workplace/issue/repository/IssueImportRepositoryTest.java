@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_ATTACHMENT;
 import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -65,8 +66,9 @@ class IssueImportRepositoryTest extends IntegrationTestBase {
   }
 
   private long newProject() {
-    String s = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(userId, new CreateProjectRequest("IM" + s, "Import", "x")).id();
+    return projectService
+        .create(userId, new CreateProjectRequest(uniqueProjectKey("IM"), "Import", "x"))
+        .id();
   }
 
   private long newIssue(long project, int number) {

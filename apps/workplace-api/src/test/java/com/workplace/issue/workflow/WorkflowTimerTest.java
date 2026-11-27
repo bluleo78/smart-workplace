@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -93,7 +94,7 @@ class WorkflowTimerTest extends IntegrationTestBase {
     pm = human();
     worker = human();
     dev = human();
-    key = "WT" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    key = uniqueProjectKey("WT");
     projectService.create(pm, new CreateProjectRequest(key, "타이머", "x", "TEAM"));
     TenantContext.set(1L);
     projectService.addMember(pm, key, new AddMemberRequest(worker, "MEMBER"));

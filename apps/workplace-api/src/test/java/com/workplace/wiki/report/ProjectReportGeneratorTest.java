@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.jooq.impl.DSL.field;
@@ -60,7 +61,6 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -104,8 +104,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
   void seed() {
     TenantContext.set(1L);
     owner = human();
-    String key =
-        "RG" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RG");
     project =
         projectService.create(owner, new CreateProjectRequest(key, "리포트-" + key, null, "TEAM"));
     when(assistantResolver.resolveWorkspaceOrEmpty())
@@ -674,8 +673,7 @@ class ProjectReportGeneratorTest extends ExternalClientMockedTestBase {
     long reports = reportsPageId();
     long minutes = writer.createPage(owner, page(reports).spaceId(), null, "회의록").id();
     settingsService.updateLocation(owner, project.key(), minutes);
-    String key =
-        "RO" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("RO");
     ProjectResponse other =
         projectService.create(owner, new CreateProjectRequest(key, "다른-" + key, null, "TEAM"));
     long otherSpace = writer.ensureProjectSpace(other.id()).orElseThrow();

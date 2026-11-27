@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,8 +78,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
+    return uniqueProjectKey(prefix);
   }
 
   private ProjectResponse newProject(Long ownerId, String prefix) {
@@ -189,7 +189,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void agent_unassigning_only_self_succeeds() {
     Long owner = createUser("ag-owner");
     Long agent = createAgentUserWithMembership("ag-self");
-    ProjectResponse p = newProject(owner, "AGSELF");
+    ProjectResponse p = newProject(owner, "AGSE");
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
     IssueRow issue =
         IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
@@ -205,7 +205,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long owner = createUser("ag2-owner");
     Long other = createUser("ag2-other");
     Long agent = createAgentUserWithMembership("ag2-self");
-    ProjectResponse p = newProject(owner, "AGOTH");
+    ProjectResponse p = newProject(owner, "AGOT");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
@@ -223,7 +223,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long other = createUser("ag3-other");
     Long agent = createAgentUserWithMembership("ag3-self");
     Long otherAgent = createAgentUserWithMembership("ag3-agent");
-    ProjectResponse p = newProject(owner, "AGADD");
+    ProjectResponse p = newProject(owner, "AGAD");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(otherAgent, "MEMBER"));
@@ -240,7 +240,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void agent_solo_removing_self_succeeds() {
     Long owner = createUser("ag4-owner");
     Long agent = createAgentUserWithMembership("ag4-self");
-    ProjectResponse p = newProject(owner, "AGSOL");
+    ProjectResponse p = newProject(owner, "AGSO");
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(agent));
@@ -281,7 +281,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void inactive_user_cannot_be_newly_assigned() {
     Long owner = createUser("inact-owner");
     Long member = createUser("inact-member");
-    ProjectResponse p = newProject(owner, "INACT1");
+    ProjectResponse p = newProject(owner, "INA1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
@@ -300,7 +300,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void workspace_suspended_member_cannot_be_newly_assigned() {
     Long owner = createUser("susp-owner");
     Long member = createUser("susp-member");
-    ProjectResponse p = newProject(owner, "SUSP1");
+    ProjectResponse p = newProject(owner, "SUS1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     TestFixtures.suspendMember(dsl, member, 1L);
@@ -324,7 +324,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void workspace_suspended_member_cannot_be_assigned_on_create() {
     Long owner = createUser("susp-c-owner");
     Long member = createUser("susp-c-member");
-    ProjectResponse p = newProject(owner, "SUSPC");
+    ProjectResponse p = newProject(owner, "SUSC");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
     TestFixtures.suspendMember(dsl, member, 1L);
 
@@ -371,7 +371,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void inactive_user_already_assigned_kept_when_reasserting_same_set() {
     Long owner = createUser("inact2-owner");
     Long member = createUser("inact2-member");
-    ProjectResponse p = newProject(owner, "INACT2");
+    ProjectResponse p = newProject(owner, "INA2");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(member));
@@ -386,7 +386,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   void human_assignee_changes_unaffected_by_agent_branch() {
     Long owner = createUser("ag5-owner");
     Long other = createUser("ag5-other");
-    ProjectResponse p = newProject(owner, "AGHUM");
+    ProjectResponse p = newProject(owner, "AGHU");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
     IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 

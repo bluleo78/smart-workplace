@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.fileai.repository.FileExtractionRepository;
@@ -62,9 +63,8 @@ class AiCapacityCountsTest extends IntegrationTestBase {
   }
 
   private ProjectResponse project(long owner) {
-    String s = UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(
-        owner, new CreateProjectRequest("CQ" + s, "P-CQ" + s, "x", "TEAM"));
+    String key = uniqueProjectKey("CQ");
+    return projectService.create(owner, new CreateProjectRequest(key, "P-" + key, "x", "TEAM"));
   }
 
   /** 담당 없는 열린 이슈 하나. */

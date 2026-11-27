@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -102,7 +103,7 @@ class WorkflowAgentWorkTest extends IntegrationTestBase {
     TenantContext.set(1L);
     pm = human();
     lead = human();
-    key = "WA" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    key = uniqueProjectKey("WA");
     projectId = projectService.create(pm, new CreateProjectRequest(key, "다리", "x", "TEAM")).id();
     TenantContext.set(1L);
     projectService.addMember(pm, key, new AddMemberRequest(lead, "MEMBER"));

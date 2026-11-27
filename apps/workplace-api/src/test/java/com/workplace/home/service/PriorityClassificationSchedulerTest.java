@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
@@ -48,7 +49,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -190,7 +190,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
         .execute();
     // findByKind 는 USER.NAME 오름차순 정렬 — namePrefix 로 처리 순서를 결정적으로 고정한다.
     dsl.update(USER).set(USER.NAME, namePrefix + "-" + userId).where(USER.ID.eq(userId)).execute();
-    String key = uniqueKey(namePrefix.toUpperCase());
+    String key = uniqueKey();
     ProjectResponse proj =
         projectService.create(userId, new CreateProjectRequest(key, namePrefix + " 프로젝트", "x"));
     var issue = insertOverdueIssue(proj.id(), 1, userId, namePrefix + " 마감 지난 이슈");
@@ -221,10 +221,9 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     return IssueDueWindow.today(Clock.systemUTC());
   }
 
-  private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = (prefix.length() > 4 ? prefix.substring(0, 4) : prefix) + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+  private String uniqueKey() {
+    // 접두는 테스트 식별용 — namePrefix("aaa-first" 등)는 키 규칙에 안 맞아 쓰지 않는다.
+    return uniqueProjectKey("PC");
   }
 
   @Test
@@ -648,7 +647,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     dsl.update(USER).set(USER.NAME, "collision-" + userId).where(USER.ID.eq(userId)).execute();
     usersToDelete.add(userId);
 
-    String key = uniqueKey("COLL");
+    String key = uniqueKey();
     ProjectResponse proj =
         projectService.create(userId, new CreateProjectRequest(key, "충돌 테스트 프로젝트", "x"));
     projectsToDelete.add(proj.id());

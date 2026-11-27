@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.PERMISSION;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -64,7 +65,7 @@ class ProjectMetaOwnerPermissionTest extends IntegrationTestBase {
     // 멤버는 USER 역할 — 회사 역할로는 project:manage 까지 가졌지만 프로젝트 OWNER 가 아니다.
     memberId = withMembership(TestFixtures.createHuman(dsl));
     TestFixtures.grantRole(dsl, memberId, "USER");
-    key = "PM" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("PM");
     projectService.create(ownerId, new CreateProjectRequest(key, "메타 권한", "x"));
     projectService.addMember(ownerId, key, new AddMemberRequest(memberId, "MEMBER"));
   }

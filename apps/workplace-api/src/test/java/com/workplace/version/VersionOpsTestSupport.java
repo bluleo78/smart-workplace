@@ -1,5 +1,7 @@
 package com.workplace.version;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
+
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
@@ -10,7 +12,6 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -43,7 +44,7 @@ abstract class VersionOpsTestSupport extends IntegrationTestBase {
   void seedProject() {
     ownerId = human();
     memberId = human();
-    key = "VR" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("VR");
     projectId =
         projectService.create(ownerId, new CreateProjectRequest(key, "버전", "x", "OPEN")).id();
     projectService.addMember(ownerId, key, new AddMemberRequest(memberId, "MEMBER"));

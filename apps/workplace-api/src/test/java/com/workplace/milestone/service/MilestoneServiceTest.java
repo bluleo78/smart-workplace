@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -58,9 +59,7 @@ class MilestoneServiceTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   private ProjectResponse newProject(Long ownerId, String prefix) {
@@ -232,7 +231,7 @@ class MilestoneServiceTest extends IntegrationTestBase {
             .getId();
     Long phantomProjectId =
         dsl.insertInto(PROJECT)
-            .set(PROJECT.KEY, "RLM" + (System.nanoTime() % 100000))
+            .set(PROJECT.KEY, uniqueProjectKey("RLM"))
             .set(PROJECT.NAME, "phantom project")
             .set(PROJECT.OWNER_ID, phantomOwnerId)
             .set(PROJECT.TENANT_ID, tid2)

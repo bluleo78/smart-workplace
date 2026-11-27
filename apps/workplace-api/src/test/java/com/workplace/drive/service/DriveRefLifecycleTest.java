@@ -1,6 +1,7 @@
 package com.workplace.drive.service;
 
 import static com.workplace.jooq.Tables.*;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.drive.dto.DriveLinkResponse;
@@ -134,8 +135,7 @@ class DriveRefLifecycleTest extends IntegrationTestBase {
   void issueSoftDelete_purgesDriveRefs() {
     // given: 오너 + 프로젝트 + 이슈 + 드라이브 파일
     long owner = seedUser("owner");
-    String key =
-        "LCT" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("LCT");
     projectService.create(owner, new CreateProjectRequest(key, "LifecycleTest", "x"));
 
     var issue =
@@ -217,8 +217,7 @@ class DriveRefLifecycleTest extends IntegrationTestBase {
   void issueSoftDelete_purgesChildSubtaskRefs() {
     // given: 오너 + 팀 프로젝트(SUBTASK 유형 존재) + 부모 TASK + 자식 SUBTASK
     long owner = seedUser("child-purge-owner");
-    String key =
-        "CP" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    String key = uniqueProjectKey("CP");
     var project =
         projectService.create(owner, new CreateProjectRequest(key, "ChildPurgeTest", "x"));
 

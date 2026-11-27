@@ -1,5 +1,6 @@
 package com.workplace.issue;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -138,7 +139,9 @@ class IssueRelationSchemaTest extends IntegrationTestBase {
                 "rel-" + suffix + "@example.com")
             .get("id", Long.class);
     long projectId =
-        projectService.create(userId, new CreateProjectRequest("RL" + suffix, "Rel", "x")).id();
+        projectService
+            .create(userId, new CreateProjectRequest(uniqueProjectKey("RL"), "Rel", "x"))
+            .id();
     long[] ids = new long[n];
     for (int i = 0; i < n; i++) {
       ids[i] =

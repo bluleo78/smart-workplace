@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.ISSUE_RELATION;
 import static com.workplace.jooq.Tables.NOTIFICATION;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -667,7 +668,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
   }
 
   private static String randomKey(String prefix) {
-    return prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    return uniqueProjectKey(prefix);
   }
 
   private int newIssue(long caller, String projectKey, String title) {

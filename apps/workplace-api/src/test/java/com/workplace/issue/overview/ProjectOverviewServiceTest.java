@@ -12,6 +12,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_VERSION;
 import static com.workplace.jooq.Tables.PROJECT_VERSION;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -95,9 +96,8 @@ class ProjectOverviewServiceTest extends IntegrationTestBase {
   }
 
   private ProjectResponse project(long ownerId) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(
-        ownerId, new CreateProjectRequest("PO" + suffix, "P-PO" + suffix, "x", "TEAM"));
+    String key = uniqueProjectKey("PO");
+    return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + key, "x", "TEAM"));
   }
 
   private void member(ProjectResponse p, long ownerId, long userId) {

@@ -3,6 +3,7 @@ package com.workplace.issue.controller;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -65,9 +66,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   /** userId 용 access token 발급 (Bearer 헤더 본문). */

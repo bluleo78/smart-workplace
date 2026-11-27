@@ -2,6 +2,7 @@ package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -16,7 +17,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,7 +65,7 @@ abstract class IssueImportTestSupport extends IntegrationTestBase {
     TestFixtures.grantRole(dsl, admin, "ADMIN");
     owner = human();
     reporter = human();
-    key = keyPrefix + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey(keyPrefix);
     projectId = projectService.create(owner, new CreateProjectRequest(key, projectName, "x")).id();
     memberRepository.insert(projectId, reporter, "MEMBER");
   }

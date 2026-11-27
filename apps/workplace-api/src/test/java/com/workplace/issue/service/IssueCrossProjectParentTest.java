@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -82,9 +83,8 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(String prefix, String type) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
     return projectService.create(
-        owner, new CreateProjectRequest(prefix + suffix, "P-" + prefix, "x", type));
+        owner, new CreateProjectRequest(uniqueProjectKey(prefix), "P-" + prefix, "x", type));
   }
 
   private long typeId(ProjectResponse p, String name) {

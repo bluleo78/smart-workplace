@@ -2,6 +2,7 @@ package com.workplace.project.controller;
 
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,7 +14,6 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,7 +67,7 @@ class ProjectCreateInputValidationTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    return prefix + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    return uniqueProjectKey(prefix);
   }
 
   private ResultActions postProject(String json) throws Exception {

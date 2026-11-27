@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -50,9 +51,7 @@ class MailIssueServiceTest extends IntegrationTestBase {
   void setUp() {
     callerId = TestFixtures.createHuman(dsl);
     TenantContext.set(1L);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String raw = "MI" + suffix;
-    projectKey = raw.substring(0, Math.min(10, raw.length()));
+    projectKey = uniqueProjectKey("MI");
     // projectService.create 는 @Transactional — TenantContext.set 아래에서 GUC 주입
     projectService.create(callerId, new CreateProjectRequest(projectKey, "메일이슈 테스트", "x"));
   }

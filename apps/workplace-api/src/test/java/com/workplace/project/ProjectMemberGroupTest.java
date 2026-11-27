@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -728,8 +729,7 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
   }
 
   private ProjectResponse project(long owner, String type) {
-    String key =
-        "PG" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("PG");
     return projectService.create(owner, new CreateProjectRequest(key, "P-" + suffix, "x", type));
   }
 

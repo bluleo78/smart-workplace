@@ -1,5 +1,6 @@
 package com.workplace.watcher;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -26,7 +27,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -127,12 +127,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     long owner = fx.loginUser("o");
     var open =
         projectService.create(
-            owner,
-            new CreateProjectRequest(
-                "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 5).toUpperCase(),
-                "공개",
-                "x",
-                "OPEN"));
+            owner, new CreateProjectRequest(uniqueProjectKey("O"), "공개", "x", "OPEN"));
     ProjectRef p = new ProjectRef(open.id(), open.key());
     long id = fx.issue(p, "제보", me, null, null, null, t(1));
     watcherRepository.add(id, me);

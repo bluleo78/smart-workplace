@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.PROJECT_ISSUE_SEQUENCE;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
@@ -32,7 +33,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -290,9 +290,7 @@ class CycleCompleteEndpointTest extends IntegrationTestBase {
   }
 
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   private long createCycle(

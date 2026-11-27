@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -46,8 +47,7 @@ class IssueRowLockScopeTest extends IntegrationTestBase {
   void seed() {
     TenantContext.set(1L);
     long owner = user();
-    String key =
-        "LKS" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("LKS");
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
     IssueSeeds.insert(issueRepository, baseDsl, project.id(), 1, "t1", null, "MID", null, owner);
   }

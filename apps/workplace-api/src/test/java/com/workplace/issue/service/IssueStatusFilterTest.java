@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -67,9 +68,8 @@ class IssueStatusFilterTest extends IntegrationTestBase {
   }
 
   private ProjectResponse newProject(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
     return projectService.create(
-        owner, new CreateProjectRequest(prefix + suffix, "P-" + prefix, "x"));
+        owner, new CreateProjectRequest(uniqueProjectKey(prefix), "P-" + prefix, "x"));
   }
 
   private long statusId(ProjectResponse p, String name) {

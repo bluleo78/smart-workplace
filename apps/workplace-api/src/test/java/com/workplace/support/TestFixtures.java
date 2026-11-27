@@ -12,7 +12,9 @@ import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.impl.DSL;
@@ -29,6 +31,18 @@ public final class TestFixtures {
   /** 테스트 전반에서 username/email 유니크를 보장하는 프로세스-와이드 카운터. */
   private static final AtomicLong SEQ = new AtomicLong();
 
+  /** 프로젝트 키 접두 뒤에 반드시 남겨야 하는 무작위 자리 수의 최소값. */
+  private static final int MIN_RANDOM_KEY_CHARS = 6;
+
+  /** 프로젝트 키 최대 길이(프로젝트 키 규칙 ^[A-Z][A-Z0-9]{1,9}$). */
+  private static final int MAX_PROJECT_KEY_LENGTH = 10;
+
+  /** 프로젝트 키 접두 형식 — 대문자로 시작하는 대문자·숫자. */
+  private static final Pattern KEY_PREFIX = Pattern.compile("^[A-Z][A-Z0-9]*$");
+
+  /** 프로젝트 키 무작위 자리에 쓰는 글자(36가지). */
+  private static final String KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
   /**
    * 웹·채팅에서 복사하며 묻는 보이지 않는 문자(WP-1721) — 소스에 문자 그대로 두면 보이지 않으므로 코드값으로 만든다. NBSP(U+00A0)·좁은
    * NBSP(U+202F)·폭 없는 공백(U+200B)·BOM(U+FEFF).
@@ -42,6 +56,40 @@ public final class TestFixtures {
   public static final String BOM = String.valueOf((char) 0xFEFF);
 
   private TestFixtures() {}
+
+  /** {@link #uniqueProjectKey(String, int)} 를 최대 길이(10)로 부른다. */
+  public static String uniqueProjectKey(String prefix) {
+    return uniqueProjectKey(prefix, MAX_PROJECT_KEY_LENGTH);
+  }
+
+  /**
+   * 접두 + 무작위 대문자·숫자로 length 자리를 채운 테스트용 프로젝트 키를 만든다.
+   *
+   * <p>접두 + UUID 4자(65,536가지)는 공유 테스트 DB 에 남은 프로젝트와 풀테스트에서 겹쳐 ProjectConflictException 으로 가끔
+   * 실패했다(WP-2162). 그래서 가능한 한 길이를 채워 무작위 자리를 늘린다.
+   *
+   * @throws IllegalArgumentException 접두가 형식에 어긋나거나, 길이가 10 을 넘거나, 무작위 자리가 6 미만일 때
+   */
+  public static String uniqueProjectKey(String prefix, int length) {
+    if (prefix == null || !KEY_PREFIX.matcher(prefix).matches()) {
+      throw new IllegalArgumentException("프로젝트 키 접두는 대문자로 시작하는 대문자·숫자여야 한다: " + prefix);
+    }
+    if (length > MAX_PROJECT_KEY_LENGTH || length - prefix.length() < MIN_RANDOM_KEY_CHARS) {
+      throw new IllegalArgumentException(
+          "길이는 10 이하이고 접두 뒤에 무작위 "
+              + MIN_RANDOM_KEY_CHARS
+              + "자 이상 남아야 한다: "
+              + prefix
+              + ", "
+              + length);
+    }
+    // 무작위 자리는 [A-Z0-9] 36가지에서 한 글자씩 뽑는다(16진 UUID 보다 자리당 경우의 수가 많다).
+    StringBuilder key = new StringBuilder(prefix);
+    for (int i = prefix.length(); i < length; i++) {
+      key.append(KEY_CHARS.charAt(ThreadLocalRandom.current().nextInt(KEY_CHARS.length())));
+    }
+    return key.toString();
+  }
 
   /**
    * 이슈 담당 행을 담당 지정 API 를 거치지 않고 바로 넣는다(WP-2120) — 담당 지정이 워크플로우를 자동 시작하므로, 실행이 없는 상태의 담당을 만들려는 워크플로우

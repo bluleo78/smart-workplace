@@ -3,6 +3,7 @@ package com.workplace.issue.workflow;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_VERSION;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -323,7 +324,7 @@ class MyWorkflowTurnsApiTest extends IntegrationTestBase {
   }
 
   private static String newKey() {
-    return "MT" + UUID.randomUUID().toString().replace("-", "").substring(0, 7).toUpperCase();
+    return uniqueProjectKey("MT");
   }
 
   private long newProject(String projectKey) {

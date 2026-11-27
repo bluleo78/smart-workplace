@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.after;
@@ -116,9 +117,7 @@ class IssueEventDispatchIntegrationTest extends ExternalClientMockedTestBase {
 
   /** key 는 2~10자 대문자/숫자. 충돌 회피 위해 UUID 4자 접미사. */
   private String uniqueKey(String prefix) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    String key = prefix + suffix;
-    return key.substring(0, Math.min(10, key.length()));
+    return uniqueProjectKey(prefix);
   }
 
   /** HUMAN owner + AGENT member 가 있는 프로젝트를 만들고 (humanId, agentId, projectKey) 반환. */

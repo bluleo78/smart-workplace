@@ -2,6 +2,7 @@ package com.workplace.wiki.service;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -15,7 +16,6 @@ import com.workplace.wiki.service.WikiSystemPageWriter.ReportsHome;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,8 +42,7 @@ class WikiSystemPageWriterTest extends ExternalClientMockedTestBase {
   void seed() {
     TenantContext.set(1L);
     ownerId = human();
-    String key =
-        "SW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("SW");
     project =
         projectService.create(ownerId, new CreateProjectRequest(key, "쓰기-" + key, null, "TEAM"));
   }
@@ -291,7 +290,7 @@ class WikiSystemPageWriterTest extends ExternalClientMockedTestBase {
     long page = writer.createPage(ownerId, spaceId, null, "안").id();
     ProjectResponse other =
         projectService.create(
-            ownerId, new CreateProjectRequest("SX" + project.key(), "다른", null, "TEAM"));
+            ownerId, new CreateProjectRequest(uniqueProjectKey("SX"), "다른", null, "TEAM"));
     long otherSpace = writer.ensureProjectSpace(other.id()).orElseThrow();
     long outside = writer.createPage(ownerId, otherSpace, null, "밖").id();
 

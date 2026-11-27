@@ -1,5 +1,6 @@
 package com.workplace.issue;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,7 +15,6 @@ import com.workplace.support.TestFixtures;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +57,7 @@ abstract class IssueComponentTestSupport extends IntegrationTestBase {
     woodyId = human();
     soonId = human();
     outsiderId = human();
-    key = "IC" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    key = uniqueProjectKey("IC");
     projectId =
         projectService.create(ownerId, new CreateProjectRequest(key, "구성요소", "x", "OPEN")).id();
     projectService.addMember(ownerId, key, new AddMemberRequest(woodyId, "MEMBER"));

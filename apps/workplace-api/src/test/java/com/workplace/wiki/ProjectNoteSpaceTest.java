@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -421,8 +422,7 @@ class ProjectNoteSpaceTest extends IntegrationTestBase {
   // ── 도우미 ──
 
   private ProjectResponse project(long owner, String name, String type) {
-    String key =
-        "NS" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("NS");
     return projectService.create(owner, new CreateProjectRequest(key, name, null, type));
   }
 

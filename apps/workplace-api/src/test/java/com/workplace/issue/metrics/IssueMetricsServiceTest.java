@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
@@ -78,9 +79,8 @@ class IssueMetricsServiceTest extends IntegrationTestBase {
   }
 
   private ProjectResponse project(Long ownerId, String type) {
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
-    return projectService.create(
-        ownerId, new CreateProjectRequest("MT" + suffix, "P-MT" + suffix, "x", type));
+    String key = uniqueProjectKey("MT");
+    return projectService.create(ownerId, new CreateProjectRequest(key, "P-" + key, "x", type));
   }
 
   /** 담당자·마감 없는 이슈를 만들고 생성 시각을 지정한다(서비스가 넣은 담당자 행이 있으면 지운다). */

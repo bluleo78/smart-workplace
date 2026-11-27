@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.PROJECT_ISSUE_SEQUENCE;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -194,8 +195,8 @@ class MessagingProposalProjectRoutingTest extends ExternalClientMockedTestBase {
    * @return 생성된 project id
    */
   private long createTeamProject(long ownerId, String name) {
-    // project.key 는 varchar(10) — 최대 10자 이내로 생성.
-    String key = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 9).toUpperCase();
+    // project.key 는 varchar(10) — 공용 생성기가 10자 이내 키를 만든다.
+    String key = uniqueProjectKey("T");
     var row = projectRepo.insert(key, name, null, ownerId, "TEAM", false);
     projectMemberRepo.insert(row.id(), ownerId, "OWNER");
     // IssueService.create 는 TASK 시스템 유형 + 이슈 시퀀스 행이 필요 — PersonalProjectProvisioner 와 동일하게 초기화.

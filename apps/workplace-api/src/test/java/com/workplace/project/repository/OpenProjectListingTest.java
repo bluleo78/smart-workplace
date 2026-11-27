@@ -1,5 +1,6 @@
 package com.workplace.project.repository;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -73,16 +74,7 @@ class OpenProjectListingTest extends IntegrationTestBase {
 
   /** TEAM 프로젝트를 DB 에 직접 삽입하고 key 를 반환한다. */
   private String insertTeamProject(long ownerId) {
-    String key =
-        ("TM"
-                + java.util
-                    .UUID
-                    .randomUUID()
-                    .toString()
-                    .replaceAll("-", "")
-                    .toUpperCase()
-                    .substring(0, 6))
-            .substring(0, 8);
+    String key = uniqueProjectKey("TM");
     dsl.insertInto(com.workplace.jooq.Tables.PROJECT)
         .set(com.workplace.jooq.Tables.PROJECT.KEY, key)
         .set(com.workplace.jooq.Tables.PROJECT.NAME, "팀프로젝트-" + key)

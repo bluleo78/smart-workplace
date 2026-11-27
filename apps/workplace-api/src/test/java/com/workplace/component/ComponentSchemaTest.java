@@ -1,5 +1,6 @@
 package com.workplace.component;
 
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -154,7 +155,9 @@ class ComponentSchemaTest extends IntegrationTestBase {
                 "cmp-" + suffix,
                 "cmp-" + suffix + "@example.com")
             .get("id", Long.class);
-    return projectService.create(userId, new CreateProjectRequest("CP" + suffix, "Cmp", "x")).id();
+    return projectService
+        .create(userId, new CreateProjectRequest(uniqueProjectKey("CP"), "Cmp", "x"))
+        .id();
   }
 
   private long seedIssue(long projectId) {

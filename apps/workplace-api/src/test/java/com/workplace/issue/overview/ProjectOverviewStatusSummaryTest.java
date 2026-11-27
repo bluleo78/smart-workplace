@@ -3,6 +3,7 @@ package com.workplace.issue.overview;
 import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -61,10 +62,9 @@ class ProjectOverviewStatusSummaryTest extends ExternalClientMockedTestBase {
     owner = TestFixtures.createHuman(dsl);
     grantUserRole(owner);
     withMembership(owner);
-    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
+    String key = uniqueProjectKey("OS");
     project =
-        projectService.create(
-            owner, new CreateProjectRequest("OS" + suffix, "개요상태-" + suffix, "x", "TEAM"));
+        projectService.create(owner, new CreateProjectRequest(key, "개요상태-" + key, "x", "TEAM"));
   }
 
   /** 워크스페이스 공통 비서가 있다(AI 를 쓸 수 있다). */

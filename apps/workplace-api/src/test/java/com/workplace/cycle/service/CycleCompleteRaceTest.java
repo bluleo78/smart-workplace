@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -20,7 +21,6 @@ import com.workplace.support.TestFixtures;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -59,7 +59,7 @@ class CycleCompleteRaceTest extends IntegrationTestBase {
   void seed() {
     TenantContext.set(1L);
     owner = user();
-    projectKey = "R" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    projectKey = uniqueProjectKey("R");
     projectId =
         projectService.create(owner, new CreateProjectRequest(projectKey, "cycle race", null)).id();
   }

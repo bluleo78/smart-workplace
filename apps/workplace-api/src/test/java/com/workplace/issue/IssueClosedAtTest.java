@@ -3,6 +3,7 @@ package com.workplace.issue;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -58,7 +59,7 @@ class IssueClosedAtTest extends IntegrationTestBase {
             .fetchOne()
             .getId();
     TenantContext.set(1L);
-    projKey = "CL" + suffix.substring(0, 4).toUpperCase();
+    projKey = uniqueProjectKey("CL");
     projectId =
         projectService.create(userId, new CreateProjectRequest(projKey, "Closed", "x")).id();
   }

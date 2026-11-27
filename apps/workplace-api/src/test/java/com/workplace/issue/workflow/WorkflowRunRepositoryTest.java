@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKFLOW_MOVE_IDEMPOTENCY;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN;
 import static com.workplace.jooq.Tables.WORKFLOW_RUN_EVENT;
+import static com.workplace.support.TestFixtures.uniqueProjectKey;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.workflow.repository.IdempotentRow;
@@ -71,7 +72,7 @@ class WorkflowRunRepositoryTest extends IntegrationTestBase {
           long project =
               baseDsl
                   .insertInto(PROJECT)
-                  .set(PROJECT.KEY, "WR" + (System.nanoTime() % 10_000_000))
+                  .set(PROJECT.KEY, uniqueProjectKey("WR"))
                   .set(PROJECT.NAME, "workflow run repo test")
                   .set(PROJECT.OWNER_ID, actor)
                   .returning(PROJECT.ID)
