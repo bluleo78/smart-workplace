@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { AvatarPicture } from '@/components/users/AvatarPicture';
 import { avatarInitials } from '@/lib/avatarColor';
 import { presenceStyle } from '@/lib/collab/presence';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 import type { MemberResponse } from '@/types/project';
 
@@ -66,9 +67,11 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
               {overflow.map((m) => (
                 <li key={m.userId}>
                   <Button
-                    variant={isSelected(m.userId) ? 'secondary' : 'ghost'}
+                    // WP-2166 — 선택은 variant 가 아니라 토글 켜짐 클래스로 표시한다.
+                    variant="ghost"
                     size="sm"
-                    className="w-full justify-start gap-2"
+                    className={cn('w-full justify-start gap-2', ghostToggleClass(isSelected(m.userId)))}
+                    aria-pressed={isSelected(m.userId)}
                     onClick={() => onToggle(m.userId)}
                   >
                     {/* 이름이 바로 옆 글자로 있어 장식 — 이미지 alt·이니셜을 이름과 겹쳐 읽지 않게. */}

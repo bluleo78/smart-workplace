@@ -485,6 +485,34 @@ describe('모바일', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: '30일' })).not.toBeInTheDocument())
   })
 
+  // WP-2166 — 기간 목록의 고른 기간은 목록 선택(bg-selected·막대·aria-pressed)으로 표시한다.
+  test('모바일 기간 목록은 지금 기간만 목록 선택으로 표시한다', async () => {
+    const h = runsHandler([createAiRunPage([createAiRunItem()])])
+    const { user } = renderHistory('/settings/ai-status/history?period=7d', h)
+    await screen.findByTestId('ai-run-card')
+    await user.click(screen.getByTestId('ai-run-period-chip'))
+    const dialog = await screen.findByRole('dialog', { name: '조회 기간 선택' })
+    const on = within(dialog).getByRole('button', { name: '7일' })
+    expect(on).toHaveAttribute('aria-pressed', 'true')
+    expect(on.className).toContain('bg-selected')
+    expect(on.className).toContain('selection-bar')
+    const off = within(dialog).getByRole('button', { name: '30일' })
+    expect(off).toHaveAttribute('aria-pressed', 'false')
+    expect(off.className).not.toContain('bg-selected')
+  })
+
+  test('모바일 구간이 걸려 있으면 어떤 기간도 선택돼 보이지 않는다', async () => {
+    const h = runsHandler([createAiRunPage([createAiRunItem()])])
+    const { user } = renderHistory('/settings/ai-status/history?from=2026-11-20T05:00:00.000Z', h)
+    await screen.findByTestId('ai-run-card')
+    await user.click(screen.getByTestId('ai-run-period-chip'))
+    const dialog = await screen.findByRole('dialog', { name: '조회 기간 선택' })
+    for (const b of within(dialog).getAllByRole('button')) {
+      expect(b).toHaveAttribute('aria-pressed', 'false')
+      expect(b.className).not.toContain('bg-selected')
+    }
+  })
+
   test('모바일 칩 줄 순서는 기간 → 구간 → 필터', async () => {
     const h = runsHandler([createAiRunPage([createAiRunItem()])])
     renderHistory('/settings/ai-status/history?from=2026-11-20T05:00:00.000Z&status=FAILED', h)

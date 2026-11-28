@@ -4,6 +4,7 @@ import { act, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 
+import { expectToggleLook } from '@/test/kits/projects/listBoard'
 import { renderScreen } from '@/test/renderScreen'
 
 import { AgentScreenDialog } from './AgentScreenDialog'
@@ -102,6 +103,22 @@ describe('AgentScreenDialog', () => {
     expect(screen.getByTestId('agent-screen-input-band')).toHaveTextContent('입력 중 — 치는 키가 AI 화면에 그대로 갑니다.')
     ws.frame({ type: 'error', message: '다른 관리자가 이미 입력 중이에요' })
     expect(screen.getByRole('alert')).toHaveTextContent('다른 관리자가 이미 입력 중이에요')
+  })
+
+  test('창 탭은 고른 창만 토글 켜짐 모양이고, 다른 창을 고르면 따라 옮겨 간다 (WP-2166)', async () => {
+    open()
+    const ws = await socket()
+    ws.frame({ type: 'status', state: 'attached' })
+    const win = (index: number, active: boolean) => ({ index, name: 'w' + index, width: 100, height: 30, active })
+    ws.frame({ type: 'windows', items: [win(0, true), win(1, false)] })
+    const look = () => {
+      for (const tab of screen.getAllByRole('tab')) expectToggleLook(tab, tab.getAttribute('aria-selected') === 'true')
+    }
+    expect(screen.getAllByRole('tab').map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    look()
+    ws.frame({ type: 'windows', items: [win(0, false), win(1, true)] })
+    expect(screen.getAllByRole('tab').map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    look()
   })
 
   test('shows the server reason when the session cannot open', async () => {

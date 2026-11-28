@@ -32,6 +32,7 @@ import {
   screenWindowLabel,
 } from '@/lib/agentScreen';
 import { extractApiError } from '@/lib/api-error';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 /** 소켓 열기 — 테스트·시제품에서 가짜로 바꿔 끼운다. */
@@ -176,7 +177,8 @@ export function AgentScreenDialog({
                 <Button
                   key={w.index}
                   size="xs"
-                  variant={w.index === current?.index ? 'secondary' : 'ghost'}
+                  variant="ghost"
+                  className={ghostToggleClass(w.index === current?.index)} // 고른 창은 secondary 대신 토글 켜짐 모양 (WP-2166)
                   role="tab"
                   aria-selected={w.index === current?.index}
                   onClick={() => send({ type: 'window', index: w.index })}
