@@ -2091,13 +2091,22 @@ public class CalendarEventService {
    * 생성 대상 캘린더 id — 요청에 캘린더가 있으면 그대로, 생략됐으면 기본 캘린더 설정으로 해석한다(WP-2169).
    *
    * <p>반복 일정은 외부(M365) 캘린더에 만들 수 없다(create ②에서 거절) — epic WP-2168 결정대로 기본 캘린더가 외부여도 Works 캘린더로 만든다.
-   * allowInsert=false 면 Works 캘린더가 없을 때 null 을 돌려준다(쓰기 금지 사전검증용).
+   * 태그를 실은 일정도 같다 — 기본 캘린더가 범주를 써 넣을 수 없는 외부 캘린더(내 사서함이 아닌 위임·공유, WP-801)면 create 가 409 로 거절하므로
+   * Works 캘린더로 만든다. allowInsert=false 면 Works 캘린더가 없을 때 null 을 돌려준다(쓰기 금지 사전검증용).
    */
   private Long resolveTargetCalendarId(
       long callerId, CalendarEventRequest req, boolean allowExternalDefault, boolean allowInsert) {
     if (req.calendarId() != null) return req.calendarId();
-    return calendarService.resolveCreateCalendarId(
-        callerId, allowExternalDefault && !hasRecurrence(req.recurrenceRule()), allowInsert);
+    boolean allowExternal = allowExternalDefault && !hasRecurrence(req.recurrenceRule());
+    Long calendarId = calendarService.resolveCreateCalendarId(callerId, allowExternal, allowInsert);
+    // 내 사서함 달력이 아니면(로컬 캘린더 포함) 외부를 빼고 다시 해석한다 — 로컬 기본은 그대로 돌아오고, 위임·공유 Outlook 기본만 Works 로 바뀐다.
+    if (allowExternal
+        && calendarId != null
+        && hasNewTags(req)
+        && !calendarRepo.isOwnMailbox(calendarId)) {
+      return calendarService.resolveCreateCalendarId(callerId, false, allowInsert);
+    }
+    return calendarId;
   }
 
   /**

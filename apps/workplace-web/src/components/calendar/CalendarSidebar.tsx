@@ -86,7 +86,8 @@ export function CalendarSidebar({
   // 버튼은 data-sheet-dismiss, ⋯ 메뉴 항목은 메뉴가 닫힌 뒤 닫는다. 캘린더·레이어 토글은 시트 안에서 이어 고르므로 둔다.
   const rowMenu = useCloseSheetAfterMenu()
   // 새 일정 기본 캘린더(WP-2169) — 서버 실효값, 설정을 아직 모르거나 조회가 실패하면 Works(isDefault) 캘린더. 그 줄에 「기본」 배지를 단다.
-  const defaultCalendarId = useDefaultCalendarId(calendars)
+  // 쓰기 가능한 캘린더만 — 동기화로 기본 캘린더가 읽기 전용이 되면 설정을 다시 읽기 전에도 배지가 Works 로 옮긴다(새 일정 창과 같은 기준).
+  const defaultCalendarId = useDefaultCalendarId(calendars, { writableOnly: true })
   const setDefault = useUpdateCalendarSettings()
   return (
     // 랜드마크 이름(WP-1774) — 스크린리더가 사이드바를 구분하도록 접근 이름을 붙인다.
