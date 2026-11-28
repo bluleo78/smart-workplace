@@ -11,6 +11,7 @@ import type { SavedViewResponse } from '../../../src/types/savedView';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { boxOf } from '../../fixtures/layout';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 
@@ -360,7 +361,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
 
   // WP-2070 — 좁은 데스크톱(1024px + 에픽 패널 최대 폭 + AI 패널)에서 바보다 단추 글자가 넓을 때.
   // WP-2153 — 글자 폭은 글꼴마다 달라(macOS 가 더 좁다) 넘침은 실제 UI 로 좁힌 뒤 단추 최소 폭을 주입해 일부러 만든다.
-  // 그래서 단추가 줄어 글자가 줄바꿈되는 경우는 높이로 못 잡으니, 바 안 글자가 한 줄로 묶이는지(white-space)를 따로 본다.
+  // 주입한 최소 폭이 단추를 넓혀 실제 줄바꿈을 가리므로(높이로 못 잡는다), 바 안 글자가 한 줄로 묶이는지(white-space)를 따로 본다.
   // 사이클 목록의 바 감싸개는 sticky left-0 w-[100cqw] 라 슬롯을 가로로 밀어도 넘친 단추에 닿지 못하고, 넘친 글자가 바 밖으로 나가 행과 겹쳤다.
   // 바 안 가로 스크롤(스크롤바 숨김)로 담아 높이 38px 을 지키고 Tab 으로 닿은 단추가 바 안에 보여야 한다 — 기하·포커스 스크롤이라 jsdom 으로 못 잰다.
   // 그 스크롤은 바만 가로로, 바 안 키보드 초점에만 일어난다 — 슬롯을 내린 채 바를 오가도 슬롯이 그대로, 메뉴 항목(포털) 초점·마우스 누름에는 바가 그대로.
@@ -397,23 +398,41 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       // 맨 위 구간(핫픽스 주간)의 #11 — 여기서 Shift+Tab 몇 번이면 바에 닿는다.
       const checkbox = section(page, 'cycle-2').getByTestId('select-issue-11');
       await expect(checkbox).toBeVisible();
+      // 좁히기 전 목록 폭 — 아래 좁히기가 실제로 먹었는지 견줄 기준(바는 이 목록 컨테이너 폭(100cqw)을 따른다).
+      const list = page.getByTestId('issue-cycle-grouped-list');
+      const listBefore = await list.evaluate((el) => el.clientWidth);
 
       // 실제 UI 로 목록을 좁힌다 — 에픽 패널을 열어 경계선을 끝까지 끌고(상한까지), AI 패널을 연다.
+      const epicPanel = page.getByTestId('epic-side-panel');
+      // 에픽 패널 경계선을 dx 만큼 오른쪽으로 끈다.
+      const dragEpicHandle = async (dx: number) => {
+        const handle = (await page.getByTestId('epic-panel-resize-handle').boundingBox())!;
+        await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(handle.x + dx, handle.y + handle.height / 2, { steps: 5 });
+        await page.mouse.up();
+      };
       await page.getByTestId('epic-panel-toggle').click();
-      await expect(page.getByTestId('epic-side-panel')).toBeVisible();
-      const handle = (await page.getByTestId('epic-panel-resize-handle').boundingBox())!;
-      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(handle.x + 400, handle.y + handle.height / 2, { steps: 5 });
-      await page.mouse.up();
+      await expect(epicPanel).toBeVisible();
+      await dragEpicHandle(400);
+      const aiPanel = page.getByTestId('ai-side-panel');
       await page.getByTestId('chat-launcher').click();
-      await expect(page.getByTestId('ai-side-panel')).toBeVisible();
+      // 에픽 패널 상한은 앱 영역 폭의 비율이라 AI 패널을 열면 다시 줄어든다 — 연 뒤의 폭이 최대 폭인지 「더 끌어도 늘지 않음」으로 본다.
+      // AI 패널이 뜬 뒤에 에픽 패널을 잰다(함께 재면 줄어들기 전 폭을 읽는다).
+      const { width: aiWidth } = await boxOf(aiPanel);
+      const { width: epicWidth } = await boxOf(epicPanel);
+      await dragEpicHandle(200);
+      // 표시 폭은 CSS 비율(소수)이고 끌기 상한은 내림한 정수라 1px 안쪽으로 줄 수는 있다 — 늘지 않는지만 본다.
+      expect((await boxOf(epicPanel)).width, '에픽 패널이 최대 폭이다(더 끌어도 늘지 않는다)').toBeLessThanOrEqual(epicWidth + 0.5);
 
       await checkbox.check();
       const bar = page.getByTestId('issue-bulk-toolbar');
       await expect(bar).toContainText('선택 1개');
-      // 넘침 주입(WP-2153) — 바 자식(선택 개수·단추 넷)마다 바 폭의 1/3 을 최소 폭으로 주면 합이 바보다 항상 커서 어떤 글꼴에서도 넘친다.
+      // 좁히기 확인(WP-2153 리뷰 후속) — 아래 최소 폭 주입이 넘침을 만들어 내므로, 좁히기 단계가 깨져도 넘침 전제는 선다.
+      // 그래서 주입 전에 바가 에픽 패널(최대 폭)과 AI 패널만큼 실제로 좁아졌는지 따로 본다.
       const barWidth = await bar.evaluate((el) => el.clientWidth);
+      expect(barWidth, `바 폭 ${barWidth}px — 좁히기 전 목록 ${listBefore}px 에서 에픽 패널 ${epicWidth}px·AI 패널 ${aiWidth}px 만큼 줄었다`).toBeLessThanOrEqual(listBefore - epicWidth - aiWidth + 1);
+      // 넘침 주입(WP-2153) — 바 자식(선택 개수·단추 넷)마다 바 폭의 1/3 을 최소 폭으로 주면 합이 바보다 항상 커서 어떤 글꼴에서도 넘친다.
       await page.addStyleTag({
         content: `[data-testid="issue-bulk-toolbar"] > * { min-width: ${Math.ceil(barWidth / 3)}px }`,
       });
