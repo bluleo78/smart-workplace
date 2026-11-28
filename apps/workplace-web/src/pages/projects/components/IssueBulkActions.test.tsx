@@ -1,6 +1,6 @@
 // IssueBulkActions — 일괄 작업 바 가독성(WP-1019). 바탕은 불투명 표면이고(다크 muted 는 흰 5% 알파라 아래 목록 글자가 비쳤다)
 // 글자는 회색(muted-foreground)이 아닌 본문색이다. 실제 겹침·대비 픽셀은 라이브 스택 스크린샷으로 확인한다.
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { HIDE_SCROLLBAR } from '@/lib/scrollStyles'
@@ -18,10 +18,12 @@ vi.mock('../../../hooks/queries/useBulkIssueActions', () => ({
   useBulkUpdateStatus: () => ({ mutate: vi.fn() }),
 }))
 
-function renderBar() {
-  return renderWithProviders(
-    <IssueBulkActions projectKey="WP" selected={new Set([1, 2])} onClear={vi.fn()} onSettled={vi.fn()} />,
-  )
+function bar(selected: Set<number>) {
+  return <IssueBulkActions projectKey="WP" selected={selected} onClear={vi.fn()} onSettled={vi.fn()} />
+}
+
+function renderBar(selected = new Set([1, 2])) {
+  return renderWithProviders(bar(selected))
 }
 
 describe('IssueBulkActions — 가독성 (WP-1019)', () => {
@@ -59,5 +61,40 @@ describe('IssueBulkActions — 데스크톱 바 한 줄·바 안 가로 스크�
       if (desktop) expect(bar).toHaveClass(cls)
       else expect(bar).not.toHaveClass(cls)
     }
+  })
+})
+
+// WP-2065 — 바는 이름 있는 group(「일괄 작업」)이고, 선택 개수는 바 밖의 늘 마운트된 status 영역(ResultStatus)이 알린다.
+describe('IssueBulkActions — 스크린리더 안내 (WP-2065)', () => {
+  it.each([
+    ['데스크톱', false],
+    ['모바일', true],
+  ])('%s: 바는 이름이 「일괄 작업」인 group 이다', (_name, isMobile) => {
+    mobile.value = isMobile
+    renderBar()
+    expect(screen.getByRole('group', { name: '일괄 작업' })).toBe(screen.getByTestId('issue-bulk-toolbar'))
+  })
+
+  it('선택 개수가 바뀔 때마다 바 밖 status 영역이 알리고, 처음·선택 해제에는 비어 있다', async () => {
+    mobile.value = false
+    const { rerender } = renderBar(new Set())
+    const status = screen.getByRole('status')
+    expect(status).toHaveAttribute('data-testid', 'issue-bulk-status')
+    // 처음(선택 없음)에는 아무것도 읽히지 않는다.
+    expect(screen.queryByTestId('issue-bulk-toolbar')).toBeNull()
+    expect(status).toHaveTextContent(/^$/)
+
+    rerender(bar(new Set([1])))
+    await waitFor(() => expect(status).toHaveTextContent('선택 1개, 일괄 작업 사용 가능'))
+    // 영역은 바와 함께 생기지 않는다 — 바 밖에 그대로 있다.
+    expect(screen.getByTestId('issue-bulk-toolbar').contains(status)).toBe(false)
+
+    rerender(bar(new Set([1, 2, 3])))
+    await waitFor(() => expect(status).toHaveTextContent('선택 3개, 일괄 작업 사용 가능'))
+
+    rerender(bar(new Set()))
+    expect(screen.queryByTestId('issue-bulk-toolbar')).toBeNull()
+    expect(screen.getByRole('status')).toBe(status)
+    expect(status).toHaveTextContent(/^$/)
   })
 })
