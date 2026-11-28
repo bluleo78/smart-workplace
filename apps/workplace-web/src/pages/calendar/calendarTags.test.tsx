@@ -7,6 +7,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { EDIT_HINT_ATTENDEES_TO_OUTLOOK, EDIT_HINT_OUTLOOK_EVENT_NO_MOVE, EDIT_HINT_OUTLOOK_NO_RECURRENCE, EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE, EDIT_HINT_RECURRING_TO_OUTLOOK, EDIT_HINT_TAGS_TO_SHARED_OUTLOOK } from '@/lib/calendar'
 import { TAG_HINT_SHARED_OUTLOOK } from '@/lib/calendarTag'
 import { calendarHandlers, capture, pinNow, renderCalendarPage } from '@/test/kits/calendar/testkit-b8'
 import type { CalendarEvent, CalendarTag, TagFeed } from '@/types/calendar'
@@ -209,7 +210,7 @@ describe('편집·새 일정 폼의 태그(폼 상태, WP-801)', () => {
     await pickTags(user, 'calendar-form-tag-add', [2])
 
     await user.click(screen.getByTestId('calendar-form-calendar'))
-    await user.click(await screen.findByRole('option', { name: '공유 Outlook' }))
+    await user.click(await screen.findByRole('option', { name: '공유 Outlook · Outlook' }))
 
     await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
     expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent(TAG_HINT_SHARED_OUTLOOK)
@@ -231,11 +232,11 @@ describe('편집·새 일정 폼의 태그(폼 상태, WP-801)', () => {
     await pickTags(user, 'calendar-form-tag-add', [2])
 
     await user.click(screen.getByTestId('calendar-form-calendar'))
-    await user.click(await screen.findByRole('option', { name: '공유 Outlook' }))
+    await user.click(await screen.findByRole('option', { name: '공유 Outlook · Outlook' }))
     await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
 
     await user.click(screen.getByTestId('calendar-form-calendar'))
-    await user.click(await screen.findByRole('option', { name: '기본' }))
+    await user.click(await screen.findByRole('option', { name: 'Works 캘린더' }))
     expect(await screen.findByTestId('calendar-form-tag-add')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('calendar-form-submit'))
@@ -433,5 +434,112 @@ describe('캘린더 사이드바 랜드마크', () => {
   test('사이드바에 이름이 있다 — 랜드마크 이름(WP-1774)', async () => {
     renderCalendarPage('/calendar', calendarHandlers({ calendars: CALENDARS, tags: TAGS }))
     expect(await screen.findByRole('complementary', { name: '캘린더 사이드바' })).toBeInTheDocument()
+  })
+})
+
+// 수정 창은 Outlook 이 거절할 조합(외부 일정의 반복, 반복·태그 일정의 Outlook 이동)을 서버 422·409 전에 막는다(WP-2176)
+describe('수정 창 — Outlook 제약(WP-2176)', () => {
+  const open = async (ev: CalendarEvent, calendars = CALENDARS_WITH_SHARED) => {
+    const patch = capture('patch', `/calendar/events/${ev.id}`, () => HttpResponse.json(ev))
+    const r = renderCalendarPage(`/calendar?eventId=${ev.id}`, [patch.handler, ...calendarHandlers({ calendars, events: [ev], tags: TAGS })])
+    await screen.findByTestId('calendar-form-title')
+    // 상세가 와야 저장 단추가 풀린다(외부·태그 없는 일정은 태그 줄이 없을 수 있다)
+    await waitFor(() => expect(screen.getByTestId('calendar-form-submit')).toBeEnabled())
+    return { ...r, patch }
+  }
+  const pickCalendar = async (user: ReturnType<typeof renderCalendarPage>['user'], name: string) => {
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    await user.click(await screen.findByRole('option', { name }))
+  }
+  const isDisabled = (el: HTMLElement) => el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('data-disabled')
+
+  test('외부 Outlook 일정은 반복을 켤 수 없고 까닭을 보인다', async () => {
+    const { user } = await open(myEvent({ id: 80, calendarId: 11, calendarName: 'Outlook 일정', external: true, tags: [], tagsEditable: false }))
+    await user.click(screen.getByTestId('calendar-form-recurrence-freq'))
+    expect(isDisabled(await screen.findByRole('option', { name: '매주' }))).toBe(true)
+    expect(screen.getByTestId('calendar-form-recurrence-outlook-hint')).toHaveTextContent(EDIT_HINT_OUTLOOK_NO_RECURRENCE)
+  })
+
+  test('로컬 반복 일정은 Outlook 캘린더로 옮길 수 없다', async () => {
+    const { user } = await open(myEvent({ id: 81, recurrenceRule: 'FREQ=WEEKLY', tags: [] }))
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    expect(isDisabled(await screen.findByRole('option', { name: 'Outlook 일정 · Outlook' }))).toBe(true)
+    expect(isDisabled(screen.getByRole('option', { name: '공유 Outlook · Outlook' }))).toBe(true)
+    expect(isDisabled(screen.getByRole('option', { name: 'Works 캘린더' }))).toBe(false)
+    expect(screen.getByTestId('calendar-form-calendar-outlook-hint')).toHaveTextContent(EDIT_HINT_RECURRING_TO_OUTLOOK)
+  })
+
+  test('태그가 있는 로컬 일정은 공유 Outlook 으로 옮길 수 없고 내 사서함 Outlook 은 된다', async () => {
+    const { user } = await open(myEvent({ id: 82 }))
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    expect(isDisabled(await screen.findByRole('option', { name: '공유 Outlook · Outlook' }))).toBe(true)
+    expect(isDisabled(screen.getByRole('option', { name: 'Outlook 일정 · Outlook' }))).toBe(false)
+    expect(screen.getByTestId('calendar-form-calendar-outlook-hint')).toHaveTextContent(EDIT_HINT_TAGS_TO_SHARED_OUTLOOK)
+  })
+
+  test('태그 없는 로컬 일정을 공유 Outlook 으로 옮기면 태그 줄을 잠그고 tagIds 없이 저장한다', async () => {
+    const { user, patch } = await open(myEvent({ id: 83, tags: [] }))
+    await pickCalendar(user, '공유 Outlook · Outlook')
+    await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
+    expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent(TAG_HINT_SHARED_OUTLOOK)
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toMatchObject({ calendarId: 12 })
+    expect(patch.bodies[0]).not.toHaveProperty('tagIds')
+  })
+
+  test('태그를 모두 뗀 뒤 공유 Outlook 으로 옮기면 tagIds [] 가 실린다', async () => {
+    const { user, patch } = await open(myEvent({ id: 84 }))
+    await pickTags(user, 'calendar-form-tag-add', [1])
+    expect(chipNames(screen.getByTestId('calendar-form-tags'))).toEqual([])
+    await pickCalendar(user, '공유 Outlook · Outlook')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toMatchObject({ calendarId: 12, tagIds: [] })
+  })
+
+  test('Works 일정의 반복을 매주로 바꿔 저장하면 반복 규칙이 실린다(회귀)', async () => {
+    const { user, patch } = await open(myEvent({ id: 85 }))
+    await user.click(screen.getByTestId('calendar-form-recurrence-freq'))
+    await user.click(await screen.findByRole('option', { name: '매주' }))
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toMatchObject({ recurrenceRule: expect.stringContaining('FREQ=WEEKLY') })
+  })
+
+  test('로컬 비반복 일정에서 Outlook 캘린더를 고르면 반복 항목이 잠기고 새 안내가 나온다', async () => {
+    const { user } = await open(myEvent({ id: 86, tags: [] }))
+    await pickCalendar(user, 'Outlook 일정 · Outlook')
+    await user.click(screen.getByTestId('calendar-form-recurrence-freq'))
+    expect(isDisabled(await screen.findByRole('option', { name: '매주' }))).toBe(true)
+    expect(screen.getByTestId('calendar-form-recurrence-outlook-hint')).toHaveTextContent(EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE)
+  })
+  test('참석자가 있는 로컬 일정은 Outlook 캘린더로 옮길 수 없고 까닭을 보인다', async () => {
+    const attendee = {
+      userId: 7, username: 'kim', name: '김참석', kind: 'HUMAN' as const, role: 'ATTENDEE' as const,
+      rsvpStatus: 'NEEDS_ACTION' as const, invitedByUserId: 1, externalEmail: null,
+    }
+    const { user } = await open(myEvent({ id: 87, tags: [], attendees: [attendee] }))
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    expect(isDisabled(await screen.findByRole('option', { name: 'Outlook 일정 · Outlook' }))).toBe(true)
+    expect(isDisabled(screen.getByRole('option', { name: 'Works 캘린더' }))).toBe(false)
+    expect(screen.getByTestId('calendar-form-calendar-outlook-hint')).toHaveTextContent(EDIT_HINT_ATTENDEES_TO_OUTLOOK)
+  })
+
+  test('외부 Outlook 일정은 다른 캘린더로 옮길 수 없다', async () => {
+    const { user } = await open(myEvent({ id: 88, calendarId: 11, calendarName: 'Outlook 일정', external: true, tags: [], tagsEditable: false }))
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    expect(isDisabled(await screen.findByRole('option', { name: 'Works 캘린더' }))).toBe(true)
+    expect(isDisabled(screen.getByRole('option', { name: '공유 Outlook · Outlook' }))).toBe(true)
+    expect(screen.getByTestId('calendar-form-calendar-outlook-hint')).toHaveTextContent(EDIT_HINT_OUTLOOK_EVENT_NO_MOVE)
+  })
+
+  test('원래 반복이던 일정을 반복 안 함으로 바꿔도 Outlook 으로 옮길 수 없다', async () => {
+    const { user } = await open(myEvent({ id: 89, recurrenceRule: 'FREQ=WEEKLY', tags: [] }))
+    await user.click(screen.getByTestId('calendar-form-recurrence-freq'))
+    await user.click(await screen.findByRole('option', { name: '반복 안 함' }))
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    expect(isDisabled(await screen.findByRole('option', { name: 'Outlook 일정 · Outlook' }))).toBe(true)
+    expect(screen.getByTestId('calendar-form-calendar-outlook-hint')).toHaveTextContent(EDIT_HINT_RECURRING_TO_OUTLOOK)
   })
 })

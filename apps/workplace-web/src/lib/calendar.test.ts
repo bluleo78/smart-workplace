@@ -10,6 +10,13 @@ import {
   type CalendarLayers,
   dayKey,
   dragSlotRange,
+  EDIT_HINT_ATTENDEES_TO_OUTLOOK,
+  EDIT_HINT_OUTLOOK_EVENT_NO_MOVE,
+  EDIT_HINT_OUTLOOK_NO_RECURRENCE,
+  EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE,
+  EDIT_HINT_RECURRING_TO_OUTLOOK,
+  EDIT_HINT_TAGS_TO_SHARED_OUTLOOK,
+  editOutlookGuard,
   eventCalendarLabel,
   eventDayKeyRange,
   eventDisplayColor,
@@ -874,5 +881,83 @@ describe('recurrenceCalendarSwitch (WP-2170)', () => {
   it('켜짐 → 다른 켜짐 값은 그대로', () => {
     expect(recurrenceCalendarSwitch({ ...base, prevFreq: 'WEEKLY', nextFreq: 'DAILY', calendarId: 1, switchedFromId: 3 }))
       .toEqual({ calendarId: 1, switchedFromId: 3 })
+  })
+})
+
+describe('editOutlookGuard (WP-2176)', () => {
+  const calendars = [
+    { id: 1, provider: null },
+    { id: 3, provider: 'M365_GRAPH', tagsWritable: true },
+    { id: 4, provider: 'M365_GRAPH', tagsWritable: false },
+    { id: 10, provider: 'M365_GRAPH', isReadOnly: true },
+  ]
+  const local = { calendarId: 1, recurrenceRule: null }
+  const base = { calendars, selectedCalendarId: 1 as number | undefined, recurring: false, hasTags: false, hasAttendees: false }
+
+  it('안내 문구가 정해진 값이다', () => {
+    expect(EDIT_HINT_OUTLOOK_NO_RECURRENCE).toBe('Outlook 일정은 반복할 수 없어요')
+    expect(EDIT_HINT_RECURRING_TO_OUTLOOK).toBe('반복 일정은 Outlook 캘린더로 옮길 수 없어요')
+    expect(EDIT_HINT_TAGS_TO_SHARED_OUTLOOK).toBe('태그가 있는 일정은 공유·위임받은 Outlook 캘린더로 옮길 수 없어요')
+    expect(EDIT_HINT_OUTLOOK_EVENT_NO_MOVE).toBe('Outlook 일정은 다른 캘린더로 옮길 수 없어요')
+    expect(EDIT_HINT_ATTENDEES_TO_OUTLOOK).toBe('참석자가 있는 일정은 Outlook 캘린더로 옮길 수 없어요')
+    expect(EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE).toBe('Outlook 캘린더로 옮기는 일정은 반복할 수 없어요')
+  })
+  it('외부 일정은 규칙이 없으면 반복을 잠근다', () => {
+    const g = editOutlookGuard({ ...base, event: { calendarId: 3, external: true, recurrenceRule: null }, selectedCalendarId: 3 })
+    expect(g.recurrenceLocked).toBe(true)
+    expect(g.recurrenceHint).toBe(EDIT_HINT_OUTLOOK_NO_RECURRENCE)
+    expect(g.disabledCalendarIds.has(3)).toBe(false)
+    expect(g.tagsLocked).toBe(false)
+  })
+  it('외부 일정은 지금 캘린더 외 모든 캘린더를 비활성하고 옮길 수 없다는 안내를 낸다', () => {
+    const g = editOutlookGuard({ ...base, event: { calendarId: 3, external: true, recurrenceRule: null }, selectedCalendarId: 3 })
+    expect([...g.disabledCalendarIds].sort((a, b) => a - b)).toEqual([1, 4, 10])
+    expect(g.calendarHint).toBe(EDIT_HINT_OUTLOOK_EVENT_NO_MOVE)
+  })
+  it('참석자가 있는 로컬 일정은 다른 쓰기 가능 Outlook 을 비활성', () => {
+    const g = editOutlookGuard({ ...base, event: local, hasAttendees: true })
+    expect([...g.disabledCalendarIds].sort()).toEqual([3, 4])
+    expect(g.calendarHint).toBe(EDIT_HINT_ATTENDEES_TO_OUTLOOK)
+  })
+  it('참석자·반복·태그가 함께면 안내를 중복 없이 잇는다', () => {
+    const g = editOutlookGuard({ ...base, event: local, hasAttendees: true, recurring: true, hasTags: true })
+    expect(g.calendarHint).toBe([EDIT_HINT_RECURRING_TO_OUTLOOK, EDIT_HINT_TAGS_TO_SHARED_OUTLOOK, EDIT_HINT_ATTENDEES_TO_OUTLOOK].join(' · '))
+  })
+  it('외부 일정이 반복 규칙을 가지면 잠그지 않는다', () => {
+    const g = editOutlookGuard({ ...base, event: { calendarId: 3, external: true, recurrenceRule: 'FREQ=WEEKLY' }, selectedCalendarId: 3 })
+    expect(g.recurrenceLocked).toBe(false)
+    expect(g.recurrenceHint).toBeNull()
+  })
+  it('로컬 반복 일정은 Outlook 캘린더를 비활성(읽기 전용 제외)', () => {
+    const g = editOutlookGuard({ ...base, event: local, recurring: true })
+    expect([...g.disabledCalendarIds].sort()).toEqual([3, 4])
+    expect(g.calendarHint).toBe(EDIT_HINT_RECURRING_TO_OUTLOOK)
+    expect(g.recurrenceLocked).toBe(false)
+  })
+  it('로컬 태그 일정은 공유 Outlook 만 비활성', () => {
+    const g = editOutlookGuard({ ...base, event: local, hasTags: true })
+    expect([...g.disabledCalendarIds]).toEqual([4])
+    expect(g.calendarHint).toBe(EDIT_HINT_TAGS_TO_SHARED_OUTLOOK)
+  })
+  it('태그와 반복이 함께면 두 안내를 잇는다', () => {
+    const g = editOutlookGuard({ ...base, event: local, hasTags: true, recurring: true })
+    expect([...g.disabledCalendarIds].sort()).toEqual([3, 4])
+    expect(g.calendarHint).toBe(`${EDIT_HINT_RECURRING_TO_OUTLOOK} · ${EDIT_HINT_TAGS_TO_SHARED_OUTLOOK}`)
+  })
+  it('Outlook 을 고르면 반복을 잠근다', () => {
+    const g = editOutlookGuard({ ...base, event: local, selectedCalendarId: 3 })
+    expect(g.recurrenceLocked).toBe(true)
+    expect(g.recurrenceHint).toBe(EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE)
+    expect(g.tagsLocked).toBe(false)
+  })
+  it('공유 Outlook 을 고르면 태그도 잠근다', () => {
+    const g = editOutlookGuard({ ...base, event: local, selectedCalendarId: 4 })
+    expect(g.recurrenceLocked).toBe(true)
+    expect(g.tagsLocked).toBe(true)
+  })
+  it('지금 캘린더가 Outlook 인 로컬 일정은 지금 캘린더를 막지 않는다', () => {
+    const g = editOutlookGuard({ ...base, event: { calendarId: 3, recurrenceRule: null }, selectedCalendarId: 3, recurring: true })
+    expect([...g.disabledCalendarIds]).toEqual([4])
+    expect(g.recurrenceLocked).toBe(false)
   })
 })
