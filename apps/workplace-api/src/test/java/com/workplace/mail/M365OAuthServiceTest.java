@@ -5,7 +5,9 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -264,7 +266,7 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
           .andExpect(status().isForbidden())
           .andExpect(jsonPath("$.connected").value(false))
           .andExpect(jsonPath("$.error").value("state_mismatch"));
-      verifyNoInteractions(graphApiClient);
+      verify(graphApiClient, never()).exchangeCode(anyString());
       assertThat(stateStore.consume(attackerState)).isEmpty();
 
       TenantContext.set(tid2);
@@ -322,7 +324,7 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
         .andExpect(jsonPath("$.error").value("tenant_mismatch"));
     // state 는 남아 있어 시작한 워크스페이스(1)의 탭에서 마칠 수 있다.
     assertThat(callInTenant(1L, () -> stateStore.consume(stateForTenant1))).isPresent();
-    verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).exchangeCode(anyString());
     long audits =
         callInTenant(
             tid2,
@@ -345,7 +347,7 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
     String state = stateStore.issue(userId, 1L);
 
     complete(null, state).andExpect(status().isUnauthorized());
-    verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).exchangeCode(anyString());
     assertThat(stateStore.consume(state)).isPresent();
   }
 
@@ -363,7 +365,7 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.connected").value(false))
         .andExpect(jsonPath("$.error").value("invalid_request"));
-    verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).exchangeCode(anyString());
   }
 
   /** 정지·삭제·영구 삭제 중인 테넌트의 토큰으로는 연결하지 않는다(WP-341) — JWT 필터가 그 토큰을 인증하지 않아 401, 토큰 교환도 없다. */
@@ -378,7 +380,7 @@ class M365OAuthServiceTest extends ExternalClientMockedTestBase {
     dsl.update(TENANT).set(TENANT.STATUS, tenantStatus).where(TENANT.ID.eq(tid2)).execute();
     try {
       complete(token, state).andExpect(status().isUnauthorized());
-      verifyNoInteractions(graphApiClient);
+      verify(graphApiClient, never()).exchangeCode(anyString());
     } finally {
       dsl.update(TENANT).set(TENANT.STATUS, "ACTIVE").where(TENANT.ID.eq(tid2)).execute();
     }

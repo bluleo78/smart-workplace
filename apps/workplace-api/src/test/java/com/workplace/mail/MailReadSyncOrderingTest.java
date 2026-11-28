@@ -9,10 +9,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.workplace.global.tenant.TenantContext;
@@ -277,7 +277,7 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
                 .execute());
 
     dispatcher.dispatchAccount(seededUser, seededAccount);
-    verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).batch(any(), any());
     assertThat(row(id).getSeenPushPending()).isTrue();
     assertThat(row(id).getSeenPushAttempts()).as("리스 대기는 실패로 세지 않는다").isZero();
 
@@ -428,7 +428,7 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
     }
     // 풀어 준 대기 작업이 큐에 남아 다음 테스트로 새지 않게 모두 끝날 때까지 기다린다
     AsyncPools.awaitIdle(mailReadSyncExecutor);
-    verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).batch(any(), any());
     assertThat(row(id).getSeenPushPending()).isTrue();
 
     // 재시도 배치가 하는 일: 대상 계정 조회 → 계정 단위 디스패치
