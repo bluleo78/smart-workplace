@@ -11,6 +11,7 @@ import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea'
 import { isTextEntryTarget } from '@/lib/escapeOverlay'
 import { isImeComposing } from '@/lib/imeKey'
 import { isLetterKey } from '@/lib/platform'
+import { ghostToggleClass } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import {
@@ -448,10 +449,11 @@ export function InstructionEditorDialog({ open, onOpenChange, nodeName, nodeKey,
             <DialogDescription className="text-xs text-muted-foreground">{`${nodeKey} · ${settledOf(editing, draft).length}자`}</DialogDescription>
           </div>
           <div className="flex gap-1 rounded-md border p-0.5" role="group" aria-label="편집 방식">
-            <Button type="button" size="sm" variant={mode === 'format' ? 'secondary' : 'ghost'} aria-pressed={mode === 'format'} onClick={() => { setSharedView(null); setMode('format') }}>
+            {/* WP-2165: 켜진 편집 방식은 secondary 가 아니라 디자인 시스템 토글 켜짐(ghost + ghostToggleClass)으로 표시 */}
+            <Button type="button" size="sm" variant="ghost" className={ghostToggleClass(mode === 'format')} aria-pressed={mode === 'format'} onClick={() => { setSharedView(null); setMode('format') }}>
               서식 편집
             </Button>
-            <Button ref={rawToggleRef} type="button" size="sm" variant={mode === 'raw' ? 'secondary' : 'ghost'} aria-pressed={mode === 'raw'} onClick={() => { endEditing(); setSharedView(null); setMode('raw') }}>
+            <Button ref={rawToggleRef} type="button" size="sm" variant="ghost" className={ghostToggleClass(mode === 'raw')} aria-pressed={mode === 'raw'} onClick={() => { endEditing(); setSharedView(null); setMode('raw') }}>
               마크다운 원문
             </Button>
           </div>

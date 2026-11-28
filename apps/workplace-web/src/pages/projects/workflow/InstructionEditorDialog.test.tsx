@@ -3,6 +3,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { expectToggleLook } from '@/test/kits/projects/listBoard'
+
 import { replaceBlock, splitInstructionBlocks } from './instructionBlocks'
 import { InstructionEditorDialog, type SharedInstruction } from './InstructionEditorDialog'
 
@@ -287,6 +289,19 @@ describe('InstructionEditorDialog', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(onApply).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('편집_방식_단추는_켜진_쪽만_토글_켜짐으로_보인다', async () => {
+    // WP-2165: 켜짐은 secondary 가 아니라 디자인 시스템 토글 켜짐(TOGGLE_ON)으로 표시한다.
+    const { user } = setup()
+    const format = screen.getByRole('button', { name: '서식 편집' })
+    const raw = screen.getByRole('button', { name: '마크다운 원문' })
+    expect(format).toHaveAttribute('aria-pressed', 'true')
+    expectToggleLook(format, true)
+    expectToggleLook(raw, false)
+    await user.click(raw)
+    expectToggleLook(raw, true)
+    expectToggleLook(format, false)
   })
 
   it('공통_지시를_보다가_서식_편집을_누르면_지시_보기로_돌아온다', async () => {

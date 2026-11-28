@@ -8,6 +8,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test, vi } from 'vitest'
 
 import { emitAiStreamEvent } from '@/lib/aiEventBus'
+import { expectToggleLook } from '@/test/kits/projects/listBoard'
 import { htmlScriptsCheckHandlers } from '@/test/kits/wiki/htmlScriptsCheck'
 import { wikiOpenHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen, type ScreenUser } from '@/test/renderScreen'
@@ -677,15 +678,21 @@ test('고르기를 켜면 글자 고치기를 멈추고, 「AI로 고치기」�
   await screen.findByTestId('wiki-html-visual-frame')
   const v = visualFrame()
   const post = vi.spyOn(v.frame.contentWindow!, 'postMessage')
+  // WP-2165: 켜짐은 토글 켜짐(TOGGLE_ON)으로 — secondary 로만 표시하지 않는다
+  expectToggleLook(screen.getByTestId('wiki-html-visual-pick'), false)
+  expectToggleLook(screen.getByTestId('wiki-html-visual-ai'), false)
   await user.click(screen.getByTestId('wiki-html-visual-pick'))
   expect(screen.getByTestId('wiki-html-visual-pick')).toHaveAttribute('aria-pressed', 'true')
+  expectToggleLook(screen.getByTestId('wiki-html-visual-pick'), true)
   expect(post).toHaveBeenCalledWith({ type: 'wp-html-edit', token: v.token, cmd: 'pause' }, '*')
   expect(post).toHaveBeenCalledWith(expect.objectContaining({ type: 'wp-html-picker', cmd: 'enable' }), '*')
   await user.click(screen.getByTestId('wiki-html-visual-pick'))
+  expectToggleLook(screen.getByTestId('wiki-html-visual-pick'), false)
   expect(post).toHaveBeenLastCalledWith({ type: 'wp-html-edit', token: v.token, cmd: 'resume' }, '*')
   // AI 표식 — 「AI로 고치기」 단추는 AiLabel(text-ai-accent + sparkles) 로 그린다(WP-1529).
   expect(screen.getByTestId('wiki-html-visual-ai').querySelector('span.text-ai-accent svg.lucide-sparkles')).not.toBeNull()
   await user.click(screen.getByTestId('wiki-html-visual-ai'))
+  expectToggleLook(screen.getByTestId('wiki-html-visual-ai'), true)
   expect(screen.getByTestId('wiki-html-embed-ai-input')).toHaveAttribute('placeholder', expect.stringContaining('이 문서를 어떻게 고칠까요?'))
 })
 
