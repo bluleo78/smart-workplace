@@ -650,8 +650,9 @@ export function editOutlookGuard(args: {
   const { event, calendars, selectedCalendarId, recurring, hasTags, hasAttendees } = args
   // 외부(Outlook 원본) 일정: 반복 규칙이 없으면 반복을 새로 만들 수 없고, 다른 캘린더로 옮기는 것도 서버가 422 로 거절한다.
   // 그래서 지금 캘린더를 뺀 모든 캘린더를 비활성한다. (동기화된 Outlook 일정은 펼친 회차로 저장돼 반복 규칙을 갖지 않는다)
+  // 읽기 전용 캘린더는 캘린더 목록에 없으니 세지 않는다 — 옮길 곳이 없으면 안내도 내지 않는다.
   if (event.external) {
-    const disabledAll = new Set(calendars.filter((c) => c.id !== event.calendarId).map((c) => c.id))
+    const disabledAll = new Set(calendars.filter((c) => c.id !== event.calendarId && !c.isReadOnly).map((c) => c.id))
     return {
       recurrenceLocked: !event.recurrenceRule,
       recurrenceHint: event.recurrenceRule ? null : EDIT_HINT_OUTLOOK_NO_RECURRENCE,
