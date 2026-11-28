@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { memoryStorage } from '@/test/memoryStorage'
 
+import { calendar } from '../../e2e/factories/calendar.factory'
 import type { Attendee, Calendar, CalendarEvent, IssueDueMarker } from '../types/calendar'
 import {
   allDayLocalDate,
@@ -30,11 +31,13 @@ import {
   markedDays,
   monthMatrix,
   nowLineTop,
+  outlookPromptTarget,
   proposalTimeRange,
   providerLabel,
   recurrenceCalendarSwitch,
   saveLastView,
   screenRange,
+  shouldPromptOutlookDefault,
   timedEventBox,
   timedEventColumnStyle,
   timedSegmentLabel,
@@ -874,5 +877,44 @@ describe('recurrenceCalendarSwitch (WP-2170)', () => {
   it('켜짐 → 다른 켜짐 값은 그대로', () => {
     expect(recurrenceCalendarSwitch({ ...base, prevFreq: 'WEEKLY', nextFreq: 'DAILY', calendarId: 1, switchedFromId: 3 }))
       .toEqual({ calendarId: 1, switchedFromId: 3 })
+  })
+})
+
+describe('Outlook 기본 캘린더 확인 판정(WP-2171)', () => {
+  const works = calendar({ id: 1, isDefault: true })
+  const team = calendar({ id: 2, isDefault: false })
+  const ro = calendar({ id: 10, isReadOnly: true, provider: 'M365_GRAPH' })
+  const ol1 = calendar({ id: 3, isDefault: false, provider: 'M365_GRAPH' })
+  const ol2 = calendar({ id: 4, isDefault: false, provider: 'M365_GRAPH' })
+  const asked = { defaultCalendarId: 1, outlookPrompted: false }
+
+  it('권할 캘린더는 읽기 전용이 아닌 Outlook 중 목록 순서 첫째이고, 없으면 null 이다', () => {
+    expect(outlookPromptTarget([works, ro, ol2, ol1])?.id).toBe(4)
+    expect(outlookPromptTarget([works, team, ro])).toBeNull()
+    expect(outlookPromptTarget([])).toBeNull()
+  })
+
+  it('비활성이면 none', () => {
+    expect(shouldPromptOutlookDefault({ settings: asked, calendars: [works, ol1], active: false })).toBe('none')
+  })
+
+  it('설정을 모르거나 이미 물었으면(true·필드 없음) none', () => {
+    expect(shouldPromptOutlookDefault({ calendars: [works, ol1], active: true })).toBe('none')
+    expect(shouldPromptOutlookDefault({ settings: { defaultCalendarId: 1, outlookPrompted: true }, calendars: [works, ol1], active: true })).toBe('none')
+    expect(shouldPromptOutlookDefault({ settings: { defaultCalendarId: 1 }, calendars: [works, ol1], active: true })).toBe('none')
+  })
+
+  it('권할 Outlook 캘린더가 없으면 none', () => {
+    expect(shouldPromptOutlookDefault({ settings: asked, calendars: [works, ro], active: true })).toBe('none')
+  })
+
+  it('기본이 이미 Outlook 이면 mark, 그 밖이면 show', () => {
+    expect(shouldPromptOutlookDefault({ settings: { defaultCalendarId: 3, outlookPrompted: false }, calendars: [works, ol1], active: true })).toBe('mark')
+    expect(shouldPromptOutlookDefault({ settings: asked, calendars: [works, ol1], active: true })).toBe('show')
+    expect(shouldPromptOutlookDefault({ settings: { defaultCalendarId: null, outlookPrompted: false }, calendars: [works, ol1], active: true })).toBe('show')
+  })
+
+  it('기본이 Works 도 Outlook 도 아닌 캘린더(팀 등)면 묻지 않고 기록만 한다(mark)', () => {
+    expect(shouldPromptOutlookDefault({ settings: { defaultCalendarId: 2, outlookPrompted: false }, calendars: [works, team, ol1], active: true })).toBe('mark')
   })
 })

@@ -75,11 +75,13 @@ export const mailSettingsBaseHandlers = [http.get(`${API}/mail/settings`, () => 
  * 목록은 테스트마다 달라 고정 id 를 줄 수 없다). PUT 은 받은 id 를 실효값으로 돌려준다. 지정을 검증하는 테스트는 자기 핸들러를 앞에 건다.
  */
 export const calendarSettingsBaseHandlers = [
-  http.get(`${API}/calendar/settings`, () => HttpResponse.json({ defaultCalendarId: null })),
+  // outlookPrompted: true — 이미 물은 것으로 깔아 Outlook 기본 캘린더 확인 창(WP-2171)이 다른 화면 테스트에 뜨지 않게 한다
+  http.get(`${API}/calendar/settings`, () => HttpResponse.json({ defaultCalendarId: null, outlookPrompted: true })),
   http.put(`${API}/calendar/settings`, async ({ request }) => {
     const body = (await request.json()) as { calendarId: number }
-    return HttpResponse.json({ defaultCalendarId: body.calendarId })
+    return HttpResponse.json({ defaultCalendarId: body.calendarId, outlookPrompted: true })
   }),
+  http.post(`${API}/calendar/settings/outlook-prompted`, () => new HttpResponse(null, { status: 204 })),
 ]
 
 /** 노트를 열면 나가는 「최근」 기록(WP-1764) — 기본은 204. 호출을 검증하는 테스트는 자기 핸들러를 앞에 건다. shellHandlers 가 포함하며, 셸을 깔지 않는 화면 테스트는 이것만 펼친다. */

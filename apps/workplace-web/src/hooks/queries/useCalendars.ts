@@ -10,11 +10,18 @@ import type { CalendarSettings } from '@/types/calendarSettings'
 import { calendarKeys } from './calendarKeys'
 
 // 내 캘린더 목록.
-export function useCalendars() {
+export function useCalendars(opts?: {
+  enabled?: boolean
+  /** 목록을 주기적으로 다시 읽는 간격(ms) — 지금 데이터를 보고 정한다(WP-2171: Outlook 캘린더가 동기화돼 나타날 때까지). 기본은 끔 */
+  refetchInterval?: (calendars: Calendar[] | undefined) => number | false
+}) {
+  const interval = opts?.refetchInterval
   return useQuery<Calendar[]>({
     queryKey: calendarKeys.calendars,
     queryFn: () => calendarsApi.list().then((r) => r.data),
     staleTime: 30_000,
+    enabled: opts?.enabled ?? true,
+    refetchInterval: interval ? (q) => interval(q.state.data) : false,
   })
 }
 
@@ -22,11 +29,12 @@ export function useCalendars() {
  * 내 캘린더 설정(WP-2169) — 새 일정 기본 캘린더 실효 id.
  * 실패·로딩 중에는 data 가 없어 쓰는 쪽(사이드바 배지·새 일정 창)이 isDefault 캘린더로 폴백한다.
  */
-export function useCalendarSettings() {
+export function useCalendarSettings(opts?: { enabled?: boolean }) {
   return useQuery<CalendarSettings>({
     queryKey: calendarKeys.calendarSettings,
     queryFn: calendarSettingsApi.get,
     staleTime: 30_000,
+    enabled: opts?.enabled ?? true,
   })
 }
 
@@ -57,6 +65,22 @@ export function useUpdateCalendarSettings() {
       qc.setQueryData(calendarKeys.calendarSettings, data)
     },
     onError: (e) => handleApiError(e, '기본 캘린더를 지정하지 못했습니다'),
+  })
+}
+
+/**
+ * Outlook 기본 캘린더 확인을 물었다고 기록(WP-2171) — 성공하면 설정 캐시의 outlookPrompted 를 true 로 바꿔
+ * 같은 세션에서 창이 다시 뜨지 않게 한다. 실패는 조용히 둔다(다음 진입에 다시 물을 뿐이다).
+ */
+export function useMarkOutlookPrompted() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => calendarSettingsApi.markOutlookPrompted(),
+    onSuccess: () => {
+      qc.setQueryData<CalendarSettings>(calendarKeys.calendarSettings, (old) =>
+        old ? { ...old, outlookPrompted: true } : old,
+      )
+    },
   })
 }
 

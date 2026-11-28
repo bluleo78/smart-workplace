@@ -92,6 +92,11 @@ public class CalendarUserSetting extends TableImpl<CalendarUserSettingRecord> {
      */
     public final TableField<CalendarUserSettingRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.calendar_user_setting.outlook_prompted_at</code>.
+     */
+    public final TableField<CalendarUserSettingRecord, OffsetDateTime> OUTLOOK_PROMPTED_AT = createField(DSL.name("outlook_prompted_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private CalendarUserSetting(Name alias, Table<CalendarUserSettingRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

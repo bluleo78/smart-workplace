@@ -40,4 +40,29 @@ public class CalendarUserSettingRepository {
         .set(CALENDAR_USER_SETTING.UPDATED_AT, DSL.currentOffsetDateTime())
         .execute();
   }
+
+  /** Outlook 기본 캘린더 질문을 이미 했는지(WP-2171). 행이 없거나 시각이 비었으면 false. */
+  public boolean isOutlookPrompted(long userId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CALENDAR_USER_SETTING)
+            .where(CALENDAR_USER_SETTING.USER_ID.eq(userId))
+            .and(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT.isNotNull()));
+  }
+
+  /**
+   * 질문을 했다고 기록한다(WP-2171). 행이 없으면 preferred 를 NULL 로 만들고, 있으면 기존 지정은 그대로 둔다. 멱등 — 이미 기록돼 있으면 갱신 자체를
+   * 건너뛰어(WHERE) 첫 기록 시각과 updated_at 을 그대로 둔다.
+   */
+  public void markOutlookPrompted(long userId) {
+    dsl.insertInto(CALENDAR_USER_SETTING)
+        .set(CALENDAR_USER_SETTING.USER_ID, userId)
+        .set(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT, DSL.currentOffsetDateTime())
+        .onConflict(CALENDAR_USER_SETTING.TENANT_ID, CALENDAR_USER_SETTING.USER_ID)
+        .doUpdate()
+        .set(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT, DSL.currentOffsetDateTime())
+        .set(CALENDAR_USER_SETTING.UPDATED_AT, DSL.currentOffsetDateTime())
+        .where(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT.isNull())
+        .execute();
+  }
 }

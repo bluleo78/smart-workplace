@@ -9,6 +9,7 @@ import { AIChip } from '@/components/ai/AIChip'
 import { AiDialogTargetsProvider } from '@/components/ai/dialogTargets/AiDialogTargets'
 import { LazyAIFullscreen, LazyMobileAiSheet } from '@/components/ai/LazyAiSurfaces'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { OutlookDefaultPrompt } from '@/components/calendar/OutlookDefaultPrompt'
 import { DriveUploadPanelHost } from '@/components/drive/upload/DriveUploadPanelHost'
 import { HelpPanelProvider } from '@/components/help/HelpPanelContext'
 import { HelpTrigger } from '@/components/help/HelpTrigger'
@@ -188,6 +189,8 @@ export function AppLayout() {
             <SendToChatHost />
             {/* WP-1534 드라이브 업로드 패널 — 셸 분기 밖이라 lg 경계로 셸이 바뀌어도 접힘 상태가 유지되고, 어느 메뉴에서나 보인다. */}
             <DriveUploadPanelHost />
+            {/* M365 연결 사용자에게 새 일정 기본 캘린더를 Outlook 으로 할지 한 번 묻는다(WP-2171) */}
+            <OutlookDefaultPrompt />
             </HeaderDensityProvider>
           </AiDialogTargetsProvider>
           </AiScreenContextProvider>

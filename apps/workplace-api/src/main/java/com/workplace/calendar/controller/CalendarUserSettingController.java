@@ -6,11 +6,14 @@ import com.workplace.calendar.service.CalendarUserSettingService;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -38,5 +41,15 @@ public class CalendarUserSettingController {
       @AuthenticationPrincipal Long callerId,
       @Valid @RequestBody CalendarUserSettingUpdateRequest request) {
     return settingService.update(callerId, request);
+  }
+
+  /**
+   * Outlook 기본 캘린더 질문을 했다고 기록한다(WP-2171) — 사람당 한 번만 묻기 위함. 읽기 권한이면 된다(본인 알림 표시 상태 기록이라 일정 데이터를 바꾸지
+   * 않는다). 멱등.
+   */
+  @PostMapping("/outlook-prompted")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void markOutlookPrompted(@AuthenticationPrincipal Long callerId) {
+    settingService.markOutlookPrompted(callerId);
   }
 }

@@ -106,6 +106,20 @@ public class CalendarUserSettingRecord extends UpdatableRecordImpl<CalendarUserS
         return (OffsetDateTime) get(5);
     }
 
+    /**
+     * Setter for <code>public.calendar_user_setting.outlook_prompted_at</code>.
+     */
+    public void setOutlookPromptedAt(OffsetDateTime value) {
+        set(6, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_user_setting.outlook_prompted_at</code>.
+     */
+    public OffsetDateTime getOutlookPromptedAt() {
+        return (OffsetDateTime) get(6);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -129,7 +143,7 @@ public class CalendarUserSettingRecord extends UpdatableRecordImpl<CalendarUserS
     /**
      * Create a detached, initialised CalendarUserSettingRecord
      */
-    public CalendarUserSettingRecord(Long id, Long tenantId, Long userId, Long preferredCalendarId, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public CalendarUserSettingRecord(Long id, Long tenantId, Long userId, Long preferredCalendarId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime outlookPromptedAt) {
         super(CalendarUserSetting.CALENDAR_USER_SETTING);
 
         setId(id);
@@ -138,6 +152,7 @@ public class CalendarUserSettingRecord extends UpdatableRecordImpl<CalendarUserS
         setPreferredCalendarId(preferredCalendarId);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setOutlookPromptedAt(outlookPromptedAt);
         resetTouchedOnNotNull();
     }
 }

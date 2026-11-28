@@ -25,7 +25,14 @@ public class CalendarUserSettingService {
   @Transactional
   public CalendarUserSettingResponse get(long userId) {
     return new CalendarUserSettingResponse(
-        calendarService.resolveCreateCalendarId(userId, true, true));
+        calendarService.resolveCreateCalendarId(userId, true, true),
+        repository.isOutlookPrompted(userId));
+  }
+
+  /** Outlook 기본 캘린더 질문을 했다고 기록한다(WP-2171). 멱등 — 처음 기록 시각을 유지하고 기존 기본 캘린더 지정은 건드리지 않는다. */
+  @Transactional
+  public void markOutlookPrompted(long userId) {
+    repository.markOutlookPrompted(userId);
   }
 
   /**
@@ -38,6 +45,6 @@ public class CalendarUserSettingService {
     calendarService.requireUsableCreateTarget(userId, calendarId);
     repository.upsertPreferred(userId, calendarId);
     // 검증한 쓰기 가능·보이는 캘린더가 곧 실효값이다 — get 으로 다시 해석하지 않는다.
-    return new CalendarUserSettingResponse(calendarId);
+    return new CalendarUserSettingResponse(calendarId, repository.isOutlookPrompted(userId));
   }
 }

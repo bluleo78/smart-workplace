@@ -39,7 +39,7 @@ import {
   MAIL_PROVIDER_PRESETS,
   MAIL_SECURITY_OPTIONS,
 } from '@/lib/constants/mailAccount';
-import { M365_OAUTH_CHANNEL, M365_OAUTH_SOURCE, type M365OAuthResult } from '@/lib/m365-oauth';
+import { type M365OAuthResult, useM365OAuthResult } from '@/lib/m365-oauth';
 import { MAIL_CONNECTION_FIELDS, mailConnectionFingerprint } from '@/lib/mailConnectionFingerprint';
 import {
   type MailAccountFormData,
@@ -144,66 +144,41 @@ export function MailAccountDialog({
   const popupRef = useRef<Window | null>(null);
   const pollRef = useRef<number | null>(null);
 
-  // 팝업 결과 수신(postMessage + BroadcastChannel) + 사용자 취소(closed) 감지.
-  // connecting 동안에만 활성. 결과 1회 처리 후 정리.
+  // 팝업 결과 수신(postMessage + BroadcastChannel) — connecting 동안에만 듣는다. 결과를 받으면 phase 가 바뀌어 수신이 멈춘다.
+  const handleOAuthResult = (result: M365OAuthResult) => {
+    if (pollRef.current != null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (result.ok) {
+      setOauthPhase('idle');
+      void queryClient.invalidateQueries({ queryKey: ['mail-accounts'] });
+      onOpenChange(false);
+      // 성공 토스트는 부모(MailSettingsPage) 패턴과 일관되게 여기서 표시
+      void import('sonner').then(({ toast }) => toast.success('Outlook 메일 계정이 연결되었습니다.'));
+    } else {
+      setOauthPhase('error');
+    }
+  };
+  useM365OAuthResult(handleOAuthResult, oauthPhase === 'connecting');
+
+  // 사용자 취소 감지 — 결과 없이 팝업이 닫히면 취소로 간주(connecting 동안만)
   useEffect(() => {
     if (oauthPhase !== 'connecting') return;
-
-    let done = false;
-    const finish = (result: M365OAuthResult) => {
-      if (done) return; // idempotent — postMessage/BroadcastChannel 중복 수신 방어
-      done = true;
-      cleanup();
-      if (result.ok) {
-        setOauthPhase('idle');
-        void queryClient.invalidateQueries({ queryKey: ['mail-accounts'] });
-        onOpenChange(false);
-        // 성공 토스트는 부모(MailSettingsPage) 패턴과 일관되게 여기서 표시
-        void import('sonner').then(({ toast }) => toast.success('Outlook 메일 계정이 연결되었습니다.'));
-      } else {
-        setOauthPhase('error');
-      }
-    };
-
-    const onMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return; // 출처 검증(보안)
-      const data = e.data as M365OAuthResult | undefined;
-      if (data?.source === M365_OAUTH_SOURCE) finish(data);
-    };
-    const channel = (() => {
-      try {
-        return new BroadcastChannel(M365_OAUTH_CHANNEL);
-      } catch {
-        return null;
-      }
-    })();
-    if (channel) {
-      channel.onmessage = (e: MessageEvent) => {
-        const data = e.data as M365OAuthResult | undefined;
-        if (data?.source === M365_OAUTH_SOURCE) finish(data);
-      };
-    }
-    window.addEventListener('message', onMessage);
-
-    // 결과 없이 팝업이 닫히면 취소로 간주
     pollRef.current = window.setInterval(() => {
-      if (popupRef.current?.closed && !done) {
-        done = true;
-        cleanup();
+      if (popupRef.current?.closed) {
+        if (pollRef.current != null) window.clearInterval(pollRef.current);
+        pollRef.current = null;
         setOauthPhase('cancelled');
       }
     }, 600);
-
-    function cleanup() {
-      window.removeEventListener('message', onMessage);
-      channel?.close();
+    return () => {
       if (pollRef.current != null) {
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
-    }
-    return cleanup;
-  }, [oauthPhase, onOpenChange, queryClient]);
+    };
+  }, [oauthPhase]);
 
   // "Outlook 계정 연결" 클릭: 동기 window.open(팝업 차단 회피) → /start → popup.location.
   const handleConnectOutlook = () => {
