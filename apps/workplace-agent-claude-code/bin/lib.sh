@@ -19,6 +19,15 @@
 GENIA_RUN_DIR=${GENIA_RUN_DIR:-/run/genia}          # runner 가 파일 하나씩(subPath) 꽂는 곳 — 읽기만 한다
 GENIA_WORK=${GENIA_WORK:-/work}                     # PVC — 다시 받기 비싼 것만(AI 폴더·저장소·캐시)
 TMUX_BIN=${GW_TMUX:-tmux}                           # 플러그인 스크립트와 같은 테스트 훅(격리 tmux 서버)
+GENIA_GH_LOGIN_TRIES=${GENIA_GH_LOGIN_TRIES:-3}            # gh 로그인 최대 시도 수(일시적 네트워크 실패 대비)
+GENIA_GH_LOGIN_WAIT=${GENIA_GH_LOGIN_WAIT:-5}              # 시도 사이 대기 초
+# 잘못된 값(빈 값·문자·0 으로 시작 — 0·00 포함)이면 기본값으로 — 시도 수가 0 이면 로그인을 한 번도 안 하고, 숫자가 아니면 셸 산술이 깨진다.
+case "$GENIA_GH_LOGIN_TRIES" in '' | *[!0-9]* | 0*) GENIA_GH_LOGIN_TRIES=3 ;; esac
+case "$GENIA_GH_LOGIN_WAIT" in '' | *[!0-9]*) GENIA_GH_LOGIN_WAIT=5 ;; esac
+GENIA_GH_LOGIN_TIMEOUT=${GENIA_GH_LOGIN_TIMEOUT:-30}       # gh 로그인·상태 확인 한 번의 제한 초 — 응답 없는 네트워크에 부팅이 멈추지 않게
+case "$GENIA_GH_LOGIN_TIMEOUT" in '' | *[!0-9]* | 0*) GENIA_GH_LOGIN_TIMEOUT=30 ;; esac
+# 상태 파일·경고에 남기는 gh 오류에서 토큰 모양을 가리는 sed 식 — 새 접두사 토큰(gh?_·github_pat_)과 옛 40자 16진 토큰.
+GH_TOKEN_MASK='s/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/***/g; s/[0-9a-fA-F]{40}/***/g'
 GENIA_DIND_WAIT=${GENIA_DIND_WAIT:-60}              # docker 소켓을 기다리는 초
 GENIA_SUPERVISE_INTERVAL=${GENIA_SUPERVISE_INTERVAL:-60}
 GENIA_RESTART_AFTER=${GENIA_RESTART_AFTER:-518400}  # 6일 — /loop 반복이 7일 뒤 끝나기 전에 칸을 다시 띄운다
@@ -340,19 +349,88 @@ node_ca_bundle() {
 
 # 5b. git 신원과 저장소 자격 증명(WP-1268·WP-1276) — runner 가 AI 별·호스트별 토큰을 $GENIA_RUN_DIR/repo-tokens/<github|gitlab>/<host> 파일로 꽂는다.
 #     GitHub 는 호스트마다 gh 에 로그인(토큰은 표준 입력으로만 — 인자·로그에 남기지 않는다)하고 git 자격 증명 도우미를 건다.
+#     로그인은 일시적 네트워크 실패에 대비해 최대 GENIA_GH_LOGIN_TRIES 회 다시 시도하고, 결과(성공·실패와 gh 마지막 오류 전문, 토큰 모양은 ***)를
+#     $AI_DIR/state/git-auth.log 에 부팅마다 덮어써 남긴다(WP-2167) — 세션이 로그인이 왜 안 됐는지 읽을 수 있게.
 #     GitLab 은 호스트마다 git 자격 증명 도우미가 그때그때 토큰 파일을 읽게 한다(설정·로그에 토큰을 두지 않는다). MR 은 플러그인의
 #     gw-repo 가 같은 파일을 glab 에 넘긴다. 실패는 모두 경고만(저장소 받기가 clone-failed 로 알린다).
+# 호스트별 git 자격 증명 도우미 — token_file_helper <호스트> <토큰 파일> <사용자 이름>. git 이 물을 때 그때 토큰 파일을 읽어 답하므로
+# 설정에 토큰을 두지 않는다. 빈 값으로 먼저 지워 다른 도우미(예: 시스템 기본)가 앞서 답하지 않게 한다. GitLab 과 로그인 실패한 GitHub 호스트가 쓴다.
+token_file_helper() {
+  git config --global "credential.https://$1.helper" "" &&
+    git config --global --add "credential.https://$1.helper" \
+      "!f() { test \"\$1\" = get && printf 'username=$3\\npassword=%s\\n' \"\$(tr -d '\\r\\n ' < '$2')\"; }; f"
+}
+
+# 저장된 gh 로그인으로 부르는 gh — 환경의 GH_TOKEN·GITHUB_TOKEN 은 이 호출에서만 뺀다. 있으면 gh 2.106.0 이 「환경변수 토큰을 쓰는 중」이라며
+# 저장 로그인을 거절하고(격리 HOME 에서 확인), auth status 도 환경 토큰을 검사한다.
+gh_stored() {
+  env -u GH_TOKEN -u GITHUB_TOKEN gh "$@"
+}
+
+# gh 로그인 한 번 — gh_login_once <호스트> <토큰 파일> <오류 파일>. 토큰은 표준 입력으로만, 오류는 파일로(뒤에서 돌아 $(…) 로 받지 않는다).
+gh_login_once() {
+  gh_stored auth login --hostname "$1" --with-token < "$2" > /dev/null 2> "$3"
+}
+
 setup_git() {
   git config --global user.name "$GENIA_AGENT_NAME"
   git config --global user.email "$GENIA_AGENT_NAME@agents.genia-works.local"
   tokens="$GENIA_RUN_DIR/repo-tokens"
   found=0
+  gh_found=0
+  gitauth="$AI_DIR/state/git-auth.log"
+  errf="$AI_DIR/state/.gh-login.err"
+  mkdir -p "$AI_DIR/state" 2>/dev/null
+  : > "$gitauth" 2>/dev/null || log "경고: gh 로그인 상태 파일($gitauth)을 비우지 못했습니다"
   for token in "$tokens"/github/*; do
     [ -s "$token" ] || continue
     found=1
+    gh_found=1
     host=$(basename "$token")
-    if ! err=$(gh auth login --hostname "$host" --with-token < "$token" 2>&1 >/dev/null); then
-      log "경고: GitHub 로그인 실패($host) — 토큰 권한(Contents·Pull requests)을 확인하세요: $(printf '%s' "$err" | head -n 1)"
+    ok=0
+    try=0
+    err=""
+    while [ "$try" -lt "$GENIA_GH_LOGIN_TRIES" ]; do
+      try=$((try + 1))
+      # 제한 시간 안에서 뒤로 돌려 기다린다 — 응답 없는 네트워크에 멈추지 않고, 기다리는 동안에도 종료 신호를 바로 받는다(bg_wait_timeout).
+      if bg_wait_timeout "$GENIA_GH_LOGIN_TIMEOUT" gh_login_once "$host" "$token" "$errf"; then
+        ok=1
+        break
+      fi
+      err=$(cat "$errf" 2>/dev/null)
+      [ -n "$err" ] || err="gh auth login 이 ${GENIA_GH_LOGIN_TIMEOUT}초 안에 끝나지 않았습니다(시간 제한)"
+      # bg_wait 로 기다려 종료 신호(SIGTERM)를 대기 중에도 바로 받는다(앞에서 sleep 하면 끝날 때까지 trap 이 밀린다).
+      [ "$try" -lt "$GENIA_GH_LOGIN_TRIES" ] && bg_wait sleep "$GENIA_GH_LOGIN_WAIT"
+    done
+    # 결과 한 줄(+ 실패면 gh 마지막 오류 전문)을 상태 파일에 남긴다 — 세션이 읽고 원인을 알 수 있게. 토큰 모양은 가린다.
+    # gh 설정 폴더 — GH_CONFIG_DIR > XDG_CONFIG_HOME/gh > ~/.config/gh (gh 가 고르는 순서). 줄 이름은 늘 ~/.config/gh 로 쓴다.
+    ghcfg="$HOME/.config/gh"
+    [ -n "${XDG_CONFIG_HOME:-}" ] && ghcfg="$XDG_CONFIG_HOME/gh"
+    [ -n "${GH_CONFIG_DIR:-}" ] && ghcfg="$GH_CONFIG_DIR"
+    cfg=없음
+    [ -d "$ghcfg" ] && cfg=있음
+    # 로그인 상태 확인은 로그인이 된 때만 — 실패했으면(네트워크 장애일 수 있다) 부팅·종료 신호를 더 밀지 않는다.
+    # 가리기는 실패 때만 쓴다 — 토큰 모양에 더해 그 토큰 파일의 값 자체도(영문·숫자·_ 일 때만 sed 식에 넣는다 — 다른 글자는 식을 깨뜨릴 수 있다).
+    st=생략
+    if [ "$ok" = 1 ]; then
+      res="login ok"
+      bg_wait_timeout "$GENIA_GH_LOGIN_TIMEOUT" gh_stored auth status --hostname "$host" >/dev/null 2>&1 </dev/null
+      st=$?
+    else
+      res="login failed($try회) · git 도우미 토큰 파일"
+      mask=$GH_TOKEN_MASK
+      tokval=$(tr -d '\r\n ' < "$token")
+      case "$tokval" in '' | *[!A-Za-z0-9_]*) ;; *) mask="$mask; s/$tokval/***/g" ;; esac
+    fi
+    {
+      printf '%s github %s %s · ~/.config/gh %s · gh auth status %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$host" "$res" "$cfg" "$st"
+      [ "$ok" = 1 ] || printf '%s\n' "$err" | sed -E "$mask; s/^/  /"
+    } >> "$gitauth" 2>/dev/null || log "경고: gh 로그인 상태 파일($gitauth)에 쓰지 못했습니다"
+    if [ "$ok" = 0 ]; then
+      log "경고: GitHub 로그인 실패($host) — 토큰 권한(Contents·Pull requests)을 확인하세요: $(printf '%s' "$err" | head -n 1 | sed -E "$mask") — 전체: $gitauth"
+      # 로그인 기록이 없어도 git push 가 되게 이 호스트에 GitLab 분기와 같은 호스트별 도우미를 건다 — git 이 물을 때 그때 토큰 파일을 읽어
+      # 답하므로 설정에 토큰을 두지 않는다. 사용자 이름은 GitHub 토큰 규칙대로 x-access-token. 빈 값으로 먼저 지워 다른 도우미가 앞서 답하지 않게 한다.
+      token_file_helper "$host" "$token" x-access-token || log "경고: GitHub 자격 증명 도우미를 걸지 못했습니다($host)"
       continue
     fi
     gh auth setup-git --hostname "$host" >/dev/null 2>&1 || log "경고: gh auth setup-git 실패($host) — git 이 GitHub 자격 증명을 쓰지 못할 수 있습니다"
@@ -361,12 +439,13 @@ setup_git() {
     [ -s "$token" ] || continue
     found=1
     host=$(basename "$token")
-    # 빈 값으로 먼저 지워 다른 도우미(예: 시스템 기본)가 앞서 답하지 않게 한다. 사용자 이름은 GitLab 토큰 규칙대로 oauth2.
-    git config --global "credential.https://$host.helper" "" &&
-      git config --global --add "credential.https://$host.helper" \
-        "!f() { test \"\$1\" = get && printf 'username=oauth2\\npassword=%s\\n' \"\$(cat '$token')\"; }; f" ||
-      log "경고: GitLab 자격 증명 도우미를 걸지 못했습니다($host)"
+    # 사용자 이름은 GitLab 토큰 규칙대로 oauth2.
+    token_file_helper "$host" "$token" oauth2 || log "경고: GitLab 자격 증명 도우미를 걸지 못했습니다($host)"
   done
+  if [ "$gh_found" = 0 ]; then
+    printf '%s github 토큰 없음\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$gitauth" 2>/dev/null
+  fi
+  rm -f "$errf"
   if [ "$found" = 0 ]; then
     log "경고: 저장소 토큰($tokens)이 없습니다 — 저장소를 받지 못할 수 있습니다"
   fi

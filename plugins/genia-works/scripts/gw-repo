@@ -11,6 +11,7 @@
 #   gw-repo pr-review <번호> --request-changes|--comment --body-file <파일>
 #   gw-repo pr-merge <번호> --sha <리뷰한 HEAD> --subject <머지 커밋 제목>                   # merge 커밋(squash·rebase 아님), HEAD 가 다르면 거절
 #   gw-repo ci-job <커밋 SHA 40자> <잡 이름>       # 그 커밋의 CI 잡 결과 {"status","url"} — deploy 스킬이 이미지 빌드를 확인한다(WP-2143)
+#   gw-repo gh <gh 인자…>                          # GitHub 만 — gh 를 그대로 부르되 Pod 토큰 파일을 넘긴다(gh run list·gh pr checks 등, WP-2167)
 #
 # PR 한 건(두 호스트 같은 모양 — 스킬은 이 이름·값으로만 판단한다):
 #   number · title · body · url · headRefName · headRefOid
@@ -28,14 +29,15 @@
 #
 # 호스트 종류: git config genia-works.repoKind(github|gitlab) > Works 가 띄운 Pod 의 토큰 폴더 $GENIA_RUN_DIR/repo-tokens/<종류>/<호스트>
 #   > 호스트 이름에 github 가 들어가면 github, 아니면 gitlab(사내 GitLab 은 이름이 제각각이다 — Works 화면의 짐작과 같은 규칙).
-# GitLab 토큰: Pod 에서는 토큰 파일을 glab 을 부를 때만 GITLAB_TOKEN 으로 넘긴다(설정 파일에 저장하지 않는다). 사람 컴퓨터에서는 glab auth login 한 것을 쓴다.
+# 토큰: Pod 에서는 토큰 파일을 glab 은 GITLAB_TOKEN 으로, gh 는 GH_TOKEN(github.com) 또는 GH_ENTERPRISE_TOKEN(그 밖의 호스트)으로 그 호출에만 넘긴다
+#   (설정 파일에 저장하지 않는다 — gh 로그인 기록이 없어도 PR 흐름이 돈다, WP-2167). 사람 컴퓨터에서는 gh·glab auth login 한 것을 쓴다.
 # 포트: 443 이 아닌 HTTPS 포트는 다루지 않는다(호스트 이름만 본다) — Works 의 저장소 토큰도 호스트 이름 단위다(WP-1268).
 # glab 의 사용 통계는 끈다 — 켜 두면 gitlab.com 으로 토큰 헤더를 붙여 보낸다(1.123.0 에서 확인).
 #
 # 종료 코드: 0 성공 · 2 사용법 오류·origin 없음·주소를 못 읽음 · 3 CLI 없음(gh·glab·jq) · 4 로그인 안 됨 · 그 밖은 gh·glab 의 실패(stderr 그대로)
 
 usage() {
-  echo "사용법: gw-repo kind | auth-check | pr-list [--all] [--search <키>] | pr-view <번호> | pr-create --head <브랜치> --title <제목> --body-file <파일> [--base <브랜치>] | pr-review <번호> --approve [--sha <HEAD>] | pr-review <번호> --request-changes|--comment --body-file <파일> | pr-merge <번호> --sha <HEAD> --subject <제목> | ci-job <SHA> <잡 이름>" >&2
+  echo "사용법: gw-repo kind | auth-check | pr-list [--all] [--search <키>] | pr-view <번호> | pr-create --head <브랜치> --title <제목> --body-file <파일> [--base <브랜치>] | pr-review <번호> --approve [--sha <HEAD>] | pr-review <번호> --request-changes|--comment --body-file <파일> | pr-merge <번호> --sha <HEAD> --subject <제목> | ci-job <SHA> <잡 이름> | gh <gh 인자…>" >&2
   exit 2
 }
 
@@ -81,7 +83,7 @@ fi
 need() {
   command -v "$1" >/dev/null 2>&1 || { echo "gw-repo: $1 가 없습니다 — $2" >&2; exit 3; }
 }
-need jq "PR 응답을 읽는 데 씁니다(brew install jq 또는 apt install jq)"
+[ "$cmd" = gh ] || need jq "PR 응답을 읽는 데 씁니다(brew install jq 또는 apt install jq)"
 if [ "$kind" = github ]; then
   need gh "GitHub 저장소($host)의 PR 을 다루는 데 씁니다(https://cli.github.com)"
 else
@@ -95,6 +97,27 @@ glab_api() {
   else
     GLAB_SEND_TELEMETRY=false GLAB_CHECK_UPDATE=false GLAB_NO_PROMPT=1 glab api --hostname "$host" "$@"
   fi
+}
+# gh 호출 — Pod 이면 읽을 수 있고 비어 있지 않은 토큰 파일을 이 호출에만 환경변수로 넘긴다(인자·로그에 남기지 않는다, 세션의 옛 GH_TOKEN 보다 우선).
+# github.com·GitHub Enterprise Cloud(*.ghe.com)는 GH_TOKEN, 그 밖의 호스트(자체 설치 GitHub Enterprise Server)는 GH_ENTERPRISE_TOKEN 이다 — gh 가 고르는 변수. 파일이 없거나 0바이트면 토큰을 넘기지 않는다(사람 컴퓨터의 로그인을 쓴다).
+# Pod 의 GitHub 토큰 파일이 쓸 만한지(읽을 수 있고 비어 있지 않음) — gh_cli 와 auth-check 안내가 같은 판정을 쓴다.
+has_pod_token() {
+  [ -r "$tokens/github/$host" ] && [ -s "$tokens/github/$host" ]
+}
+gh_cli() {
+  f="$tokens/github/$host"
+  if ! has_pod_token; then
+    gh "$@"
+    return
+  fi
+  # 끝 줄바꿈·CR·공백은 뺀다 — gh auth login 은 다듬어 읽어 통하는데 환경변수로 넘기면 그대로 붙어 거절된다.
+  ghtok=$(tr -d '\r\n ' < "$f")
+  case "$host" in
+    github.com) GH_TOKEN=$ghtok gh "$@" ;;
+    # 기본 호스트가 아니면 GH_HOST 도 함께 — 로그인 기록이 없으면 gh 가 이 호스트를 모른다.
+    *.ghe.com) GH_HOST="$host" GH_TOKEN=$ghtok gh "$@" ;;
+    *) GH_HOST="$host" GH_ENTERPRISE_TOKEN=$ghtok gh "$@" ;;
+  esac
 }
 # 임시 폴더 — 요청 본문(glab api --input - 는 chunked 로 보내 일부 프록시·서버가 끊는다, 1.123.0 에서 확인)과 응답 JSON 을 둔다.
 # 응답은 인자(--argjson)로 넘기지 않는다 — 긴 PR 본문이 여럿이면 인자 하나 상한(리눅스 128KiB)을 넘는다.
@@ -154,9 +177,17 @@ case "$cmd" in
     if [ "$kind" = github ]; then
       # 쓰는 계정(--active)만 본다 — 없으면 gh 가 그 호스트의 모든 계정을 검사해, 쓰지 않는 계정 하나의 토큰만 만료돼도 실패한다(WP-1296 시험).
       # 옛 gh(--active 가 없던 판)는 unknown flag 로 실패하므로, 그때만 --active 없이 한 번 더 본다(그 판은 계정이 하나뿐이라 같은 뜻).
-      auth_out=$(gh auth status --active --hostname "$host" 2>&1) \
-        || { case "$auth_out" in *"unknown flag"*) gh auth status --hostname "$host" >/dev/null 2>&1 ;; *) false ;; esac; } \
-        || { echo "gw-repo: gh 가 $host 에 로그인돼 있지 않습니다 — gh auth login --hostname $host 뒤 gh auth setup-git --hostname $host" >&2; exit 4; }
+      auth_out=$(gh_cli auth status --active --hostname "$host" 2>&1) \
+        || { case "$auth_out" in *"unknown flag"*) gh_cli auth status --hostname "$host" >/dev/null 2>&1 ;; *) false ;; esac; } \
+        || {
+          # Pod 토큰 파일이 있으면 로그인 기록이 아니라 그 토큰이 거절된 것이다 — 안내를 그쪽으로.
+          if has_pod_token; then
+            echo "gw-repo: Pod 의 GitHub 토큰($host)이 거절됐습니다 — AI 상세의 저장소 연결 토큰(권한 Contents·Pull requests·만료)을 확인하세요. 엔트리포인트 로그인 결과는 AI 홈의 state/git-auth.log" >&2
+          else
+            echo "gw-repo: gh 가 $host 에 로그인돼 있지 않습니다 — gh auth login --hostname $host 뒤 gh auth setup-git --hostname $host" >&2
+          fi
+          exit 4
+        }
     else
       # 로그인 기록이 아니라 토큰이 지금 통하는지 본다(폐기된 Pod 토큰도 여기서 잡힌다) — 가장 가벼운 GET /user.
       glab_api user >/dev/null 2>&1 \
@@ -175,7 +206,7 @@ case "$cmd" in
     done
     if [ "$kind" = github ]; then
       # gh 의 실패를 jq 가 가리지 않게 먼저 파일로 받는다(sh 에는 pipefail 이 없다 — 빈 입력에도 jq 는 0 으로 끝난다).
-      gh pr list --state "$( [ -n "$all" ] && echo all || echo open)" ${search:+--search "$search in:title,body"} --limit 100 --json "$GH_FIELDS" \
+      gh_cli pr list --state "$( [ -n "$all" ] && echo all || echo open)" ${search:+--search "$search in:title,body"} --limit 100 --json "$GH_FIELDS" \
         > "$tmpd/list.json" || exit $?
       jq "$GH_NORMALIZE [.[] | pr]" "$tmpd/list.json"
     else
@@ -200,7 +231,7 @@ case "$cmd" in
     [ $# -eq 1 ] || usage
     num "$1"
     if [ "$kind" = github ]; then
-      gh pr view "$n" --json "$GH_FIELDS" > "$tmpd/pr.json" || exit $?
+      gh_cli pr view "$n" --json "$GH_FIELDS" > "$tmpd/pr.json" || exit $?
       jq "$GH_NORMALIZE pr" "$tmpd/pr.json"
     else
       gl_view "$n"
@@ -219,7 +250,7 @@ case "$cmd" in
     done
     [ -n "$head" ] && [ -n "$title" ] && [ -r "$bodyfile" ] || usage
     if [ "$kind" = github ]; then
-      prurl=$(gh pr create --base "$base" --head "$head" --title "$title" --body-file "$bodyfile") || exit $?
+      prurl=$(gh_cli pr create --base "$base" --head "$head" --title "$title" --body-file "$bodyfile") || exit $?
       prurl=$(printf '%s\n' "$prurl" | tail -n 1)
       jq -n --arg u "$prurl" '{number: ($u | sub(".*/"; "") | tonumber), url: $u}'
     else
@@ -244,7 +275,7 @@ case "$cmd" in
     case "$action" in
       --approve)
         if [ "$kind" = github ]; then
-          gh pr review "$n" --approve
+          gh_cli pr review "$n" --approve
         else
           glab_api -X POST "$proj/merge_requests/$n/approve" ${sha:+-f sha="$sha"} >/dev/null
         fi
@@ -252,7 +283,7 @@ case "$cmd" in
       --request-changes | --comment)
         [ -r "$bodyfile" ] || usage
         if [ "$kind" = github ]; then
-          gh pr review "$n" "$action" --body-file "$bodyfile"
+          gh_cli pr review "$n" "$action" --body-file "$bodyfile"
         else
           jq -n --rawfile b "$bodyfile" '{body: $b}' > "$req"
           glab_api -X POST "$proj/merge_requests/$n/notes" --input "$req" >/dev/null || exit $?
@@ -277,7 +308,7 @@ case "$cmd" in
     # 리뷰한 HEAD 없이 머지하지 않는다 — 그 사이 누가 브랜치를 바꿨으면 거절돼야 한다.
     [ -n "$sha" ] && [ -n "$subject" ] || usage
     if [ "$kind" = github ]; then
-      gh pr merge "$n" --merge --match-head-commit "$sha" --subject "$subject"
+      gh_cli pr merge "$n" --merge --match-head-commit "$sha" --subject "$subject"
     else
       jq -n --arg sha "$sha" --arg m "$subject" '{sha: $sha, merge_commit_message: $m, squash: false, should_remove_source_branch: false}' > "$req"
       glab_api -X PUT "$proj/merge_requests/$n/merge" --input "$req" >/dev/null
@@ -292,7 +323,7 @@ case "$cmd" in
     [ ${#sha} -eq 40 ] || usage
     case "$job" in '' | *[!A-Za-z0-9._:/\ -]*) usage ;; esac
     if [ "$kind" = github ]; then
-      gh api "repos/$path/commits/$sha/check-runs?per_page=100" > "$tmpd/runs.json" || exit $?
+      gh_cli api "repos/$path/commits/$sha/check-runs?per_page=100" > "$tmpd/runs.json" || exit $?
       jq --arg j "$job" '[.check_runs[] | select(.name == $j)] | sort_by(.started_at // "") | last
         | if . == null then {status: "NONE", url: null}
           else {status: (if .status != "completed" then "PENDING" elif .conclusion == "success" then "PASS" else "FAIL" end), url: .html_url} end' \
@@ -310,6 +341,14 @@ case "$cmd" in
       done
       echo '{"status":"NONE","url":null}'
     fi
+    ;;
+
+  gh)
+    # gh 그대로 통과(GitHub 만) — project.md 의 gh run list·gh pr checks 처럼 gw-repo 명령이 없는 확인을 Pod 토큰 파일로 돌린다(로그인 기록 없이도).
+    [ "$kind" = github ] || { echo "gw-repo: gh 통과는 GitHub 저장소만 됩니다($host 는 $kind)" >&2; exit 2; }
+    [ $# -ge 1 ] || usage
+    gh_cli "$@"
+    exit $?
     ;;
 
   *) usage ;;
