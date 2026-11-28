@@ -11,17 +11,6 @@
 // - 새 창으로 열기(WP-1535): 데스크톱 머리줄 ↗ 가 지금 작성을 임시저장한 뒤 독립 브라우저 창(/mail/compose?draftId=N)으로 옮긴다.
 //   그 창에서는 같은 작성창을 popout 모드로 그린다 — 창 전체를 채우고, 닫기·버리기·보내기는 서버 작업이 끝난 뒤 onDone 으로 페이지에 넘긴다(페이지가 창을 닫는다).
 
-import {
-  type Announcements,
-  DndContext,
-  type DragEndEvent,
-  DragOverlay,
-  type DragStartEvent,
-  MeasuringStrategy,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Loader2, Lock, Maximize2, Minimize2, Minus, Paperclip, PenLine, Send, Trash2, X } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -71,16 +60,6 @@ import {
 } from '@/lib/mailDraftCompose';
 import { pastedImageSrc, toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { parseRecipientInput } from '@/lib/mailRecipients';
-import {
-  moveRecipient,
-  RECIPIENT_FIELD_LABEL,
-  type RecipientChip,
-  type RecipientField,
-  type RecipientFieldRest,
-  type RecipientFields,
-  removeRecipient,
-  toChips,
-} from '@/lib/mailRecipientSuggest';
 import {
   appendSignature,
   htmlToPlainText,
@@ -158,73 +137,6 @@ const BODY_CLASS: Record<MailComposeFrameLayout, string> = {
   // 읽기 창(WP-1743) — 새 창과 같은 값(남은 높이를 채운다). 한 곳(FILL_BODY_CLASS)만 고치면 둘 다 바뀐다.
   pane: FILL_BODY_CLASS,
   dock: 'flex max-h-[min(75vh,calc(100vh-3rem))] flex-col gap-2 overflow-y-auto p-3',
-};
-
-/** 빈 수신인 칸 — 새 작성의 처음 값. 세 칸을 하나의 값(RecipientFields)으로 다룬다(WP-2150). */
-const EMPTY_RECIPIENTS: RecipientFields = { to: '', cc: '', bcc: '' };
-
-// 수신인 칸 끌기(WP-2150) — 5px 넘겨야 끌기가 시작한다. 짧은 누름은 칩 메뉴로 남겨 두고, 이슈·드라이브 행과 같은 값이다.
-const RECIPIENT_POINTER_OPTIONS = { activationConstraint: { distance: 5 } };
-
-/** 값이 칸 이름(받는사람·참조·숨은참조)인지 — 끌기 식별자와 드롭 자리를 안전하게 되읽는 데 쓴다. */
-function asRecipientField(value: unknown): RecipientField | null {
-  return value === 'to' || value === 'cc' || value === 'bcc' ? value : null;
-}
-
-/**
- * 끌기 식별자(`칸:순번`) — 칩(useDraggable)이 쓰는 id 와 같은 모양에서 칸·순번을 되읽는다. 형식이 아니면 null —
- * 끌기 끝 판정의 가드(잘못된 id 로는 아무것도 옮기지 않는다).
- */
-function parseRecipientDragId(id: string | number): { field: RecipientField; index: number } | null {
-  const [rawField, rawIndex] = String(id).split(':');
-  const field = asRecipientField(rawField);
-  if (field === null || !/^\d+$/.test(rawIndex ?? '')) return null;
-  return { field, index: Number(rawIndex) };
-}
-
-// ── 수신인 칩 끌기의 스크린리더 안내·낭독(WP-2150 최종 리뷰) ─────────────────
-// dnd-kit 기본 안내는 영어 "Space 로 집으라"인데 이 작성창은 KeyboardSensor 를 의도적으로 등록하지 않았다 —
-// 초점을 준 칩 단추에 그대로 두면 매번 거짓 조작법(Space 로 메뉴가 열린다)을 듣는다. 그래서 안내는 한국어
-// 칩 메뉴 사용법으로, 낭독(잡기·놓기·취소)은 칩 표시 이름·칸 이름으로 바꾼다. 저장소의 다른 DndContext 와 같은 방식이다.
-const RECIPIENT_DND_SCREEN_READER_INSTRUCTIONS = {
-  draggable:
-    '이 칩은 포인터로 끌어 다른 칸으로 옮깁니다. 키보드로는 Enter 키를 눌러 메뉴를 열고 「참조로 옮기기」 같은 항목으로 옮기거나 뺍니다.',
-};
-
-/** 끌기 데이터에서 칸을 되읽는다 — 낭독이 「어느 칸」인지 말하는 데 쓴다(잘못된 값이면 null). */
-function recipientDataField(node: { data: { current?: unknown } } | null): RecipientField | null {
-  if (node === null) return null;
-  return asRecipientField((node.data.current as { field?: unknown } | undefined)?.field);
-}
-
-/** 낭독에 쓰는 칩 표시 이름 — useDraggable data 에 실어 보낸 이름(없으면 그냥 「수신인」). */
-function recipientChipText(node: { data: { current?: unknown } }): string {
-  const text = (node.data.current as { text?: unknown } | undefined)?.text;
-  return typeof text === 'string' && text.length > 0 ? text : '수신인';
-}
-
-/** 드래그 낭독 — 잡은 칩·놓을 칸을 한국어로. dnd-kit 기본(영어·원시 id)은 쓰지 않는다(완료 기준 9). */
-const RECIPIENT_DND_ANNOUNCEMENTS: Announcements = {
-  onDragStart: ({ active }) => `「${recipientChipText(active)}」 칩을 집었습니다.`,
-  onDragOver: ({ active, over }) => {
-    const field = recipientDataField(over);
-    return field
-      ? `「${recipientChipText(active)}」 칩이 ${RECIPIENT_FIELD_LABEL[field]} 칸 위에 있습니다.`
-      : `「${recipientChipText(active)}」 칩이 놓을 칸 밖에 있습니다.`;
-  },
-  onDragEnd: ({ active, over }) => {
-    const field = recipientDataField(over);
-    if (field === null) return `「${recipientChipText(active)}」 칩을 놓았습니다. 칸이 바뀌지 않았습니다.`;
-    if (field === recipientDataField(active)) return `「${recipientChipText(active)}」 칩을 제자리에 놓았습니다.`;
-    return `「${recipientChipText(active)}」 칩을 ${RECIPIENT_FIELD_LABEL[field]} 칸에 놓았습니다.`;
-  },
-  onDragCancel: ({ active }) => `「${recipientChipText(active)}」 칩 옮기기를 취소했습니다.`,
-};
-
-/** DndContext 에 넘길 접근성 설정 — 매 렌더 새 객체가 생기지 않게 상수로 고정한다. */
-const RECIPIENT_DND_ACCESSIBILITY = {
-  announcements: RECIPIENT_DND_ANNOUNCEMENTS,
-  screenReaderInstructions: RECIPIENT_DND_SCREEN_READER_INSTRUCTIONS,
 };
 
 /** 작성창 모드 제목 — 모바일 상단 바, 그리고 제목이 빈 데스크톱 머리 h2·새 창 문서 제목(composeHeadTitle). 전달(인용문이 전달용) / 회신(답장 대상 있음) / 새 메일. */
@@ -423,32 +335,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
   const [bodyFocusNonce, setBodyFocusNonce] = useState(0);
   // 데스크톱 배치(size) — 작은 창 / 최소화 / 읽기 창. 컨텍스트 값(WP-1743)이라 메일 읽기 자리 슬롯이 함께 본다.
   // 하나의 값이라 최소화와 읽기 창이 동시에 걸리지 않고, 새 작성마다 아래 instanceId 효과가 작성 방식 기본값(읽기 창 또는 dock, WP-1744)으로 처음 배치를 정한다(모바일은 항상 화면 전체라 이 값을 쓰지 않는다).
-  // 수신인 세 칸 — 하나의 값이라 칸 사이 옮기기(WP-2150)를 한 번에 바꾸고 자동 저장도 한 번만 예약할 수 있다.
-  const [recipients, setRecipients] = useState<RecipientFields>(EMPTY_RECIPIENTS);
-  const { to, cc, bcc } = recipients;
+  const [to, setTo] = useState('');
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
   const [showCcBcc, setShowCcBcc] = useState(false);
-  // 지금 끌고 있는 칩 — 끌기 시작 때 한 번 계산해 끌기 내내 고정한다(칸 점선·칸 이름 라벨·드래그 고스트가 이 값을 쓴다).
-  const [dragChip, setDragChip] = useState<RecipientChip | null>(null);
-  // 끌기 시작 뒤 다음 틱에 참조·숨은참조를 펼친다(완료 기준 2). 같은 틱에 펼치면 dnd-kit 이 끌기 노드의 첫 측정을
-  // 하기 전에 레이아웃이 바뀌어, 고스트·충돌 rect 의 기준이 되는 첫 사각형이 "누른 자리"가 아니라 펼친 뒤 자리가
-  // 되어 포인터를 못 따라간다(놓기가 칸 밖·다른 칸으로 오판됨 — WP-2150 결함 A). 펼침 시점 자체는 끌기 시작
-  // 그대로라 화면이 바뀌는 때는 그대로다.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 끌기 시작 콜백과 같은 틱에 펼치면 dnd-kit 이 첫 측정을 하기 전에 레이아웃이 바뀐다 — 렌더가 끝난 뒤 한 번만 펼치려는 의도다.
-    if (dragChip) setShowCcBcc(true);
-  }, [dragChip]);
-  // 끌기가 끝난 시각 — 끌기와 메뉴가 같은 단추라 끌고 난 직후의 클릭은 메뉴를 열지 않게 막는다(칩 단추가 읽는다).
-  const justDraggedAtRef = useRef(0);
-  // 칸마다 지금 쓰는 중인 조각 — 옮기기·빼기가 칩만 다루게 넘긴다(WP-2150 반려). 조각까지 칩으로 만들면 빨간 칩이 되어
-  // 입력에서 사라진다. 입력 칸이 알려 주는 값이라 리렌더 없이 ref 로 들고, 작성창이 없는 조기 return 앞에 둔다.
-  const recipientRest = useRef<RecipientFieldRest>({});
-  // 칸 안(메뉴·×·끌기)에서 칩을 빼거나 옮긴 횟수 — 입력 칸이 값을 다시 나눌 때 이 횟수가 바뀌어 있으면 "바깥이 칸 상태를
-  // 고친 것"이라 받아들여, 그 사이에 고르던 부서·그룹 넣기를 끊지 않는다(WP-2150 2차 반려 ①).
-  const [chipOpSeq, setChipOpSeq] = useState(0);
-  // 끌기가 실제로 시작됐는지 — 시작에서 칩을 못 찾았으면 끌기 끝에서도 값을 바꾸지 않는다(WP-2150 2차 반려 ③).
-  const dragStartedRef = useRef(false);
-  // 포인터 끌기 센서 하나(키보드 센서 없음, WP-2150) — 모바일은 센서를 비워 끌기가 아예 시작되지 않는다.
-  const sensors = useSensors(useSensor(PointerSensor, RECIPIENT_POINTER_OPTIONS));
   const [subject, setSubject] = useState('');
   // 지금 제목 — 늦게 도착한 AI 초안이 "응답 때의 제목"으로 판정하도록(생성 중 쓴 제목을 덮지 않게, WP-576) 화면 값과 함께 갱신한다.
   const subjectRef = useRef('');
@@ -622,9 +512,6 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     attachments.reset(draft?.attachments);
     doneAttachmentBase.current = (draft?.attachments ?? []).filter((a) => a.status === 'done').map((a) => a.key).join('|');
     ai.reset();
-    // 닫히는 순간 끌던 칩이 남아 다음 회차에 점선·칸 이름이 뜨지 않게 비운다 — 본체는 언마운트되지 않으므로 여기서만 끈다(WP-2150).
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 끌기 취소 이벤트가 오지 않는 닫힘·회차 교체에도 같은 값(null)이라 렌더 중 초기화로 옮길 수 없다.
-    setDragChip(null);
     // 새 작성의 처음 배치(작성 방식 기본값, WP-1744) — 이 회차에 적용할 기본값(openCompose 가 placement 로 정함)이 읽기 창이고
     // 데스크톱·AI 전체 화면 아님·읽기 자리 슬롯 있음(메일 화면)이면 읽기 창, 그 밖(우측 하단·새 창 기본값, 설정 못 받음, 메일 화면 밖,
     // placement 없이 다시 연 작성)은 우측 하단 작은 창. 새 창 기본값은 아래 「기본값 새 창」 효과가 옮긴다.
@@ -634,11 +521,9 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     const initialPlacement = draft?.instanceId != null ? initialPlacementFor(draft.instanceId) : null;
     setSize(draft && initialPlacement === 'PANE' && !isMobile && !aiFullscreen && slotEl ? 'pane' : 'dock');
     if (!draft) return;
-    setRecipients({
-      to: draft.to.join(', '),
-      cc: draft.cc.join(', '),
-      bcc: draft.bcc.join(', '),
-    });
+    setTo(draft.to.join(', '));
+    setCc(draft.cc.join(', '));
+    setBcc(draft.bcc.join(', '));
     setShowCcBcc(draft.cc.length > 0 || draft.bcc.length > 0);
     setSubject(draft.subject);
     subjectRef.current = draft.subject;
@@ -1054,79 +939,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
     );
   };
 
-  // 입력 칸 변경 — 화면 값을 바꾸고 자동 저장을 예약한다. 값은 함수형으로 넣어 같은 틱의 다른 변경(옮기기 등)과 겹쳐도 잃지 않는다.
-  const edit = (field: RecipientField) => (v: string) => {
-    setRecipients((prev) => ({ ...prev, [field]: v }));
+  // 입력 칸 변경 — 화면 값을 바꾸고 자동 저장을 예약한다.
+  const edit = (set: (v: string) => void) => (v: string) => {
+    set(v);
     autosave.schedule();
-  };
-
-  // 입력 칸이 알려 주는 지금 쓰는 조각을 위 ref 에 받는다(리렌더를 걸지 않기 위한 함수 — 매 렌더 새로 만들어도 된다).
-  const setRecipientRest = (field: RecipientField, rest: string) => {
-    recipientRest.current[field] = rest;
-  };
-
-  // 칩을 다른 칸으로 옮긴다 — 메뉴 「옮기기」 와 끌어놓기가 같은 경로를 쓰게, 칸 상태를 한 번 바꾸고 자동 저장을 한 번 예약한다(WP-2150).
-  const moveChip = (from: RecipientField, index: number, target: RecipientField) => {
-    // 같은 칸에 놓았으면 바뀔 것이 없다 — 자동 저장까지 걸지 않는다(필드 강조는 드롭 판정만으로 켜졌다 꺼진다).
-    if (from === target) return;
-    // 메뉴로 옮기면 접혀 있던 참조·숨은참조도 그때 펼친다 — 옮긴 칸이 보이지 않으면 옮긴 것을 알 수 없다(완료 기준 6).
-    setShowCcBcc(true);
-    const rest = recipientRest.current;
-    setRecipients((prev) => moveRecipient(prev, from, index, target, rest));
-    setChipOpSeq((n) => n + 1);
-    autosave.schedule();
-  };
-
-  // 칩을 뺀다 — 메뉴 「빼기」·× 단추가 같은 결과가 되게 부모의 문자열 상태로 바꾼다(칸이 받은 onRemove).
-  const removeChip = (field: RecipientField, index: number) => {
-    const rest = recipientRest.current;
-    setRecipients((prev) => removeRecipient(prev, field, index, rest));
-    setChipOpSeq((n) => n + 1);
-    autosave.schedule();
-  };
-
-  // 끌기 시작 — 지금 칩을 계산해 고스트에 띄운다. 참조·숨은참조 펼침은 위 dragChip 효과가 다음 틱에 한다
-  // (같이 하면 레이아웃이 dnd-kit 측정 전에 바뀌어 고스트가 포인터를 못 따라가기 때문 — WP-2150 결함 A).
-  const handleDragStart = (event: DragStartEvent) => {
-    dragStartedRef.current = false;
-    const from = parseRecipientDragId(event.active.id);
-    if (!from) return;
-    const chip = toChips(recipients[from.field])[from.index];
-    if (!chip) return;
-    dragStartedRef.current = true;
-    setDragChip(chip);
-  };
-
-  // 끌기를 끝낸다 — 끌기 끝·취소가 같은 처리다. 고스트를 지우고, 끌고 난 직후의 클릭은 메뉴로 새지 않게 시각을
-  // 남긴다(끌기와 메뉴가 같은 단추라 — 칩 단추의 click 가 읽는다).
-  const endDrag = () => {
-    setDragChip(null);
-    dragStartedRef.current = false;
-    justDraggedAtRef.current = performance.now();
-  };
-
-  // 끌기 끝 — 남의 칸에 놓으면 그 칸으로 옮기고, 같은 칸이거나 칸 밖(제목·본문)이면 아무것도 바꾸지 않는다.
-  // 끌기가 시작되지 않았으면(시작에서 칩을 못 찾은 경우) 옮기지도 않는다 — 없던 칸의 순번으로 값을 고치지 않기 위함이다(WP-2150 2차 반려 ③).
-  const handleDragEnd = (event: DragEndEvent) => {
-    const started = dragStartedRef.current;
-    endDrag();
-    if (!started) return;
-    const from = parseRecipientDragId(event.active.id);
-    const target = recipientDataField(event.over);
-    if (!from || target === null) return;
-    moveChip(from.field, from.index, target);
-  };
-
-  // 끌기 취소(Esc) — 값은 그대로 두고 끌기만 끝낸다(고스트·클릭 막힘 시각은 위와 같은 처리).
-  const handleDragCancel = () => {
-    endDrag();
-  };
-
-  // 칩 단추에 넘길 끌기 연결 — 모바일은 끌기가 없으므로 칩이 끌린다고 스크린리더에 알리지 않는다.
-  const recipientDnd = {
-    dragDisabled: isMobile,
-    dragging: dragChip != null,
-    lastDragEndedAt: () => justDraggedAtRef.current,
   };
 
   const saveStatus = (
@@ -1566,42 +1382,16 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen, po
             최소화는 숨기기만 한다(언마운트 금지) — 에디터가 다시 만들어지면 쓰던 본문·진행 중 AI 초안 반영·되돌리기 기준을 잃는다(WP-576).
             display:none 이라 숨은 동안엔 초점·단축키가 안으로 가지 않는다. */}
         <div className={cn(BODY_CLASS[layout], minimized && 'hidden')}>
-          {/* 수신인 칸 사이 끌기(WP-2150) — 세 칸과 놓을 자리(칸 자신)가 같은 DndContext 안에 있어야 칸 사이로 끌 수 있다.
-              DndContext 는 DOM 을 만들지 않아 배치·접힘은 그대로다. 모바일은 센서를 비워 끌기가 시작하지 않는다.
-              accessibility — 스크린리더 안내·낭독을 한국어로(KeyboardSensor 없는 dnd-kit 기본 영어 안내는 거짓이라). */}
-          <DndContext
-            sensors={isMobile ? [] : sensors}
-            measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-            accessibility={RECIPIENT_DND_ACCESSIBILITY}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragCancel={handleDragCancel}
-          >
-            {/* 작성 회차마다 새로 그린다 — 앞 작성의 쓰던 조각·닫아 둔 후보 상태가 다음 작성으로 넘어가지 않게(WP-945). */}
-            <MailRecipientInput key={draft?.instanceId} label="받는사람" mobile={isMobile} testId="mail-compose-to" field="to" value={to} onChange={edit('to')} inputRef={toInputRef} trailing={ccBccToggle} onMove={(index, target) => moveChip('to', index, target)} onRemove={(index) => removeChip('to', index)} onRestChange={setRecipientRest} dnd={recipientDnd} chipOpSeq={chipOpSeq} />
-            {showCcBcc && (
-              <>
-                {/* 참조·숨은참조는 같은 Fragment 아래 형제라 칸 이름을 앞에 붙여 key 를 가른다 — 회차만 쓰면 중복 key 라
-                    React 가 한쪽을 잘못 재사용·누락할 수 있다(WP-1594). 회차가 바뀌면 key 도 바뀌어 다시 그리는 의도(WP-945)는 그대로. */}
-                <MailRecipientInput key={`cc-${draft?.instanceId}`} label="참조" mobile={isMobile} testId="mail-compose-cc" field="cc" value={cc} onChange={edit('cc')} onMove={(index, target) => moveChip('cc', index, target)} onRemove={(index) => removeChip('cc', index)} onRestChange={setRecipientRest} dnd={recipientDnd} chipOpSeq={chipOpSeq} />
-                <MailRecipientInput key={`bcc-${draft?.instanceId}`} label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" field="bcc" value={bcc} onChange={edit('bcc')} onMove={(index, target) => moveChip('bcc', index, target)} onRemove={(index) => removeChip('bcc', index)} onRestChange={setRecipientRest} dnd={recipientDnd} chipOpSeq={chipOpSeq} />
-              </>
-            )}
-            {/* 끌리는 칩 고스트 — 원본 칩은 자리에 남아 흐려지고, 이 고스트가 포인터를 따라간다(드라이브 행 칩과 같은 방식). */}
-            <DragOverlay dropAnimation={null}>
-              {dragChip && (
-                <span
-                  data-testid="mail-compose-drag-overlay"
-                  className={cn(
-                    'inline-flex max-w-60 cursor-grabbing items-center truncate rounded-full px-2 py-0.5 text-xs shadow-lg ring-2 ring-primary/40 select-none',
-                    dragChip.ok ? 'bg-info-subtle text-foreground' : 'bg-destructive-subtle text-destructive-text',
-                  )}
-                >
-                  {dragChip.text}
-                </span>
-              )}
-            </DragOverlay>
-          </DndContext>
+          {/* 작성 회차마다 새로 그린다 — 앞 작성의 쓰던 조각·닫아 둔 후보 상태가 다음 작성으로 넘어가지 않게(WP-945). */}
+          <MailRecipientInput key={draft?.instanceId} label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={edit(setTo)} inputRef={toInputRef} trailing={ccBccToggle} />
+          {showCcBcc && (
+            <>
+              {/* 참조·숨은참조는 같은 Fragment 아래 형제라 칸 이름을 앞에 붙여 key 를 가른다 — 회차만 쓰면 중복 key 라
+                  React 가 한쪽을 잘못 재사용·누락할 수 있다(WP-1594). 회차가 바뀌면 key 도 바뀌어 다시 그리는 의도(WP-945)는 그대로. */}
+              <MailRecipientInput key={`cc-${draft?.instanceId}`} label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={edit(setCc)} />
+              <MailRecipientInput key={`bcc-${draft?.instanceId}`} label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
+            </>
+          )}
           <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} maxLength={MAIL_SUBJECT_MAX} leading={confidentialPrefix} trailing={confidentialToggle} />
           {/* 작성/AI 검토 탭 */}
           <div className="flex border-b border-border text-sm" data-testid="mail-compose-tabs">

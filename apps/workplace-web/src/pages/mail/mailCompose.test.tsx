@@ -12,10 +12,8 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { SANDBOX_HEAD, SCROLLING_DOCUMENT_STYLE } from '@/lib/sandboxedHtml'
 import { composeInPane as hostInPane } from '@/test/kits/mail/compose-pane'
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
-import type { UserGroupMemberHit } from '@/types/userGroup'
 
 import { detail, draftDetail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
-import { personalNode } from '../../../e2e/factories/userGroups.factory'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -23,8 +21,6 @@ afterEach(() => {
 
 type SendBody = {
   to: string[]
-  cc?: string[]
-  bcc?: string[]
   subject: string
   bodyHtml: string
   bodyText: string
@@ -1039,162 +1035,4 @@ test('기밀이 아닌 메일 답장 → 기밀 토글은 꺼져 있다(WP-2030)
   await view.user.click(screen.getByTestId('mail-reply'))
   const toggle = await screen.findByRole('button', { name: '기밀' })
   expect(toggle).toHaveAttribute('aria-pressed', 'false')
-})
-
-// ── 수신인 칩 옮기기(WP-2150) ─────────────────────────────────────────
-// 칩 메뉴 「참조로 옮기기」 로 옮긴 칩은 받는사람에서 빠지고 참조 맨 끝에 붙으며, 임시저장 본문의 to/cc 에 그대로 반영된다.
-// 옮기는 동안 다른 칸에 쓰던 값(제목·참조 조각)은 그대로 남는다 — 셋 다 부모의 단일 칸 상태가 맡는다.
-
-/** 임시보관함의 임시저장 하나 — 목록 행을 눌러 그 내용으로 작성창을 연다(서명 테스트와 같은 패턴). */
-function draftRowHandlers(d: ReturnType<typeof draftDetail>) {
-  const row = {
-    id: d.id,
-    accountId: d.accountId,
-    mode: d.mode,
-    to: d.to,
-    subject: d.subject,
-    preview: '',
-    attachmentCount: 0,
-    updatedAt: d.updatedAt,
-  }
-  return [
-    http.get('/api/v1/mail/drafts', () => HttpResponse.json([row])),
-    http.get('/api/v1/mail/drafts/count', () => HttpResponse.json({ count: 1 })),
-    http.get(`/api/v1/mail/drafts/${d.id}`, () => HttpResponse.json(d)),
-  ]
-}
-
-test('메뉴로 칩을 참조로 옮기면 받는사람에서 빠지고 참조 맨 끝에 보이며 임시저장 본문에 반영된다(WP-2150)', async () => {
-  const d = draftDetail({ id: 7, to: ['hong@x.test', 'kim@x.test'], cc: ['lee@x.test'], subject: '주간 회의' })
-  const put = record<{ to: string[]; cc: string[] }>('put', '/api/v1/mail/drafts/7', () =>
-    HttpResponse.json({ id: 7, version: d.version + 1, updatedAt: d.updatedAt, attachmentCount: 0 }),
-  )
-  const view = renderMail('/mail/1?folder=drafts', { handlers: [...draftRowHandlers(d), put.handler] })
-  await view.user.click(await screen.findByTestId('mail-draft-row-7'))
-  await screen.findByTestId('mail-compose-to')
-  await waitFor(() => expect(chips('to')).toEqual(['hong@x.test', 'kim@x.test']))
-
-  // 받는사람 첫 칩(hong) 메뉴 → 「참조로 옮기기」.
-  await view.user.click(screen.getAllByTestId('mail-compose-to-chip-menu')[0])
-  await view.user.click(screen.getByRole('menuitem', { name: '참조로 옮기기' }))
-  await waitFor(() => expect(chips('to')).toEqual(['kim@x.test']))
-  await waitFor(() => expect(chips('cc')).toEqual(['lee@x.test', 'hong@x.test']))
-
-  // 자동 저장(1.5초)이 임시저장 본문의 to/cc 에 옮긴 결과를 그대로 싣는다.
-  await waitFor(() => {
-    expect(put.calls.length).toBeGreaterThan(0)
-    expect(put.last().body.to).toEqual(['kim@x.test'])
-    expect(put.last().body.cc).toEqual(['lee@x.test', 'hong@x.test'])
-  })
-})
-
-// 임시저장 본문뿐 아니라 발송 요청의 to/cc/bcc 도 옮긴 칸 그대로 가야 한다(완료 기준 8 — 발송 절반).
-test('칩을 참조로 옮긴 뒤 보내면 발송 요청의 to/cc 에 옮긴 칸이 그대로 실린다(WP-2150 완료 기준 8)', async () => {
-  const send = sendHandler()
-  const d = draftDetail({ id: 8, to: ['hong@x.test', 'kim@x.test'], cc: ['lee@x.test'], subject: '주간 회의' })
-  const view = renderMail('/mail/1?folder=drafts', { handlers: [...draftRowHandlers(d), send.handler] })
-  await view.user.click(await screen.findByTestId('mail-draft-row-8'))
-  await screen.findByTestId('mail-compose-to')
-  await waitFor(() => expect(chips('to')).toEqual(['hong@x.test', 'kim@x.test']))
-
-  await view.user.click(screen.getAllByTestId('mail-compose-to-chip-menu')[0])
-  await view.user.click(screen.getByRole('menuitem', { name: '참조로 옮기기' }))
-  await waitFor(() => expect(chips('to')).toEqual(['kim@x.test']))
-  await waitFor(() => expect(chips('cc')).toEqual(['lee@x.test', 'hong@x.test']))
-
-  await view.user.click(screen.getByTestId('mail-compose-send'))
-  await waitFor(() => expect(send.calls).toHaveLength(1))
-  expect(send.last().body.to).toEqual(['kim@x.test'])
-  expect(send.last().body.cc).toEqual(['lee@x.test', 'hong@x.test'])
-})
-
-test('받는사람 칩을 옮긴 뒤에도 제목과 참조 칸에 쓰던 값은 그대로 남는다(WP-2150)', async () => {
-  const { user } = renderMail('/mail/1')
-  await user.click(await screen.findByTestId('mail-compose-new'))
-  // 받는사람 — 붙여 넣은 주소 뒤 쉼표로 칩을 굳힌다.
-  await user.click(screen.getByTestId('mail-compose-to'))
-  await user.paste('hong@x.test,')
-  await waitFor(() => expect(chips('to')).toEqual(['hong@x.test']))
-  // 제목, 그리고 아직 조각(쉼표 없음)인 참조 값을 넣는다.
-  await user.click(screen.getByRole('button', { name: '참조/숨은참조' }))
-  await user.click(screen.getByTestId('mail-compose-subject'))
-  await user.paste('주간 회의')
-  await user.click(screen.getByTestId('mail-compose-cc'))
-  await user.paste('lee@x.test')
-
-  // 받는사람 칩을 참조로 옮긴다 — 이동이 실제로 일어났음을 먼저 본다.
-  await user.click(screen.getAllByTestId('mail-compose-to-chip-menu')[0])
-  await user.click(screen.getByRole('menuitem', { name: '참조로 옮기기' }))
-  await waitFor(() => expect(chips('cc')).toContain('hong@x.test'))
-  expect(chips('to')).toEqual([])
-
-  // 제목·참조에 쓰던 값은 그대로 남는다(참조는 조각이 칩이 되었든 글자 그대로).
-  expect(screen.getByTestId('mail-compose-subject')).toHaveValue('주간 회의')
-  const cc = screen.getByTestId('mail-compose-cc') as HTMLInputElement
-  expect([...chips('cc'), cc.value]).toContain('lee@x.test')
-})
-
-test('칩 이름 단추의 스크린리더 안내는 영어 기본이 아니라 한국어 칩 메뉴 사용법이다(WP-2150)', async () => {
-  const { user } = renderMail('/mail/1')
-  await user.click(await screen.findByTestId('mail-compose-new'))
-  await user.click(screen.getByTestId('mail-compose-to'))
-  await user.paste('hong@x.test,')
-  await waitFor(() => expect(chips('to')).toEqual(['hong@x.test']))
-  // 초점을 준 끌기 단추는 aria-describedby 로 dnd-kit 안내를 읽힌다 — 기본은 영어 "Space 로 집으라"인데
-  // KeyboardSensor 가 없어 거짓이고, 키보드로 옮기는 길은 칩 메뉴다(WP-2150 최종 리뷰, 완료 기준 9).
-  const menuButton = screen.getByTestId('mail-compose-to-chip-menu')
-  const describedBy = menuButton.getAttribute('aria-describedby')
-  expect(describedBy).toBeTruthy()
-  const instructions = describedBy!
-    .split(/\s+/)
-    .map((id) => document.getElementById(id)?.textContent ?? '')
-    .join(' ')
-  expect(instructions).toMatch(/[가-힣]/)
-  expect(instructions).not.toContain('To pick up')
-  expect(instructions).toContain('메뉴')
-})
-
-/** 내 그룹 한 줄(개발 주간회의) — 받는사람 그룹 넣기를 실제 도크 배선에서 확인할 때 쓴다(WP-2150 2차 반려 ①). */
-const weeklyGroupTree = { shared: [], personal: [personalNode({ id: 20, name: '개발 주간회의' })] }
-/** 그 그룹의 지금 구성원 — 인원 수(3)와 고를 때 받아 푸는 목록이 같은 데이터여야 토스트 문구가 나온다. */
-const weeklyGroupMembers: UserGroupMemberHit[] = [
-  { targetType: 'MEMBER', targetId: 11, name: '김개발', email: 'kim@iacloud.kr', title: null, organization: null, groupId: 20, groupPath: [] },
-  { targetType: 'EXTERNAL', targetId: 100, name: 'David Han', email: 'dhan@partner.co.kr', title: null, organization: null, groupId: 20, groupPath: [] },
-  { targetType: 'EXTERNAL', targetId: 101, name: 'Erin', email: 'erin@partner.co.kr', title: null, organization: null, groupId: 20, groupPath: [] },
-]
-
-// MailRecipientInput.test.tsx 는 MailComposeDock 의 배선(칩 조작마다 chipOpSeq 올리기)을 흉내 난 하네스라, 그 테스트만으로는
-// 진짜 도크가 chipOpSeq 를 넘기지 않는 한 실수로도 통과한다. 이 파일은 진짜 MailComposeDock 에서 같은 상황을 다시 본다.
-test('구성원을 받는 사이 실제 작성 도크에서 칩을 빼도 그룹 넣기가 끊기지 않는다(WP-2150 2차 반려 ①)', async () => {
-  let release: () => void = () => {}
-  let gated = false
-  const gate = new Promise<void>((r) => (release = r))
-  const { user } = renderMail('/mail/1', {
-    handlers: [
-      http.get('/api/v1/user-groups', () => HttpResponse.json(weeklyGroupTree)),
-      http.get('/api/v1/user-groups/member-counts', () => HttpResponse.json([{ groupId: 20, total: 3, external: 2 }])),
-      http.get('/api/v1/user-groups/20/members/search', async () => {
-        if (gated) await gate
-        return HttpResponse.json(weeklyGroupMembers)
-      }),
-    ],
-  })
-  await user.click(await screen.findByTestId('mail-compose-new'))
-  // 받는사람에 하나 미리 넣어 둔다 — 받는 도중에 뺄 칩이 있어야 한다.
-  await user.click(screen.getByTestId('mail-compose-to'))
-  await user.paste('hong@x.test,')
-  await waitFor(() => expect(chips('to')).toEqual(['hong@x.test']))
-  // 부서 글자를 친다 — 조직·그룹 후보 아래 「개발 주간회의」가 인원 수와 함께 나온다.
-  await user.type(screen.getByTestId('mail-compose-to'), '주간')
-  await screen.findByTestId('mail-recipient-group-suggestion')
-  await waitFor(() => expect(screen.getByTestId('mail-recipient-group-count')).toHaveTextContent('3명'))
-
-  gated = true
-  await user.click(screen.getByTestId('mail-recipient-group-suggestion'))
-  // 받는 도중에 칸 안에서 앞 칩을 뺀다 — 작성 도크가 칸 상태를 고친 것이지 바깥이 값을 통째로 바꾼 게 아니다.
-  await user.click(screen.getByRole('button', { name: 'hong@x.test 빼기' }))
-  release()
-
-  expect(await screen.findByText('개발 주간회의에서 3명을 넣었습니다.')).toBeInTheDocument()
-  expect(chips('to')).toEqual(['김개발 <kim@iacloud.kr>', 'David Han <dhan@partner.co.kr>', 'Erin <erin@partner.co.kr>'])
 })
