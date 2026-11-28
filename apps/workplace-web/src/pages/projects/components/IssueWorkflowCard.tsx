@@ -191,7 +191,8 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, issueNumber,
   // 지금 시각 — 지금 단계 머문 시간의 기준. 경과 시간 표시는 렌더 시각 기준이 맞다(AiAgentsView 와 같은 예외 — 값이 매 렌더 바뀌므로 deps 에 함께 둔다).
   // eslint-disable-next-line react-hooks/purity -- 경과 시간 표시는 렌더 시각 기준이 맞다(재렌더될 때마다 다시 계산)
   const now = Date.now()
-  // 단계 타임라인 행 — 방문 먼저 → 지금 → 서버가 준 남은 단계 순, 질문 노드는 질문 대기 여부와 무관하게 원래 단계로 접는다
+  // 단계 타임라인 행 — 방문 먼저 → 지금 → 서버가 준 남은 단계 순(되돌려 다시 남은 단계가 된 방문은 남은 쪽으로),
+  // 질문 노드는 질문 대기 여부와 무관하게 원래 단계로 접는다
   // (「질문 대기」 꾸밈·챗 상자는 isAskWaiting 이 true 일 때만, WP-2160).
   const rows = useMemo(
     () =>
@@ -241,9 +242,11 @@ export function IssueWorkflowCard({ issueId, projectKey, projectId, issueNumber,
               model={version.data?.model}
             />
           )}
+          {/* 실행 상세 링크 — 정의 id 를 아직 못 받았으면 주소에 `workflow=null` 을 남기지 않는다(리뷰 후속 ③ null 가드).
+              run id 만으로 실행 상세는 열리므로 링크 자체는 그대로 둔다(워크플로우 탭은 정의가 없을 때 첫 정의를 고른다). */}
           <Link
             className="text-xs text-primary hover:underline"
-            to={`/projects/${projectKey}/workflow?view=runs&workflow=${workflowId}&run=${run.runId}`}
+            to={`/projects/${projectKey}/workflow?view=runs${workflowId != null ? `&workflow=${workflowId}` : ''}&run=${run.runId}`}
           >
             자세히 ›
           </Link>

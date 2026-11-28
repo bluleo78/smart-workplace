@@ -180,6 +180,15 @@ describe('AI 작업 단계 카드', () => {
     expect(screen.getByRole('link', { name: '자세히 ›' })).toHaveAttribute('href', '/projects/WP/workflow?view=runs&workflow=3&run=5')
   })
 
+  // 리뷰 후속 ③ — 정의 id 를 아직 못 받았을 때(workflowId null) 주소에 `workflow=null` 을 남기지 않는다.
+  // run id 로는 실행 상세가 열리므로 링크는 그대로 두고 정의 쪽만 뺀다.
+  test('card_linkOmitsWorkflowParamWhenWorkflowIdNull', async () => {
+    const view = { ...runningView, workflowId: null }
+    renderScreen(card(), { path: '/projects/WP/issues/1', handlers: handlers(view) })
+    const link = await screen.findByRole('link', { name: '자세히 ›' })
+    expect(link).toHaveAttribute('href', '/projects/WP/workflow?view=runs&run=5')
+  })
+
   // 디자인 시스템 07 §7.2 — 에이전트 주체는 Bot 아이콘 하나, 글자 배지·이모지로 대체하지 않는다.
   // 시작 행의 주체는 늘 시작자라 실행 상세 startedBy 의 kind 가 실려야 한다(이름·시각만 넘기면 Bot 표식이 사라진다, WP-2160 코드 리뷰).
   test('에이전트 주체는 Bot 아이콘 하나 — 시작 행에 글자 배지 없음', async () => {

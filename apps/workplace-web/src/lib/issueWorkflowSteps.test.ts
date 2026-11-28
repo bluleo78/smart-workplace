@@ -384,6 +384,77 @@ test('rows_productionPath_startVisitFirst_currentComesAfter', () => {
   expect(rows[1].state).toBe('current')
 })
 
+// 14) 리뷰 후속 ① — 되돌린 실행: path 에 이미 방문한 단계도 서버가 남은 단계로 주면 ✓ 가 아니라 남음이다.
+//     남은 단계 키를 방문 자리에서 빼 뒤로 미루므로 지금 행이 남은 단계보다 앞에 온다(지금 행 순서).
+test('rows_rollback_visitedStepIsRemaining_notPassed', () => {
+  const model = flowModel
+  const view = viewOf({
+    currentNode: curNode('design'),
+    path: [
+      step('triage', '2026-11-27T00:00:00Z', '2026-11-27T00:30:00Z'),
+      step('design', '2026-11-27T00:30:00Z', '2026-11-27T01:00:00Z'),
+      step('dev', '2026-11-27T01:00:00Z', '2026-11-27T02:00:00Z'),
+    ],
+    // 서버는 지금 노드(design) 기준 남은 본 흐름 — 이미 지나온 dev 도 다시 남은 단계다(WorkflowRunViews.remaining).
+    remainingNodeKeys: ['dev', 'verify_pr', 'review', 'end'],
+  })
+  const rows = buildWorkflowStepRows(view, model)
+  const keys = rows.map((r) => r.key)
+  const byKey = (k: string) => rows.find((r) => r.key === k)!
+  expect(keys).toEqual(['triage', 'design', 'dev', 'verify_pr', 'review', 'end'])
+  expect(byKey('design').state).toBe('current')
+  expect(byKey('dev').state).toBe('remaining') // 되돌아온 뒤 dev 는 다시 남은 단계 — 방문했더라도 ✓ 가 아니다
+  expect(byKey('triage').state).toBe('passed')
+  expect(byKey('verify_pr').state).toBe('remaining')
+  // 지금 행이 남은 단계보다 앞에 온다.
+  expect(keys.indexOf('design')).toBeLessThan(keys.indexOf('dev'))
+
+  // 남은 단계 키에 path 앞쪽 키가 들어와도(돌아가는 흐름) 지금 행 뒤로 밀린다 — 지금 행 순서.
+  const looped = viewOf({
+    currentNode: curNode('dev'),
+    path: [
+      step('triage', '2026-11-27T00:00:00Z', '2026-11-27T00:30:00Z'),
+      step('design', '2026-11-27T00:30:00Z', '2026-11-27T01:00:00Z'),
+      step('dev', '2026-11-27T01:00:00Z', '2026-11-27T02:00:00Z'),
+    ],
+    remainingNodeKeys: ['design', 'verify_pr', 'review', 'end'],
+  })
+  const loopedKeys = buildWorkflowStepRows(looped, model).map((r) => r.key)
+  expect(loopedKeys).toEqual(['triage', 'dev', 'design', 'verify_pr', 'review', 'end'])
+  expect(loopedKeys.indexOf('dev')).toBeLessThan(loopedKeys.indexOf('design'))
+})
+
+// 15) 리뷰 후속 ② — 정의를 못 읽는 동안(버전 로딩·404)에도 질문 노드는 줄을 만들지 않는다:
+//     지금 노드 returnTo 로 접힌 칸을 current 로, _qa answerNode 로 방문한 질문 노드 줄을 없앤다.
+test('rows_modelUndefined_questionNodeStillFolded', () => {
+  // 질문 대기 — 지금이 dev_ask(returnTo dev).
+  const waitingView = viewOf({
+    status: 'WAITING',
+    currentNode: curNode('dev_ask', { type: 'human_task', returnTo: 'dev', enteredAt: '2026-11-27T02:00:00Z' }),
+    path: [step('dev', '2026-11-27T01:00:00Z', '2026-11-27T02:00:00Z')],
+    context: { _qa: [{ askNode: 'dev', answerNode: 'dev_ask', question: '최대 크기는 얼마로 할까요?' }] },
+  })
+  const waiting = buildWorkflowStepRows(waitingView, undefined)
+  expect(waiting.some((r) => r.key === 'dev_ask')).toBe(false) // 정의 없어도 질문 노드는 줄을 만들지 않는다
+  const dev = waiting.find((r) => r.key === 'dev')!
+  expect(dev.state).toBe('current')
+  expect(dev.questionWaiting).toBe(true)
+  expect(dev.questionFirstLine).toBe('최대 크기는 얼마로 할까요?')
+
+  // 이미 답한 뒤 — 지금은 dev, path 에 dev_ask 방문이 남아 있어도 answerNode 로 접는다.
+  const answeredView = viewOf({
+    currentNode: curNode('dev', { enteredAt: '2026-11-27T03:00:00Z' }),
+    path: [
+      step('dev', '2026-11-27T01:00:00Z', '2026-11-27T02:00:00Z'),
+      step('dev_ask', '2026-11-27T02:00:00Z', '2026-11-27T03:00:00Z'),
+    ],
+    context: { _qa: [{ askNode: 'dev', answerNode: 'dev_ask', question: '최대 크기는?', answer: '4096' }] },
+  })
+  const answered = buildWorkflowStepRows(answeredView, undefined)
+  expect(answered.some((r) => r.key === 'dev_ask')).toBe(false)
+  expect(answered.find((r) => r.key === 'dev')!.questionAnswered).toBe(1)
+})
+
 // 9) 걸린 시간 표시 단위
 test('durationLabel_buckets', () => {
   expect(durationLabel('2026-11-27T00:00:00Z', '2026-11-27T00:00:30Z')).toBe('방금')
