@@ -3,13 +3,6 @@ import { useState } from 'react';
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/overlay/select';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -33,20 +26,15 @@ import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
 import { useAuditLogs } from '@/hooks/queries/useAuditLogs';
 import { useDebounceValue } from '@/hooks/useDebounceValue';
-import { AUDIT_ACTION_TYPES, AUDIT_RESOURCES, formatAuditAction, formatAuditResource, lastFacetValue } from '@/lib/auditLogLabels';
+import { AUDIT_ACTION_TYPES, AUDIT_RESOURCES, formatAuditAction, formatAuditResource, formatAuditResult, lastFacetValue } from '@/lib/auditLogLabels';
 import { clickableRowProps } from '@/lib/clickableRowProps';
 import { formatDateTime, formatIpAddress, formatNumber } from '@/lib/formatters';
 import { flattenUniquePages } from '@/lib/offsetPaging';
 import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
 import type { AuditLogResponse } from '@/types/auditLog';
 
+import { AuditResultFilter } from './components/AuditResultFilter';
 import { AuditUserFilter, type AuditUserSelection } from './components/AuditUserFilter';
-
-/** 결과 필터 옵션 목록 */
-const RESULTS = [
-  { value: 'SUCCESS', label: '성공' },
-  { value: 'FAILURE', label: '실패' },
-];
 
 /**
  * 날짜 문자열(YYYY-MM-DD)을 ISO 8601 UTC datetime 문자열로 변환.
@@ -111,7 +99,7 @@ function AuditLogDetailDialog({
             <div>
               <p className="text-muted-foreground mb-1 text-xs">결과</p>
               <Badge variant={log.result === 'SUCCESS' ? 'default' : 'destructive'}>
-                {log.result === 'SUCCESS' ? '성공' : '실패'}
+                {formatAuditResult(log.result)}
               </Badge>
             </div>
             <div>
@@ -222,10 +210,6 @@ export default function AuditLogListPage() {
   const totalElements = data?.pages[0]?.totalElements;
   const scrollRoot = useSettingsScrollRoot();
 
-  const handleFilterChange = (setter: (v: string) => void) => (value: string) => {
-    setter(value === 'all' ? '' : value);
-  };
-
   /**
    * actionType·resource 공통 facet 정의 (#233-A)
    * - 기존 단일 Select 를 도메인 비결합 FacetFilter(＋필터→칩) 패턴으로 통일.
@@ -300,17 +284,7 @@ export default function AuditLogListPage() {
           onChange={handleFacetChange}
         />
 
-        <Select value={result || 'all'} onValueChange={handleFilterChange(setResult)}>
-          <SelectTrigger className="w-[120px] shrink-0" aria-label="결과 필터">
-            <SelectValue placeholder="결과" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체 결과</SelectItem>
-            {RESULTS.map((r) => (
-              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <AuditResultFilter value={result} onChange={setResult} />
 
         {/* 날짜 범위 필터: 시작일 ~ 종료일 */}
         <div className="flex w-full items-center gap-2 sm:w-auto">
@@ -402,7 +376,7 @@ export default function AuditLogListPage() {
                   <TableCell className="hidden max-w-xs truncate md:table-cell">{log.description ?? '-'}</TableCell>
                   <TableCell>
                     <Badge variant={log.result === 'SUCCESS' ? 'default' : 'destructive'}>
-                      {log.result === 'SUCCESS' ? '성공' : '실패'}
+                      {formatAuditResult(log.result)}
                     </Badge>
                   </TableCell>
                   <TableCell

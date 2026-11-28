@@ -99,7 +99,7 @@ test('검색어·시작 날짜가 search·startDate 로 실리고, 사용자·�
   await waitFor(() => expect(lastAudit()?.has('startDate')).toBe(true))
 
   expect(screen.getByLabelText('사용자 필터')).toBeInTheDocument()
-  expect(screen.getByLabelText('결과 필터')).toBeInTheDocument()
+  expect(screen.getByLabelText(/^결과 필터/)).toBeInTheDocument()
 })
 
 test('종료 날짜가 범위 밖 연도여도 화면이 무너지지 않고, 그 날짜는 조건에서 빼고 안내한다 (WP-899)', async () => {
@@ -161,4 +161,34 @@ test('사용자 필터 — 열기 전엔 구성원을 받지 않고, 검색어�
   await user.click(await screen.findByRole('option', { name: '전체 사용자' }))
   expect(screen.getByRole('combobox', { name: '사용자 필터' })).toHaveTextContent(/전체 사용자/)
   await waitFor(() => expect(lastAudit()?.has('userId')).toBe(false))
+})
+
+test('결과 필터: 성공을 고르면 result=SUCCESS 로 요청하고 트리거에 성공이 보이며, 전체 결과로 되돌리면 result 가 빠진다 (WP-2081)', async () => {
+  const { user, lastAudit } = await renderAudit()
+  const trigger = screen.getByRole('button', { name: /^결과 필터/ })
+  expect(trigger).toHaveTextContent('전체 결과')
+
+  await user.click(trigger)
+  await user.click(await screen.findByRole('menuitemradio', { name: '성공' }))
+  await waitFor(() => expect(lastAudit()?.get('result')).toBe('SUCCESS'))
+  // 단추 글자와 접근 이름 모두 고른 값을 담는다
+  expect(trigger).toHaveTextContent('성공')
+  expect(trigger).toHaveAccessibleName('결과 필터: 성공')
+
+  // 다시 열면 현재 값(성공)에 선택 표시가 있다.
+  await user.click(trigger)
+  expect(await screen.findByRole('menuitemradio', { name: '성공' })).toHaveAttribute('aria-checked', 'true')
+
+  await user.click(screen.getByRole('menuitemradio', { name: '전체 결과' }))
+  await waitFor(() => expect(lastAudit()?.has('result')).toBe(false))
+  expect(trigger).toHaveTextContent('전체 결과')
+})
+
+test('결과 필터를 열어도 body 를 잠그지 않는다(비모달, WP-2081)', async () => {
+  const { user } = await renderAudit()
+  await user.click(screen.getByRole('button', { name: /^결과 필터/ }))
+  await screen.findByRole('menuitemradio', { name: '실패' })
+
+  expect(document.body).not.toHaveAttribute('data-scroll-locked')
+  expect(document.body.style.pointerEvents).not.toBe('none')
 })
