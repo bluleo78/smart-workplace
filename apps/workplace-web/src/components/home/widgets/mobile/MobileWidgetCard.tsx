@@ -12,7 +12,7 @@ import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetConfig } from '@/types/dashboard'
 
-import type { MobileSummaryData, MobileWidgetDef } from './types'
+import { isMobileCardCollapsed, type MobileSummaryData, type MobileWidgetDef } from './types'
 
 // 카드 크롬 — 데스크톱 Card 와 같은 둥근 모서리·테두리·그림자 + 좌측 ai-accent 줄. 여백만 16px(px-4)로 줄인다.
 const FRAME = 'block rounded-xl border border-l-2 border-l-ai-accent bg-card text-card-foreground shadow-sm'
@@ -97,8 +97,8 @@ export function MobileWidgetCard({
   edit,
 }: MobileWidgetCardProps) {
   const isTile = !mobile.body
-  // 타일은 항상 한 줄. 본문형은 collapsed 가 true 일 때만 접힘(null/미지정 = 펼침).
-  const collapsed = isTile || cfg.collapsed === true
+  // 타일은 항상 한 줄. 본문형은 collapsed 가 true 일 때만 접힘(null/미지정 = 펼침) — 본문 호스트(showsBody)와 같은 규칙.
+  const collapsed = isMobileCardCollapsed(mobile, cfg.collapsed)
   const Summary = mobile.Summary
   const frameAttrs = {
     'data-testid': 'dashboard-widget',

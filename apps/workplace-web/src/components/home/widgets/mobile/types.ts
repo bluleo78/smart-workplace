@@ -34,3 +34,11 @@ export interface MobileWidgetDef {
   /** 접힌 상태·타일의 "요약 한 줄 + 건수". 위젯 본문이 이미 쓰는 쿼리 훅을 같은 인자로 재사용(새 API 없음). */
   Summary: ComponentType<MobileSummaryProps>
 }
+
+/**
+ * 모바일 카드가 본문을 접어 두는가(WP-2077) — 타일(본문 없는 위젯)은 늘 접힘, 본문형은 collapsed 가 true 일 때만 접힘(null/미지정 = 펼침).
+ * 카드(MobileWidgetCard)와 본문 호스트(showsBody)가 같은 규칙을 쓰도록 한 곳에 둔다 — 갈리면 호스트가 안 보이는 본문을 그리거나 보이는 본문을 빠뜨린다.
+ */
+export function isMobileCardCollapsed(mobile: Pick<MobileWidgetDef, 'body'>, collapsed: boolean | null | undefined): boolean {
+  return !mobile.body || collapsed === true
+}

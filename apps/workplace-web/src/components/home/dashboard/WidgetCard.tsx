@@ -1,4 +1,5 @@
 // 홈 대시보드 보기 모드 위젯 카드(데스크톱 그리드 한 칸, WP-161 에서 Dashboard.tsx 로부터 분리).
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
@@ -6,12 +7,11 @@ import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 
-import { EntryBody } from './EntryBody'
-import { entryDeepLink, entryTitle, isWideEntry, type ResolvedEntry } from './resolvedEntry'
+import { entryDeepLink, entryTitle, frameIsCardHeading, isWideEntry, type ResolvedEntry } from './resolvedEntry'
 
 /** 위젯 한 칸(일반 뷰) — 카드 프레임(헤더 클릭 시 딥링크 또는 인박스 패널) + 격리된 본문.
  * 시스템 위젯은 tall 이면 2행 span, 카탈로그 위젯은 size==='1×2' 면 2행 span. */
-export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
+export function WidgetCard({ entry, body }: { entry: ResolvedEntry; body: ReactNode }) {
   const Icon = entry.def.icon
   const title = entryTitle(entry)
   const deepLink = entryDeepLink(entry)
@@ -37,8 +37,8 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
   // 제목을 숨긴(chromeless) 카탈로그 카드는 위젯 자체 제목이 h2 로 카드 제목을 대신한다 — sr-only h2 를 따로 두면
   // 같은 제목이 두 번 읽힌다(WP-1888). 카탈로그 위젯은 오류·빈 상태까지 늘 WidgetFrame 제목을 그린다는 전제다.
   // 시스템 위젯은 자체 제목이 없어 sr-only h2 를 둔다.
-  const frameIsCardHeading = entry.cfg.chromeless === true && entry.kind === 'catalog'
-  const body = <EntryBody entry={entry} frameHeadingLevel={frameIsCardHeading ? 2 : 3} />
+  // 본문은 호스트(WidgetBodyHost)가 그리고 body 로 받는다(WP-2077) — 본문에 줄 헤딩 레벨은 호스트 쪽 headingLevelFor 가 같은 규칙(frameIsCardHeading)으로 정한다.
+  const cardHeadingIsFrame = frameIsCardHeading(entry)
 
   // chromeless: 테두리·제목 헤더 없이 본문만 렌더(빠른 액션처럼 자체 설명적인 위젯용). 그리드 폭/행
   // span(wide/tall)은 레이아웃 유지를 위해 그대로 적용한다.
@@ -52,7 +52,7 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
         data-chromeless="true"
       >
         {/* WP-1885: 제목 헤더를 숨겨도 헤딩 탐색에서는 위젯이 잡히도록 보이지 않는 h2 를 둔다. */}
-        {!frameIsCardHeading && <h2 className="sr-only">{title}</h2>}
+        {!cardHeadingIsFrame && <h2 className="sr-only">{title}</h2>}
         {body}
       </div>
     )
