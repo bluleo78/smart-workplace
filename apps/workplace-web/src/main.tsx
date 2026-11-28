@@ -3,6 +3,8 @@ import '@fontsource/inter/500.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
 import './index.css'
+// 문서 로드 뒤 뒤로/앞으로 가기(popstate)를 앱이 그려지기 전부터 듣는다 — 이슈 화면(지연 청크)을 불러오기 전의 이동도 놓치지 않게(WP-2096).
+import './lib/documentNavigation'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'

@@ -1,12 +1,22 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { isReloadedDocumentEntry } from './documentNavigation'
+import { isReloadedDocumentEntry, reloadedDocumentUrl, resetDocumentPopForTests } from './documentNavigation'
 
 /** 문서 다시 불러오기 판정 — F5·세션 복원은 새 선택이 아니다 (WP-2096). */
 describe('isReloadedDocumentEntry', () => {
   const entry = (type: string, name = 'http://localhost/projects/WP?statusId=3') => ({ type, name })
 
+  // 앞 테스트가 남긴 popstate 표시를 지운다 — 같은 파일의 테스트는 모듈 상태를 함께 쓴다.
+  beforeEach(() => resetDocumentPopForTests())
   afterEach(() => vi.restoreAllMocks())
+
+  it('reloadedDocumentUrl — reload·back_forward 면 문서 로드 주소, navigate·null·URL 아님이면 null', () => {
+    expect(reloadedDocumentUrl(entry('reload'))?.search).toBe('?statusId=3')
+    expect(reloadedDocumentUrl(entry('back_forward'))?.pathname).toBe('/projects/WP')
+    expect(reloadedDocumentUrl(entry('navigate'))).toBeNull()
+    expect(reloadedDocumentUrl(null)).toBeNull()
+    expect(reloadedDocumentUrl(entry('reload', 'not a url'))).toBeNull()
+  })
 
   it('reload 로 열린 같은 주소의 POP 이면 true', () => {
     expect(isReloadedDocumentEntry('POP', '/projects/WP', '?statusId=3', entry('reload'))).toBe(true)
