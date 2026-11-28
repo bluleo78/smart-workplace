@@ -545,9 +545,14 @@ export function worksCalendarId(calendars: CalendarLike[]): number | null {
   return (writable.find((c) => c.isDefault) ?? writable[0])?.id ?? null
 }
 
+// 쓰기 가능한 Outlook 캘린더인가 — 반복 불가 안내·수정 창 이동 막음(WP-2176)이 같은 판정을 쓴다.
+export function isWritableOutlook(c: CalendarLike): boolean {
+  return isOutlookCalendar(c) && !c.isReadOnly
+}
+
 // 쓰기 가능한 Outlook 캘린더가 있는가 — 있어야 「Outlook 캘린더는 반복 불가」 안내가 의미 있다.
 export function hasWritableOutlook(calendars: CalendarLike[]): boolean {
-  return calendars.some((c) => isOutlookCalendar(c) && !c.isReadOnly)
+  return calendars.some(isWritableOutlook)
 }
 
 /**
@@ -610,6 +615,71 @@ export function shouldPromptOutlookDefault(args: {
   // 지정이 없거나(Works 로 폴백) 지금 기본이 Works 캘린더일 때만 묻는다 — Outlook·팀 캘린더 등 사용자가 이미 고른 기본은 건드리지 않고 기록만 한다
   if (!current || current.isDefault) return 'show'
   return 'mark'
+}
+
+export const EDIT_HINT_OUTLOOK_NO_RECURRENCE = 'Outlook 일정은 반복할 수 없어요'
+export const EDIT_HINT_RECURRING_TO_OUTLOOK = '반복 일정은 Outlook 캘린더로 옮길 수 없어요'
+export const EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE = 'Outlook 캘린더로 옮기는 일정은 반복할 수 없어요'
+export const EDIT_HINT_TAGS_TO_SHARED_OUTLOOK = '태그가 있는 일정은 공유·위임받은 Outlook 캘린더로 옮길 수 없어요'
+export const EDIT_HINT_ATTENDEES_TO_OUTLOOK = '참석자가 있는 일정은 Outlook 캘린더로 옮길 수 없어요'
+export const EDIT_HINT_OUTLOOK_EVENT_NO_MOVE = 'Outlook 일정은 다른 캘린더로 옮길 수 없어요'
+
+export type EditOutlookGuard = {
+  recurrenceLocked: boolean
+  recurrenceHint: string | null
+  disabledCalendarIds: ReadonlySet<number>
+  calendarHint: string | null
+  tagsLocked: boolean
+}
+
+/**
+ * 일정 수정 창의 Outlook 제약 판정 (WP-2176).
+ * 서버가 저장 때 막는 조합 — 외부 일정의 반복 규칙(422), 반복 일정의 Outlook 이동(422),
+ * 태그 일정의 공유·위임 Outlook 이동(409) — 을 창에서 미리 막기 위해 비활성 대상과 안내 문구를 순수 함수로 정한다.
+ * 지금 캘린더는 비활성에 넣지 않는다: 옮기지 않는 저장은 서버가 허용하므로(이미 Outlook 에 있는 고아 일정은 로컬 수정으로 둔다).
+ */
+export function editOutlookGuard(args: {
+  event: { calendarId: number; external?: boolean; recurrenceRule: string | null }
+  calendars: Array<CalendarLike & { tagsWritable?: boolean }>
+  selectedCalendarId: number | undefined
+  recurring: boolean
+  hasTags: boolean
+  /** 주최자 외 참석자가 있는가 — 서버가 참석자 있는 로컬 일정의 Outlook 이동을 422 로 거절한다 */
+  hasAttendees: boolean
+}): EditOutlookGuard {
+  const { event, calendars, selectedCalendarId, recurring, hasTags, hasAttendees } = args
+  // 외부(Outlook 원본) 일정: 반복 규칙이 없으면 반복을 새로 만들 수 없고, 다른 캘린더로 옮기는 것도 서버가 422 로 거절한다.
+  // 그래서 지금 캘린더를 뺀 모든 캘린더를 비활성한다. (동기화된 Outlook 일정은 펼친 회차로 저장돼 반복 규칙을 갖지 않는다)
+  if (event.external) {
+    const disabledAll = new Set(calendars.filter((c) => c.id !== event.calendarId).map((c) => c.id))
+    return {
+      recurrenceLocked: !event.recurrenceRule,
+      recurrenceHint: event.recurrenceRule ? null : EDIT_HINT_OUTLOOK_NO_RECURRENCE,
+      disabledCalendarIds: disabledAll,
+      calendarHint: disabledAll.size > 0 ? EDIT_HINT_OUTLOOK_EVENT_NO_MOVE : null,
+      tagsLocked: false,
+    }
+  }
+  // 로컬 일정이 옮겨 갈 수 있는 Outlook 후보 — 읽기 전용·지금 캘린더는 제외
+  // (새 일정의 같은 제약은 EventDialog 의 recurringCreate·tagsWritable 규칙이 맡는다)
+  const others = calendars.filter((c) => c.id !== event.calendarId && isWritableOutlook(c))
+  const shared = others.filter((c) => c.tagsWritable === false)
+  // 반복·참석자는 모든 Outlook 후보를, 태그는 공유·위임 Outlook 후보만 막는다
+  const hints = [
+    ...(recurring && others.length > 0 ? [EDIT_HINT_RECURRING_TO_OUTLOOK] : []),
+    ...(hasTags && shared.length > 0 ? [EDIT_HINT_TAGS_TO_SHARED_OUTLOOK] : []),
+    ...(hasAttendees && others.length > 0 ? [EDIT_HINT_ATTENDEES_TO_OUTLOOK] : []),
+  ]
+  const blockAll = (recurring || hasAttendees) && others.length > 0
+  const disabled = new Set((blockAll ? others : hasTags ? shared : []).map((c) => c.id))
+  const target = others.find((c) => c.id === selectedCalendarId)
+  return {
+    recurrenceLocked: !!target,
+    recurrenceHint: target ? EDIT_HINT_OUTLOOK_TARGET_NO_RECURRENCE : null,
+    disabledCalendarIds: disabled,
+    calendarHint: hints.length > 0 ? hints.join(' · ') : null,
+    tagsLocked: target?.tagsWritable === false,
+  }
 }
 
 // 공급자 raw 문자열 → 사이드바 pill 라벨. IMAP 은 일정 동기화를 안 하므로 현재는 M365 만 실제 등장.

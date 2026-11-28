@@ -49,7 +49,7 @@ import { useCalendars, useDefaultCalendarId } from '@/hooks/queries/useCalendars
 import { useCreateMeetingNote } from '@/hooks/queries/useCreateMeetingNote'
 import { useEventNote, useLinkEventNote, useUnlinkEventNote } from '@/hooks/queries/useEventNote'
 import { useAuth } from '@/hooks/useAuth'
-import { hasWritableOutlook, INVITED_CALENDAR_LABEL, isOutlookCalendar, recurrenceCalendarSwitch, worksCalendarId } from '@/lib/calendar'
+import { editOutlookGuard, hasWritableOutlook, INVITED_CALENDAR_LABEL, isOutlookCalendar, recurrenceCalendarSwitch, worksCalendarId } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
 import {
   allDayFormRange,
@@ -65,7 +65,7 @@ import {
 } from '@/lib/calendarEventForm'
 import { attendeeDisplayName, attendeeKey, reminderLabel, sortAttendeesForView } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
-import { changedTagIds, eventTagHint, newEventTagHint } from '@/lib/calendarTag'
+import { changedTagIds, eventTagHint, newEventTagHint, TAG_HINT_SHARED_OUTLOOK } from '@/lib/calendarTag'
 import { INCOMPLETE_DATE_MESSAGE, isIncompleteDateInput } from '@/lib/dateInput'
 import { canShowNoteRow } from '@/lib/eventNote'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
@@ -386,7 +386,27 @@ export function EventDialog({
   const selectedCalendarTagsWritable = calendars.find((c) => c.id === watchedCalendarId)?.tagsWritable ?? true
   const tagsEditable = isEdit ? (detailEvent?.tagsEditable ?? false) : selectedCalendarTagsWritable
   // 태그 줄 아래 안내 — 편집은 상세 응답 기준(상세 전엔 안내 없음), 새 일정은 공유·위임 Outlook 캘린더일 때만 안내한다
-  const tagHint = isEdit ? (detailEvent ? eventTagHint(detailEvent) : null) : newEventTagHint(selectedCalendarTagsWritable)
+  const tagHintBase = isEdit ? (detailEvent ? eventTagHint(detailEvent) : null) : newEventTagHint(selectedCalendarTagsWritable)
+  // 수정 창의 Outlook 제약(WP-2176) — 외부 Outlook 일정의 반복, 반복 일정·태그 일정의 Outlook 이동을 서버 422·409 전에 화면에서 막는다.
+  // 새 일정(isEdit=false)은 기존 recurringCreate·tagsWritable 규칙이 맡으므로 쓰지 않는다.
+  const guard =
+    isEdit && event
+      ? editOutlookGuard({
+          event: { calendarId: event.calendarId, external: eventWithDetail?.external, recurrenceRule: event.recurrenceRule },
+          calendars,
+          selectedCalendarId: watchedCalendarId,
+          // 서버는 회차 수정·예외가 있는 시리즈도 반복으로 본다 — 폼에서 「반복 안 함」으로 바꿔도 원래 반복이던 일정은 Outlook 으로 못 옮기게 보수적으로 막는다.
+          recurring: recurrenceFreq !== 'NONE' || event.recurrenceRule != null,
+          hasTags: formTags.length > 0,
+          // 주최자 외 참석자가 있으면 Outlook 으로 옮길 수 없다(서버 422) — 상세 전엔 모르므로 아래 Select 를 잠가 둔다
+          hasAttendees: detailEvent?.attendees?.some((a) => a.role !== 'ORGANIZER') ?? false,
+        })
+      : null
+  // 화면의 태그 줄만 잠근다 — 저장의 tagIds 는 원래 tagsEditable 로 계산해, 태그를 모두 뗀 뒤 공유 Outlook 으로 옮기면 [] 가 실린다
+  // (tagIds 를 빼면 서버가 현재 앱 태그로 대체해 409 가 난다).
+  const tagsRowEditable = tagsEditable && !guard?.tagsLocked
+  // 공유·위임 Outlook 으로 옮기려 하면 태그 줄은 잠그고 이유를 보인다
+  const tagHint = guard?.tagsLocked ? TAG_HINT_SHARED_OUTLOOK : tagHintBase
   // 편집 모드는 상세가 와야 태그 줄을 그린다(목록 이벤트엔 태그 수정 가능 여부가 없다)
   const showTags = !isEdit || detailEvent != null
 
@@ -680,10 +700,10 @@ export function EventDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="NONE">반복 안 함</SelectItem>
-                        <SelectItem value="DAILY">매일</SelectItem>
-                        <SelectItem value="WEEKLY">매주</SelectItem>
-                        <SelectItem value="MONTHLY">매월</SelectItem>
+                        <SelectItem value="NONE" data-testid="calendar-form-recurrence-option-NONE">반복 안 함</SelectItem>
+                        <SelectItem value="DAILY" disabled={guard?.recurrenceLocked} data-testid="calendar-form-recurrence-option-DAILY">매일</SelectItem>
+                        <SelectItem value="WEEKLY" disabled={guard?.recurrenceLocked} data-testid="calendar-form-recurrence-option-WEEKLY">매주</SelectItem>
+                        <SelectItem value="MONTHLY" disabled={guard?.recurrenceLocked} data-testid="calendar-form-recurrence-option-MONTHLY">매월</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
@@ -789,6 +809,12 @@ export function EventDialog({
                 {recurringCreate && worksCalendarId(calendars) != null && (recurrenceSwitchedFromId != null || hasWritableOutlook(calendars)) && (
                   <p data-testid="calendar-form-recurrence-works-hint" className="text-xs text-muted-foreground break-keep">
                     반복 일정은 Works 캘린더에 저장
+                  </p>
+                )}
+                {/* 수정 창: Outlook 일정은 반복할 수 없다 — 막힌 까닭(WP-2176) */}
+                {guard?.recurrenceHint && (
+                  <p data-testid="calendar-form-recurrence-outlook-hint" className="text-xs text-muted-foreground break-keep">
+                    {guard.recurrenceHint}
                   </p>
                 )}
               </EventFormRow>
@@ -913,6 +939,8 @@ export function EventDialog({
                     render={({ field }) => (
                       <Select
                         value={field.value?.toString() ?? ''}
+                        // 수정 창은 상세(태그·참석자·외부 여부)가 와야 고를 수 있다 — 모르는 채 옮기면 서버 422·409 가 난다
+                        disabled={isEdit && !detailEvent}
                         onValueChange={(v) => {
                           // 사용자가 직접 골랐다 — 늦게 온 기본 캘린더 설정이 덮지 않게 표시한다(WP-2169)
                           calendarPickedRef.current = true
@@ -940,7 +968,7 @@ export function EventDialog({
                               <SelectItem
                                 key={c.id}
                                 value={c.id.toString()}
-                                disabled={recurringCreate && isOutlookCalendar(c)}
+                                disabled={(recurringCreate && isOutlookCalendar(c)) || guard?.disabledCalendarIds.has(c.id)}
                               >
                                 {/* 외부(M365) 캘린더는 이름 뒤에 「· Outlook」 — 같은 이름의 Works 캘린더와 구분한다(WP-2169) */}
                                 {isOutlookCalendar(c) ? `${c.name} · Outlook` : c.name}
@@ -951,6 +979,12 @@ export function EventDialog({
                     )}
                   />
                 </div>
+                {/* 수정 창: 캘린더를 옮길 수 없는 까닭(WP-2176) — 반복 안내처럼 알약 아래 같은 줄 안에 둔다 */}
+                {guard?.calendarHint && (
+                  <p data-testid="calendar-form-calendar-outlook-hint" className="text-xs text-muted-foreground break-keep">
+                    {guard.calendarHint}
+                  </p>
+                )}
               </EventFormRow>
 
               {/* 태그 — 폼 상태라 「수정」·「저장」 때 함께 저장되고 「취소」면 버린다. 새 일정에도 보인다(WP-714) */}
@@ -958,7 +992,7 @@ export function EventDialog({
                 <EventTagsField
                   value={formTags}
                   onChange={setTouchedTags}
-                  editable={tagsEditable}
+                  editable={tagsRowEditable}
                   hint={tagHint}
                 />
               )}
