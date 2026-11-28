@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, it } from 'vitest'
 
+import { expectToggleLook } from '@/test/kits/projects/listBoard'
 import { mkModel } from '@/test/kits/projects/workflowRunFixtures'
 import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
@@ -266,7 +267,13 @@ it('runs_selectOtherWorkflowRun_noOpenedStatus', async () => {
 it('runs_graphView_showsCountsBadges', async () => {
   const { user, location } = setup()
   await screen.findByText(/^WP-1 · /)
-  await user.click(screen.getByRole('button', { name: '그래프에 모아 보기' }))
+  // WP-2066: 켜짐은 디자인 시스템 토글 켜짐(TOGGLE_ON — primary 테두리·글자·배경)으로 표시한다. secondary 로만 표시하지 않는다.
+  const graphToggle = screen.getByRole('button', { name: '그래프에 모아 보기' })
+  expect(graphToggle).toHaveAttribute('aria-pressed', 'false')
+  expectToggleLook(graphToggle, false)
+  await user.click(graphToggle)
+  await waitFor(() => expect(graphToggle).toHaveAttribute('aria-pressed', 'true'))
+  expectToggleLook(graphToggle, true)
   expect(await screen.findByText('진행 중 2')).toBeVisible()
   expect(location()).toContain('runsView=graph')
   expect(screen.queryByText(/옛 버전 실행/)).not.toBeInTheDocument()

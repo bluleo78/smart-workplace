@@ -150,6 +150,11 @@ test('편집 → 고쳐 저장하면 잠금을 얻고, 고치기 시작한 versi
   expect(await screen.findByTestId('wiki-html-visual-frame')).toBeInTheDocument()
   const source = await toSource(user)
   expect(screen.getByTestId('wiki-html-mode-source')).toHaveAttribute('aria-pressed', 'true')
+  // WP-2066: 켜진 모드 단추는 TOGGLE_ON 클래스, 꺼진 단추는 갖지 않는다(secondary 로만 표시하지 않는다).
+  for (const cls of ['text-primary', 'border-primary/50', 'bg-primary/10']) {
+    expect(screen.getByTestId('wiki-html-mode-source')).toHaveClass(cls)
+    expect(screen.getByTestId('wiki-html-mode-view')).not.toHaveClass(cls)
+  }
   expect(source.value).toContain('<h1>매출 차트</h1>')
   await user.clear(source)
   await user.click(source)
