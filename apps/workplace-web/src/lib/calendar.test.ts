@@ -961,7 +961,7 @@ describe('editOutlookGuard (WP-2176)', () => {
   })
   it('외부 일정은 지금 캘린더 외 모든 캘린더를 비활성하고 옮길 수 없다는 안내를 낸다', () => {
     const g = editOutlookGuard({ ...base, event: { calendarId: 3, external: true, recurrenceRule: null }, selectedCalendarId: 3 })
-    expect([...g.disabledCalendarIds].sort((a, b) => a - b)).toEqual([1, 4, 10])
+    expect([...g.disabledCalendarIds].sort((a, b) => a - b)).toEqual([1, 4])
     expect(g.calendarHint).toBe(EDIT_HINT_OUTLOOK_EVENT_NO_MOVE)
   })
   it('참석자가 있는 로컬 일정은 다른 쓰기 가능 Outlook 을 비활성', () => {
@@ -972,6 +972,12 @@ describe('editOutlookGuard (WP-2176)', () => {
   it('참석자·반복·태그가 함께면 안내를 중복 없이 잇는다', () => {
     const g = editOutlookGuard({ ...base, event: local, hasAttendees: true, recurring: true, hasTags: true })
     expect(g.calendarHint).toBe([EDIT_HINT_RECURRING_TO_OUTLOOK, EDIT_HINT_TAGS_TO_SHARED_OUTLOOK, EDIT_HINT_ATTENDEES_TO_OUTLOOK].join(' · '))
+  })
+  it('외부 일정은 읽기 전용 캘린더를 비활성에 넣지 않고, 옮길 곳이 없으면 안내도 내지 않는다', () => {
+    const onlyReadOnly = [{ id: 3, provider: 'M365_GRAPH' }, { id: 10, provider: 'M365_GRAPH', isReadOnly: true }]
+    const g = editOutlookGuard({ ...base, calendars: onlyReadOnly, event: { calendarId: 3, external: true, recurrenceRule: null }, selectedCalendarId: 3 })
+    expect([...g.disabledCalendarIds]).toEqual([])
+    expect(g.calendarHint).toBeNull()
   })
   it('외부 일정이 반복 규칙을 가지면 잠그지 않는다', () => {
     const g = editOutlookGuard({ ...base, event: { calendarId: 3, external: true, recurrenceRule: 'FREQ=WEEKLY' }, selectedCalendarId: 3 })

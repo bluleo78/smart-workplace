@@ -413,9 +413,9 @@ export function EventDialog({
   // 참석자 줄 — 기존 일정은 상세(주최자 여부·참석자)가 와야 판정된다. 그 전엔 자리표시(attendeesLoading),
   // 그 뒤엔 관리할 수 있거나(주최자) 참석자가 있을 때만 보인다(showAttendees)
   const attendeesLoading = isEdit && !detailEvent
-  // 「회의록 만들기」 잠금 — 상세(참석자)를 읽는 중일 때만 막는다. 상세 조회가 실패하면 영원히 잠기지 않게 풀어
-  // 예전처럼 참석자 없이 만들 수 있게 한다(WP-1748).
-  const meetingDetailLoading = isEdit && !detailEvent && !detailQuery.isError
+  // 상세를 읽는 중 — 「회의록 만들기」(참석자)와 캘린더·반복 칸(외부 여부·태그·참석자, WP-2176)을 이때만 잠근다.
+  // 상세 조회가 실패하면 영원히 잠기지 않게 풀어 예전처럼 쓸 수 있게 한다(WP-1748).
+  const detailLoading = isEdit && !detailEvent && !detailQuery.isError
   const showAttendees = !isEdit || canManageAttendees || (eventWithDetail?.attendees?.length ?? 0) > 0
 
   /**
@@ -463,7 +463,7 @@ export function EventDialog({
   function openMeetingDialog() {
     // 기존 일정은 상세(참석자)가 와야 틀을 만든다 — 그 전에 열면 「참석」 줄이 빠진 틀이 창을 연 때 굳는다(WP-1748).
     // 단추도 잠가 두지만, 잠금이 풀리기 전 눌린 클릭이 들어와도 여기서 한 번 더 막는다.
-    if (meetingDetailLoading) return
+    if (detailLoading) return
     const values = meetingSourceValues()
     setNoteDialogTitle(null)
     setMeetingDialog({ title: meetingNoteTitle(values.title, new Date(values.start)), template: templateFrom(values) })
@@ -670,6 +670,8 @@ export function EventDialog({
                   {!lockedRecurrenceRule && (
                     <Select
                       value={recurrenceFreq}
+                      // 수정 창은 상세가 와야 외부(Outlook) 일정인지 안다 — 그 전에 반복을 고르면 뒤에 항목만 흐려지고 값이 남아 422 가 난다
+                      disabled={detailLoading}
                       onValueChange={(v) => {
                         // 서버는 Outlook 캘린더의 반복 일정 생성을 422 로 막는다(에픽 WP-2168) — 새 일정에서 반복을 켜면 Works 캘린더로 옮기고,
                         // 끄면 원래 캘린더로 되돌린다. 자동 전환도 「고른 값」이라 늦게 온 기본 캘린더 설정이 덮지 않게 표시한다.
@@ -940,7 +942,7 @@ export function EventDialog({
                       <Select
                         value={field.value?.toString() ?? ''}
                         // 수정 창은 상세(태그·참석자·외부 여부)가 와야 고를 수 있다 — 모르는 채 옮기면 서버 422·409 가 난다
-                        disabled={isEdit && !detailEvent}
+                        disabled={detailLoading}
                         onValueChange={(v) => {
                           // 사용자가 직접 골랐다 — 늦게 온 기본 캘린더 설정이 덮지 않게 표시한다(WP-2169)
                           calendarPickedRef.current = true
@@ -1025,7 +1027,7 @@ export function EventDialog({
                   onPick={() => setNoteDialogTitle(form.getValues('title'))}
                   onCreate={openMeetingDialog}
                   // 상세(참석자)를 읽는 중엔 잠근다 — 틀에 「참석」 줄이 빠지지 않게(WP-1748)
-                  createDisabled={meetingDetailLoading}
+                  createDisabled={detailLoading}
                   onUnlink={() => {
                     if (event) {
                       unlinkNote.mutate({ id: event.id, occurrenceDate: event.occurrenceDate })
@@ -1093,7 +1095,7 @@ export function EventDialog({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={meetingDetailLoading}
+                  disabled={detailLoading}
                   onClick={openMeetingDialog}
                   data-testid="note-link-create"
                 >

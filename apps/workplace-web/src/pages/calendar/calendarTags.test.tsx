@@ -534,6 +534,28 @@ describe('수정 창 — Outlook 제약(WP-2176)', () => {
     expect(screen.getByTestId('calendar-form-calendar-outlook-hint')).toHaveTextContent(EDIT_HINT_OUTLOOK_EVENT_NO_MOVE)
   })
 
+  test('상세가 오기 전에는 반복·캘린더 칸을 잠근다 — 외부 일정인지 모른 채 반복을 고르면 422 가 난다', async () => {
+    const ev = myEvent({ id: 90, calendarId: 11, calendarName: 'Outlook 일정', external: true, tags: [], tagsEditable: false })
+    // 상세 응답을 끝내 주지 않아 「상세 읽는 중」에 머문다
+    const pending = http.get('/api/v1/calendar/events/:id', () => new Promise<never>(() => {}))
+    // 주소로 열면 페이지가 상세를 먼저 받으니, 달력의 일정을 눌러 창이 상세를 받는 동안을 본다
+    const { user } = renderCalendarPage('/calendar', [pending, ...calendarHandlers({ calendars: CALENDARS_WITH_SHARED, events: [ev], tags: TAGS })])
+    await user.click(await screen.findByTestId(`calendar-event-${ev.id}`))
+    await screen.findByTestId('calendar-form-title')
+    expect(screen.getByTestId('calendar-form-recurrence-freq')).toBeDisabled()
+    expect(screen.getByTestId('calendar-form-calendar')).toBeDisabled()
+  })
+
+  test('상세 조회가 실패하면 반복·캘린더 칸의 잠금을 푼다', async () => {
+    const ev = myEvent({ id: 91, tags: [] })
+    const failed = http.get('/api/v1/calendar/events/:id', () => HttpResponse.json({ message: '실패' }, { status: 500 }))
+    const { user } = renderCalendarPage('/calendar', [failed, ...calendarHandlers({ calendars: CALENDARS_WITH_SHARED, events: [ev], tags: TAGS })])
+    await user.click(await screen.findByTestId(`calendar-event-${ev.id}`))
+    await screen.findByTestId('calendar-form-title')
+    await waitFor(() => expect(screen.getByTestId('calendar-form-recurrence-freq')).toBeEnabled())
+    expect(screen.getByTestId('calendar-form-calendar')).toBeEnabled()
+  })
+
   test('원래 반복이던 일정을 반복 안 함으로 바꿔도 Outlook 으로 옮길 수 없다', async () => {
     const { user } = await open(myEvent({ id: 89, recurrenceRule: 'FREQ=WEEKLY', tags: [] }))
     await user.click(screen.getByTestId('calendar-form-recurrence-freq'))
