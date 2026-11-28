@@ -14,7 +14,7 @@ interface EventTagsFieldProps {
   onChange: (next: CalendarTagRef[]) => void
   /** 붙이고 뗄 수 있는지 — 새 일정은 고른 캘린더가 태그를 받을 때만 true(공유·위임 Outlook 은 false, WP-2172), 기존 일정은 상세 응답의 tagsEditable */
   editable: boolean
-  /** 칩 줄 아래 안내(Outlook 범주 반영·Outlook 에서 바꾸기) — eventTagHint 결과 */
+  /** 칩 줄 아래 안내 — 기존 일정은 eventTagHint(Outlook 범주 반영·Outlook 에서 바꾸기), 새 일정은 newEventTagHint(공유·위임 Outlook 이라 태그 불가, WP-2172) 결과 */
   hint: string | null
 }
 
