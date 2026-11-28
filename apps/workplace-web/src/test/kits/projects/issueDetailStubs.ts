@@ -125,6 +125,10 @@ export function issueDetailHandlers({
     http.get('/api/v1/drive/spaces', () => HttpResponse.json(driveSpaces)),
     // 이슈 생성 다이얼로그·상위 선택·하위 태스크 섹션이 부르는 목록 — 빈 결과.
     http.get(`/api/v1/projects/${key}/issues`, () => HttpResponse.json(createIssueSearchResponse([], null))),
+    // 「AI 작업 단계」 카드의 실행 상세(WP-2160) — 시작자·시각을 읽는다. 카드가 뜨는 모든 상세 테스트가 부르므로
+    // 핸들러가 없으면 핸들러 없는 요청으로 실패한다. 테스트가 시작자·시각을 주지 않으면 비워 둔다(시간은 path 로 대체).
+    http.get('/api/v1/workflow-runs/:id', () =>
+      HttpResponse.json({ run: { startedBy: null, startedAt: null }, nodeRuns: [], events: [], model: null })),
   ]
 }
 

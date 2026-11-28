@@ -273,6 +273,7 @@ export function IssuePropertyRail({
           issueId={workflow.issueId}
           projectKey={projectKey}
           projectId={workflow.projectId}
+          issueNumber={issueNumber}
           canEdit={canEditWorkflow}
           isManager={workflow.isManager}
           closed={isClosedStatus(status)}

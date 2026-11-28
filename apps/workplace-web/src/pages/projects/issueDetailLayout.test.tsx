@@ -63,7 +63,8 @@ describe('AI 작업 단계 그룹 배선 (WP-1989)', () => {
     })
     const group = await screen.findByTestId('property-group-workflow')
     expect(within(group).getByText('AI 작업 단계')).toBeInTheDocument()
-    expect(await within(group).findByText('✓ 분류')).toBeInTheDocument()
+    // 정의 버전은 못 읽는다(404) — 실행이 준 이름으로 떨어진다(리뷰 ③): 키가 아니라 path 의 단계 이름이 보인다(지나온 점은 ✓ 아이콘, 글자 접두 없음).
+    expect(await within(group).findByText('분류')).toBeInTheDocument()
     // 이슈 id(summary.id)로 조회한다 — 번호(1)가 아니다.
     expect(requested).toContain('100')
     // 지금 단계 담당이 나(로그인 사용자)이므로 상세 본문 위에 「내 차례」 배너가 보인다(배선: meId=user.id).
