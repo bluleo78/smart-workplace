@@ -161,6 +161,59 @@ describe('issueCollision — 스크롤로 가려진 에픽 항목', () => {
   });
 });
 
+describe('issueCollision — 패널이 덮은 컬럼 (WP-2088)', () => {
+  // 떠 있는 패널: x 1200~1424. 오른쪽 끝 컬럼(취소): x 1151~1424 — 폭 273 중 224(82%)가 패널 아래.
+  const zone = drop('epic-panel', { zone: true }, rect(1200, 96, 224, 788));
+  const canceled = drop('col-8', { statusId: 8, label: '취소' }, rect(1151, 289, 273, 587));
+  const done = drop('col-7', { statusId: 7, label: '완료' }, rect(866, 289, 273, 587));
+
+  it('패널이 덮은 컬럼은 컬럼이 드롭 대상 (WP-2088)', () => {
+    expect(ids(collide([zone, canceled, done], { x: 1288, y: 400 }))).toEqual(['col-8']);
+  });
+
+  it('패널 아래에 컬럼이 없으면 빈 결과 유지', () => {
+    // 뷰포트 위쪽(y 96~289) — 패널만 있고 컬럼은 없다.
+    expect(ids(collide([zone, canceled, done], { x: 1288, y: 200 }))).toEqual([]);
+  });
+
+  it('패널 위 에픽 항목은 그대로 대상 (기존 우선순위)', () => {
+    const epic = drop('epic-11', { epic: { number: 11 } }, rect(1210, 300, 200, 30));
+    expect(ids(collide([zone, epic, canceled], { x: 1288, y: 310 }))).toEqual(['epic-11']);
+  });
+
+  it('어두운(비허용) 에픽 행도 삼킨다 — 후보에서 빼면 덮인 컬럼으로 새 상태가 바뀐다 (WP-2088)', () => {
+    // 드래그 중 전 행이 droppable 로 등록되므로 어두운 행이 over 가 되고, provider 가 무반응으로 끝낸다.
+    // 이 행을 필터로 빼면 epicHits 가 비어 컬럼이 대상이 되어 어두운 행 드롭이 상태 PATCH 로 바뀐다.
+    const dimmed = drop('epic-10', { epic: { number: 10 }, state: 'current' }, rect(1210, 300, 200, 30));
+    expect(ids(collide([zone, dimmed, canceled], { x: 1288, y: 310 }))).toEqual(['epic-10']);
+  });
+
+  it('패널 존을 더해도 남은 비패널 히트의 순서·개수가 그대로다 (WP-2088)', () => {
+    // 포인터를 포함하는 비패널 컨테이너 두 개(레인 칸·컬럼) — 둘 다 잡히야 순서 비교가 의미가 있다.
+    const lane = drop('col-lane-u-1-1', { lane: 'u-1', statusId: 1, label: 'Alice · 할 일' }, rect(1151, 289, 400, 587));
+    const p = { x: 1288, y: 400 };
+    const others = [canceled, lane];
+    expect(ids(collide(others, p)).length).toBe(2);
+    expect(ids(collide([zone, ...others], p))).toEqual(ids(collide(others, p)));
+  });
+
+  it('패널 아래 카드는 그대로 대상 (보드 상태 대상, 반려 ①)', () => {
+    const card = drop('issue-9', { source: 'card', statusId: 8 }, rect(1210, 380, 200, 60));
+    expect(ids(collide([zone, card], { x: 1288, y: 400 }))).toEqual(['issue-9']);
+  });
+
+  it('패널 존 + 목록 구간(cycle-section) 히트 → 빈 결과 — 사이클이 말없이 바뀌지 않는다 (반려 ①)', () => {
+    // 목록(사이클 그룹) 보기: 패널 아래가 컬럼이 아니라 사이클 구간이다. 이를 그대로 대상으로 돌려주면
+    // handleDragEnd 의 사이클 이동이 걸려 사이클이 바뀌지만(PR 전엔 무반응), 보드 상태 대상으로 좁혀 무반응이다.
+    const section = drop(
+      'cycle-section-b',
+      { cycleSection: { cycle: null, queryKey: [] }, keyboardExactOnly: true },
+      rect(1200, 96, 400, 788),
+    );
+    expect(ids(collide([zone, section], { x: 1288, y: 400 }))).toEqual([]);
+  });
+});
+
 // 가짜 droppableContainers — sortableKeyboardCoordinates 가 쓰는 getEnabled()·get(id) 만 구현.
 function containersMap(cs: DroppableContainer[]) {
   const m = new Map(cs.map((c) => [c.id, c]));
@@ -328,6 +381,67 @@ describe('issueCollision — 키보드(포인터 없음)', () => {
     } as never);
     expect(ids(result)).toEqual(['col-CANCELED']);
   });
+
+  // WP-2088 — 드래그 중 패널 행은 전부 등록되므로(disabled 아님), 키보드 후보에서 어두운 행을 걸러 예전(비허용=비활성) 동작을 지킨다.
+  it('어두운(allowed 가 아닌) 에픽 행은 키보드 후보가 아니고, allowed 행은 그대로 후보다 (WP-2088)', () => {
+    const kb = (cs: DroppableContainer[], r: ClientRect) =>
+      issueCollision({
+        active: { id: 'issue-row-1', data: { current: {} }, rect: { current: { initial: null, translated: null } } },
+        collisionRect: r,
+        droppableRects: new Map<UniqueIdentifier, ClientRect>(cs.map((c) => [c.id, c.rect.current!])),
+        droppableContainers: cs,
+        pointerCoordinates: null,
+      } as never);
+    const dimmed = drop('epic-10', { epic: { number: 10 }, state: 'blocked' }, rect(0, 100, 200, 40));
+    const allowed = drop('epic-11', { epic: { number: 11 }, state: 'allowed' }, rect(0, 300, 200, 40));
+    // 방향키가 어두운 행 자리(좌상단 정확히 겹침)를 가리켜도 후보가 아니다 — Space 로 놓아도 그 자리로 가지 않는다.
+    expect(ids(kb([dimmed], rect(0, 100, 200, 40)))).toEqual([]);
+    expect(ids(kb([allowed], rect(0, 300, 200, 40)))).toEqual(['epic-11']);
+  });
+});
+
+// WP-2088 — 좌표 계산과 충돌 판정이 같은 후보를 써야 한다. 좌표 계산만 어두운 행을 걸러내지 않으면 칩이 어두운 행
+// 자리로 이동하는데 충돌 판정은 그 행을 후보에서 빼, over 가 그 자리에 없어 방향키 내비게이션이 멈춘다(연쇄 회귀).
+describe('키보드 좌표 → 충돌 판정 연쇄 (WP-2088)', () => {
+  const dimmed = drop('epic-10', { epic: { number: 10 }, state: 'current' }, rect(0, 100, 200, 40), true);
+  const mid = drop('epic-11', { epic: { number: 11 }, state: 'allowed' }, rect(0, 300, 200, 40), true);
+  const last = drop('epic-12', { epic: { number: 12 }, state: 'allowed' }, rect(0, 500, 200, 40), true);
+  const cs = [dimmed, mid, last];
+  // 좌표 계산기가 준 좌표를 그대로 올려, 키보드 충돌 판정이 어느 행을 잡는지 본다.
+  const overAt = (active: DroppableContainer, containers: DroppableContainer[], next: { x: number; y: number } | undefined | void) => {
+    expect(next).toBeDefined();
+    const p = next as { x: number; y: number };
+    return ids(
+      issueCollision({
+        active: { id: active.id, data: active.data, rect: { current: { initial: null, translated: null } } },
+        collisionRect: rect(p.x, p.y, 200, 40),
+        droppableRects: new Map<UniqueIdentifier, ClientRect>(containers.map((c) => [c.id, c.rect.current!])),
+        droppableContainers: containers,
+        pointerCoordinates: null,
+      } as never),
+    );
+  };
+  it('목록 행: ↑ 가 어두운 행을 건너뛰고, 그 좌표의 over 도 허용 행이다', () => {
+    const up = keyboard('ArrowUp', cs, mid, mid.id as string, rect(0, 300, 200, 40));
+    // 어두운 행(100)이 아니라 자기 자리(300) — 좌표가 어두운 행으로 가면 over 가 비어 멈춘다.
+    expect(up).toEqual({ x: 0, y: 300 });
+    expect(overAt(mid, cs, up)).toEqual(['epic-11']);
+  });
+  it('목록 행: ↓ 도 어두운 행을 지나 허용 행으로 간다', () => {
+    const down = keyboard('ArrowDown', cs, mid, mid.id as string, rect(0, 300, 200, 40));
+    expect(down).toEqual({ x: 0, y: 500 });
+    expect(overAt(mid, cs, down)).toEqual(['epic-12']);
+  });
+  it('보드 카드: ↓ 후보에도 어두운 행이 없다 — 좌표와 over 가 같은 행을 가리킨다', () => {
+    const card = drop('issue-1', { status: 'TODO', sortable: { containerId: 'c-TODO', index: 0, items: [] } }, rect(0, 40, 200, 60), true);
+    const belowDimmed = drop('epic-20', { epic: { number: 20 }, state: 'blocked' }, rect(0, 400, 200, 40), true);
+    const belowAllowed = drop('epic-21', { epic: { number: 21 }, state: 'allowed' }, rect(0, 600, 200, 40), true);
+    const all = [card, belowDimmed, belowAllowed];
+    const down = keyboard('ArrowDown', all, card, null, rect(0, 40, 200, 60));
+    // 어두운 행(400)을 좌표가 잡으면 충돌 판정이 그 행을 빼 over 가 어긋난다 — 허용 행(600)으로 가야 한다.
+    expect(down).toEqual({ x: 0, y: 600 });
+    expect(overAt(card, all, down)).toEqual(['epic-21']);
+  });
 });
 
 describe('issueCollision — 키보드, 사이클 구간(#881)', () => {
@@ -373,6 +487,26 @@ describe('스크린리더 안내', () => {
     expect(a.onDragEnd({ active, over: over({ zone: true }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
     expect(a.onDragEnd({ active, over: null })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
     expect(a.onDragCancel({ active, over: null })).toBe('WP-3 이슈 이동을 취소했습니다.');
+  });
+  it('어두운 에픽 행(허용 아님)에 놓으면 변경 없음, 호버하면 놓을 수 없는 곳으로 읽는다 (WP-2088)', () => {
+    const a = issueDndAnnouncements('WP');
+    const active = { data: { current: { issue: mk({ number: 3 }), source: 'row' } } } as never;
+    // current(현재 에픽) — 드래그 중 행은 전부 등록되므로 over 는 되지만 놓아도 바뀌지 않는다.
+    const dimmed = over({ epic: { number: 1, title: 'E' }, state: 'current' });
+    expect(a.onDragEnd({ active, over: dimmed })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
+    expect(a.onDragOver({ active, over: dimmed })).toBe('WP-3 이슈가 에픽 「E」(놓을 수 없는 곳) 위에 있습니다.');
+    // blocked(차단 유형·종료 에픽)도 같은 판정.
+    expect(a.onDragEnd({ active, over: over({ epic: null, state: 'blocked' }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
+    expect(a.onDragOver({ active, over: over({ epic: null, state: 'blocked' }) })).toBe(
+      'WP-3 이슈가 「에픽 미할당」(놓을 수 없는 곳) 위에 있습니다.',
+    );
+    // allowed 행은 그대로 놓았다고/대상 이름만 읽는다.
+    expect(a.onDragEnd({ active, over: over({ epic: { number: 1, title: 'E' }, state: 'allowed' }) })).toBe(
+      'WP-3 이슈를 에픽 「E」에 놓았습니다.',
+    );
+    expect(a.onDragOver({ active, over: over({ epic: { number: 1, title: 'E' }, state: 'allowed' }) })).toBe(
+      'WP-3 이슈가 에픽 「E」 위에 있습니다.',
+    );
   });
   it('같은 사이클 구간에 놓으면 변경 없음으로 읽는다(#881)', () => {
     const a = issueDndAnnouncements('WP');

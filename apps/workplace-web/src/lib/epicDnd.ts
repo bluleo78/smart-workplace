@@ -24,8 +24,10 @@ type Coordinates = { x: number; y: number };
 
 // 「에픽 미할당」 드롭 대상 id — 놓으면 부모 해제.
 export const EPIC_DROP_NONE_ID = 'epic-none';
-// 드래그 중 에픽 패널 전체 영역 — 떠 있는 패널이 보드 컬럼을 덮으므로, 패널 위(비허용 항목·배너·여백)에 놓았을 때
-// 아래에 깔린 카드/컬럼이 대상이 되어 상태가 바뀌지 않도록 패널 영역을 먼저 가로챈다. 여기에 놓으면 아무 일도 없다.
+// 드래그 중 에픽 패널 전체 영역 — 떠 있는 패널이 보드 컬럼을 덮으므로 포인터가 패널 위인 순간 이 존이 먼저 대상을 가로챈다.
+// 규칙: 그 위에 에픽 항목이 겹치면 그 항목이 이긴다(허용이면 연결, 어두운 행이면 무반응으로 끝). 에픽이 아니면
+// 패널을 뺀 남은 히트 중 보드 상태 대상(컬럼·레인 칸·카드)만 대상으로 쓰고(WP-2088), 그 밖이거나 패널 아래에
+// 아무것도 없을 때는 결과가 비어 드롭은 무반응이다(목록 구간에는 넘기지 않는다 — 반려 ①).
 export const EPIC_PANEL_ZONE_ID = 'epic-panel';
 // 에픽 패널 쪽 droppable(에픽 항목·미할당·패널 존 모두) — 보드 후보에서 패널 전체를 뺄 때 쓴다.
 const isEpicPanelId = (id: UniqueIdentifier) => String(id).startsWith('epic-');
@@ -33,6 +35,10 @@ const isEpicPanelId = (id: UniqueIdentifier) => String(id).startsWith('epic-');
 const isEpicItemId = (id: UniqueIdentifier) => isEpicPanelId(id) && id !== EPIC_PANEL_ZONE_ID;
 // 보드 상태 컬럼 droppable(col-{status}).
 const isBoardColumnId = (id: UniqueIdentifier) => String(id).startsWith('col-');
+// 보드 상태 드롭 대상 — 컬럼(col-*, 레인 칸 col-lane-* 도 같은 앞머리)과 보드 카드(issue-*).
+// 목록 행(issue-row-*)은 드래그 소스로만 등록돼 드롭 대상에 없고, 목록 구간(cycle-section-*)은 사이클 이동
+// 대상이라 상태 변경 대상이 아니다 — 패널 아래 넘김을 이 대상으로만 좁힌다(WP-2088 반려 ①).
+const isBoardStatusId = (id: UniqueIdentifier) => isBoardColumnId(id) || String(id).startsWith('issue-');
 // 스윔레인 레인 키(WP-1021) — 레인 칸·레인 카드 droppable data 의 lane. 레인 밖 대상(상태 컬럼·에픽·사이클)은 undefined.
 const laneOf = (data: unknown): string | undefined => {
   const lane = (data as { lane?: unknown } | undefined)?.lane;
@@ -91,7 +97,13 @@ export function isCycleDropData(d: unknown): d is CycleDropData {
 // 에픽 드롭 대상 데이터 — epic=null 이면 「에픽 미할당」. ParentRef 전체를 실어 낙관적 반영에 그대로 쓴다.
 // clip: 항목을 감싼 스크롤 컨테이너(에픽 목록). dnd-kit 의 droppable 사각형은 스크롤 조상의 잘림을 모르므로,
 //       스크롤로 가려진 항목이 포인터 판정에 잡히지 않게 보이는 영역을 이 컨테이너로 판단한다.
-export type EpicDropData = { epic: ParentRef | null; clip?: { readonly current: HTMLElement | null } };
+// state: 드래그 대상 이슈 기준 이 행의 드롭 상태(allowed/current/blocked/idle) — 어두운 행(current·blocked)을
+//        다른 코드가 epicDropState 재계산 없이 구분한다. 키보드 후보 제외·안내 문구가 이 값을 쓴다(WP-2088).
+export type EpicDropData = {
+  epic: ParentRef | null;
+  clip?: { readonly current: HTMLElement | null };
+  state?: EpicDropState;
+};
 
 // 점이 사각형 안(경계 포함)인지 — 충돌 판정(포인터·보드 컬럼 영역)이 같은 규칙을 쓴다.
 export function pointInRect(p: Coordinates, r: Pick<ClientRect, 'left' | 'right' | 'top' | 'bottom'>): boolean {
@@ -136,12 +148,28 @@ export function epicDropState(active: IssueResponse | null, target: ParentRef | 
   return target?.status && isClosedStatus(target.status) ? 'blocked' : 'allowed';
 }
 
+// 에픽 행 데이터가 놓을 수 있는(allowed) 대상인지 — 키보드 후보 제외와 스크린리더 안내가 공용으로 쓴다.
+// state 를 싣지 않은 에픽 데이터는 허용으로 본다(에픽 행은 EpicSidePanel 이 유일 생산자이고 드래그 중이면 항상 state 를
+// 싣는다 — 없는 쪽은 그 규칙 밖 데이터). 어두운 행(current·blocked)은 키보드로 고를 수 없고, 놓아도/호버해도
+// 무반응·「놓을 수 없는 곳」으로 읽는다 — dnd-kit 이 비허용(droppable disabled) 행을 통째로 빼던 예전 동작을 대신한다.
+function epicRowAllowsDrop(data: unknown): boolean {
+  const state = (data as Partial<EpicDropData> | undefined)?.state;
+  return state == null || state === 'allowed';
+}
+
+// 키보드 후보 걸러내기 공용 — 어두운(허용 아님) 에픽 행이다. 충돌 판정·보드 카드 좌표·목록 행 좌표가 같은 규칙을
+// 써야 한다: 한 곳만 걸러내면 칩이 어두운 행 자리로 이동했는데 over 가 그 행을 못 잡아 방향키 내비게이션이 멈춘다(WP-2088).
+const isDimmedEpicItem = (c: Pick<DroppableContainer, 'id' | 'data'>) =>
+  isEpicItemId(c.id) && !epicRowAllowsDrop(c.data.current);
+
 // 충돌 판정.
 // - 키보드(포인터 좌표 없음): 좌상단이 정확히 겹치는 대상(방향키로 고른 대상), 없으면 가장 가까운 대상(closestCorners).
-//   패널 영역 존·목록 스크롤로 완전히 가려진 에픽은 제외 — 드래그 시작 직후 보이지 않는 에픽이 가장 가깝다고 over 가 되지 않게.
+//   패널 영역 존·목록 스크롤로 완전히 가려진 에픽·어두운(allowed 가 아닌) 에픽 행은 제외 — 드래그 시작 직후 보이지 않는
+//   에픽이 가장 가깝다고 over 가 되지 않고, 키보드도 어두운 행을 거쳐 놓기를 삼키지 않는다(WP-2088, 등록은 드래그 중 전 행).
 //   스윔레인 카드는 다른 레인 대상도 제외(WP-1021).
-// - 포인터가 에픽 패널 위(존 포함)면 에픽 항목 히트만 — 비허용 항목·배너·여백이면 빈 결과(no-op).
-//   (disabled droppable 은 후보에서 빠지므로, 존이 없으면 패널 아래 보드 카드/컬럼이 잡혀 상태가 바뀐다.)
+// - 포인터가 에픽 패널 위(존 포함)면 에픽 항목 히트를 우선, 아니면 보드 상태 대상만 — 규칙과 그 깨진 사유는
+//   EPIC_PANEL_ZONE_ID 주석이 원본이다(WP-2088). 둘 다 없으면 빈 결과(no-op).
+//   (존이 없으면 패널 위 빈 여백의 드롭이 곧바로 패널 아래 보드 카드/컬럼을 잡아 상태가 바뀐다 — 그래서 존이 먼저 가로챈다.)
 // - 스크롤로 가려진 에픽 항목 히트는 먼저 버린다 — 사각형이 잘리지 않아 「전체 이슈」·배너·푸터 위에서도 잡혀
 //   보이지 않는 에픽으로 PATCH 되던 문제. 패널 판정보다 먼저 걸러야, 패널 밖으로 삐져나온 가려진 항목이
 //   아래 카드/컬럼 드롭을 빈 결과로 삼키지 않는다.
@@ -170,6 +198,8 @@ export const issueCollision: CollisionDetection = (args) => {
       (c) =>
         c.id !== EPIC_PANEL_ZONE_ID &&
         !(isEpicItemId(c.id) && hiddenInClip(c.data.current, args.droppableRects.get(c.id))) &&
+        // 어두운 행은 후보에서 제외 — 등록은 드래그 중 전 행이라(포인터에선 그대로 삼킨다) 좌표 계산과 같이 뺀다(WP-2088).
+        !isDimmedEpicItem(c) &&
         !inForeignLane(activeLane, c.data.current),
     );
     // 키보드 좌표 계산기는 고른 대상의 좌상단으로 옮긴다 — 좌상단이 정확히 겹치는 대상이 있으면 그것이 고른 대상이다.
@@ -191,8 +221,17 @@ export const issueCollision: CollisionDetection = (args) => {
   const hits = pointerWithin(args).filter(
     (h) => !isEpicItemId(h.id) || visibleInClip(h.data?.droppableContainer?.data.current, p),
   );
-  // 패널 존 히트도 포함해 판정 — 패널 위면 에픽 항목만 남긴다(존만이면 빈 결과 = no-op).
-  if (hits.some((h) => isEpicPanelId(h.id))) return hits.filter((h) => isEpicItemId(h.id));
+  // 패널 존 히트도 포함해 판정 — 패널 위면 에픽 항목을 우선, 아니면 패널을 뺀 남은 히트(둘 다 없으면 빈 결과 = no-op).
+  if (hits.some((h) => isEpicPanelId(h.id))) {
+    const epicHits = hits.filter((h) => isEpicItemId(h.id));
+    // 에픽 항목이 겹쳤으면 그대로 반환 — 어두운 행(current·blocked)도 여기 포함된다. 드래그 중 전 행이 droppable 로
+    // 등록되므로(EpicSidePanel) 어두운 행이 드롭을 삼키고, provider 가 무반응으로 끝내 → 덮인 컬럼으로 새지 않는다(WP-2088).
+    if (epicHits.length > 0) return epicHits;
+    // 남은 히트를 그대로 남기면 목록(사이클 그룹) 보기에서 패널 아래 cycle-section 이 대상이 돼 사이클이
+    // 말없이 바뀐다(반려 ①) — 그래서 보드 상태 대상만 남긴다. 이 넘김이 없으면 덮인 컬럼도 가려 드롭이
+    // 무반응이었다(WP-2088). 남는 게 없으면 빈 결과(no-op).
+    return hits.filter((h) => isBoardStatusId(h.id));
+  }
   if (hits.length > 0) return hits;
   // 보드 컬럼 전체를 감싸는 사각형(합집합)을 한 번의 순회로 구한다.
   // 레인 칸은 포인터 y 가 그 칸 안일 때만 — 그 레인(rowLane)이 폴백 후보 범위가 된다.
@@ -264,14 +303,21 @@ const cardKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
     getEnabled: () =>
       droppableContainers
         .getEnabled()
-        .filter((c) => !(horizontal && isEpicPanelId(c.id)) && !inForeignLane(activeLane, c.data.current)),
+        .filter(
+          (c) =>
+            !(horizontal && isEpicPanelId(c.id)) &&
+            // 좌표 후보에서도 어두운 행을 빼야 한다 — 충돌 판정만 걸러내면 좌표는 어두운 행 자리로 이동하는데 over 는
+            // 그 행을 못 잡아 칩이 그 자리에 멈추고 아래 허용 행으로 영구히 못 간다(WP-2088).
+            !isDimmedEpicItem(c) &&
+            !inForeignLane(activeLane, c.data.current),
+        ),
     get: (id: UniqueIdentifier) => droppableContainers.get(id),
   } as unknown as typeof droppableContainers;
   const narrowed = { ...args, context: { ...args.context, droppableContainers: filtered } };
   if (horizontal) return sortableKeyboardCoordinates(event, narrowed);
   const next = sortableKeyboardCoordinates(event, narrowed);
   if (!next) return next;
-  const epicTarget = droppableContainers.getEnabled().find((c) => {
+  const epicTarget = filtered.getEnabled().find((c) => {
     const r = isEpicItemId(c.id) ? droppableRects.get(c.id) : undefined;
     return r != null && r.left === next.x && r.top === next.y;
   });
@@ -290,7 +336,8 @@ const rowKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   const group = (id: UniqueIdentifier) => (isEpicItemId(id) ? 0 : isCycleSectionId(id) ? 1 : -1);
   const targets = droppableContainers
     .getEnabled()
-    .filter((c) => group(c.id) >= 0)
+    // 어두운 에픽 행은 좌표 후보에서도 제외 — 충돌 판정과 같은 규칙이라 칩이 어두운 행에 멈추지 않는다(WP-2088).
+    .filter((c) => group(c.id) >= 0 && !isDimmedEpicItem(c))
     .map((c) => ({ container: c, rect: droppableRects.get(c.id) }))
     .filter((t): t is { container: DroppableContainer; rect: ClientRect } => t.rect != null)
     .sort((a, b) => group(a.container.id) - group(b.container.id) || a.rect.top - b.rect.top);
@@ -314,6 +361,13 @@ export function describeDropTarget(over: Pick<Over, 'data'> | null, projectKey: 
   return null;
 }
 
+// over 가 어두운 에픽 행(allowed 가 아닌 current·blocked)인지 — 놓아도 에픽·상태가 바뀌지 않아 안내도 무반응으로 읽는다(WP-2088).
+// 드래그 중 패널 행은 전부 droppable 로 등록되므로(포인터가 그 위에 닿으면 over 가 된다) 어두운 행도 실제 대상으로 잡힌다.
+function isDimmedEpicOver(over: Pick<Over, 'data'> | null): boolean {
+  const d = over?.data.current;
+  return isEpicDropData(d) && !epicRowAllowsDrop(d);
+}
+
 // DndContext 안내 문구 — 기본값은 영어 + 원시 id 를 읽으므로 이슈 키·대상 이름으로 바꾼다.
 export function issueDndAnnouncements(projectKey: string): Announcements {
   const key = (a: Pick<Active, 'data'>) => {
@@ -328,7 +382,9 @@ export function issueDndAnnouncements(projectKey: string): Announcements {
       // 그룹 보드 스윔레인(WP-1021) — 포인터로는 다른 레인 칸·카드도 걸리지만 화면은 강조하지 않고 놓아도 무시된다.
       // 들리는 안내가 화면·결과와 같도록 에픽 패널처럼 놓을 수 없는 곳으로 읽는다.
       const foreign = inForeignLane(laneOf(active.data.current), over?.data.current);
-      return `${key(active)} 이슈가 ${target}${foreign ? '(놓을 수 없는 곳)' : ''} 위에 있습니다.`;
+      // 어두운 에픽 행도 화면(흐림)·결과(무반응)와 같게 「놓을 수 없는 곳」으로 이어 붙인다(WP-2088).
+      const dimmedEpic = isDimmedEpicOver(over);
+      return `${key(active)} 이슈가 ${target}${foreign || dimmedEpic ? '(놓을 수 없는 곳)' : ''} 위에 있습니다.`;
     },
     onDragEnd: ({ active, over }) => {
       const target = describeDropTarget(over, projectKey);
@@ -340,7 +396,9 @@ export function issueDndAnnouncements(projectKey: string): Announcements {
       const src = active.data.current as IssueDragData | undefined;
       const ignoredLane =
         src?.lane != null && over?.data.current?.lane !== undefined && boardDropStatusId(src, over.data.current) === null;
-      return target && over?.data.current?.zone !== true && !sameSection && !ignoredLane
+      // 어두운 에픽 행에 놓아도 provider 가 무반응으로 막는다 — "놓았습니다" 대신 변경 없음으로 읽는다(WP-2088).
+      const dimmedEpic = isDimmedEpicOver(over);
+      return target && over?.data.current?.zone !== true && !sameSection && !ignoredLane && !dimmedEpic
         ? `${key(active)} 이슈를 ${target}에 놓았습니다.`
         : `${key(active)} 이슈를 놓았습니다. 변경 사항이 없습니다.`;
     },
