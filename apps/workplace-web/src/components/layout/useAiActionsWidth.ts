@@ -56,11 +56,12 @@ export function useAiActionsWidth() {
     prev.current = { header, folded, circle }
     if (!before) return
     const chip = document.querySelector<HTMLElement>(CHIP_SELECTOR)
+    // 칩이 없으면 쓸 곳이 없다 — 칩이 생기면 관찰자 효과가 observe 하고 첫 알림이 값을 넣는다.
+    if (!chip) return
     // 헤더 등록 커밋(null -> 요소, 밀도 그대로)은 칩이 아직 첫 적용 전일 때만 건너뛴다(이유는 위 독블록 참고).
     // 칩을 이미 맞춘 뒤의 늦은 헤더·밀도 변경·헤더 교체는 아래 동기 경로.
     if (before.header === null && header !== null && before.folded === folded && before.circle === circle
-        && (!chip || !applied.has(chip))) return
-    if (!chip) return
+        && !applied.has(chip)) return
     const actions = header?.querySelector<HTMLElement>(ACTIONS_SELECTOR) ?? null
     // 밀도 단계의 폭 변경은 위치 보정과 한 페인트에 반영한다. ResizeObserver까지 기다리면
     // 동그라미→알약의 첫 프레임이 옛 오프셋을 써 검색이 액션에 54px 겹친다.

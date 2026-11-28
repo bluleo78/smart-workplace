@@ -23,7 +23,10 @@ function Fixture({ mounted, chipMounted = mounted, ai = true, dock = false }: { 
   </>
 }
 
-/** ResizeObserver 스텁. observe 대상을 기록하고, auto 면 observe 직후 첫 알림을 큐에 넣는다(실제 브라우저처럼, WP-2078). */
+/**
+ * ResizeObserver 스텁. observe 대상을 기록하고, auto 면 observe 직후 첫 알림을 act 안에서 부르게 큐에 넣는다(WP-2078).
+ * 실제 ResizeObserver 처럼 disconnect 된 관찰자는 깨우지 않는다 — 정리 경로를 함께 검증하려는 것.
+ */
 function stubRo({ auto = false }: { auto?: boolean } = {}) {
   const instances: { cb: ResizeObserverCallback; targets: Set<Element> }[] = []
   const observed: Element[] = []
@@ -34,16 +37,22 @@ function stubRo({ auto = false }: { auto?: boolean } = {}) {
     observe(target: Element) {
       this.targets.add(target)
       observed.push(target)
-      if (auto) queueMicrotask(() => this.cb([], this as unknown as ResizeObserver))
+      // 큐에 넣은 사이 disconnect·unobserve 됐으면 실제 브라우저처럼 알리지 않는다.
+      if (auto) queueMicrotask(() => {
+        if (this.targets.has(target)) act(() => { this.cb([], this as unknown as ResizeObserver) })
+      })
     }
-    unobserve() {}
+    unobserve(target: Element) { this.targets.delete(target) }
     disconnect() { this.targets.clear() }
   })
-  const notify = () => act(() => { for (const { cb } of instances) cb([], {} as ResizeObserver) })
-  /** 그 요소를 관찰 중인 관찰자만 깨운다. */
-  const notifyFor = (target: Element) => act(() => {
-    for (const { cb, targets } of instances) if (targets.has(target)) cb([], {} as ResizeObserver)
+  /** 관찰 대상이 조건에 맞는 관찰자만 act 안에서 깨운다. */
+  const wake = (match: (targets: Set<Element>) => boolean) => act(() => {
+    for (const { cb, targets } of instances) if (match(targets)) cb([], {} as ResizeObserver)
   })
+  /** 관찰 중인(disconnect 되지 않은) 관찰자만 깨운다. */
+  const notify = () => wake((targets) => targets.size > 0)
+  /** 그 요소를 관찰 중인 관찰자만 깨운다. */
+  const notifyFor = (target: Element) => wake((targets) => targets.has(target))
   return { notify, notifyFor, observed }
 }
 
