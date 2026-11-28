@@ -78,14 +78,6 @@ export const TAG_HINT_OUTLOOK_EVENT = 'Outlook 범주에도 함께 반영돼요 
 export const TAG_HINT_OUTLOOK_SERIES = '반복 일정 전체의 Outlook 범주에 함께 반영돼요 (없던 범주는 색 없이)'
 
 /**
- * 일정 태그 줄 아래에 둘 안내 — 없으면 null.
- * - 붙일 수 있는 M365 일정: 앱에서 바꾼 태그가 Outlook 범주에도 써 넣어진다는 것(반복 회의면 시리즈 전체). Outlook 범주 목록(masterCategories)에
- *   새로 만들지는 않아 처음 쓰는 이름은 Outlook 에서 색 없이 보인다는 것도 짧게 단다.
- * - 붙일 수 없는 일정(공유받은 읽기 전용 달력의 M365 일정 등): 태그가 있을 때만 Outlook 에서 바꾸라는 안내.
- * - 앱 일정: 안내 없음.
- * 붙일 수 없는 일정은 outlookTagScope 를 보지 않는다 — 앱 일정은 늘 붙일 수 있어, 붙일 수 없으면 Outlook 일정이다(필드가 없는 응답·모킹 호환).
- */
-/**
  * 새 일정 창의 태그 줄 안내 — 고른 캘린더가 태그를 받지 못하면(공유·위임 Outlook, WP-2172) 그 이유를, 받으면 null.
  * 편집은 eventTagHint(상세 응답 기준)를 쓴다.
  */
@@ -93,6 +85,14 @@ export function newEventTagHint(tagsWritable: boolean): string | null {
   return tagsWritable ? null : TAG_HINT_SHARED_OUTLOOK
 }
 
+/**
+ * 일정 태그 줄 아래에 둘 안내 — 없으면 null.
+ * - 붙일 수 있는 M365 일정: 앱에서 바꾼 태그가 Outlook 범주에도 써 넣어진다는 것(반복 회의면 시리즈 전체). Outlook 범주 목록(masterCategories)에
+ *   새로 만들지는 않아 처음 쓰는 이름은 Outlook 에서 색 없이 보인다는 것도 짧게 단다.
+ * - 붙일 수 없는 일정(공유받은 읽기 전용 달력의 M365 일정 등): 태그가 있을 때만 Outlook 에서 바꾸라는 안내.
+ * - 앱 일정: 안내 없음.
+ * 붙일 수 없는 일정은 outlookTagScope 를 보지 않는다 — 앱 일정은 늘 붙일 수 있어, 붙일 수 없으면 Outlook 일정이다(필드가 없는 응답·모킹 호환).
+ */
 export function eventTagHint(event: Pick<CalendarEvent, 'tags' | 'tagsEditable' | 'outlookTagScope'>): string | null {
   if (event.tagsEditable ?? false) {
     if (event.outlookTagScope === 'SERIES') return TAG_HINT_OUTLOOK_SERIES
