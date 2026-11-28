@@ -359,6 +359,8 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
 
 
   // WP-2070 — 좁은 데스크톱(1024px + 에픽 패널 최대 폭 + AI 패널)에서 바보다 단추 글자가 넓을 때.
+  // WP-2153 — 글자 폭은 글꼴마다 달라(macOS 가 더 좁다) 넘침은 실제 UI 로 좁힌 뒤 단추 최소 폭을 주입해 일부러 만든다.
+  // 그래서 단추가 줄어 글자가 줄바꿈되는 경우는 높이로 못 잡으니, 바 안 글자가 한 줄로 묶이는지(white-space)를 따로 본다.
   // 사이클 목록의 바 감싸개는 sticky left-0 w-[100cqw] 라 슬롯을 가로로 밀어도 넘친 단추에 닿지 못하고, 넘친 글자가 바 밖으로 나가 행과 겹쳤다.
   // 바 안 가로 스크롤(스크롤바 숨김)로 담아 높이 38px 을 지키고 Tab 으로 닿은 단추가 바 안에 보여야 한다 — 기하·포커스 스크롤이라 jsdom 으로 못 잰다.
   // 그 스크롤은 바만 가로로, 바 안 키보드 초점에만 일어난다 — 슬롯을 내린 채 바를 오가도 슬롯이 그대로, 메뉴 항목(포털) 초점·마우스 누름에는 바가 그대로.
@@ -410,12 +412,22 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       await checkbox.check();
       const bar = page.getByTestId('issue-bulk-toolbar');
       await expect(bar).toContainText('선택 1개');
+      // 넘침 주입(WP-2153) — 바 자식(선택 개수·단추 넷)마다 바 폭의 1/3 을 최소 폭으로 주면 합이 바보다 항상 커서 어떤 글꼴에서도 넘친다.
+      const barWidth = await bar.evaluate((el) => el.clientWidth);
+      await page.addStyleTag({
+        content: `[data-testid="issue-bulk-toolbar"] > * { min-width: ${Math.ceil(barWidth / 3)}px }`,
+      });
 
-      // 전제 — 이 폭에서 단추 글자가 바보다 넓다(넘침이 없으면 이 테스트가 아무것도 지키지 않는다).
+      // 전제 — 단추 최소 폭 주입으로 바 내용이 바보다 넓다(넘침이 없으면 이 테스트가 아무것도 지키지 않는다).
       const size = await bar.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, h: el.getBoundingClientRect().height }));
-      expect(size.sw, '바 내용이 바보다 넓다').toBeGreaterThan(size.cw);
+      expect(size.sw, '바 내용이 바보다 넓다(넘침 전제 — 단추 최소 폭 주입이 먹지 않으면 테스트 장치 문제)').toBeGreaterThan(size.cw);
       // 높이 38px — 슬롯 scroll-pt-11(44px)이 이 높이에 기댄다. 스크롤바가 생겨 높이를 늘리면 안 된다.
       expect(Math.abs(size.h - 38), `바 높이 ${size.h}px`).toBeLessThanOrEqual(1);
+      // 넘침 주입으로 단추가 넓어져 높이로는 줄바꿈 회귀를 못 잡으니 계산된 스타일로 본다.
+      const wrapping = await bar.evaluate((el) =>
+        [el, ...el.children].filter((c) => getComputedStyle(c).whiteSpace !== 'nowrap').map((c) => c.getAttribute('data-testid') ?? c.textContent),
+      );
+      expect(wrapping, '바와 단추 글자는 한 줄로 묶인다(whitespace-nowrap)').toEqual([]);
 
       // 바 사각형을 넘는 자식(넘친 단추)은 바가 잘라 담아야 한다 — 바가 overflow visible 이면 넘친 글자가 바 배경 밖으로 그려져 행과 겹친다.
       // 테스트 브라우저(headless Chromium)는 스크롤바를 그리지 않아 높이로는 못 잡으므로, 전역 `* { scrollbar-width: thin }` 을 이겨
