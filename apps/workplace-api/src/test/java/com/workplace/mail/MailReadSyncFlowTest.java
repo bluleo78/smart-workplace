@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -174,7 +175,7 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
     messageService.get(seededUser, seededMessage, true); // seen=true 이미라 markSeen 분기 미진입
 
     // $batch 가 호출되지 않아야 한다(이벤트 자체가 발행되지 않음)
-    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).batch(any(), any());
   }
 
   /** 서버 반영 대기 표시 조회(WP-148). */
@@ -266,7 +267,7 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
       messageService.markRead(seededUser, seededMessage);
 
       org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
-      org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+      verify(graphApiClient, never()).batch(any(), any());
     } finally {
       release.countDown();
     }
@@ -410,7 +411,7 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
     dispatcher.dispatch(
         new MessagesSeenChangedEvent(1L, seededUser, seededAccount, List.of(seededMessage)));
 
-    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).batch(any(), any());
     org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
   }
 

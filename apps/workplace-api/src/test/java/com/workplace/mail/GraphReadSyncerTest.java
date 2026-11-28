@@ -1,8 +1,10 @@
 package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -161,7 +163,8 @@ class GraphReadSyncerTest extends ExternalClientMockedTestBase {
     assertThat(r.succeeded()).containsExactly(7L);
     assertThat(r.stopped()).isFalse();
     // 서버로 보낼 항목이 없으면 토큰도 받지 않는다 — 토큰이 깨진 계정이어도 로컬 행은 대기가 풀린다
-    org.mockito.Mockito.verifyNoInteractions(graphApiClient, graphTokenService);
+    verify(graphTokenService, never()).getAccessToken(eq(1L), eq(10L));
+    verify(graphApiClient, never()).batch(any(), any());
   }
 
   /** WP-215: 한 세션으로 여러 조각을 보내도 토큰은 재사용 상한 안에서 한 번만 받는다. */

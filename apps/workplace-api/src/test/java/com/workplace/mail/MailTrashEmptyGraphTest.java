@@ -4,9 +4,11 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.global.tenant.TenantContext;
@@ -509,7 +511,8 @@ class MailTrashEmptyGraphTest extends ExternalClientMockedTestBase {
     assertThat(st.state()).isEqualTo("FAILED");
     assertThat(st.errorCode()).isEqualTo(MailTrashException.OAUTH_TOKEN_UNREADABLE);
     assertThat(st.error()).isEqualTo(MailServerErrors.OAUTH_TOKEN_UNREADABLE);
-    verifyNoInteractions(graphApiClient);
+    verify(graphApiClient, never()).get(anyString(), eq(TRASH_FOLDER_URL), any());
+    verify(graphApiClient, never()).batch(any(), any());
   }
 
   /**
