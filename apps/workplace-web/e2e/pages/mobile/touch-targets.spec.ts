@@ -54,7 +54,7 @@ test('드라이브 — 「공간」 머리말의 「팀 공간 만들기」', { 
 test('캘린더 시트 — 「캘린더 추가」와 캘린더 표시 체크박스', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-13T10:00:00'))
   await page.route((u) => u.pathname === '/api/v1/calendars', (r) =>
-    r.fulfill({ json: [calendar({ id: 1, name: '기본' })] }))
+    r.fulfill({ json: [calendar({ id: 1, name: 'Works 캘린더' })] }))
   await page.route((u) => u.pathname.startsWith('/api/v1/calendar/events'), (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
   await page.goto('/calendar')

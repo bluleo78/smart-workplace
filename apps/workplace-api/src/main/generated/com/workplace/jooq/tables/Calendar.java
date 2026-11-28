@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.CalendarEvent.CalendarEventPath;
+import com.workplace.jooq.tables.CalendarUserSetting.CalendarUserSettingPath;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -264,6 +265,19 @@ public class Calendar extends TableImpl<CalendarRecord> {
             _calendarEvent = new CalendarEventPath(this, null, Keys.CALENDAR_EVENT__CALENDAR_EVENT_CALENDAR_ID_FKEY.getInverseKey());
 
         return _calendarEvent;
+    }
+
+    private transient CalendarUserSettingPath _calendarUserSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_user_setting</code> table
+     */
+    public CalendarUserSettingPath calendarUserSetting() {
+        if (_calendarUserSetting == null)
+            _calendarUserSetting = new CalendarUserSettingPath(this, null, Keys.CALENDAR_USER_SETTING__CALENDAR_USER_SETTING_PREFERRED_CALENDAR_ID_FKEY.getInverseKey());
+
+        return _calendarUserSetting;
     }
 
     @Override

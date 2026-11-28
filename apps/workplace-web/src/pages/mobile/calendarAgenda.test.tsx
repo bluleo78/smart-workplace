@@ -55,7 +55,7 @@ function stubCalendar(opts: { events?: CalendarEvent[]; issues?: IssueResponse[]
   const requests: { from: string; to: string }[] = []
   const handlers = [
     http.get('/api/v1/calendars', () =>
-      HttpResponse.json([calendar({ id: 1, name: '기본' }), calendar({ id: TEAM, name: '팀 일정', color: 'green', isDefault: false, position: 1 })]),
+      HttpResponse.json([calendar({ id: 1, name: 'Works 캘린더' }), calendar({ id: TEAM, name: '팀 일정', color: 'green', isDefault: false, position: 1 })]),
     ),
     http.get('/api/v1/calendar/events/:id', ({ params }) => HttpResponse.json(events.find((e) => e.id === Number(params.id)))),
     http.get('/api/v1/calendar/events', ({ request }) => {

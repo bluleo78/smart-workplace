@@ -38,6 +38,7 @@ import com.workplace.jooq.tables.CalendarEventException.CalendarEventExceptionPa
 import com.workplace.jooq.tables.CalendarEventNote.CalendarEventNotePath;
 import com.workplace.jooq.tables.CalendarEventTag.CalendarEventTagPath;
 import com.workplace.jooq.tables.CalendarTag.CalendarTagPath;
+import com.workplace.jooq.tables.CalendarUserSetting.CalendarUserSettingPath;
 import com.workplace.jooq.tables.Channel.ChannelPath;
 import com.workplace.jooq.tables.ChannelMember.ChannelMemberPath;
 import com.workplace.jooq.tables.ChannelMemberGroup.ChannelMemberGroupPath;
@@ -961,6 +962,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _calendar = new CalendarPath(this, null, Keys.CALENDAR__FK_CALENDAR_TENANT.getInverseKey());
 
         return _calendar;
+    }
+
+    private transient CalendarUserSettingPath _calendarUserSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_user_setting</code> table
+     */
+    public CalendarUserSettingPath calendarUserSetting() {
+        if (_calendarUserSetting == null)
+            _calendarUserSetting = new CalendarUserSettingPath(this, null, Keys.CALENDAR_USER_SETTING__FK_CALENDAR_USER_SETTING_TENANT.getInverseKey());
+
+        return _calendarUserSetting;
     }
 
     private transient ChannelMemberPath _channelMember;
@@ -2587,6 +2601,14 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public AiAgentCredentialPath aiAgentCredential() {
         return assistantLimitWait().aiAgentCredential();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>calendar_user_setting_user_id_fkey</code> key
+     */
+    public UserPath calendarUserSettingUserIdFkey() {
+        return calendarUserSetting().user();
     }
 
     /**

@@ -20,7 +20,7 @@ const TAGS: CalendarTag[] = [
 async function stub(page: Page, events: CalendarEvent[], tags: CalendarTag[] = TAGS) {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
   await mockApi(page, 'GET', '/api/v1/calendars', [
-    calendar({ id: 1, name: '기본', isDefault: true }),
+    calendar({ id: 1, name: 'Works 캘린더', isDefault: true }),
     calendar({ id: 10, name: '회사 일정', isDefault: false, isReadOnly: true, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
   ])
   await mockApi(page, 'GET', '/api/v1/me/issues', [])

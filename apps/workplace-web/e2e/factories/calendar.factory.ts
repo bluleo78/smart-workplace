@@ -34,7 +34,7 @@ export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent 
     color: null,
     // 개인 캘린더 컨테이너 필드 — Task 8 이후 필수.
     calendarId: 1,
-    calendarName: '기본',
+    calendarName: 'Works 캘린더',
     effectiveColor: 'blue',
     reminderMinutes: null,
     recurrenceRule: null,
@@ -48,7 +48,7 @@ export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent 
 export function calendar(over: Partial<Calendar> = {}): Calendar {
   return {
     id: 1,
-    name: '기본',
+    name: 'Works 캘린더',
     color: 'blue',
     isDefault: true,
     position: 0,

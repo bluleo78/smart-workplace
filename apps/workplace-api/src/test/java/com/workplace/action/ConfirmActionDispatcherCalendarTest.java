@@ -199,4 +199,80 @@ class ConfirmActionDispatcherCalendarTest extends IntegrationTestBase {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("참석자를 바꿀 수 없습니다");
   }
+
+  /** 기본 캘린더 설정 행(WP-2169)을 직접 시드한다 — 설정 API 와 무관하게 해석 경로만 본다. */
+  private void setPreferred(long calendarId) {
+    dsl.insertInto(Tables.CALENDAR_USER_SETTING)
+        .set(Tables.CALENDAR_USER_SETTING.USER_ID, caller)
+        .set(Tables.CALENDAR_USER_SETTING.PREFERRED_CALENDAR_ID, calendarId)
+        .execute();
+  }
+
+  /** 캘린더 시드 — externalAccountId 가 있으면 외부(Outlook) 쓰기 가능 캘린더. */
+  private long insertCalendar(Long externalAccountId) {
+    return dsl.insertInto(Tables.CALENDAR)
+        .set(Tables.CALENDAR.OWNER_ID, caller)
+        .set(Tables.CALENDAR.NAME, externalAccountId == null ? "두 번째" : "Outlook")
+        .set(Tables.CALENDAR.COLOR, "blue")
+        .set(Tables.CALENDAR.IS_DEFAULT, false)
+        .set(Tables.CALENDAR.POSITION, 1)
+        .set(Tables.CALENDAR.EXTERNAL_ACCOUNT_ID, externalAccountId)
+        .set(
+            Tables.CALENDAR.EXTERNAL_ID,
+            externalAccountId == null ? null : "ext-" + System.nanoTime())
+        .set(Tables.CALENDAR.IS_READ_ONLY, false)
+        .returning(Tables.CALENDAR.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 활성 M365 메일 계정. */
+  private long insertM365Account() {
+    return dsl.insertInto(Tables.EMAIL_ACCOUNT)
+        .set(Tables.EMAIL_ACCOUNT.USER_ID, caller)
+        .set(Tables.EMAIL_ACCOUNT.EMAIL_ADDRESS, "acc-" + System.nanoTime() + "@example.com")
+        .set(Tables.EMAIL_ACCOUNT.DISPLAY_NAME, "acc")
+        .set(Tables.EMAIL_ACCOUNT.PROVIDER, "M365_GRAPH")
+        .returning(Tables.EMAIL_ACCOUNT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /**
+   * WP-2169: 기본 캘린더가 Outlook(외부) 이어도 확인 카드(호출자 트랜잭션 안)는 Works 캘린더로 정한다 — 사전검증이 통과하고 승인 결과도 Works 이며
+   * Graph 쓰기 차단 예외(ExternalCalendarWriteInTransactionException)가 나지 않는다.
+   */
+  @Test
+  void confirm_calendarCreateEvent_preferredExternal_landsInWorksCalendar() {
+    long works = calendarService.ensureDefault(caller);
+    setPreferred(insertCalendar(insertM365Account()));
+    ObjectNode params = eventParams("Outlook 기본인데 카드 승인");
+
+    dispatcher.validate(caller, "calendar.create_event", params);
+    Object result = dispatcher.confirm(caller, "calendar.create_event", params);
+
+    assertThat(((CalendarEventResponse) result).calendarId()).isEqualTo(works);
+  }
+
+  /** WP-2169: 기본 캘린더가 두 번째 로컬 캘린더면 캘린더를 생략한 카드 승인 결과가 그 캘린더다. */
+  @Test
+  void confirm_calendarCreateEvent_preferredLocal_landsInPreferredCalendar() {
+    calendarService.ensureDefault(caller);
+    long second = insertCalendar(null);
+    setPreferred(second);
+    ObjectNode params = eventParams("두 번째 캘린더 기본");
+
+    dispatcher.validate(caller, "calendar.create_event", params);
+    Object result = dispatcher.confirm(caller, "calendar.create_event", params);
+
+    assertThat(((CalendarEventResponse) result).calendarId()).isEqualTo(second);
+  }
+
+  /** WP-2169: Works 캘린더가 아직 없는 사용자의 사전검증은 calendar 행을 만들지 않는다(쓰기 금지 dry-run). */
+  @Test
+  void validate_calendarCreateEvent_withoutWorksCalendar_insertsNothing() {
+    dispatcher.validate(caller, "calendar.create_event", eventParams("사전검증만"));
+
+    assertThat(dsl.fetchCount(Tables.CALENDAR, Tables.CALENDAR.OWNER_ID.eq(caller))).isZero();
+  }
 }

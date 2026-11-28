@@ -18,7 +18,7 @@ import { personalNode, sharedNode } from '../../../e2e/factories/userGroups.fact
 beforeEach(pinNow)
 afterEach(() => vi.useRealTimers())
 
-const CALENDARS = [calendar({ id: 1, name: '기본', isDefault: true })]
+const CALENDARS = [calendar({ id: 1, name: 'Works 캘린더', isDefault: true })]
 
 const ORGANIZER: Attendee = {
   userId: 1, username: 'user1', name: '관리자', kind: 'HUMAN', role: 'ORGANIZER',

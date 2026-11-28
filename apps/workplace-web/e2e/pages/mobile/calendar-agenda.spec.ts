@@ -85,7 +85,7 @@ async function stubCalendar(
   const issues = opts.issues ?? [DUE_ISSUE]
   const requests: { from: string; to: string }[] = []
   await page.route((u) => u.pathname === '/api/v1/calendars', (r) =>
-    r.fulfill({ json: [calendar({ id: 1, name: '기본' }), calendar({ id: TEAM, name: '팀 일정', color: 'green', isDefault: false, position: 1 })] }))
+    r.fulfill({ json: [calendar({ id: 1, name: 'Works 캘린더' }), calendar({ id: TEAM, name: '팀 일정', color: 'green', isDefault: false, position: 1 })] }))
   await page.route((u) => u.pathname.startsWith('/api/v1/calendar/events'), (r) => {
     const req = r.request()
     const url = new URL(req.url())
@@ -159,7 +159,7 @@ test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수
   await expect(list.getByTestId('calendar-event-1')).toContainText('팀 일정')
   await expect(list.getByTestId('calendar-event-3')).toContainText('14:00')
   await expect(list.getByTestId('calendar-event-3')).toContainText('15:30')
-  await expect(list.getByTestId('calendar-event-3')).toContainText('기본 · 3층 회의실')
+  await expect(list.getByTestId('calendar-event-3')).toContainText('Works 캘린더 · 3층 회의실')
   await expect(list.getByTestId('calendar-agenda-now')).toBeVisible()
   // 일정 없는 날(10/17~10/19)은 건너뛰고, 다음 날 묶음은 '오늘' 없이 날짜만.
   await expect(list.getByTestId('calendar-agenda-day-2026-10-14')).toContainText('10월 14일 (수)')
@@ -436,7 +436,7 @@ test('⑥ ☰ 시트 — 미니 달력 없이 [새 일정]과 캘린더 토글, 
   await expect(sheet.getByTestId('calendar-mini')).toHaveCount(0)
   await expect(sheet.locator('[data-slot="calendar"]')).toHaveCount(0)
   await expect(sheet.getByTestId('calendar-new-event')).toBeVisible()
-  await expect(sheet.getByTestId('calendar-list-item-1')).toContainText('기본')
+  await expect(sheet.getByTestId('calendar-list-item-1')).toContainText('Works 캘린더')
   await expect(sheet.getByTestId('calendar-list-item-2')).toContainText('팀 일정')
   await expect(sheet.getByTestId('calendar-layer-issue-dues')).toBeVisible()
   await expectNoHorizontalOverflow(page)

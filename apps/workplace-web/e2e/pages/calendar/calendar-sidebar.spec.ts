@@ -9,7 +9,7 @@ import { calendar } from '../../factories/calendar.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
 
 // 기본 캘린더 목록 스텁 — 사이드바 렌더에 필요.
-const DEFAULT_CALENDARS = [calendar({ id: 1, name: '기본', color: 'blue', isDefault: true })]
+const DEFAULT_CALENDARS = [calendar({ id: 1, name: 'Works 캘린더', color: 'blue', isDefault: true })]
 
 // calendars 를 생략하면 DEFAULT_CALENDARS 로 모킹. 그룹핑 테스트처럼 커스텀 목록이 필요한 경우 배열 전달.
 async function stubCalendars(page: Page, calendars = DEFAULT_CALENDARS): Promise<void> {

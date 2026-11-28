@@ -47,7 +47,7 @@ describe('캘린더 삭제 확인(WP-1140)', () => {
     await user.click(within(confirm).getByTestId('calendar-delete-confirm-submit'))
 
     await waitFor(() => expect(del.urls).toHaveLength(1))
-    expect(await screen.findByText('캘린더를 삭제했습니다. 일정은 기본 캘린더로 옮겼습니다')).toBeInTheDocument()
+    expect(await screen.findByText('캘린더를 삭제했습니다. 일정은 Works 캘린더로 옮겼습니다')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('calendar-delete-confirm')).not.toBeInTheDocument())
   })
 

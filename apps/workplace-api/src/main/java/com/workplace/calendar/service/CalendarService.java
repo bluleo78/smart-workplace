@@ -10,6 +10,7 @@ import com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarRepository;
+import com.workplace.calendar.repository.CalendarUserSettingRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import java.util.List;
@@ -26,6 +27,11 @@ public class CalendarService {
   private final CalendarChangeNotifier changeNotifier;
   // 초기화 전 내부 참석자 수집용(하드 삭제 cascade 로 참석자 행이 사라지므로).
   private final EventAttendeeRepository attendeeRepo;
+  // 사용자별 「새 일정 기본 캘린더」 설정(WP-2169).
+  private final CalendarUserSettingRepository settingRepo;
+
+  /** 기본 캘린더 이름(WP-2169) — Outlook 등 외부 캘린더와 구분되는 Works 자체 캘린더. V347 이 옛 이름 「기본」 도 이것으로 바꾼다. */
+  public static final String DEFAULT_CALENDAR_NAME = "Works 캘린더";
 
   /** 소유자의 캘린더 목록. 비어 있으면 기본 캘린더를 lazy 생성 후 반환(신규/제로-일정 유저). */
   @Transactional
@@ -41,9 +47,55 @@ public class CalendarService {
   @Transactional
   public long ensureDefault(long callerId) {
     return repo.findDefaultId(callerId)
-        .or(() -> repo.insertDefaultIfAbsent(callerId, "기본", CalendarPalette.DEFAULT))
+        .or(
+            () ->
+                repo.insertDefaultIfAbsent(
+                    callerId, DEFAULT_CALENDAR_NAME, CalendarPalette.DEFAULT))
         .or(() -> repo.findDefaultId(callerId))
         .orElseThrow(() -> new IllegalStateException("기본 캘린더를 만들지도 찾지도 못함: " + callerId));
+  }
+
+  /**
+   * 새 일정을 만들 수 있는 캘린더인가(WP-2169) — 캘린더를 생략한 생성이 사용자의 기본 캘린더 설정을 따라도 되는지 판정한다.
+   *
+   * <p>본인 소유 + 읽기 전용 아님 + 보이는 캘린더(연결 해제(disabled_at) 계정의 외부 캘린더는 목록에서처럼 숨겨 제외 — {@code
+   * findByIdForOwner} 가 같은 가시성 조건을 쓴다)여야 하고, 외부(Outlook) 캘린더는 allowExternal 일 때만 쓴다. 호출자 트랜잭션 안의
+   * 생성(앱 안 AI 확인 카드)은 Graph 쓰기가 막혀 있어(#548) allowExternal=false 로 부른다.
+   */
+  public boolean isUsableCreateTarget(long callerId, long calendarId, boolean allowExternal) {
+    return repo.findByIdForOwner(callerId, calendarId)
+        .filter(c -> !c.isReadOnly())
+        // 외부 캘린더는 연동 계정(provider)이 있다 — 응답에 이미 있어 isExternal 재조회가 필요 없다.
+        .filter(c -> allowExternal || c.provider() == null)
+        .isPresent();
+  }
+
+  /**
+   * 새 일정 기본 캘린더로 지정할 수 있는지 검증한다(WP-2169). 남의/없는 캘린더와 연결 해제 계정의 캘린더(목록에서 숨겨짐)는 404(존재 은닉), 읽기 전용은
+   * 409 — 보이는지를 먼저 보므로 숨겨진 읽기 전용 캘린더도 404 다.
+   */
+  public void requireUsableCreateTarget(long callerId, long calendarId) {
+    CalendarResponse calendar =
+        repo.findByIdForOwner(callerId, calendarId)
+            .orElseThrow(() -> new CalendarNotFoundException(calendarId));
+    if (calendar.isReadOnly()) throw new ReadOnlyCalendarException(calendarId);
+  }
+
+  /**
+   * 캘린더를 생략한 새 일정의 대상 캘린더(WP-2169) — 일정 생성·확인 카드 사전검증·설정 GET 이 함께 쓰는 하나의 해석.
+   *
+   * <p>설정의 기본 캘린더가 {@link #isUsableCreateTarget} 이면 그것, 아니면 Works 캘린더다. Works 캘린더는 allowInsert 면 없을
+   * 때 만들고({@link #ensureDefault}), 아니면(쓰기 금지 사전검증) 있는 것만 찾아 없으면 null 을 돌려준다 — 사전검증은 null 이면 캘린더 검증을
+   * 건너뛴다.
+   */
+  public Long resolveCreateCalendarId(long callerId, boolean allowExternal, boolean allowInsert) {
+    Long preferred = settingRepo.findPreferredCalendarId(callerId).orElse(null);
+    if (preferred != null && isUsableCreateTarget(callerId, preferred, allowExternal)) {
+      return preferred;
+    }
+    // 삼항식으로 쓰면 long 으로 언박싱돼 null 에서 NPE 가 나므로 나눠 쓴다.
+    if (allowInsert) return ensureDefault(callerId);
+    return repo.findDefaultId(callerId).orElse(null);
   }
 
   /** 캘린더 생성 — 색 팔레트 검증, position 미지정 시 말미 배치. is_default=false. */

@@ -45,6 +45,8 @@ type ApiOptions = {
   notes?: Record<string, EventNoteRef>
   /** 노트 잇기(PUT) 응답 카드 — 기본은 eventNote({ pageId }) */
   linkedCard?: (pageId: number) => EventNoteRef
+  /** 새 일정 기본 캘린더 설정(WP-2169) — GET /calendar/settings 의 defaultCalendarId. 기본 null(웹이 isDefault 로 폴백) */
+  defaultCalendarId?: number | null
 }
 
 /**
@@ -54,9 +56,11 @@ type ApiOptions = {
 export function calendarApi(opts: ApiOptions = {}) {
   const state = {
     events: [...(opts.events ?? [])],
-    calendars: [...(opts.calendars ?? [calendar({ id: 1, name: '기본', color: 'blue', isDefault: true })])],
+    calendars: [...(opts.calendars ?? [calendar({ id: 1, name: 'Works 캘린더', color: 'blue', isDefault: true })])],
     issues: opts.issues ?? [],
     notes: { ...(opts.notes ?? {}) } as Record<string, EventNoteRef>,
+    // 새 일정 기본 캘린더 설정(WP-2169) — PUT 이 바꾸고 GET 이 돌려준다
+    defaultCalendarId: opts.defaultCalendarId ?? null,
   }
   const requests = {
     posts: [] as Record<string, unknown>[],
@@ -70,10 +74,20 @@ export function calendarApi(opts: ApiOptions = {}) {
     noteGets: [] as URL[],
     notePuts: [] as { url: URL; body: { pageId: number } }[],
     noteDeletes: [] as URL[],
+    // 기본 캘린더 지정(PUT /calendar/settings) 본문(WP-2169)
+    settingsPuts: [] as { calendarId: number }[],
   }
   const noteKey = (id: number | string, url: URL) => `${id}|${url.searchParams.get('occurrenceDate') ?? ''}`
   const handlers = [
     http.get('/api/v1/calendars', () => HttpResponse.json(state.calendars)),
+    // 새 일정 기본 캘린더 설정(WP-2169) — 지정하면 state 를 바꿔 다시 읽을 때 새 값을 준다
+    http.get('/api/v1/calendar/settings', () => HttpResponse.json({ defaultCalendarId: state.defaultCalendarId })),
+    http.put('/api/v1/calendar/settings', async ({ request }) => {
+      const body = (await request.json()) as { calendarId: number }
+      requests.settingsPuts.push(body)
+      state.defaultCalendarId = body.calendarId
+      return HttpResponse.json({ defaultCalendarId: body.calendarId })
+    }),
     http.post('/api/v1/calendars', async ({ request }) => {
       const body = (await request.json()) as { name: string; color: string }
       requests.calendarPosts.push(body)

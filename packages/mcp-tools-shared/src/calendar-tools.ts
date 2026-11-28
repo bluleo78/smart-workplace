@@ -204,7 +204,8 @@ export const rsvpEventInput = z.object({
 });
 
 // WP-348: 일정 생성 — 확인 카드 propose_create_event 입력(summary 제외)에 알림 여부(notify)를 더했다.
-// calendarId 는 받지 않는다 — 카드와 같이 기본 캘린더(항상 로컬, 외부 동기화 캘린더는 기본이 될 수 없다)에 만든다.
+// calendarId 는 받지 않는다 — 서버가 사용자의 새 일정 기본 캘린더(WP-2169)로 해석한다. 없거나 쓸 수 없으면 Works 캘린더.
+// 기본이 Outlook(M365) 캘린더면 거기에 만든다. 확인 카드(propose_create_event)는 아직 항상 Works 캘린더(#548).
 export const createEventInput = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(10000).optional(), // API 상한과 같다(WP-543)
@@ -313,11 +314,11 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       app: 'calendar',
       kind: 'write',
       // 새 일정을 추가만 한다. 같은 인자로 다시 부르면 일정이 하나 더 생기고 초대 알림도 다시 가므로 멱등이 아니다(중복 방지 키 없음).
-      // 생성은 늘 로컬 기본 캘린더라 외부 캘린더(M365)에 닿지 않는다.
+      // 생성 대상은 사용자의 새 일정 기본 캘린더라, 그것이 Outlook 캘린더면 M365 에도 쓴다(WP-2169).
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an event in my default calendar (캘린더); each call creates a new one. startsAt/endsAt: ISO-8601 with offset (none = +09:00). ' +
-        'attendees: member usernames from search_members (not me, no emails); notify:false skips their invitation notifications. recurrenceRule: ' +
+        'Creates an event in my default new-event calendar (Works, or Outlook if I set it: written to M365); each call creates a new one. startsAt/endsAt: ISO-8601 with offset (none = +09:00). ' +
+        'attendees: member usernames from search_members (not me, no emails); notify:false skips Works notifications (Outlook still emails). recurrenceRule (always Works calendar): ' +
         'RFC 5545 RRULE. Returns {event, conflicts?}; conflicts = my events in that slot (not blocking).',
       inputSchema: createEventInput,
       async handler(args) {
