@@ -171,6 +171,17 @@ export function formatAuditAction(action: string | null | undefined): string {
   return label;
 }
 
+/** 감사 로그 결과 값과 한글 라벨 — 목록 배지·결과 필터가 같이 쓴다(WP-2081) */
+export const AUDIT_RESULTS = [
+  { value: 'SUCCESS', label: '성공' },
+  { value: 'FAILURE', label: '실패' },
+] as const;
+
+/** 결과 값을 한글 라벨로 변환 — SUCCESS 가 아니면 실패로 본다(목록 배지의 기존 규칙 그대로) */
+export function formatAuditResult(result: string): string {
+  return result === 'SUCCESS' ? '성공' : '실패';
+}
+
 /** 리소스 enum 값을 한글 라벨로 변환. 매핑 없으면 raw 반환 + 경고. */
 export function formatAuditResource(resource: string | null | undefined): string {
   if (!resource) return '-';
