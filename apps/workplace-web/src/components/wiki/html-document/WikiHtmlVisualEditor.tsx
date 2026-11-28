@@ -7,6 +7,7 @@ import { AiLabel } from '@/components/ai/AiLabel'
 import { Button } from '@/components/ui/button'
 import { useHtmlEditFrame } from '@/hooks/useHtmlEditFrame'
 import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { SandboxedHtmlFrame } from '../../SandboxedHtmlFrame'
@@ -97,10 +98,12 @@ export function WikiHtmlVisualEditor({
     <div className="flex min-h-0 flex-1 flex-col" data-testid="wiki-html-visual">
       <div className="wiki-html-embed-scope flex max-h-[60%] shrink-0 flex-col gap-1 overflow-y-auto border-b px-4 py-2" data-testid="wiki-html-visual-bar">
         <div className="flex flex-wrap items-center gap-2">
+          {/* WP-2165: 켜짐은 토글 켜짐으로 — outline 단추라 TOGGLE_ON_CLASS 만 붙인다 */}
           <Button
             type="button"
             size="sm"
-            variant={picker.enabled ? 'secondary' : 'outline'}
+            variant="outline"
+            className={cn(picker.enabled && TOGGLE_ON_CLASS)}
             aria-pressed={picker.enabled}
             onClick={() => picker.setEnabled(!picker.enabled)}
             data-testid="wiki-html-visual-pick"
@@ -111,7 +114,8 @@ export function WikiHtmlVisualEditor({
           <Button
             type="button"
             size="sm"
-            variant={aiOpen ? 'secondary' : 'outline'}
+            variant="outline"
+            className={cn(aiOpen && TOGGLE_ON_CLASS)}
             aria-pressed={aiOpen}
             onClick={() => setAiOpen((v) => !v)}
             data-testid="wiki-html-visual-ai"
