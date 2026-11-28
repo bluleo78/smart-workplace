@@ -369,6 +369,8 @@ gh_stored() {
 
 # gh 로그인 한 번 — gh_login_once <호스트> <토큰 파일> <오류 파일>. 토큰은 표준 입력으로만, 오류는 파일로(뒤에서 돌아 $(…) 로 받지 않는다).
 gh_login_once() {
+  # 오류 파일은 먼저 비운다 — 토큰 파일 열기가 실패하면 2> 가 열리기 전에 멈춰 앞 시도·앞 호스트의 오류가 남는다.
+  : > "$3"
   gh_stored auth login --hostname "$1" --with-token < "$2" > /dev/null 2> "$3"
 }
 
@@ -378,6 +380,8 @@ setup_git() {
   tokens="$GENIA_RUN_DIR/repo-tokens"
   found=0
   gh_found=0
+  # 토큰 값을 담는 변수는 함수 안에만 둔다 — 같은 셸에서 이어 도는 감독 회차·종료 신호 처리로 새지 않게(중간에 끊겨도).
+  local tokval mask err rc
   gitauth="$AI_DIR/state/git-auth.log"
   errf="$AI_DIR/state/.gh-login.err"
   mkdir -p "$AI_DIR/state" 2>/dev/null
@@ -393,12 +397,20 @@ setup_git() {
     while [ "$try" -lt "$GENIA_GH_LOGIN_TRIES" ]; do
       try=$((try + 1))
       # 제한 시간 안에서 뒤로 돌려 기다린다 — 응답 없는 네트워크에 멈추지 않고, 기다리는 동안에도 종료 신호를 바로 받는다(bg_wait_timeout).
-      if bg_wait_timeout "$GENIA_GH_LOGIN_TIMEOUT" gh_login_once "$host" "$token" "$errf"; then
+      rc=0
+      bg_wait_timeout "$GENIA_GH_LOGIN_TIMEOUT" gh_login_once "$host" "$token" "$errf" || rc=$?
+      if [ "$rc" = 0 ]; then
         ok=1
         break
       fi
       err=$(cat "$errf" 2>/dev/null)
-      [ -n "$err" ] || err="gh auth login 이 ${GENIA_GH_LOGIN_TIMEOUT}초 안에 끝나지 않았습니다(시간 제한)"
+      # 제한 시간에 끊긴 것(bg_wait_timeout 이 128 이상)은 앞서 나온 출력이 있어도 시간 제한을 덧붙이고, 출력 없이 끝난 것은 종료 코드로 남긴다.
+      if [ "$rc" -ge 128 ]; then
+        err="${err:+$err
+}gh auth login 이 ${GENIA_GH_LOGIN_TIMEOUT}초 안에 끝나지 않았습니다(시간 제한)"
+      elif [ -z "$err" ]; then
+        err="gh auth login 종료 $rc, 오류 출력 없음"
+      fi
       # bg_wait 로 기다려 종료 신호(SIGTERM)를 대기 중에도 바로 받는다(앞에서 sleep 하면 끝날 때까지 trap 이 밀린다).
       [ "$try" -lt "$GENIA_GH_LOGIN_TRIES" ] && bg_wait sleep "$GENIA_GH_LOGIN_WAIT"
     done
