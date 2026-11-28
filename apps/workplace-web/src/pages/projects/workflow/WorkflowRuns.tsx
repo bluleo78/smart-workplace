@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
 import { invalidateRunListAndCounts, useWorkflowRun, useWorkflowRunCounts, useWorkflowRuns } from '@/hooks/queries/useWorkflowRuns'
 import { formatRelativeTime } from '@/lib/formatters'
+import { ghostToggleClass } from '@/lib/selectionStyles'
 import { ACTIVE_RUN_STATUSES, RUN_STATUS_DOT, RUN_STATUS_LABEL, RUN_STATUS_ORDER, type RunStatus } from '@/lib/workflow'
 import { runDetailOpenedText, type RunFilters, type WorkflowRunItem } from '@/lib/workflowRuns'
 import { useWorkflowVersion, type WorkflowModel } from '@/lib/workflows'
@@ -135,7 +136,7 @@ export function WorkflowRuns({ workflowId, projectKey, activeVersionNo, canManag
             </Popover>
           )}
           <Button
-            size="sm" variant={graphView ? 'secondary' : 'ghost'} aria-pressed={graphView}
+            size="sm" variant="ghost" aria-pressed={graphView} className={ghostToggleClass(graphView)}
             onClick={() => setParam('runsView', graphView ? null : 'graph')}
           >
             그래프에 모아 보기

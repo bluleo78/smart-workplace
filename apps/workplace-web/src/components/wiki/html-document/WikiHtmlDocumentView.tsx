@@ -20,6 +20,7 @@ import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { isConflictError } from '@/lib/api-error'
 import { HTML_DOCUMENT_CANVAS_CLASS } from '@/lib/sandboxedHtml'
+import { ghostToggleClass } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { useSaveHtml, useSaveTitle } from '../../../hooks/queries/useWikiMutations'
@@ -295,9 +296,9 @@ export function WikiHtmlDocumentView({ page, spaceId, share }: { page: WikiPageD
               key={b.mode}
               type="button"
               size="sm"
-              variant={b.pressed ? 'secondary' : 'ghost'}
+              variant="ghost"
               aria-pressed={b.pressed}
-              className="h-7"
+              className={cn('h-7', ghostToggleClass(b.pressed))}
               disabled={b.disabled}
               title={b.title}
               onClick={() => onModeClick(b.mode)}
