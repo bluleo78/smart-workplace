@@ -209,7 +209,7 @@ describe('편집·새 일정 폼의 태그(폼 상태, WP-801)', () => {
     await pickTags(user, 'calendar-form-tag-add', [2])
 
     await user.click(screen.getByTestId('calendar-form-calendar'))
-    await user.click(await screen.findByRole('option', { name: '공유 Outlook' }))
+    await user.click(await screen.findByRole('option', { name: '공유 Outlook · Outlook' }))
 
     await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
     expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent(TAG_HINT_SHARED_OUTLOOK)
@@ -231,11 +231,11 @@ describe('편집·새 일정 폼의 태그(폼 상태, WP-801)', () => {
     await pickTags(user, 'calendar-form-tag-add', [2])
 
     await user.click(screen.getByTestId('calendar-form-calendar'))
-    await user.click(await screen.findByRole('option', { name: '공유 Outlook' }))
+    await user.click(await screen.findByRole('option', { name: '공유 Outlook · Outlook' }))
     await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
 
     await user.click(screen.getByTestId('calendar-form-calendar'))
-    await user.click(await screen.findByRole('option', { name: '기본' }))
+    await user.click(await screen.findByRole('option', { name: 'Works 캘린더' }))
     expect(await screen.findByTestId('calendar-form-tag-add')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('calendar-form-submit'))
