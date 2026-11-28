@@ -61,6 +61,13 @@ describe('사이드바 — 기본 캘린더 지정', () => {
     expect(await screen.findByTestId('calendar-set-default-1')).toHaveTextContent('기본으로 지정')
   })
 
+  test('설정(캐시)이 읽기 전용이 된 캘린더를 가리켜도 배지는 그 줄이 아니라 Works 캘린더에 단다(리뷰 후속)', async () => {
+    await renderCalendar({ calendars: CALENDARS, defaultCalendarId: 10 })
+    await waitFor(() => expect(badgeIn(1)).toHaveTextContent('기본'))
+    expect(badgeIn(10)).toBeNull()
+    expect(screen.getAllByTestId('calendar-default-badge')).toHaveLength(1)
+  })
+
   test('긴 캘린더 이름은 말줄임되고 전체 이름을 title 로 보여 준다', async () => {
     const long = calendar({ id: 4, name: '아주 긴 이름의 프로젝트 공유 캘린더 이름입니다', isDefault: false, position: 2 })
     await renderCalendar({ calendars: [WORKS, long] })

@@ -168,7 +168,8 @@ const RULES: Record<string, Rule> = {
   ],
   // 범위 목록·상세(['calendar','events',…]·['calendar','event',id])·캘린더 목록·홈 위젯이 모두 ['calendar'] 아래에 있다.
   'calendar-event': (p) => [{ queryKey: calendarKeys.all }, ...notificationsOnDelete(p)],
-  calendar: () => [{ queryKey: calendarKeys.all }],
+  // 캘린더 변경(동기화로 읽기 전용·연결 해제 등)은 실효 기본 캘린더를 바꿀 수 있어 설정(all 접두 밖, WP-2169)도 다시 읽는다.
+  calendar: () => [{ queryKey: calendarKeys.all }, { queryKey: calendarKeys.calendarSettings }],
   // 메시지 캐시(['messaging','messages'|'thread'…])는 기존 messaging.* 핸들러가 패치하므로 건드리지 않는다 — 목록·상세·멤버만.
   // 채널 멤버십은 연결된 드라이브 채널 스페이스 멤버도 바꾼다(ChannelDriveListener) → 드라이브 스페이스 목록도 무효화.
   // 비공개 채널의 멤버 부서(WP-1058, ['messaging','members',id,'groups'])는 멤버 키 아래라 멤버 무효화가 함께 다시 받는다.

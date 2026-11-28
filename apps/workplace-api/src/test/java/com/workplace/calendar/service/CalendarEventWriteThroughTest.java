@@ -269,6 +269,43 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
     verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
   }
 
+  /**
+   * WP-2169 리뷰 후속: 기본 캘린더가 범주를 써 넣을 수 없는 외부 캘린더(내 사서함이 아닌 위임·공유)이고 태그를 실어 캘린더를 생략해 만들면(외부 MCP
+   * create_event) 409(WP-801) 대신 Works 캘린더에 만든다 — 반복과 같은 폴백. Graph 호출 없이 태그가 앱 태그로 붙는다.
+   */
+  @Test
+  void create_tagged_without_calendar_preferred_shared_external_lands_in_works_calendar() {
+    preferExternalCalendar();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(null, null), List.of(tagId)));
+
+    long works =
+        new TransactionTemplate(txManager)
+            .execute(s -> calendarRepo.findDefaultId(ownerId).orElseThrow());
+    assertThat(created.calendarId()).isEqualTo(works).isNotEqualTo(extCalId);
+    assertThat(tagNames(created)).containsExactly("운영");
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /** WP-2169 리뷰 후속: 기본 캘린더가 내 사서함 Outlook 캘린더면 태그를 실어도 그 캘린더를 따른다(범주로 써 넣을 수 있다). */
+  @Test
+  void create_tagged_without_calendar_preferred_own_mailbox_follows_external_calendar() {
+    preferExternalCalendar();
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("고객사", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-pref-t1");
+    liveCategories("graph-pref-t1", List.of());
+
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(null, null), List.of(tagId)));
+
+    assertThat(created.calendarId()).isEqualTo(extCalId);
+    verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+  }
+
   /** Graph 쓰기 실패(502) → 예외 전파 + 로컬 행 미생성(HTTP 단계가 persist 트랜잭션 진입 전에 실패). */
   @Test
   void create_graph_failure_502_persists_no_local_row() {

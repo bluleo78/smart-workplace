@@ -305,10 +305,11 @@ describe('createInvalidationBatcher', () => {
 });
 
 describe('캘린더 규칙', () => {
-  it('calendar 는 [calendar] 루트 전체를 무효화한다', () => {
+  it('calendar 는 [calendar] 루트 전체와 기본 캘린더 설정(WP-2169)을 무효화한다', () => {
     for (const op of ['created', 'updated', 'deleted'] as const) {
       expect(invalidationTargets({ resource: 'calendar', op, scopeType: 'USER', scopeId: 1, ids: [1] })).toEqual([
         { queryKey: ['calendar'] },
+        { queryKey: ['calendar-settings'] },
       ]);
     }
   });
