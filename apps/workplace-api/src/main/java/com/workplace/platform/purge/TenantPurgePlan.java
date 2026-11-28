@@ -188,6 +188,8 @@ public final class TenantPurgePlan {
           EVENT_REMINDER,
           CALENDAR_EVENT_EXCEPTION,
           CALENDAR_EVENT,
+          CALENDAR_USER_SETTING, // 새 일정 기본 캘린더(WP-2169) — calendar(SET NULL)·user 를 참조해 calendar 보다
+          // 먼저
           CALENDAR,
           // 메일 서명(WP-1517) — user·tenant 만 참조. 이미지 바이트는 테넌트 디렉터리 삭제로 함께 지워진다.
           MAIL_SIGNATURE_IMAGE,
