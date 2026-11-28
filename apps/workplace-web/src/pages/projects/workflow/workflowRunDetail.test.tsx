@@ -61,7 +61,7 @@ describe('실행 상세', () => {
     setup(detail('WAITING'))
     expect(await screen.findByText(/실행 #7 · v2/)).toBeVisible()
     expect(screen.getByText(/김 시작/)).toBeVisible()
-    expect(screen.getByRole('link', { name: '이슈 열기 ↗' })).toHaveAttribute('href', '/projects/WP/issues/70')
+    expect(screen.getByRole('link', { name: '이슈 열기 ›' })).toHaveAttribute('href', '/projects/WP/issues/70')
     const paint = (key: string) => document.querySelector(`[data-node-key="${key}"]`)!.getAttribute('data-paint')
     expect(paint('a')).toBe('passed')
     expect(paint('b')).toBe('current')

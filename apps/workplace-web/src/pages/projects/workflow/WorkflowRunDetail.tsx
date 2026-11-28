@@ -116,7 +116,8 @@ export function WorkflowRunDetail({ runId, workflowId, projectKey, canManage, ca
             <span>{` · ${meta}`}</span>
           </p>
         </div>
-        <Link className="shrink-0 text-xs text-primary hover:underline" to={issuePath(projectKey, run.issueNumber)}>이슈 열기 ↗</Link>
+        {/* 앱 안으로 이어지는 링크는 ↗ 대신 › 표기 — 새 창으로 여는 외부 링크와 구분한다(WP-2160, 이슈 6번). */}
+        <Link className="shrink-0 text-xs text-primary hover:underline" to={issuePath(projectKey, run.issueNumber)}>이슈 열기 ›</Link>
         {canAct && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>

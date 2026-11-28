@@ -828,7 +828,7 @@ it('tab_graphView_passesOlderVersionRunsToNotice', async () => {
   expect(notice).toHaveTextContent('옛 버전 실행 1개는 이 그래프에 표시하지 않습니다 (v1 1개) — 게시 버전 v2의 실행만 단계에 셉니다.')
 })
 
-// 이슈 카드의 「실행 보기 ↗」가 싣는 ?workflow= 로 그 정의의 목록이 열린다(없으면 첫 정의), 정의를 바꾸면 run·모아 보기가 지워진다.
+// 이슈 카드의 「자세히 ›」가 싣는 ?workflow= 로 그 정의의 목록이 열린다(없으면 첫 정의), 정의를 바꾸면 run·모아 보기가 지워진다.
 it('tab_workflowParamOpensThatDefinition_changeClearsRun', async () => {
   server.use(
     http.get('/api/v1/workflows/:id/runs', () => HttpResponse.json({ items: [], nextCursor: null })),

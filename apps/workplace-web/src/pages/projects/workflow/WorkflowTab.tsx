@@ -82,7 +82,7 @@ export default function WorkflowTab() {
 function WorkflowWorkspace({ projectId, canManage, workflows }: ProjectWorkflowContext & { projectId: number }) {
   const { user, activeTenant, isLoggingOut } = useAuth()
   const draftStorageKey = workflowDraftStorageKey(user?.id, activeTenant?.tenantId, projectId)
-  // 고른 정의는 주소 `?workflow=` 에 둔다(이슈 카드 「실행 보기 ↗」가 그 실행의 정의를 바로 열게). 없거나 모르는 값이면 첫 정의.
+  // 고른 정의는 주소 `?workflow=` 에 둔다(이슈 카드 「자세히 ›」가 그 실행의 정의를 바로 열게). 없거나 모르는 값이면 첫 정의.
   const [workspaceParams, setWorkspaceParams] = useSearchParams()
   const selectedId = Number(workspaceParams.get('workflow')) || undefined
   /** 정의를 바꾼다 — 이전 정의의 실행(run)·모아 보기(runsView)와 하위 보기(view)는 지운다 — 만들기·바꾸기 모두 편집기로 연다. */
@@ -281,7 +281,7 @@ function SelectedWorkflow({ picker, detail, canManage, isLoggingOut, draftChange
   reload: () => Promise<WorkflowDetail>
 }) {
   const { id, projectId, activeVersion } = detail
-  // 보기는 주소 `?view=` 에 묶는다(이슈 카드 「실행 보기 ↗」가 바로 열 수 있게). 기본·모르는 값은 그래프. 바꿀 때는 replace 로 쓰고, 실행을 떠나면 run·runsView 를 지운다.
+  // 보기는 주소 `?view=` 에 묶는다(이슈 카드 「자세히 ›」가 바로 열 수 있게). 기본·모르는 값은 그래프. 바꿀 때는 replace 로 쓰고, 실행을 떠나면 run·runsView 를 지운다.
   const [searchParams, setSearchParams] = useSearchParams()
   const view = workflowViewFromParam(searchParams.get('view'))
   const setView = useCallback((next: string) => {
