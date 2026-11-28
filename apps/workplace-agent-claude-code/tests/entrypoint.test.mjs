@@ -484,6 +484,34 @@ test('gh 로그인이 응답 없이 멈추면 제한 시간에 끊고 실패로 
   assert.match(status, /1초 안에 끝나지 않았습니다/);
 });
 
+test('gh 가 오류 출력 없이 곧바로 실패하면 시간 제한이 아니라 종료 코드로 남긴다', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0', GENIA_GH_LOGIN_TRIES: '1' } });
+  fakeGh(f, 'exit 3', 0);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const status = f.read('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  assert.match(status, /gh auth login 종료 3, 오류 출력 없음/);
+  assert.doesNotMatch(status, /시간 제한/);
+});
+
+test('제한 시간에 끊기면 앞서 나온 출력이 있어도 시간 제한을 남긴다', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0', GENIA_GH_LOGIN_TRIES: '1', GENIA_GH_LOGIN_TIMEOUT: '1' } });
+  fakeGh(f, 'echo "retrying..." >&2; sleep 20', 0);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const status = f.read('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  assert.match(status, /retrying\.\.\./);
+  assert.match(status, /1초 안에 끝나지 않았습니다/);
+});
+
+test('setup_git 뒤에 토큰 값을 담은 변수가 남지 않는다', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0', GENIA_GH_LOGIN_TRIES: '1' } });
+  fakeGh(f, 'echo boom >&2; exit 1', 0);
+  const r = callLib(f.env, 'check_required && setup_git && echo "LEFT tokval=${tokval-none} mask=${mask-none}"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /LEFT tokval=none mask=none/);
+});
+
 test('접두사 없는 토큰도 그 파일 값으로 가린다', (t) => {
   const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0' } });
   writeFileSync(f.d('run', 'repo-tokens', 'github', 'github.com'), 'PlainSecret12345\n');

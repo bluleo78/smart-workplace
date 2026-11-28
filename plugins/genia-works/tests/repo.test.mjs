@@ -419,11 +419,41 @@ test('gh 통과: GitHub 은 Pod 토큰으로 gh 를 그대로 부르고, GitLab 
 test('auth-check: Pod 토큰이 있는데 실패하면 토큰 거절로 안내한다', () => {
   origin('https://github.com/a/wp.git');
   ghToken('github.com', 'ghp-revoked');
-  reply({ 'gh auth status': { code: 1 } });
+  reply({ 'gh auth status': { code: 1, err: '  - The token in GH_TOKEN is invalid.\n  - Error: non-200 OK status code: 401 Unauthorized body: "Bad credentials"' } });
   const r = run(['auth-check']);
   assert.equal(r.status, 4);
   assert.match(r.stderr, /Pod 의 GitHub 토큰\(github.com\)이 거절됐습니다/);
   assert.match(r.stderr, /git-auth\.log/);
+});
+
+test('auth-check: 옛 gh(--active 없음)에서 Pod 토큰이 거절되면 다시 본 호출의 401 로 거절 안내', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-revoked');
+  reply({ 'gh auth status --active': { code: 1, err: 'unknown flag: --active' }, 'gh auth status --hostname': { code: 1, err: '  - Error: non-200 OK status code: 401 Unauthorized body: "Bad credentials"' } });
+  const r = run(['auth-check']);
+  assert.equal(r.status, 4);
+  assert.match(r.stderr, /거절됐습니다/);
+});
+
+test('auth-check: 오류에 숫자 401 이 섞인 연결 실패는 거절로 보지 않는다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-ok');
+  reply({ 'gh auth status': { code: 1, err: '  - Error: Post "https://api.github.com/graphql": dial tcp 10.140.1.5:4401: connection refused' } });
+  const r = run(['auth-check']);
+  assert.equal(r.status, 4);
+  assert.doesNotMatch(r.stderr, /거절됐습니다/);
+});
+
+test('auth-check: Pod 토큰이 있어도 연결 실패는 거절로 안내하지 않고 gh 의 Error 줄을 보인다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-ok');
+  // gh 2.106.0 은 연결 실패도 「token … is invalid」로 적는다 — Error 줄로 가른다.
+  reply({ 'gh auth status': { code: 1, err: '  X Failed to log in to github.com using token (GH_TOKEN)\n  - The token in GH_TOKEN is invalid.\n  - Error: Post "https://api.github.com/graphql": dial tcp: connection refused' } });
+  const r = run(['auth-check']);
+  assert.equal(r.status, 4);
+  assert.doesNotMatch(r.stderr, /거절됐습니다/);
+  assert.match(r.stderr, /확인하지 못했습니다/);
+  assert.match(r.stderr, /Error: Post "https:\/\/api\.github\.com\/graphql": dial tcp: connection refused/);
 });
 
 test('토큰 파일 끝의 CR·줄바꿈·공백은 빼고 넘긴다', () => {

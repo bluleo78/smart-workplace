@@ -178,14 +178,21 @@ case "$cmd" in
       # 쓰는 계정(--active)만 본다 — 없으면 gh 가 그 호스트의 모든 계정을 검사해, 쓰지 않는 계정 하나의 토큰만 만료돼도 실패한다(WP-1296 시험).
       # 옛 gh(--active 가 없던 판)는 unknown flag 로 실패하므로, 그때만 --active 없이 한 번 더 본다(그 판은 계정이 하나뿐이라 같은 뜻).
       auth_out=$(gh_cli auth status --active --hostname "$host" 2>&1) \
-        || { case "$auth_out" in *"unknown flag"*) gh_cli auth status --hostname "$host" >/dev/null 2>&1 ;; *) false ;; esac; } \
+        || { case "$auth_out" in *"unknown flag"*) auth_out=$(gh_cli auth status --hostname "$host" 2>&1) ;; *) false ;; esac; } \
         || {
-          # Pod 토큰 파일이 있으면 로그인 기록이 아니라 그 토큰이 거절된 것이다 — 안내를 그쪽으로.
+          # Pod 토큰 파일이 있으면 로그인 기록이 아니라 그 토큰으로 확인한 결과다. gh 는 네트워크 오류도 「token … is invalid」로 적으므로
+          # 401·Bad credentials 일 때만 거절로 안내하고, 그 밖(연결 실패 등)은 gh 의 Error 줄을 함께 보인다(gh 2.106.0 에서 확인).
+          msg="gh 가 $host 에 로그인돼 있지 않습니다 — gh auth login --hostname $host 뒤 gh auth setup-git --hostname $host"
           if has_pod_token; then
-            echo "gw-repo: Pod 의 GitHub 토큰($host)이 거절됐습니다 — AI 상세의 저장소 연결 토큰(권한 Contents·Pull requests·만료)을 확인하세요. 엔트리포인트 로그인 결과는 AI 홈의 state/git-auth.log" >&2
-          else
-            echo "gw-repo: gh 가 $host 에 로그인돼 있지 않습니다 — gh auth login --hostname $host 뒤 gh auth setup-git --hostname $host" >&2
+            case "$auth_out" in
+              *"401 Unauthorized"* | *"status code: 401"* | *"Bad credentials"*)
+                msg="Pod 의 GitHub 토큰($host)이 거절됐습니다 — AI 상세의 저장소 연결 토큰(권한 Contents·Pull requests·만료)을 확인하세요. 엔트리포인트 로그인 결과는 AI 홈의 state/git-auth.log" ;;
+              *)
+                why=$(printf '%s\n' "$auth_out" | sed -n '/Error:/{s/^[[:space:]-]*//;p;q;}')
+                msg="Pod 의 GitHub 토큰으로 $host 를 확인하지 못했습니다(거절이 아니라 연결 등의 실패일 수 있음): ${why:-gh auth status 실패}" ;;
+            esac
           fi
+          echo "gw-repo: $msg" >&2
           exit 4
         }
     else
