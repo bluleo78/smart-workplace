@@ -894,6 +894,14 @@ describe('Outlook 기본 캘린더 확인 판정(WP-2171)', () => {
     expect(outlookPromptTarget([])).toBeNull()
   })
 
+  it('위임·공유받은 Outlook(tagsWritable false)은 권하지 않고 내 Outlook 을 고른다', () => {
+    const shared = calendar({ id: 5, isDefault: false, provider: 'M365_GRAPH', tagsWritable: false })
+    expect(outlookPromptTarget([works, shared, ol1])?.id).toBe(3)
+    expect(outlookPromptTarget([works, shared])).toBeNull()
+    // 필드가 없는 옛 응답은 지금처럼 쓸 수 있는 것으로 본다
+    expect(outlookPromptTarget([works, ol2])?.id).toBe(4)
+  })
+
   it('비활성이면 none', () => {
     expect(shouldPromptOutlookDefault({ settings: asked, calendars: [works, ol1], active: false })).toBe('none')
   })

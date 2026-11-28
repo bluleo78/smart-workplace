@@ -1,11 +1,13 @@
 // Outlook 기본 캘린더 확인 창(WP-2171) — 캘린더 화면 진입·M365 연결 성공 알림 뒤 한 번 묻고, 지정·유지·실패에 따라 기록한다.
 // 창은 앱 셸에 마운트되는 컴포넌트라 CalendarPage 와 나란히 renderScreen 으로 띄운다(calendarPageKit 의 ui 인자).
+import { focusManager } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import { act, createElement, Fragment } from 'react'
 import { describe, expect, test } from 'vitest'
 
 import { OutlookDefaultPrompt } from '@/components/calendar/OutlookDefaultPrompt'
 import { calendarKeys } from '@/hooks/queries/calendarKeys'
+import { notifyOpener } from '@/lib/m365-oauth'
 import { CalendarPage } from '@/pages/calendar/CalendarPage'
 import { calendarApi, fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 import { renderScreen } from '@/test/renderScreen'
@@ -26,6 +28,21 @@ const OUTLOOK_RO = calendar({
 
 const withPrompt = () => createElement(Fragment, null, createElement(CalendarPage), createElement(OutlookDefaultPrompt))
 const promptEl = () => screen.queryByTestId('outlook-default-prompt')
+// 다른 화면으로 갔다가 오기 — renderScreen 은 BrowserRouter 라 history 를 바꾸고 popstate 로 알린다
+const go = (path: string) => act(() => {
+  window.history.pushState(null, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+})
+// 다른 탭에 갔다가 이 탭으로 돌아오기(react-query 포커스 신호) — 끝나면 focusManager.setFocused(undefined) 로 되돌린다
+const refocus = () => act(() => {
+  focusManager.setFocused(false)
+  focusManager.setFocused(true)
+})
+// 캘린더 밖으로 나갔다가 다시 들어오기
+const revisit = () => {
+  go('/home')
+  go('/calendar')
+}
 
 describe('Outlook 기본 캘린더 확인 창', () => {
   test('아직 안 물었고 쓸 수 있는 Outlook 캘린더가 있으면 제목·본문과 함께 뜬다', async () => {
@@ -71,6 +88,77 @@ describe('Outlook 기본 캘린더 확인 창', () => {
     await waitFor(() => expect(requests.settingsPuts).toHaveLength(1))
     await waitFor(() => expect(promptEl()).toBeNull())
     expect(requests.promptPosts).toHaveLength(0)
+  })
+
+  test('지정이 409 로 실패한 뒤 캘린더 화면에 다시 들어오면 다시 묻는다', async () => {
+    const { user, requests } = await renderCalendar(
+      { calendars: [WORKS, OUTLOOK], outlookPrompted: false, settingsPutStatus: 409 }, {}, withPrompt(),
+    )
+    await user.click(await screen.findByTestId('outlook-default-prompt-set'))
+    await waitFor(() => expect(promptEl()).toBeNull())
+
+    revisit()
+    expect(await screen.findByTestId('outlook-default-prompt')).toBeInTheDocument()
+    expect(requests.promptPosts).toHaveLength(0)
+  })
+
+  test('409 뒤 재진입에서 다시 뜬 창을 답하지 않고 떠나면 캘린더 밖에서는 조회하지도 창을 띄우지도 않는다', async () => {
+    const { user, requests } = await renderCalendar(
+      { calendars: [WORKS, OUTLOOK], outlookPrompted: false, settingsPutStatus: 409 }, {}, withPrompt(),
+    )
+    await user.click(await screen.findByTestId('outlook-default-prompt-set'))
+    await waitFor(() => expect(promptEl()).toBeNull())
+    revisit()
+    // 재진입에서 다시 뜬 창(409 라 아직 안 물음) — 답하지 않고 캘린더를 떠난다
+    await screen.findByTestId('outlook-default-prompt')
+    go('/home')
+    await waitFor(() => expect(promptEl()).toBeNull())
+    const gets = requests.settingsGets
+    refocus()
+    // 뜨지 않음·조회 없음(부재)을 보는 단언이라 고정 대기
+    await new Promise((r) => setTimeout(r, 300))
+    act(() => focusManager.setFocused(undefined))
+    expect(promptEl()).toBeNull()
+    expect(requests.settingsGets).toBe(gets)
+  })
+
+  test('지정이 409 로 두 번 실패하면 물었음으로 기록해 더 묻지 않는다', async () => {
+    const { user, requests } = await renderCalendar(
+      { calendars: [WORKS, OUTLOOK], outlookPrompted: false, settingsPutStatus: 409 }, {}, withPrompt(),
+    )
+    await user.click(await screen.findByTestId('outlook-default-prompt-set'))
+    await waitFor(() => expect(promptEl()).toBeNull())
+    revisit()
+    await user.click(await screen.findByTestId('outlook-default-prompt-set'))
+    await waitFor(() => expect(requests.promptPosts).toHaveLength(1))
+
+    revisit()
+    // 뜨지 않음(부재)을 보는 단언이라 고정 대기 — 뜰 것이었다면 이 사이 설정·목록 응답으로 열렸다
+    await new Promise((r) => setTimeout(r, 200))
+    expect(promptEl()).toBeNull()
+  })
+
+  test('창이 열린 채 다른 탭에서 답하면 이 탭으로 돌아올 때 설정을 다시 읽어 창이 닫힌다', async () => {
+    const { state } = await renderCalendar({ calendars: [WORKS, OUTLOOK], outlookPrompted: false }, {}, withPrompt())
+    await screen.findByTestId('outlook-default-prompt')
+    // 다른 탭이 「지금대로 두기」로 기록한 상황
+    state.outlookPrompted = true
+    refocus()
+    await waitFor(() => expect(promptEl()).toBeNull())
+    act(() => focusManager.setFocused(undefined))
+  })
+
+  test('물었음 기록이 실패하면 캘린더 화면에 다시 들어올 때 다시 묻고, 다시 기록한다', async () => {
+    const { user, requests } = await renderCalendar(
+      { calendars: [WORKS, OUTLOOK], outlookPrompted: false, promptPostStatus: 500 }, {}, withPrompt(),
+    )
+    await user.click(await screen.findByTestId('outlook-default-prompt-keep'))
+    await waitFor(() => expect(requests.promptPosts).toHaveLength(1))
+    await waitFor(() => expect(promptEl()).toBeNull())
+
+    revisit()
+    await user.click(await screen.findByTestId('outlook-default-prompt-keep'))
+    await waitFor(() => expect(requests.promptPosts).toHaveLength(2))
   })
 
   test('지정이 403(쓰기 권한 없음)으로 실패하면 물었음을 기록한다', async () => {
@@ -179,6 +267,31 @@ describe('M365 연결 성공 알림', () => {
     await new Promise((r) => setTimeout(r, 300))
     expect(promptEl()).toBeNull()
     expect(api.requests.promptPosts).toHaveLength(0)
+  })
+
+  test('다른 탭의 팝업이 BroadcastChannel 로 보낸 연결 성공 알림에도 창이 뜬다(연결을 시작하지 않은 탭)', async () => {
+    const api = calendarApi({ calendars: [WORKS, OUTLOOK], outlookPrompted: false })
+    renderScreen(createElement(OutlookDefaultPrompt), { path: '/home', handlers: api.handlers })
+    // 이 탭은 팝업의 opener 가 아니다 — 팝업의 notifyOpener 가 opener 없이 BroadcastChannel 로만 알린다
+    act(() => {
+      notifyOpener({ source: 'm365-oauth', ok: true })
+    })
+    expect(await screen.findByTestId('outlook-default-prompt')).toHaveTextContent('dh.yang@iacloud.kr')
+  })
+
+  test('캘린더 밖에서 연결 알림으로 뜬 창은 기다림이 끝나도, 캘린더를 들렀다 나와도 답할 때까지 남는다', async () => {
+    const api = calendarApi({ calendars: [WORKS, OUTLOOK], outlookPrompted: false })
+    renderScreen(createElement(OutlookDefaultPrompt, { pollMs: 50, connectWindowMs: 200 }), { path: '/home', handlers: api.handlers })
+    act(() => {
+      notifyOpener({ source: 'm365-oauth', ok: true })
+    })
+    await screen.findByTestId('outlook-default-prompt')
+    // 기다림(200ms)이 끝난 뒤에도 남는다
+    await new Promise((r) => setTimeout(r, 400))
+    expect(promptEl()).not.toBeNull()
+    revisit()
+    go('/home')
+    expect(await screen.findByTestId('outlook-default-prompt')).toBeInTheDocument()
   })
 
   test('실패 알림(ok: false)·다른 출처의 알림은 무시한다', async () => {

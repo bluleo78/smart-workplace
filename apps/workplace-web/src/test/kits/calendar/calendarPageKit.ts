@@ -53,6 +53,8 @@ type ApiOptions = {
   settingsPutStatus?: number
   /** PUT /calendar/settings 응답을 늦춘다(요청 중 상태 관찰) */
   holdPut?: () => Promise<void>
+  /** POST /calendar/settings/outlook-prompted 를 이 상태 코드로 실패시킨다(WP-2171 리뷰 후속 — 기록 실패 뒤 다시 묻기) */
+  promptPostStatus?: number
 }
 
 /**
@@ -106,6 +108,7 @@ export function calendarApi(opts: ApiOptions = {}) {
     }),
     http.post('/api/v1/calendar/settings/outlook-prompted', () => {
       requests.promptPosts.push(true)
+      if (opts.promptPostStatus) return HttpResponse.json({ message: 'error' }, { status: opts.promptPostStatus })
       state.outlookPrompted = true
       return new HttpResponse(null, { status: 204 })
     }),
