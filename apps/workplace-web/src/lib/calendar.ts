@@ -584,9 +584,12 @@ export function recurrenceCalendarSwitch(args: {
   return unchanged
 }
 
-/** 「새 일정 기본 캘린더」 확인 창이 권할 캘린더(WP-2171) — 쓸 수 있는(읽기 전용 아닌) Outlook 캘린더 중 목록 순서 첫째. 없으면 null. */
+/**
+ * 「새 일정 기본 캘린더」 확인 창이 권할 캘린더(WP-2171) — 쓸 수 있는(읽기 전용 아닌) 내 Outlook 캘린더 중 목록 순서 첫째. 없으면 null.
+ * 위임·공유받은 Outlook 캘린더(tagsWritable false — WP-2172)는 권하지 않는다: 기본으로 두면 태그 일정이 Works 로 바뀌어 저장돼 「Outlook 에 만든다」는 뜻과 어긋난다.
+ */
 export function outlookPromptTarget(calendars: Calendar[]): Calendar | null {
-  return calendars.find((c) => isOutlookCalendar(c) && !c.isReadOnly) ?? null
+  return calendars.find((c) => isOutlookCalendar(c) && !c.isReadOnly && c.tagsWritable !== false) ?? null
 }
 
 /**
