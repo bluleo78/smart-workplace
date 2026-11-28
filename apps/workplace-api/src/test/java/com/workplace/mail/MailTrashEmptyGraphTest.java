@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -506,12 +507,19 @@ class MailTrashEmptyGraphTest extends ExternalClientMockedTestBase {
     when(graphTokenService.getAccessToken(anyLong(), anyLong()))
         .thenThrow(MailCredentialUnreadableException.oauthToken(null));
 
+    // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+    clearInvocations(graphApiClient);
     MailTrashEmptyStatus st = trashService.startEmpty(s[0], s[1]);
 
     assertThat(st.state()).isEqualTo("FAILED");
     assertThat(st.errorCode()).isEqualTo(MailTrashException.OAUTH_TOKEN_UNREADABLE);
     assertThat(st.error()).isEqualTo(MailServerErrors.OAUTH_TOKEN_UNREADABLE);
+    // 서버 호출 없음 — 위치 확인·목록 GET·삭제·배치가 하나도 나가지 않는다. 지우개는 지금 배치
+    // permanentDelete 로 지우므로 delete 는 이 흐름에 닿지 않아도, 다음에 바뀌면 먼저 잡도록 가드로 둔다.
     verify(graphApiClient, never()).get(anyString(), eq(TRASH_FOLDER_URL), any());
+    verify(graphApiClient, never()).get(eq(TOKEN), eq(FIRST_PAGE), any());
+    verify(graphApiClient, never()).get(eq(TOKEN), eq(NEXT_PAGE), any());
+    verify(graphApiClient, never()).delete(eq(TOKEN), any());
     verify(graphApiClient, never()).batch(any(), any());
   }
 

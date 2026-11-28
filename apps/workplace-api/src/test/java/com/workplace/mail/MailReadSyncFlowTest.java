@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -171,6 +172,8 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
             .fetchOne()
             .getId();
 
+    // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+    clearInvocations(graphApiClient);
     TenantContext.set(1L);
     messageService.get(seededUser, seededMessage, true); // seen=true 이미라 markSeen 분기 미진입
 
@@ -262,6 +265,8 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
       }
       org.assertj.core.api.Assertions.assertThat(saturated).isTrue();
 
+      // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+      clearInvocations(graphApiClient);
       TenantContext.set(1L);
       // 거절이 호출자에게 새면 예외 → 테스트 실패. 삼키면 정상 반환.
       messageService.markRead(seededUser, seededMessage);
@@ -408,6 +413,8 @@ class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
     when(graphTokenService.getAccessToken(seededUser, seededAccount))
         .thenThrow(new IllegalStateException("token revoked"));
 
+    // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+    clearInvocations(graphApiClient);
     dispatcher.dispatch(
         new MessagesSeenChangedEvent(1L, seededUser, seededAccount, List.of(seededMessage)));
 

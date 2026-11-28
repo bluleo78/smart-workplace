@@ -3,7 +3,9 @@ package com.workplace.mail;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -158,12 +160,15 @@ class GraphReadSyncerTest extends ExternalClientMockedTestBase {
         new SeenSyncItem(
             7L, new ReadSyncLocator(10L, MailProvider.M365_GRAPH, null, null, "SENT"), true);
 
+    // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+    clearInvocations(graphApiClient, graphTokenService);
+
     SeenSyncResult r = syncer.open(1L, ACCOUNT).push(List.of(local));
 
     assertThat(r.succeeded()).containsExactly(7L);
     assertThat(r.stopped()).isFalse();
-    // 서버로 보낼 항목이 없으면 토큰도 받지 않는다 — 토큰이 깨진 계정이어도 로컬 행은 대기가 풀린다
-    verify(graphTokenService, never()).getAccessToken(eq(1L), eq(10L));
+    // 서버로 보낼 항목이 없으면 어떤 인자로도 토큰을 받지 않는다 — 토큰이 깨진 계정이어도 로컬 행은 대기가 풀린다
+    verify(graphTokenService, never()).getAccessToken(anyLong(), anyLong());
     verify(graphApiClient, never()).batch(any(), any());
   }
 

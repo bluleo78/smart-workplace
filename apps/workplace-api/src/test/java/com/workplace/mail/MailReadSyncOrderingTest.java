@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -276,6 +277,8 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
                 .where(EMAIL_ACCOUNT.ID.eq(seededAccount))
                 .execute());
 
+    // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+    clearInvocations(graphApiClient);
     dispatcher.dispatchAccount(seededUser, seededAccount);
     verify(graphApiClient, never()).batch(any(), any());
     assertThat(row(id).getSeenPushPending()).isTrue();
@@ -421,6 +424,8 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
       assertThat(accepted)
           .as("실행기를 이 테스트의 대기 작업만으로 채웠는지 — 모자라면 다른 작업이 끼어든 것")
           .isEqualTo(exec.getMaxPoolSize() + exec.getQueueCapacity());
+      // 앞선 테스트가 남긴 호출은 이 검증의 대상이 아니다 — 액션 직전에 지운다(스텁은 그대로)
+      clearInvocations(graphApiClient);
       TenantContext.set(1L);
       messageService.markRead(seededUser, id); // 이벤트 거절 — 요청은 성공
     } finally {
