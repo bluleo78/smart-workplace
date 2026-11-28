@@ -4,7 +4,7 @@
 //        프로젝트·사용자별 분리·목록 열과 다른 쿼리는 기억하지 않음·알 수 없는 값을 지운 목록은 같은 화면의 이동(replace·시트 표식 PUSH·시트 닫는 POP·aiChat PUSH)에 그대로임.
 // 왜: 조건은 URL 이 단일 원본이라, 되살리기가 주소의 조건을 덮으면 공유 링크·에픽 링크가 엉뚱한 조건으로 열린다.
 import { act, render, renderHook, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,7 +12,7 @@ import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { AuthContext } from '@/hooks/auth-context-value'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
-import { resetDocumentPopForTests } from '@/lib/documentNavigation'
+import { reloadedDocumentUrl, resetDocumentPopForTests } from '@/lib/documentNavigation'
 import { settleHistory } from '@/test/history'
 import { memoryStorage } from '@/test/memoryStorage'
 import { testAuthValue } from '@/test/renderWithProviders'
@@ -161,8 +161,107 @@ describe('새로고침·세션 복원(WP-2096)', () => {
       window.history.pushState(null, '', '/projects/WP?statusId=3#section')
       window.dispatchEvent(new PopStateEvent('popstate', { state: null }))
     })
+    await act(settleHistory)
     expect(result.current.location.hash).toBe('#section')
     expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+  })
+
+  it.each([
+    ['기억할 조건이 문서 로드 주소와 같으면 다시 불러온 항목을 정리한 것이라 기억을 덮지 않는다', '/projects/WP?statusId=3', 'priority=HIGH'],
+    ['조건이 다르면 평소처럼 기억한다', '/projects/WP?priority=LOW', 'priority=LOW'],
+  ])('화면이 붙기 전에 앱 셸이 주소를 replace 로 정리하면(첫 렌더 REPLACE) — %s', (_name, cleaned, expected) => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3&aiChat=abc')
+    function Screen() {
+      useRememberedIssueQuery('WP', true)
+      return <p data-testid="search">{useLocation().search}</p>
+    }
+    // 앱 셸(AiChatDeepLink)처럼 화면보다 먼저 aiChat 을 지우는 replace 를 하고, 그 뒤에 이슈 화면(지연 청크)이 붙는다.
+    function Shell() {
+      const navigate = useNavigate()
+      const { search } = useLocation()
+      useEffect(() => {
+        navigate(cleaned, { replace: true })
+      }, [navigate])
+      // 주소가 정리된 뒤에야 화면이 붙는다 — 화면의 첫 렌더가 REPLACE 다.
+      return search.includes('aiChat') ? null : <Screen />
+    }
+    render(
+      <AuthContext.Provider value={testAuthValue}>
+        <MemoryRouter initialEntries={['/projects/WP?statusId=3&aiChat=abc']}>
+          <Shell />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    )
+    expect(screen.getByTestId('search').textContent).toBe(new URL(cleaned, 'http://x').search)
+    expect(localStorage.getItem(keyOf('WP'))).toBe(expected)
+  })
+
+  it('화면이 붙기 전에 앱 셸이 aiChat 을 지우고(REPLACE) 모바일 시트 표식을 PUSH 해도 기억을 덮지 않는다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3&aiChat=abc')
+    // 시트 표식 PUSH 는 실제 세션 히스토리의 위치 번호(idx)를 올리므로 BrowserRouter 로 띄운다.
+    window.history.replaceState(null, '', '/projects/WP?statusId=3&aiChat=abc')
+    resetDocumentPopForTests()
+    function Screen() {
+      useRememberedIssueQuery('WP', true)
+      return <p data-testid="search">{useLocation().search}</p>
+    }
+    function Shell() {
+      const navigate = useNavigate()
+      const { search, state } = useLocation()
+      useEffect(() => {
+        if (search.includes('aiChat')) navigate('/projects/WP?statusId=3', { replace: true })
+        else if (!state) navigate('/projects/WP?statusId=3', { state: { aiOpen: 'side', 'historyParam:aiOpen': 1 } })
+      }, [navigate, search, state])
+      // 시트 표식이 달린 뒤에야 화면(지연 청크)이 붙는다 — 화면의 첫 렌더가 PUSH 다.
+      return state ? <Screen /> : null
+    }
+    render(
+      <AuthContext.Provider value={testAuthValue}>
+        <BrowserRouter>
+          <Shell />
+        </BrowserRouter>
+      </AuthContext.Provider>,
+    )
+    expect(screen.getByTestId('search').textContent).toBe('?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+  })
+
+  it('다시 불러온 뒤 여러 화면을 다녀와(PUSH) 같은 조건 주소로 replace 진입하면 사용자의 이동이라 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    window.history.replaceState(null, '', '/home')
+    resetDocumentPopForTests()
+    function Screen() {
+      useRememberedIssueQuery('WP', true)
+      return null
+    }
+    function Shell() {
+      const navigate = useNavigate()
+      const { pathname, search } = useLocation()
+      useEffect(() => {
+        if (pathname === '/home') navigate('/drive')
+        else if (pathname === '/drive') navigate('/projects/WP?statusId=3&aiChat=x')
+        else if (search.includes('aiChat')) navigate('/projects/WP?statusId=3', { replace: true })
+      }, [navigate, pathname, search])
+      return pathname === '/projects/WP' && !search.includes('aiChat') ? <Screen /> : null
+    }
+    render(
+      <AuthContext.Provider value={testAuthValue}>
+        <BrowserRouter>
+          <Shell />
+        </BrowserRouter>
+      </AuthContext.Provider>,
+    )
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=3')
+  })
+
+  it('reloadedDocumentUrl — 문서를 불러온 뒤 popstate 가 있었으면 null', () => {
+    const loaded = { type: 'reload', name: 'http://localhost/projects/WP?statusId=3' }
+    expect(reloadedDocumentUrl(loaded)).not.toBeNull()
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }))
+    expect(reloadedDocumentUrl(loaded)).toBeNull()
   })
 
   it('새로고침 뒤 링크 이동 → 뒤로 가기로 다시 불러온 항목에 돌아온 POP 은 사용자의 이동이라 기억한다', async () => {

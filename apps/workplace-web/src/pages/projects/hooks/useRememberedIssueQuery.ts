@@ -16,6 +16,8 @@
 //   그 직후 같은 화면에 머무는 이동(aiChat 지우기·열·저장된 뷰 정리 replace, 시트·패널 열고 닫기, 해시 이동)도 기억할 조건이 그대로인 동안은 쓰지 않는다.
 //   사용자가 조건을 바꾸거나(조건이 달라짐) 링크로 이동하거나(PUSH — 같은 조건의 공유·에픽·저장된 뷰 링크도) 다른 경로로 옮기면 그때부터 평소처럼 기억한다.
 //   새로고침 뒤 뒤로/앞으로 가기로 그 항목에 돌아온 POP 도 사용자의 이동이라 기억한다(documentNavigation 이 popstate 로 가른다).
+//   화면이 붙기 전에 앱 셸이 주소를 정리해(aiChat 지우기) 첫 렌더가 REPLACE 여도, 경로·기억할 조건이 문서 로드 주소와 같으면 다시 불러온 항목으로 본다.
+//   해시 이동은 브라우저의 해시 이동(앵커·주소창 — popstate·POP)만 같은 화면으로 본다. 라우터 링크로 해시만 바꾸는 PUSH 는 표식 없는 링크 이동이라 기억한다.
 // - 들어온 주소에 조건이 없을 때만 되살린다 — 공유 링크·에픽 링크·저장된 뷰처럼 주소에 조건이 있으면 그것을 따르고 기억을 바꾼다.
 // - 개요 탭(WP-1478)의 링크는 조건을 단 주소로 이슈 탭을 열지만 기억은 바꾸지 않는다(state FROM_OVERVIEW_STATE) — 「오래 멈춤」·
 //   고정 날짜(마감 ~11/10) 같은 그때그때의 조건이 사용자가 고른 기억을 덮지 않게. 화면 안에서 조건을 바꾸면(replace, state 없음) 다시 기억한다.
@@ -25,7 +27,7 @@ import { useLocation, useNavigationType, useSearchParams } from 'react-router-do
 
 import { useAuth } from '@/hooks/useAuth'
 import { CHAT_PARAM } from '@/lib/aiChatLink'
-import { isReloadedDocumentEntry } from '@/lib/documentNavigation'
+import { historyStepsSinceLoad, isReloadedDocumentEntry, reloadedDocumentUrl } from '@/lib/documentNavigation'
 import { hasAnyOpenMark } from '@/lib/historyParam'
 import { readStored, writeStored } from '@/lib/storageWithFallback'
 import { userScopedKey } from '@/lib/userScopedKey'
@@ -131,8 +133,21 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   // 그때까지 따르면 조건 없는 주소로 다시 들어와도 기억을 되살리지 않는다(WP-2083 리뷰) — 그런 이동에 실린 표지는 없는 것으로 본다.
   const ignoredCleared = readIgnoredClearedState(state) && navigationType === 'REPLACE' && samePath && prev?.hasIgnored === true
   // 문서를 다시 불러온 첫 항목인가(WP-2096) — 이 항목의 주소 조건은 오래된 것일 수 있어 공유 기억에 쓰지 않는다.
-  const reloadedNow = isReloadedDocumentEntry(navigationType, pathname, search)
   const query = rememberedIssueQuery(params).toString()
+  // 화면이 붙기 전에 앱 셸이 주소를 정리한 경우 — 첫 렌더가 이미 POP 이 아니라 POP 판정에 걸리지 않는다(WP-2096 리뷰).
+  // 이 화면의 첫 위치(앞 위치 없음)가 문서를 불러온 항목을 정리한 것일 때만 본다 — 같은 항목의 REPLACE(aiChat 지우기),
+  // 또는 그 뒤 한 걸음의 시트·패널 표식·aiChat PUSH(모바일 AI 대화 링크의 시트 열기). 여러 화면을 다녀온 뒤의 이동은 사용자의 이동이다.
+  const steps = prev === null && navigationType !== 'POP' ? historyStepsSinceLoad() : -1
+  const cleanedEntry =
+    (navigationType === 'REPLACE' && steps === 0) ||
+    (navigationType === 'PUSH' && steps === 1 && (params.has(CHAT_PARAM) || hasAnyOpenMark(state)))
+  const loadedUrl = cleanedEntry ? reloadedDocumentUrl() : null
+  const cleanedReload =
+    loadedUrl !== null &&
+    // 경로와 기억할 조건이 문서 로드 주소와 같아야 한다. 라우터 pathname 은 디코딩, 문서 로드 주소는 인코딩이라 같은 URL 파서로 맞춰 견준다.
+    loadedUrl.pathname === new URL(pathname + search, 'http://x').pathname &&
+    rememberedIssueQuery(loadedUrl.searchParams).toString() === query
+  const reloadedNow = isReloadedDocumentEntry(navigationType, pathname, search) || cleanedReload
   // 주소에 조건이 있는가 — 기본 보기(view=list)는 직렬화하면 빠지지만, 주소에 적혀 있으면 「목록으로」 고른 것이라 되살리지 않는다.
   const recordable = query !== '' || params.has('view')
   // 알 수 없는 값만 든 주소도 조건을 적은 주소라 되살리지도, 기억을 지우지도 않는다.
@@ -158,7 +173,7 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   // 렌더 중 갱신(hadConditionsFor 와 같은 패턴)이라 같은 렌더에서 바로 쓴다.
   const [reloaded, setReloaded] = useState<{ projectKey: string; query: string; key: string } | null>(null)
   const markedSame = reloaded !== null && reloaded.projectKey === projectKey && reloaded.query === query
-  // 다시 불러온 항목에 이어지는 같은 화면의 이동 — onScreen(같은 경로의 REPLACE·시트/패널 표식 PUSH·그 항목을 닫는 POP·해시 이동 POP)이고 기억할 조건이 그대로일 때만.
+  // 다시 불러온 항목에 이어지는 같은 화면의 이동 — onScreen(같은 경로의 REPLACE·시트/패널 표식 PUSH·그 항목을 닫는 POP·브라우저의 해시 이동 POP)이고 기억할 조건이 그대로일 때만.
   // 표식 없는 PUSH(같은 조건의 공유·에픽·저장된 뷰 링크)·다른 경로로 옮김·조건이 바뀐 이동은 사용자의 이동이라 표지를 지우고 평소처럼 기억한다(WP-2096 리뷰).
   // location.key 가 표지를 단 때와 같으면 이동으로 보지 않는다 — state 없는 항목은 모두 key 'default' 라 해시 항목으로 옮겨도 key 가 같아 앞 위치(visit)가 밀리지 않는다.
   const followsReload = markedSame && (onScreen || reloaded.key === locationKey)
