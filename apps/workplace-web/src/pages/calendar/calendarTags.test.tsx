@@ -22,7 +22,7 @@ const TAGS: CalendarTag[] = [
 ]
 
 const CALENDARS = [
-  calendar({ id: 1, name: '기본', isDefault: true }),
+  calendar({ id: 1, name: 'Works 캘린더', isDefault: true }),
   calendar({ id: 10, name: '회사 일정', isDefault: false, isReadOnly: true, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
   // 내 사서함의 쓸 수 있는 Outlook 달력 — 여기 일정의 태그는 Outlook 범주로 써 넣는다(WP-716)
   calendar({ id: 11, name: 'Outlook 일정', isDefault: false, isReadOnly: false, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
@@ -34,7 +34,7 @@ const myEvent = (over: Partial<CalendarEvent> = {}): CalendarEvent =>
     id: 60,
     title: '내 회의',
     calendarId: 1,
-    calendarName: '기본',
+    calendarName: 'Works 캘린더',
     myRole: 'ORGANIZER',
     tags: [{ id: 1, name: '사내 공유', color: 'violet' }],
     tagsEditable: true,

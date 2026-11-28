@@ -39,6 +39,7 @@ import com.workplace.jooq.tables.CalendarEventException;
 import com.workplace.jooq.tables.CalendarEventNote;
 import com.workplace.jooq.tables.CalendarEventTag;
 import com.workplace.jooq.tables.CalendarTag;
+import com.workplace.jooq.tables.CalendarUserSetting;
 import com.workplace.jooq.tables.Channel;
 import com.workplace.jooq.tables.ChannelMember;
 import com.workplace.jooq.tables.ChannelMemberGroup;
@@ -389,6 +390,11 @@ public class Tables {
      * The table <code>public.calendar_tag</code>.
      */
     public static final CalendarTag CALENDAR_TAG = CalendarTag.CALENDAR_TAG;
+
+    /**
+     * The table <code>public.calendar_user_setting</code>.
+     */
+    public static final CalendarUserSetting CALENDAR_USER_SETTING = CalendarUserSetting.CALENDAR_USER_SETTING;
 
     /**
      * The table <code>public.channel</code>.

@@ -17,7 +17,7 @@ import { calendar, calendarEvent, recurringCalendarEvent } from '../../../e2e/fa
 beforeEach(pinNow)
 afterEach(() => vi.useRealTimers())
 
-const LOCAL = calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false })
+const LOCAL = calendar({ id: 1, name: 'Works 캘린더', color: 'blue', isDefault: true, isReadOnly: false })
 const WORK = calendar({ id: 2, name: '업무', color: 'red', isDefault: false })
 const M365_READONLY = calendar({
   id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true,
@@ -65,9 +65,9 @@ describe('새 일정 — 캘린더 선택·색', () => {
   test('캘린더 선택의 기본값은 기본 캘린더이고, 읽기 전용 외부 캘린더는 고를 수 없다', async () => {
     const { user } = renderCalendarPage('/calendar', calendarHandlers({ calendars: [LOCAL, M365_READONLY, M365_WRITABLE] }))
     await user.click(await screen.findByTestId('calendar-new-event'))
-    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('기본'))
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더'))
     const names = await openCalendarSelect(user)
-    expect(names).toContain('기본')
+    expect(names).toContain('Works 캘린더')
     expect(names).toContain('업무(M365)')
     expect(names).not.toContain('M365 캘린더')
   })
@@ -103,7 +103,7 @@ describe('새 일정 — 캘린더 선택·색', () => {
     await user.click(await screen.findByTestId('calendar-new-event'))
     await user.type(screen.getByTestId('calendar-form-title'), '회귀 테스트 일정')
     await user.type(screen.getByTestId('calendar-form-location'), '회의실 A')
-    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('기본'), { timeout: 3000 })
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더'), { timeout: 3000 })
     // full reset 이 일어나면 여기서 실패한다
     expect(screen.getByTestId('calendar-form-title')).toHaveValue('회귀 테스트 일정')
     expect(screen.getByTestId('calendar-form-location')).toHaveValue('회의실 A')
@@ -182,7 +182,7 @@ describe('읽기 전용 일정 — 상세 보기(WP-708·710)', () => {
   })
 
   test('로컬 캘린더 일정은 동기화 라벨 없이 편집 폼으로 열린다 (회귀)', async () => {
-    const ev = calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, calendarName: '기본' })
+    const ev = calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, calendarName: 'Works 캘린더' })
     const { user } = renderCalendarPage('/calendar', calendarHandlers({ calendars: [LOCAL], events: [ev] }))
     await user.click(await screen.findByTestId('calendar-event-1'))
     expect(await screen.findByTestId('calendar-form-title')).toBeEnabled()
@@ -285,7 +285,7 @@ describe('읽기 전용 일정 — 상세 보기(WP-708·710)', () => {
     const series = recurringCalendarEvent(7, occ, { calendarId: 99, calendarName: '기본', title: '주간 회의', myRole: 'ATTENDEE' })
     const { user } = renderCalendarPage('/calendar', [
       http.get('/api/v1/calendar/events/7', () => HttpResponse.json(series[0])),
-      ...calendarHandlers({ calendars: [calendar({ id: 1, name: '기본', isDefault: true })], events: series }),
+      ...calendarHandlers({ calendars: [calendar({ id: 1, name: 'Works 캘린더', isDefault: true })], events: series }),
     ])
     await user.click(await screen.findByTestId(`calendar-event-7-${occ[1]}`))
     const time = await screen.findByTestId('event-detail-time')
@@ -308,7 +308,7 @@ describe('일정 링크 복사(WP-1234)', () => {
   })
 
   test('내가 고칠 수 있는 일정(편집 폼으로 열림)에도 🔗 가 있다', async () => {
-    const ev = calendarEvent({ id: 43, title: '내 회의', calendarId: 1, calendarName: '기본' })
+    const ev = calendarEvent({ id: 43, title: '내 회의', calendarId: 1, calendarName: 'Works 캘린더' })
     const { user } = renderCalendarPage('/calendar', calendarHandlers({ calendars: [LOCAL], events: [ev] }))
     await user.click(await screen.findByTestId('calendar-event-43'))
     const dialog = await screen.findByTestId('calendar-event-dialog')

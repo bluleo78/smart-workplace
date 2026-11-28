@@ -11,7 +11,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 // GET/POST /api/v1/calendar/events 메서드별 분기 + GET /api/v1/calendars 스텁.
 async function stubAll(page: Page, events: CalendarEvent[] = []) {
   await mockApi(page, 'GET', '/api/v1/calendars', [
-    calendar({ id: 1, name: '기본', color: 'blue', isDefault: true }),
+    calendar({ id: 1, name: 'Works 캘린더', color: 'blue', isDefault: true }),
     calendar({ id: 2, name: '업무', color: 'red', isDefault: false }),
   ])
   await page.route(

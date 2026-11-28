@@ -526,6 +526,11 @@ export function isNotEventOrganizer(
     (event.attendees?.some((a) => a.role === 'ORGANIZER' && a.userId != null) ?? false)
 }
 
+// Outlook(M365 Graph) 연동 캘린더인가 — 캘린더 선택 항목에 「· Outlook」 표시를 붙일지 정한다.
+export function isOutlookCalendar(c: { provider?: string | null }): boolean {
+  return c.provider === 'M365_GRAPH'
+}
+
 // 공급자 raw 문자열 → 사이드바 pill 라벨. IMAP 은 일정 동기화를 안 하므로 현재는 M365 만 실제 등장.
 export function providerLabel(provider: string | null | undefined): string {
   switch (provider) {

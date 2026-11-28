@@ -338,7 +338,7 @@ describe('일정 변경 실시간 반영 (WP-61)', () => {
 
 // 로컬 기본(1) + 로컬 업무(2) + M365 연동 쓰기 가능(10, accountEmail 보유)
 const LOCAL_AND_LINKED = [
-  calendar({ id: 1, name: '기본', isDefault: true }),
+  calendar({ id: 1, name: 'Works 캘린더', isDefault: true }),
   calendar({ id: 2, name: '업무', isDefault: false }),
   calendar({ id: 10, name: 'Calendar', isDefault: false, isReadOnly: false, accountEmail: 'me@iacloud.kr', provider: 'M365_GRAPH' }),
 ]
@@ -407,7 +407,7 @@ test('표시 토글로 이슈 마감·초대받은 일정·캘린더별 일정�
   })
   expect(await screen.findByTestId('calendar-event-1')).toBeInTheDocument()
   expect(await screen.findByTestId('calendar-issue-due-7')).toBeInTheDocument()
-  expect(screen.getByRole('checkbox', { name: '캘린더 표시: 기본' })).toBeInTheDocument()
+  expect(screen.getByRole('checkbox', { name: '캘린더 표시: Works 캘린더' })).toBeInTheDocument()
 
   await user.click(screen.getByTestId('calendar-layer-issue-dues'))
   expect(screen.queryByTestId('calendar-issue-due-7')).not.toBeInTheDocument()
@@ -432,9 +432,9 @@ describe('캘린더 관리', () => {
   // WP-687 — 이름은 서버 상한(100자)까지만 들어간다. 저장하면 { name, color } 로 POST 하고 목록이 새로 불린다.
   test('캘린더 목록이 보이고, ＋ 로 이름·색을 골라 만들면 POST 뒤 목록에 나타난다', async () => {
     const { user, requests } = await renderCalendar({
-      calendars: [calendar({ id: 1, name: '기본', color: 'blue', isDefault: true }), calendar({ id: 2, name: '업무', color: 'green', isDefault: false })],
+      calendars: [calendar({ id: 1, name: 'Works 캘린더', color: 'blue', isDefault: true }), calendar({ id: 2, name: '업무', color: 'green', isDefault: false })],
     })
-    expect(screen.getByTestId('calendar-list-item-1')).toHaveTextContent('기본')
+    expect(screen.getByTestId('calendar-list-item-1')).toHaveTextContent('Works 캘린더')
     expect(screen.getByTestId('calendar-list-item-2')).toHaveTextContent('업무')
 
     await user.click(screen.getByTestId('calendar-add'))
@@ -490,7 +490,7 @@ describe('캘린더 관리', () => {
     await waitFor(() => expect(requests.eventLists).toBeGreaterThan(0))
     await openMenu(user, 1)
     await user.click(screen.getByTestId('calendar-reset-1'))
-    expect(await screen.findByTestId('calendar-reset-confirm')).toHaveTextContent('기본의 모든 일정을 영구 삭제합니다')
+    expect(await screen.findByTestId('calendar-reset-confirm')).toHaveTextContent('Works 캘린더의 모든 일정을 영구 삭제합니다')
     const before = requests.eventLists
     await user.click(screen.getByTestId('calendar-reset-confirm-submit'))
     await waitFor(() => expect(requests.resets).toEqual([1]))

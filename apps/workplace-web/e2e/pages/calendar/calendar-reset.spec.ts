@@ -13,7 +13,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 // 로컬 기본 캘린더(1) + M365 연동 캘린더(10, accountEmail 보유) 스텁.
 async function stub(page: Page) {
   const cals: Calendar[] = [
-    calendar({ id: 1, name: '기본', isDefault: true }),
+    calendar({ id: 1, name: 'Works 캘린더', isDefault: true }),
     calendar({
       id: 10,
       name: 'Calendar',
@@ -55,7 +55,7 @@ test.describe('캘린더 케밥 — 터치 태블릿(≥1024px)', { tag: '@layou
     const m = (await menu.boundingBox())!
     expect(m.width).toBeGreaterThanOrEqual(44)
     expect(m.height).toBeGreaterThanOrEqual(44)
-    const name = (await page.getByTestId('calendar-list-item-1').getByText('기본', { exact: true }).boundingBox())!
+    const name = (await page.getByTestId('calendar-list-item-1').getByText('Works 캘린더', { exact: true }).boundingBox())!
     expect(name.x + name.width).toBeLessThanOrEqual(m.x)
 
     await menu.tap()

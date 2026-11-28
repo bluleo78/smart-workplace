@@ -45,11 +45,11 @@ import {
   useInviteAttendees,
   useRemoveAttendee,
 } from '@/hooks/queries/useCalendarMutations'
-import { useCalendars } from '@/hooks/queries/useCalendars'
+import { useCalendars, useDefaultCalendarId } from '@/hooks/queries/useCalendars'
 import { useCreateMeetingNote } from '@/hooks/queries/useCreateMeetingNote'
 import { useEventNote, useLinkEventNote, useUnlinkEventNote } from '@/hooks/queries/useEventNote'
 import { useAuth } from '@/hooks/useAuth'
-import { INVITED_CALENDAR_LABEL } from '@/lib/calendar'
+import { INVITED_CALENDAR_LABEL, isOutlookCalendar } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
 import {
   allDayFormRange,
@@ -146,8 +146,11 @@ export function EventDialog({
   // 개인 캘린더 목록 — 드롭다운에 표시. 로드 전은 빈 배열.
   const { data: calendars = [], isSuccess: calendarsLoaded } = useCalendars()
 
-  // 기본 캘린더 id — isDefault=true 우선, 없으면 첫 번째.
-  const defaultCalendarId = calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id
+  // 기본 캘린더 id(WP-2169) — 설정 실효값이 쓰기 가능 캘린더 목록에 있으면 그것, 아니면 isDefault=true, 없으면 첫 번째.
+  const defaultCalendarId = useDefaultCalendarId(calendars, { writableOnly: true })
+
+  // 생성 모드에서 사용자가 캘린더를 직접 골랐는지 — 설정이 늦게 와도 고른 값을 덮지 않게(열 때마다 false 로)
+  const calendarPickedRef = useRef(false)
 
   // 생성 모드에서 선택된 참석자 목록 — id+이름+종류 저장으로 칩에 실명 표시 (이슈 #489)
   const [selectedAttendees, setSelectedAttendees] = useState<SelectedMember[]>([])
@@ -266,6 +269,7 @@ export function EventDialog({
     setPendingCreate(null)
     setMeetingDialog(null)
     setColorOpen(false)
+    calendarPickedRef.current = false
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
     // 폼이 담을 수 없는 규칙이면 반복 칸이 잠겨 보이지 않으므로 NONE 으로 둔다 — 숨은 칸(종료일 등) 검증에 걸려 저장이 조용히 막히지 않게(WP-708).
@@ -322,10 +326,11 @@ export function EventDialog({
     if (!isPending) submittingRef.current = false
   }, [isPending])
 
-  // 생성 모드: 캘린더 목록이 늦게 로드되면 기본 캘린더만 채운다(전체 reset 금지 — 사용자 입력 보존).
+  // 생성 모드: 캘린더 목록·기본 캘린더 설정이 늦게 로드되면 기본 캘린더만 채운다(전체 reset 금지 — 사용자 입력 보존).
+  // 목록이 먼저 와 Works 캘린더가 담긴 뒤 설정이 오면 기본값이 바뀌므로, 사용자가 아직 고르지 않았을 때만 새 기본값으로 바꾼다(WP-2169).
   useEffect(() => {
-    if (open && !isEdit && defaultCalendarId != null && form.getValues('calendarId') == null) {
-      form.setValue('calendarId', defaultCalendarId)
+    if (open && !isEdit && defaultCalendarId != null && !calendarPickedRef.current) {
+      if (form.getValues('calendarId') !== defaultCalendarId) form.setValue('calendarId', defaultCalendarId)
     }
   }, [open, isEdit, defaultCalendarId, form])
 
@@ -845,7 +850,14 @@ export function EventDialog({
                     control={form.control}
                     name="calendarId"
                     render={({ field }) => (
-                      <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
+                      <Select
+                        value={field.value?.toString() ?? ''}
+                        onValueChange={(v) => {
+                          // 사용자가 직접 골랐다 — 늦게 온 기본 캘린더 설정이 덮지 않게 표시한다(WP-2169)
+                          calendarPickedRef.current = true
+                          field.onChange(Number(v))
+                        }}
+                      >
                         <SelectTrigger
                           id="ev-calendar"
                           data-testid="calendar-form-calendar"
@@ -863,7 +875,8 @@ export function EventDialog({
                             .filter((c) => !c.isReadOnly)
                             .map((c) => (
                               <SelectItem key={c.id} value={c.id.toString()}>
-                                {c.name}
+                                {/* 외부(M365) 캘린더는 이름 뒤에 「· Outlook」 — 같은 이름의 Works 캘린더와 구분한다(WP-2169) */}
+                                {isOutlookCalendar(c) ? `${c.name} · Outlook` : c.name}
                               </SelectItem>
                             ))}
                         </SelectContent>

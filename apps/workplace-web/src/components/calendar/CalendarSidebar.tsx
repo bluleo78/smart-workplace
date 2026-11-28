@@ -1,5 +1,5 @@
 // 캘린더 2차 사이드바 — 미니 캘린더 + 개인 캘린더별 토글 + 기타(이슈 마감/초대 일정) 토글.
-import { CalendarDays, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { CalendarCheck, CalendarDays, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import { CalendarTagSection } from '@/components/calendar/CalendarTagSection'
 import { miniCalendarDotClass } from '@/components/calendar/miniCalendarClass'
@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
+import { useDefaultCalendarId, useUpdateCalendarSettings } from '@/hooks/queries/useCalendars'
 import {
   type CalendarLayers,
   groupCalendarsBySource,
@@ -84,6 +85,9 @@ export function CalendarSidebar({
   // 모바일 시트 안에서 시트 밖 다이얼로그를 여는 동작은 시트를 닫는다 — 남으면 다이얼로그를 닫은 뒤에도 본문을 덮는다(WP-578).
   // 버튼은 data-sheet-dismiss, ⋯ 메뉴 항목은 메뉴가 닫힌 뒤 닫는다. 캘린더·레이어 토글은 시트 안에서 이어 고르므로 둔다.
   const rowMenu = useCloseSheetAfterMenu()
+  // 새 일정 기본 캘린더(WP-2169) — 서버 실효값, 설정을 아직 모르거나 조회가 실패하면 Works(isDefault) 캘린더. 그 줄에 「기본」 배지를 단다.
+  const defaultCalendarId = useDefaultCalendarId(calendars)
+  const setDefault = useUpdateCalendarSettings()
   return (
     // 랜드마크 이름(WP-1774) — 스크린리더가 사이드바를 구분하도록 접근 이름을 붙인다.
     <aside aria-label="캘린더 사이드바" className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-sidebar/40">
@@ -120,6 +124,7 @@ export function CalendarSidebar({
         const renderItem = (c: CalendarType) => {
           const palette = resolvePalette(c.color)
           const visible = isCalendarVisible(layers, c.id)
+          const isDefaultTarget = c.id === defaultCalendarId
           return (
             <div
               key={c.id}
@@ -142,8 +147,21 @@ export function CalendarSidebar({
                   className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`}
                   aria-hidden="true"
                 />
-                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                {/* 긴 이름은 말줄임 — 배지·케밥 자리를 남기고, 전체 이름은 title 로 보인다(WP-2169) */}
+                <span className="min-w-0 flex-1 truncate" title={c.name}>
+                  {c.name}
+                </span>
               </label>
+              {/* 새 일정 기본 캘린더 표시(WP-2169) — label 밖이라 눌러도 표시 토글과 겹치지 않는다 */}
+              {isDefaultTarget && (
+                <Badge
+                  variant="secondary"
+                  className="h-4 shrink-0 px-1 text-[10px]"
+                  data-testid="calendar-default-badge"
+                >
+                  기본
+                </Badge>
+              )}
               {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 케밥 메뉴 숨김 (이슈 #501) */}
               {c.isReadOnly ? (
                 <Badge
@@ -154,7 +172,7 @@ export function CalendarSidebar({
                   읽기 전용
                 </Badge>
               ) : (
-                /* 케밥(⋯) 메뉴 — hover 시만 노출(터치 기기는 상시, WP-237). 편집 + (로컬 한정)모든 일정 삭제 */
+                /* 케밥(⋯) 메뉴 — hover 시만 노출(터치 기기는 상시, WP-237). (기본이 아니면)기본으로 지정 + 편집 + (로컬 한정)모든 일정 삭제 */
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -171,7 +189,20 @@ export function CalendarSidebar({
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" onCloseAutoFocus={rowMenu.onCloseAutoFocus}>
+                  {/* 이름 쪽으로 펼친다(align=start) — 좁은 사이드바에서 메뉴가 화면 밖으로 밀리지 않게(WP-2169) */}
+                  <DropdownMenuContent align="start" onCloseAutoFocus={rowMenu.onCloseAutoFocus}>
+                    {/* 새 일정 기본 캘린더로 지정(WP-2169) — 쓰기 가능 캘린더만(읽기 전용은 메뉴 자체가 없다), 이미 기본이면 숨긴다 */}
+                    {!isDefaultTarget && (
+                      <DropdownMenuItem
+                        data-testid={`calendar-set-default-${c.id}`}
+                        onClick={() => {
+                          rowMenu.closeAfterMenu()
+                          setDefault.mutate(c.id)
+                        }}
+                      >
+                        <CalendarCheck className="mr-2 h-3.5 w-3.5" /> 기본으로 지정
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       data-testid={`calendar-edit-${c.id}`}
                       onClick={() => {

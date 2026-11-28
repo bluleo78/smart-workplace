@@ -76,7 +76,7 @@ test('M365 Teams 초대 — 상세 보기는 설명 문단을 자르지 않고 �
   await stubForDialog(
     page,
     [
-      calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false }),
+      calendar({ id: 1, name: 'Works 캘린더', color: 'blue', isDefault: true, isReadOnly: false }),
       calendar({ id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true, provider: 'M365_GRAPH' }),
     ],
     [teamsEvent],

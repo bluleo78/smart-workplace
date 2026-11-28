@@ -3,6 +3,7 @@ package com.workplace.calendar.service;
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
+import static com.workplace.jooq.Tables.CALENDAR_USER_SETTING;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -202,6 +203,70 @@ class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
                     dsl.fetchCount(
                         dsl.selectFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.OWNER_ID.eq(ownerId))));
     assertThat(rows).isZero();
+  }
+
+  /** 새 일정 기본 캘린더 설정(WP-2169)을 외부 쓰기 캘린더로 시드한다(테넌트 GUC 가 서는 tx 안). */
+  private void preferExternalCalendar() {
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s ->
+                dsl.insertInto(CALENDAR_USER_SETTING)
+                    .set(CALENDAR_USER_SETTING.USER_ID, ownerId)
+                    .set(CALENDAR_USER_SETTING.PREFERRED_CALENDAR_ID, extCalId)
+                    .execute());
+  }
+
+  /**
+   * WP-2169: 기본 캘린더가 외부(M365) 쓰기 캘린더이고 트랜잭션 밖(REST·외부 MCP create_event)에서 캘린더를 생략해 만들면 그 외부 캘린더에
+   * Graph 로 만들어진다.
+   */
+  @Test
+  void create_without_calendar_outside_tx_follows_preferred_external_calendar() {
+    preferExternalCalendar();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-pref-1");
+
+    CalendarEventResponse created = eventService.create(ownerId, req(null, null));
+
+    assertThat(created.calendarId()).isEqualTo(extCalId);
+    verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+  }
+
+  /**
+   * WP-2169: 같은 기본 캘린더라도 호출자 트랜잭션 안(앱 안 AI 확인 카드 승인)에서는 Graph 쓰기가 막혀 있으므로(#548) Works 캘린더에 만든다 —
+   * 예외(ExternalCalendarWriteInTransactionException) 없이, Graph 호출 없이.
+   */
+  @Test
+  void create_without_calendar_within_ambient_tx_lands_in_works_calendar() {
+    preferExternalCalendar();
+
+    CalendarEventResponse created =
+        new TransactionTemplate(txManager)
+            .execute(s -> eventService.create(ownerId, req(null, null)));
+
+    long works =
+        new TransactionTemplate(txManager)
+            .execute(s -> calendarRepo.findDefaultId(ownerId).orElseThrow());
+    assertThat(created.calendarId()).isEqualTo(works).isNotEqualTo(extCalId);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /**
+   * WP-2169: 기본 캘린더가 외부(M365)여도 반복 일정(RRULE)을 캘린더 생략·트랜잭션 밖으로 만들면 Works 캘린더에 만든다. 외부 캘린더는 반복 일정을
+   * 거절하므로(RecurringNotSupportedOnExternalCalendarException) 기본값이 외부로 풀리면 회귀가 된다 — epic WP-2168 결정:
+   * 「반복이면 Works 캘린더」. 예외 없이, Graph 호출 없이.
+   */
+  @Test
+  void create_recurring_without_calendar_outside_tx_lands_in_works_calendar() {
+    preferExternalCalendar();
+
+    CalendarEventResponse created = eventService.create(ownerId, req(null, "FREQ=WEEKLY"));
+
+    long works =
+        new TransactionTemplate(txManager)
+            .execute(s -> calendarRepo.findDefaultId(ownerId).orElseThrow());
+    assertThat(created.calendarId()).isEqualTo(works).isNotEqualTo(extCalId);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
   }
 
   /** Graph 쓰기 실패(502) → 예외 전파 + 로컬 행 미생성(HTTP 단계가 persist 트랜잭션 진입 전에 실패). */

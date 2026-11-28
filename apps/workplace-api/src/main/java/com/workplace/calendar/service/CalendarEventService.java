@@ -175,13 +175,17 @@ public class CalendarEventService {
    */
   public CalendarEventResponse create(
       long callerId, CalendarEventRequest req, boolean notifyAttendees) {
+    // 캘린더 생략 시 기본 캘린더 설정을 따를지(WP-2169) — 호출자 트랜잭션(앱 안 AI 확인 카드 승인 등)이 열려 있으면 Graph 쓰기가
+    // 막히므로(#548, 아래 ② 가드) 외부(Outlook) 기본 캘린더는 쓰지 않고 Works 캘린더로 정한다. txTemplate 진입 전에 잡아야 호출자
+    // 트랜잭션만 본다.
+    boolean allowExternalDefault = !TransactionSynchronizationManager.isActualTransactionActive();
     // ① resolve — 사전검증(validateCreatable) + 대상 캘린더 분류. 검증도 tx 안에서 수행한다 —
     // requireWritableCalendar 는 RLS 읽기라 txTemplate 밖에서 부르면 GUC 부재로 거짓 404 가 난다(#492).
     WriteTarget target =
         txTemplate.execute(
             s -> {
-              validateCreatable(callerId, req);
-              WriteTarget t = resolveWriteTarget(callerId, req);
+              validateCreatable(callerId, req, allowExternalDefault);
+              WriteTarget t = resolveWriteTarget(callerId, req, allowExternalDefault);
               // 태그를 실은 M365 일정(WP-801) — 범주를 써 넣을 수 없는 달력(내 사서함이 아님)이면 Graph 에 만들기 전에 409(PUT 과 같은
               // 판정)
               if (t.externalWritable()
@@ -422,11 +426,14 @@ public class CalendarEventService {
    *
    * <p>txTemplate 안에서만 호출. attendees 해석(userRepo.findByIds)도 여기서 수행해 RLS GUC 보장. 외부 쓰기 캘린더가 아니면
    * attendees=null(Graph 불필요).
+   *
+   * <p>캘린더를 생략하면 사용자의 기본 캘린더 설정을 따른다(WP-2169, {@link CalendarService#resolveCreateCalendarId}) —
+   * allowExternalDefault 가 false(호출자 트랜잭션 안)면 외부 기본 캘린더 대신 Works 캘린더.
    */
-  private WriteTarget resolveWriteTarget(long callerId, CalendarEventRequest req) {
-    // 소유/RO(409) 검증은 직전 validateCreatable 에서 이미 수행 — 여기서는 기본 캘린더 보정만 한다(중복 검증 제거).
-    long calendarId =
-        req.calendarId() != null ? req.calendarId() : calendarService.ensureDefault(callerId);
+  private WriteTarget resolveWriteTarget(
+      long callerId, CalendarEventRequest req, boolean allowExternalDefault) {
+    // 소유/RO(409) 검증은 직전 validateCreatable 에서 이미 수행 — 여기서는 생략된 캘린더 보정만 한다(중복 검증 제거).
+    long calendarId = resolveTargetCalendarId(callerId, req, allowExternalDefault, true);
     var ext = calendarRepo.findExternalRef(calendarId).orElse(null);
     if (ext == null || ext.externalAccountId() == null) {
       return new WriteTarget(calendarId, false, null, null, null);
@@ -2066,8 +2073,9 @@ public class CalendarEventService {
    * 일정 생성 사전검증(#842) — 확인카드 승인 전에 "승인 후에야 드러날 실패"를 미리 드러내기 위한 dry-run. 실행 경로(create)와 동일한 술어를 공유하며
    * 어떤 쓰기도 하지 않는다.
    *
-   * <p>주의: calendarId 가 null 이면 실행 경로는 resolveCalendarId → calendarService.ensureDefault 로 기본 캘린더를
-   * <b>INSERT</b> 한다. 사전검증은 쓰기가 금지되므로 이 경우 캘린더 검증을 건너뛴다(기본 캘린더는 항상 본인 소유·쓰기가능이라 검증 가치도 없다).
+   * <p>주의: calendarId 가 null 이면 실행 경로는 기본 캘린더 설정(WP-2169)을 따르고, 쓸 수 없으면 Works 캘린더를 없을 때
+   * <b>INSERT</b> 한다. 사전검증은 쓰기가 금지되므로 같은 해석을 INSERT 없이 하고, Works 캘린더가 아직 없으면 캘린더 검증을 건너뛴다(기본 캘린더는
+   * 항상 본인 소유·쓰기가능이라 검증 가치도 없다).
    *
    * @throws IllegalArgumentException 잘못된 RRULE 또는 허용되지 않은 색
    * @throws com.workplace.calendar.exception.CalendarNotFoundException 미존재/비소유 캘린더
@@ -2075,10 +2083,34 @@ public class CalendarEventService {
    */
   @Transactional(readOnly = true)
   public void validateCreatable(long callerId, CalendarEventRequest req) {
+    // 외부에서 부르는 사전검증은 확인 카드 전용이다 — 카드 승인은 호출자 트랜잭션 안이라 외부 기본 캘린더를 쓰지 않으므로 같게 맞춘다(WP-2169).
+    validateCreatable(callerId, req, false);
+  }
+
+  /**
+   * 생성 대상 캘린더 id — 요청에 캘린더가 있으면 그대로, 생략됐으면 기본 캘린더 설정으로 해석한다(WP-2169).
+   *
+   * <p>반복 일정은 외부(M365) 캘린더에 만들 수 없다(create ②에서 거절) — epic WP-2168 결정대로 기본 캘린더가 외부여도 Works 캘린더로 만든다.
+   * allowInsert=false 면 Works 캘린더가 없을 때 null 을 돌려준다(쓰기 금지 사전검증용).
+   */
+  private Long resolveTargetCalendarId(
+      long callerId, CalendarEventRequest req, boolean allowExternalDefault, boolean allowInsert) {
+    if (req.calendarId() != null) return req.calendarId();
+    return calendarService.resolveCreateCalendarId(
+        callerId, allowExternalDefault && !hasRecurrence(req.recurrenceRule()), allowInsert);
+  }
+
+  /**
+   * 일정 생성 사전검증 — 생략된 캘린더를 기본 캘린더 설정으로 해석할 때 외부 캘린더 허용 여부를 지정한다(WP-2169). create 가 자기 판정(호출자 트랜잭션
+   * 여부)으로 부르고, 해석은 INSERT 없이 한다(Works 캘린더가 아직 없으면 null → 캘린더 검증 건너뜀).
+   */
+  private void validateCreatable(
+      long callerId, CalendarEventRequest req, boolean allowExternalDefault) {
     validateRecurrence(req.recurrenceRule(), req.startsAt());
     validateColorOverride(req.color());
-    if (req.calendarId() != null) {
-      calendarService.requireWritableCalendar(callerId, req.calendarId());
+    Long calendarId = resolveTargetCalendarId(callerId, req, allowExternalDefault, false);
+    if (calendarId != null) {
+      calendarService.requireWritableCalendar(callerId, calendarId);
     }
     requireTenantAttendees(req.attendeeUserIdsOrEmpty());
     // 태그(WP-801) — 일정을 만들기(·Graph 쓰기) 전에 남의 태그를 거절한다
