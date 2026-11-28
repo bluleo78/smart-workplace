@@ -17,6 +17,7 @@ import {
   eventsOnDay,
   extraTagColors,
   groupCalendarsBySource,
+  hasWritableOutlook,
   HOUR_SLOT_PX,
   hourOffset,
   initialGridScrollTop,
@@ -31,6 +32,7 @@ import {
   nowLineTop,
   proposalTimeRange,
   providerLabel,
+  recurrenceCalendarSwitch,
   saveLastView,
   screenRange,
   timedEventBox,
@@ -40,6 +42,7 @@ import {
   visibleRange,
   weekDays,
   WORKDAY_START_HOUR,
+  worksCalendarId,
   workWeekDays,
   workWeekNewStart,
 } from './calendar'
@@ -810,5 +813,66 @@ describe('hourOffset·nowLineTop·initialGridScrollTop — 현재 시각 선과 
     expect(initialGridScrollTop([new Date(2026, 5, 10)], now)).toBe(8 * HOUR_SLOT_PX)
     expect(initialGridScrollTop([new Date(2026, 5, 11)], now)).toBe(8 * HOUR_SLOT_PX)
     expect(initialGridScrollTop([new Date(2026, 5, 10)], new Date(2026, 5, 10, 18, 0))).toBe(17 * HOUR_SLOT_PX)
+  })
+})
+
+describe('worksCalendarId / hasWritableOutlook (WP-2170)', () => {
+  it('기본·쓰기 가능·비Outlook 캘린더 id 를 돌려준다', () => {
+    expect(worksCalendarId([{ id: 1, isDefault: true }, { id: 3, provider: 'M365_GRAPH' }])).toBe(1)
+  })
+  it('기본 캘린더가 읽기 전용이면 다음 쓰기 가능 비Outlook 을 고른다', () => {
+    expect(worksCalendarId([
+      { id: 1, isDefault: true, isReadOnly: true },
+      { id: 2, provider: 'M365_GRAPH' },
+      { id: 4 },
+    ])).toBe(4)
+  })
+  it('모두 Outlook 이면 null', () => {
+    expect(worksCalendarId([{ id: 3, provider: 'M365_GRAPH', isDefault: true }])).toBeNull()
+  })
+  it('hasWritableOutlook — 읽기 전용 Outlook 만 있으면 false, 쓰기 가능이면 true', () => {
+    expect(hasWritableOutlook([{ id: 1 }, { id: 3, provider: 'M365_GRAPH', isReadOnly: true }])).toBe(false)
+    expect(hasWritableOutlook([{ id: 3, provider: 'M365_GRAPH' }])).toBe(true)
+  })
+})
+
+describe('recurrenceCalendarSwitch (WP-2170)', () => {
+  const cals = [{ id: 1, isDefault: true }, { id: 3, provider: 'M365_GRAPH' }, { id: 5 }]
+  const base = { isEdit: false, prevFreq: 'NONE', nextFreq: 'NONE', calendarId: 3 as number | undefined, switchedFromId: null as number | null, calendars: cals }
+
+  it('반복을 켜면 Outlook 선택을 Works 로 바꾸고 원래 id 를 기억한다', () => {
+    expect(recurrenceCalendarSwitch({ ...base, nextFreq: 'WEEKLY' })).toEqual({ calendarId: 1, switchedFromId: 3 })
+  })
+  it('반복을 끄면 자동 전환했던 원래 캘린더로 되돌린다', () => {
+    expect(recurrenceCalendarSwitch({ ...base, prevFreq: 'WEEKLY', calendarId: 1, switchedFromId: 3 }))
+      .toEqual({ calendarId: 3, switchedFromId: null })
+  })
+  it('원래 캘린더가 목록에서 사라졌거나 읽기 전용이 되면 되돌리지 않고 지금 캘린더를 둔다', () => {
+    const gone = [{ id: 1, isDefault: true }, { id: 5 }]
+    expect(recurrenceCalendarSwitch({ ...base, calendars: gone, prevFreq: 'WEEKLY', calendarId: 1, switchedFromId: 3 }))
+      .toEqual({ calendarId: 1, switchedFromId: null })
+    const readOnly = [{ id: 1, isDefault: true }, { id: 3, provider: 'M365_GRAPH', isReadOnly: true }]
+    expect(recurrenceCalendarSwitch({ ...base, calendars: readOnly, prevFreq: 'WEEKLY', calendarId: 1, switchedFromId: 3 }))
+      .toEqual({ calendarId: 1, switchedFromId: null })
+  })
+  it('직접 고른 캘린더는 끄더라도 그대로', () => {
+    expect(recurrenceCalendarSwitch({ ...base, prevFreq: 'WEEKLY', calendarId: 5 }))
+      .toEqual({ calendarId: 5, switchedFromId: null })
+  })
+  it('Works 캘린더 선택 중 켜면 그대로', () => {
+    expect(recurrenceCalendarSwitch({ ...base, nextFreq: 'WEEKLY', calendarId: 5 }))
+      .toEqual({ calendarId: 5, switchedFromId: null })
+  })
+  it('편집이면 Outlook 이어도 그대로', () => {
+    expect(recurrenceCalendarSwitch({ ...base, isEdit: true, nextFreq: 'WEEKLY' }))
+      .toEqual({ calendarId: 3, switchedFromId: null })
+  })
+  it('Works 캘린더가 없으면 그대로', () => {
+    expect(recurrenceCalendarSwitch({ ...base, nextFreq: 'WEEKLY', calendars: [{ id: 3, provider: 'M365_GRAPH' }] }))
+      .toEqual({ calendarId: 3, switchedFromId: null })
+  })
+  it('켜짐 → 다른 켜짐 값은 그대로', () => {
+    expect(recurrenceCalendarSwitch({ ...base, prevFreq: 'WEEKLY', nextFreq: 'DAILY', calendarId: 1, switchedFromId: 3 }))
+      .toEqual({ calendarId: 1, switchedFromId: 3 })
   })
 })
