@@ -12,7 +12,7 @@ interface EventTagsFieldProps {
   /** 폼이 들고 있는 지금 선택 */
   value: CalendarTagRef[]
   onChange: (next: CalendarTagRef[]) => void
-  /** 붙이고 뗄 수 있는지 — 새 일정은 늘 true, 기존 일정은 상세 응답의 tagsEditable */
+  /** 붙이고 뗄 수 있는지 — 새 일정은 고른 캘린더가 태그를 받을 때만 true(공유·위임 Outlook 은 false, WP-2172), 기존 일정은 상세 응답의 tagsEditable */
   editable: boolean
   /** 칩 줄 아래 안내(Outlook 범주 반영·Outlook 에서 바꾸기) — eventTagHint 결과 */
   hint: string | null
@@ -21,9 +21,11 @@ interface EventTagsFieldProps {
 /**
  * 폼 태그 줄 — 태그 칩 + (붙일 수 있으면) 「＋ 태그」. 붙일 수 있는 M365 일정은 Outlook 범주에도 반영된다는 안내를 달고(WP-716),
  * 붙일 수 없는 M365 일정(공유받은 읽기 전용 달력 등)은 칩과 「Outlook에서 바꾸기」 안내만 보이며, 태그도 없으면 줄째 숨긴다.
+ * 단, 안내(hint)가 주어지면 태그가 없어도 줄을 그린다 — 새 일정에서 태그를 못 쓰는 이유를 알려 주기 위함(WP-2172).
  */
 export function EventTagsField({ value, onChange, editable, hint }: EventTagsFieldProps) {
-  if (!editable && value.length === 0) return null
+  // 안내가 있으면 태그가 없어도 줄을 그린다 — 새 일정에서 태그를 못 쓰는 캘린더라는 이유를 보여 줘야 한다(WP-2172)
+  if (!editable && value.length === 0 && !hint) return null
 
   return (
     <EventFormRow icon={Tag} testId="calendar-form-tags">

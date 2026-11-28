@@ -142,4 +142,43 @@ class CalendarListReadOnlyTest extends IntegrationTestBase {
               return null;
             });
   }
+
+  /**
+   * tagsWritable: 로컬 캘린더와 본인 메일함(is_own_mailbox) 외부 캘린더는 true, 공유 외부 캘린더는 false (WP-2172). 서버 생성 검사
+   * (WP-801)와 같은 기준이라, 웹이 태그 입력을 미리 막을 수 있다.
+   */
+  @Test
+  void list_exposes_tagsWritable_true_for_local_and_own_mailbox_false_for_shared() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              long ownerId = TestFixtures.createHuman(dsl);
+              long accountId = emailAccount(ownerId);
+
+              externalCalendarRepo.upsertExternalCalendar(
+                  ownerId, accountId, "own", "내 Outlook", "blue", false, true);
+              externalCalendarRepo.upsertExternalCalendar(
+                  ownerId, accountId, "shared", "공유 Outlook", "blue", false, false);
+
+              List<CalendarResponse> cals = calendarService.list(ownerId);
+
+              assertThat(
+                      cals.stream()
+                          .filter(CalendarResponse::isDefault)
+                          .findFirst()
+                          .orElseThrow()
+                          .tagsWritable())
+                  .as("로컬 기본 캘린더는 태그 가능")
+                  .isTrue();
+              assertThat(byName(cals, "내 Outlook").tagsWritable()).as("본인 메일함 캘린더").isTrue();
+              assertThat(byName(cals, "공유 Outlook").tagsWritable()).as("공유 캘린더").isFalse();
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
+  private static CalendarResponse byName(List<CalendarResponse> cals, String name) {
+    return cals.stream().filter(c -> name.equals(c.name())).findFirst().orElseThrow();
+  }
 }

@@ -183,6 +183,8 @@ export interface Calendar {
   accountEmail?: string | null
   // 출처 공급자 raw 문자열('M365_GRAPH' | 'IMAP'). 로컬 캘린더는 null.
   provider?: string | null
+  // 이 캘린더의 새 일정에 태그를 붙일 수 있는지(WP-2172) — 공유·위임받은 Outlook 캘린더는 false. 없으면 true 로 본다.
+  tagsWritable?: boolean
 }
 
 // 캘린더 생성/수정 요청.

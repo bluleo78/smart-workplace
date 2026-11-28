@@ -6,11 +6,13 @@ import {
   changedTagIds,
   eventTagHint,
   filterTagsByName,
+  newEventTagHint,
   pickTagColor,
   sameTagIds,
   TAG_HINT_OUTLOOK_EVENT,
   TAG_HINT_OUTLOOK_READ_ONLY,
   TAG_HINT_OUTLOOK_SERIES,
+  TAG_HINT_SHARED_OUTLOOK,
   tagNameToCreate,
   tagRefsForIds,
   toggleTagId,
@@ -109,6 +111,14 @@ describe('eventTagHint', () => {
     expect(eventTagHint({ tags: [tag], tagsEditable: false })).toBe(TAG_HINT_OUTLOOK_READ_ONLY)
     expect(eventTagHint({ tags: [], tagsEditable: false, outlookTagScope: 'EVENT' })).toBeNull()
     expect(eventTagHint({})).toBeNull()
+  })
+})
+
+// WP-2172: 새 일정 창 — 공유·위임 Outlook 처럼 태그를 받지 못하는 캘린더면 이유를 알린다
+describe('newEventTagHint', () => {
+  it('태그를 받지 못하는 캘린더면 공유 Outlook 안내, 받으면 안내 없음', () => {
+    expect(newEventTagHint(false)).toBe(TAG_HINT_SHARED_OUTLOOK)
+    expect(newEventTagHint(true)).toBeNull()
   })
 })
 
