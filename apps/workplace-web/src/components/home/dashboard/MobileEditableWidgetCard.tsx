@@ -1,12 +1,12 @@
 // 모바일 편집 모드 위젯 카드(WP-161 에서 Dashboard.tsx 로부터 분리).
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { useSortableItem } from '@/lib/dnd/useSortableItem'
 import { cn } from '@/lib/utils'
 
 import { MobileWidgetCard } from '../widgets/mobile/MobileWidgetCard'
-import { EntryBody } from './EntryBody'
 import { type CatalogConfigPatch, entryTitle, hasCountSelect, type ResolvedEntry } from './resolvedEntry'
 import { WidgetCountSelect, WidgetEditControls } from './WidgetEditControls'
 
@@ -17,6 +17,7 @@ import { WidgetCountSelect, WidgetEditControls } from './WidgetEditControls'
  */
 export function MobileEditableWidgetCard({
   entry,
+  body,
   onToggleHidden,
   onCount,
   onApplyCatalogConfig,
@@ -25,6 +26,8 @@ export function MobileEditableWidgetCard({
   highlighted,
 }: {
   entry: ResolvedEntry
+  /** 위젯 본문 자리 — 호스트가 그린 본문 DOM 을 붙이는 OutPortal(WP-2077). */
+  body: ReactNode
   onToggleHidden: () => void
   onCount: (count: number) => void
   onApplyCatalogConfig: (patch: CatalogConfigPatch) => void
@@ -65,7 +68,7 @@ export function MobileEditableWidgetCard({
       title={title}
       icon={entry.def.icon}
       mobile={entry.def.mobile}
-      body={<EntryBody entry={entry} />}
+      body={body}
       edit={{
         controls,
         // 항목 수(3/5/10)는 데스크톱 편집 카드와 같은 공용 선택기·같은 노출 조건. 해당 없으면 보조 줄 자체를 생략한다

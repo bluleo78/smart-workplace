@@ -23,14 +23,16 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { useToggleWidgetCollapsed } from '@/hooks/queries/useDashboard'
+import { OutPortal, usePortalNodes } from '@/lib/portalSlot'
 
 import { MobileWidgetCard } from '../widgets/mobile/MobileWidgetCard'
+import type { WidgetHeadingLevel } from '../widgets/WidgetFrame'
 import { DashboardEmptyState } from './DashboardEmptyState'
 import { EditableWidgetCard } from './EditableWidgetCard'
-import { EntryBody } from './EntryBody'
 import { MobileEditableWidgetCard } from './MobileEditableWidgetCard'
-import { entryDeepLink, entryTitle, type ResolvedEntry, visibleEntries } from './resolvedEntry'
+import { entryDeepLink, entryTitle, frameIsCardHeading, type ResolvedEntry, showsBody, visibleEntries } from './resolvedEntry'
 import type { DashboardEditDraft } from './useDashboardEditDraft'
+import { WidgetBodyHost } from './WidgetBodyHost'
 import { WidgetCard } from './WidgetCard'
 
 // 충돌 판정 — closestCenter 는 "드래그 중인 카드 자체의 rect 중심"과 다른 카드 rect 중심 간의
@@ -159,16 +161,40 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
   }, [draftEntries])
   const visibleSaved = visibleEntries(savedEntries)
 
+  // 위젯 본문 호스트(WP-2077) — 현재 모드에서 보이는 엔트리의 본문을 카드 밖에서 한 번만 그리고, 카드(보기·편집·모바일·데스크톱)는
+  // OutPortal 로 그 DOM 을 붙인다. 모드를 바꿔 카드 요소 타입이 달라져도 본문은 다시 만들어지지 않는다(fetch·상태 유지).
+  // 보기에서 숨긴 위젯은 본문을 그리지 않는다(편집에서만 생김).
+  // 카드가 본문을 실제로 보여 주는 엔트리만 그린다(모바일 타일·접힘 위젯은 제외, showsBody) — 안 보이는 본문의 청크·조회를 막는다.
+  const hostEntries = (editing ? draftEntries : visibleSaved).filter((e) => showsBody(e, isMobile))
+  // id 목록은 내용이 같으면 같은 배열을 넘긴다 — 매 렌더 새 배열이면 usePortalNodes 의 정리 effect 가 렌더마다 돈다.
+  const hostIdKey = hostEntries.map((e) => e.cfg.id).join('\n')
+  const hostIds = useMemo(() => (hostIdKey ? hostIdKey.split('\n') : []), [hostIdKey])
+  const nodeFor = usePortalNodes(hostIds)
+  // 카탈로그 위젯 제목의 헤딩 레벨 — 데스크톱 보기에서 테두리 없는(chromeless) 카탈로그 위젯은 자체 제목이 카드 제목(h2)을 대신한다(WP-1888).
+  // 그 밖(편집·모바일·테두리 있는 카드)은 카드 제목 아래 3.
+  const headingLevelFor = (entry: ResolvedEntry): WidgetHeadingLevel =>
+    !editing && !isMobile && frameIsCardHeading(entry) ? 2 : 3
+  // 카드에 줄 본문 — 본문이 안 보이는 엔트리(모바일 타일·접힘)는 OutPortal 노드를 만들지 않는다(nodeFor 는 hostEntries 의 id 에만).
+  const bodyFor = (entry: ResolvedEntry) =>
+    showsBody(entry, isMobile) ? <OutPortal node={nodeFor(entry.cfg.id)} /> : null
+  // 호스트는 모든 반환 분기에서 마지막 형제(Fragment 의 둘째) 자리에 둔다 — 분기가 바뀌어도 호스트가 다시 만들어지지 않게(위치 고정).
+  // 카드 뒤에 두는 까닭: layout effect 는 트리 순서대로 돌아, 첫 mount 때 카드의 OutPortal 이 노드를 문서에 먼저 붙인 뒤
+  // 본문의 layout effect 가 돈다(앞에 두면 본문이 문서 밖에서 재기·포커스를 하게 된다).
+  const host = <WidgetBodyHost entries={hostEntries} nodeFor={nodeFor} headingLevelFor={headingLevelFor} />
+
   // 빈 상태(WP-520) — 보기 모드에서 모두 숨김이거나, 편집 초안에서 모두 지웠으면 빈 캔버스 대신 안내와 다음 행동을 준다.
   if (editing ? draftEntries.length === 0 : visibleSaved.length === 0) {
     return (
-      <div data-testid="dashboard">
-        <DashboardEmptyState
-          isMobile={isMobile}
-          mode={editing ? 'edit' : 'view'}
-          onAction={editing ? () => edit.setAddModalOpen(true) : edit.enterEdit}
-        />
-      </div>
+      <>
+        <div data-testid="dashboard">
+          <DashboardEmptyState
+            isMobile={isMobile}
+            mode={editing ? 'edit' : 'view'}
+            onAction={editing ? () => edit.setAddModalOpen(true) : edit.enterEdit}
+          />
+        </div>
+        {host}
+      </>
     )
   }
 
@@ -176,7 +202,58 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
     // 모바일(WP-142): 세로 한 줄 목록(카드 간격 12px). 본문형은 접기 가능, 타일형은 한 줄 링크.
     // 편집 모드는 같은 카드 모양에 ⌃ 자리만 편집 컨트롤로 교체한다.
     return (
-      <div className="flex flex-col gap-3" data-testid="dashboard">
+      <>
+        <div className="flex flex-col gap-3" data-testid="dashboard">
+          {editing ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={collisionDetection}
+              onDragEnd={handleDragEnd}
+              accessibility={accessibility}
+            >
+              <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                {draftEntries.map((entry) => (
+                  <MobileEditableWidgetCard
+                    key={entry.cfg.id}
+                    entry={entry}
+                    body={bodyFor(entry)}
+                    onToggleHidden={() => edit.toggleHidden(entry.cfg.id)}
+                    onCount={(n) => edit.setCount(entry.cfg.id, n)}
+                    onApplyCatalogConfig={(patch) => edit.applyCatalogConfig(entry.cfg.id, patch)}
+                    onRemove={() => removeWidget(entry.cfg.id)}
+                    highlighted={entry.cfg.id === recentlyAddedId}
+                    cardRef={(el) => {
+                      if (el) cardRefs.current.set(entry.cfg.id, el)
+                      else cardRefs.current.delete(entry.cfg.id)
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          ) : (
+            visibleSaved.map((entry) => (
+              <MobileWidgetCard
+                key={entry.cfg.id}
+                cfg={entry.cfg}
+                title={entryTitle(entry)}
+                icon={entry.def.icon}
+                mobile={entry.def.mobile}
+                body={bodyFor(entry)}
+                headerLink={entryDeepLink(entry)}
+                onHeaderClick={entry.cfg.type === 'notifications' ? () => openInbox() : undefined}
+                onToggleCollapsed={() => toggleCollapsed(entry)}
+              />
+            ))
+          )}
+        </div>
+        {host}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
         {editing ? (
           <DndContext
             sensors={sensors}
@@ -184,12 +261,17 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
             onDragEnd={handleDragEnd}
             accessibility={accessibility}
           >
-            <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-              {draftEntries.map((entry) => (
-                <MobileEditableWidgetCard
+            <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+              {draftEntries.map((entry, i) => (
+                <EditableWidgetCard
                   key={entry.cfg.id}
                   entry={entry}
+                  body={bodyFor(entry)}
+                  index={i}
+                  total={draftEntries.length}
+                  onMove={(dir) => edit.moveWidget(entry.cfg.id, dir)}
                   onToggleHidden={() => edit.toggleHidden(entry.cfg.id)}
+                  onToggleChromeless={() => edit.toggleChromeless(entry.cfg.id)}
                   onCount={(n) => edit.setCount(entry.cfg.id, n)}
                   onApplyCatalogConfig={(patch) => edit.applyCatalogConfig(entry.cfg.id, patch)}
                   onRemove={() => removeWidget(entry.cfg.id)}
@@ -198,71 +280,25 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
                     if (el) cardRefs.current.set(entry.cfg.id, el)
                     else cardRefs.current.delete(entry.cfg.id)
                   }}
+                  upRef={(el) => {
+                    if (el) upRefs.current.set(entry.cfg.id, el)
+                    else upRefs.current.delete(entry.cfg.id)
+                  }}
+                  downRef={(el) => {
+                    if (el) downRefs.current.set(entry.cfg.id, el)
+                    else downRefs.current.delete(entry.cfg.id)
+                  }}
                 />
               ))}
             </SortableContext>
           </DndContext>
         ) : (
           visibleSaved.map((entry) => (
-            <MobileWidgetCard
-              key={entry.cfg.id}
-              cfg={entry.cfg}
-              title={entryTitle(entry)}
-              icon={entry.def.icon}
-              mobile={entry.def.mobile}
-              body={<EntryBody entry={entry} />}
-              headerLink={entryDeepLink(entry)}
-              onHeaderClick={entry.cfg.type === 'notifications' ? () => openInbox() : undefined}
-              onToggleCollapsed={() => toggleCollapsed(entry)}
-            />
+            <WidgetCard key={entry.cfg.id} entry={entry} body={bodyFor(entry)} />
           ))
         )}
       </div>
-    )
-  }
-
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
-      {editing ? (
-        <DndContext
-            sensors={sensors}
-            collisionDetection={collisionDetection}
-            onDragEnd={handleDragEnd}
-            accessibility={accessibility}
-          >
-          <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
-            {draftEntries.map((entry, i) => (
-              <EditableWidgetCard
-                key={entry.cfg.id}
-                entry={entry}
-                index={i}
-                total={draftEntries.length}
-                onMove={(dir) => edit.moveWidget(entry.cfg.id, dir)}
-                onToggleHidden={() => edit.toggleHidden(entry.cfg.id)}
-                onToggleChromeless={() => edit.toggleChromeless(entry.cfg.id)}
-                onCount={(n) => edit.setCount(entry.cfg.id, n)}
-                onApplyCatalogConfig={(patch) => edit.applyCatalogConfig(entry.cfg.id, patch)}
-                onRemove={() => removeWidget(entry.cfg.id)}
-                highlighted={entry.cfg.id === recentlyAddedId}
-                cardRef={(el) => {
-                  if (el) cardRefs.current.set(entry.cfg.id, el)
-                  else cardRefs.current.delete(entry.cfg.id)
-                }}
-                upRef={(el) => {
-                  if (el) upRefs.current.set(entry.cfg.id, el)
-                  else upRefs.current.delete(entry.cfg.id)
-                }}
-                downRef={(el) => {
-                  if (el) downRefs.current.set(entry.cfg.id, el)
-                  else downRefs.current.delete(entry.cfg.id)
-                }}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
-      ) : (
-        visibleSaved.map((entry) => <WidgetCard key={entry.cfg.id} entry={entry} />)
-      )}
-    </div>
+      {host}
+    </>
   )
 }

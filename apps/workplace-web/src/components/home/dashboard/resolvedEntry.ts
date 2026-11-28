@@ -4,6 +4,7 @@
 import type { DashboardDevice, DashboardWidgetConfig } from '@/types/dashboard'
 
 import { type CatalogWidget, getCatalogWidget } from '../widgets/catalogRegistry'
+import { isMobileCardCollapsed } from '../widgets/mobile/types'
 import { type DashboardWidget, getDashboardWidget } from '../widgets/registry'
 
 // 총 위젯 인스턴스 상한 — 백엔드 DashboardService.MAX_WIDGETS 와 일치(프론트는 UX 가드, 최종 검증은 서버).
@@ -40,6 +41,25 @@ export function resolveEntries(widgets: DashboardWidgetConfig[]): ResolvedEntry[
 /** 보기(편집 아님) 모드에 그릴 엔트리 — 숨김 위젯을 뺀다(저장 순서는 유지). 숨김은 편집 모드에서만 흐리게 보인다. */
 export function visibleEntries(entries: ResolvedEntry[]): ResolvedEntry[] {
   return entries.filter((e) => !e.cfg.hidden)
+}
+
+/**
+ * 이 엔트리의 본문을 지금 카드가 실제로 보여 주는가(WP-2077) — 본문 호스트는 보이는 본문만 그린다.
+ * 데스크톱은 늘 본문을 보인다. 모바일은 타일형(`def.mobile.body` 없음)이면 본문 없이 요약 한 줄뿐이고,
+ * 본문형도 접히면(`cfg.collapsed === true`) 본문이 없다 — MobileWidgetCard 와 같은 isMobileCardCollapsed 를 쓴다(보기·편집 공통).
+ * 보이지 않는 본문을 호스트가 그리면 지연 청크·조회가 쓸데없이 돈다.
+ */
+export function showsBody(entry: ResolvedEntry, isMobile: boolean): boolean {
+  if (!isMobile) return true
+  return !isMobileCardCollapsed(entry.def.mobile, entry.cfg.collapsed)
+}
+
+/**
+ * 위젯 자체 제목(WidgetFrame)이 카드 제목(h2)을 대신하는가(WP-1888·WP-2077) — 테두리 없는(chromeless) 카탈로그 위젯이 그렇다.
+ * 카드(WidgetCard 의 sr-only h2 생략)와 본문 호스트(프레임 헤딩 레벨 2)가 같은 규칙을 쓰도록 한 곳에 둔다.
+ */
+export function frameIsCardHeading(entry: ResolvedEntry): boolean {
+  return entry.cfg.chromeless === true && entry.kind === 'catalog'
 }
 
 /** 엔트리 표시 제목 — 카탈로그는 사용자 라벨 우선, 없으면 레지스트리 기본 제목. */

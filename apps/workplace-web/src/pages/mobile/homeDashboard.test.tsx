@@ -5,7 +5,8 @@
 // 앱 셸을 보지 않으므로 홈 화면만 renderScreen 으로 띄운다 — 타일 탭 뒤 도착 화면은 그리지 않고 이동 주소만 본다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
-import { expect, test } from 'vitest'
+import { useEffect } from 'react'
+import { expect, test, vi } from 'vitest'
 
 import type { PriorityItemsResponse } from '@/api/priorityItems'
 import { SORTABLE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
@@ -22,6 +23,38 @@ import { createProject } from '../../../e2e/factories/project.factory'
 import HomePage from '../HomePage'
 
 mockViewport()
+
+// 마운트된 본문 수 — 문서에서 떨어져 있어도(카드 없이 호스트에만 살아 있어도) 센다(WP-2077: 안 보이는 본문을 그리지 않는다).
+// 실제 본문을 그대로 그리되 마운트·해제만 센다.
+const bodyMounts = vi.hoisted(() => ({ myTasks: 0, priority: 0 }))
+vi.mock('@/components/home/widgets/dashboard/MyTasksBody', async (importOriginal) => {
+  const Original = (await importOriginal<typeof import('@/components/home/widgets/dashboard/MyTasksBody')>()).default
+  return {
+    default: function MountCountedBody(props: React.ComponentProps<typeof Original>) {
+      useEffect(() => {
+        bodyMounts.myTasks += 1
+        return () => {
+          bodyMounts.myTasks -= 1
+        }
+      }, [])
+      return <Original {...props} />
+    },
+  }
+})
+vi.mock('@/components/home/widgets/dashboard/PriorityQuadrantBody', async (importOriginal) => {
+  const Original = (await importOriginal<typeof import('@/components/home/widgets/dashboard/PriorityQuadrantBody')>()).default
+  return {
+    default: function MountCountedBody(props: React.ComponentProps<typeof Original>) {
+      useEffect(() => {
+        bodyMounts.priority += 1
+        return () => {
+          bodyMounts.priority -= 1
+        }
+      }, [])
+      return <Original {...props} />
+    },
+  }
+})
 
 /** 레이아웃 헬퍼 — 문자열은 모바일 기본 모양(count 3·펼침)으로 정규화. */
 function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
@@ -325,4 +358,55 @@ test('모바일 편집 모드에서도 위젯 제목은 h2 이고 드래그 핸�
     // 이동·숨김·접기 등 어떤 단추도 헤딩 이름에 섞이지 않는다.
     expect(within(h).queryAllByRole('button')).toHaveLength(0)
   }
+})
+
+// ── WP-2077 — 모바일에서도 보기↔편집·접기↔펴기에 위젯 본문 DOM 을 다시 만들지 않는다 ─────────────
+// 본문은 호스트가 한 번만 그리고 카드가 DOM 자리만 가져다 붙인다 — 첫 요소가 같은 노드(toBe)여야 한다.
+
+/** 카드 안 본문 노드(`[data-portal-node]`)의 첫 요소 — 없으면 테스트 실패. */
+function bodyRoot(c: HTMLElement | null): HTMLElement {
+  const root = c?.querySelector('[data-portal-node]')?.firstElementChild
+  if (!root) throw new Error('카드 안에 위젯 본문 노드가 없다')
+  return root as HTMLElement
+}
+
+test('모바일 편집 진입·취소에도 위젯 본문 DOM 이 그대로다(WP-2077)', async () => {
+  const dash = dashboard(layout(['my_tasks', 'unread_mail']))
+  const { user } = await openHome([...widgetData(), ...dash.handler])
+  await within(widget('my_tasks')!).findByText('로그인 버그 재현')
+  const body = bodyRoot(widget('my_tasks'))
+
+  await user.click(screen.getByTestId('dashboard-edit-toggle'))
+  await waitFor(() => expect(screen.getAllByTestId('widget-drag-handle')).toHaveLength(2))
+  expect(bodyRoot(widget('my_tasks'))).toBe(body)
+
+  await user.click(screen.getByTestId('dashboard-edit-cancel'))
+  await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
+  expect(bodyRoot(widget('my_tasks'))).toBe(body)
+})
+
+test('타일·접힌 위젯은 본문을 어디에도 그리지 않고, 펼치면 본문이 생긴다(WP-2077)', async () => {
+  const dash = dashboard(
+    layout([
+      { id: 'my_tasks', type: 'my_tasks', count: 3, hidden: false, collapsed: true },
+      { id: 'priority_quadrant', type: 'priority_quadrant', count: 3, hidden: false },
+      'unread_mail',
+    ]),
+  )
+  const { user } = await openHome([
+    ...widgetData(),
+    ...dash.handler,
+    http.get('/api/v1/me/priority-items', () => HttpResponse.json({ items: [] })),
+  ])
+  // 펼친 본문형(메일)이 자리 잡은 뒤 — 이 시점에 접힌 본문·타일 본문이 마운트됐다면(문서에 붙지 않았어도) 센다.
+  await waitFor(() => expect(widget('unread_mail')!.querySelector('[data-portal-node]')).not.toBeNull())
+  expect(bodyMounts.myTasks).toBe(0)
+  expect(bodyMounts.priority).toBe(0)
+  expect(document.querySelectorAll('[data-portal-node]')).toHaveLength(1)
+
+  // 접힌 내 작업을 펴면 그 본문이 새로 생겨 카드 안에 붙는다.
+  await user.click(within(widget('my_tasks')!).getByTestId('mobile-widget-collapse'))
+  await waitFor(() => expect(widget('my_tasks')!.querySelector('[data-portal-node]')).not.toBeNull())
+  expect(bodyMounts.myTasks).toBe(1)
+  expect(bodyMounts.priority).toBe(0)
 })

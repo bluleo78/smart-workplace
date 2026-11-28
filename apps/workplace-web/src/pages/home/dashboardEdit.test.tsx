@@ -4,6 +4,7 @@
 // 드래그(포인터·키보드 센서)·포커스 복원·lg 경계 리사이즈·좁은 폭 스택·선택 탭 배경색은 그 spec 이 @input·@layout 으로 지킨다.
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useEffect } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { SORTABLE_ROLE_DESCRIPTION } from '@/lib/dnd/useSortableItem'
@@ -12,6 +13,23 @@ import type { DashboardWidgetConfig } from '@/types/dashboard'
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+// 마운트된 메일 본문 수(WP-2077) — 문서에서 떨어져 호스트에만 살아 있는 본문도 센다. 실제 본문을 그대로 그리되 마운트·해제만 센다.
+const mounted = vi.hoisted(() => ({ mail: 0 }))
+vi.mock('@/components/home/widgets/dashboard/UnreadMailBody', async (importOriginal) => {
+  const Original = (await importOriginal<typeof import('@/components/home/widgets/dashboard/UnreadMailBody')>()).default
+  return {
+    default: function MountCountedBody(props: React.ComponentProps<typeof Original>) {
+      useEffect(() => {
+        mounted.mail += 1
+        return () => {
+          mounted.mail -= 1
+        }
+      }, [])
+      return <Original {...props} />
+    },
+  }
 })
 
 /** 대시보드를 띄우고 편집 모드에 들어간다. */
@@ -429,4 +447,62 @@ test('저장이 5xx 로 끝나도 다시 눌러 재시도할 수 있다 (WP-1957
   await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
   // 재시도는 정확히 2회로 끝난다 — 뒤늦게 3번째 PUT 이 잡히지 않는지 끝에서 한 번 더 본다.
   expect(attempts).toHaveLength(2)
+})
+
+// ── WP-2077 — 보기↔편집 전환에서 위젯 본문 DOM 을 다시 만들지 않는다 ──────────────────────────────
+// 카드 요소 타입(Card/편집 Card)이 바뀌어도 본문은 호스트(WidgetBodyHost)가 한 번만 그리고 DOM 만 옮긴다 —
+// 본문의 첫 요소가 전환 전후 같은 노드(toBe)면 다시 만들어지지 않은 것이다(다시 만들면 새 노드라 실패).
+
+/** 카드 안 본문 노드(`[data-portal-node]`)의 첫 요소 — 없으면 테스트 실패. */
+function bodyRoot(c: HTMLElement): HTMLElement {
+  const root = c.querySelector('[data-portal-node]')?.firstElementChild
+  if (!root) throw new Error('카드 안에 위젯 본문 노드가 없다')
+  return root as HTMLElement
+}
+
+test('편집에 들어가고 취소해도 위젯 본문 DOM 이 다시 만들어지지 않는다(WP-2077)', async () => {
+  const view = await renderDashboard(layout(['my_tasks', 'unread_mail']))
+  // 데이터가 와서 본문이 자리 잡은 뒤의 첫 요소를 잡는다.
+  await within(await screen.findByTestId('dashboard')).findByText('로그인 버그')
+  const body = bodyRoot(card('my_tasks'))
+
+  await view.user.click(await screen.findByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  expect(bodyRoot(card('my_tasks'))).toBe(body)
+  expect(document.contains(body)).toBe(true)
+
+  await view.user.click(screen.getByTestId('dashboard-edit-cancel'))
+  await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
+  expect(bodyRoot(card('my_tasks'))).toBe(body)
+
+  // 저장 경로 — 다시 편집에 들어가 저장해도 같은 노드.
+  await view.user.click(screen.getByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  expect(bodyRoot(card('my_tasks'))).toBe(body)
+  await save(view)
+  expect(bodyRoot(card('my_tasks'))).toBe(body)
+})
+
+test('숨김 위젯 본문은 보기에서 없고 편집에서만 생기며, 편집 중 지우면 남지 않는다(WP-2077)', async () => {
+  const view = await renderDashboard(
+    layout(['my_tasks', { id: 'unread_mail', type: 'unread_mail', count: 5, hidden: true }]),
+  )
+  await within(await screen.findByTestId('dashboard')).findByText('로그인 버그')
+  // 보기 — 숨김 위젯은 카드·본문 노드뿐 아니라 마운트된 본문 자체가 없다(문서에서 떨어진 채 살아 있는 본문도 센다).
+  expect(cardById('unread_mail')).toBeNull()
+  expect(mounted.mail).toBe(0)
+
+  await view.user.click(screen.getByTestId('dashboard-edit-toggle'))
+  await screen.findByTestId('dashboard-edit-banner')
+  expect(cardById('unread_mail').querySelector('[data-portal-node]')).not.toBeNull()
+  expect(mounted.mail).toBe(1)
+
+  // 편집 중 지우면 그 본문이 해제된다 — 카드가 사라진 뒤에도 호스트에 마운트된 채 남지 않는다.
+  await view.user.click(within(cardById('unread_mail')).getByTestId('widget-remove'))
+  await waitFor(() => expect(cardById('unread_mail')).toBeNull())
+  expect(mounted.mail).toBe(0)
+  // 취소하면 숨김 상태 저장본으로 돌아가 본문은 여전히 없다.
+  await view.user.click(screen.getByTestId('dashboard-edit-cancel'))
+  await waitFor(() => expect(screen.queryByTestId('dashboard-edit-banner')).not.toBeInTheDocument())
+  expect(mounted.mail).toBe(0)
 })

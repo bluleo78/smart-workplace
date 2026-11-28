@@ -1,19 +1,20 @@
 // 데스크톱 편집 모드 위젯 카드(WP-161 에서 Dashboard.tsx 로부터 분리).
 import { CSS } from '@dnd-kit/utilities'
 import { ArrowDown, ArrowUp, GripVertical, PanelTop, PanelTopClose } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { bodySectionTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useSortableItem } from '@/lib/dnd/useSortableItem'
 
-import { EntryBody } from './EntryBody'
 import { type CatalogConfigPatch, entryTitle, isWideEntry, type ResolvedEntry } from './resolvedEntry'
 import { WidgetCountSelect, WidgetEditControls } from './WidgetEditControls'
 
 /** 편집 모드 위젯 카드 — 본문 + 표시/숨김·이동·(시스템)항목수/(카탈로그)설정·삭제 컨트롤. 숨김은 dimmed 로 잔류(재표시 경로). */
 export function EditableWidgetCard({
   entry,
+  body,
   index,
   total,
   onMove,
@@ -28,6 +29,8 @@ export function EditableWidgetCard({
   highlighted,
 }: {
   entry: ResolvedEntry
+  /** 위젯 본문 자리 — 호스트가 그린 본문 DOM 을 붙이는 OutPortal(WP-2077). */
+  body: ReactNode
   index: number
   total: number
   onMove: (dir: -1 | 1) => void
@@ -151,7 +154,7 @@ export function EditableWidgetCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <WidgetCountSelect entry={entry} title={title} onCount={onCount} />
-        <EntryBody entry={entry} />
+        {body}
       </CardContent>
     </Card>
   )
