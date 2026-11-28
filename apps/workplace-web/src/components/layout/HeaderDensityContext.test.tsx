@@ -23,6 +23,38 @@ function Fixture({ mounted, chipMounted = mounted, ai = true, dock = false }: { 
   </>
 }
 
+/** ResizeObserver 스텁. observe 대상을 기록하고, auto 면 observe 직후 첫 알림을 큐에 넣는다(실제 브라우저처럼, WP-2078). */
+function stubRo({ auto = false }: { auto?: boolean } = {}) {
+  const instances: { cb: ResizeObserverCallback; targets: Set<Element> }[] = []
+  const observed: Element[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    cb: ResizeObserverCallback
+    targets = new Set<Element>()
+    constructor(cb: ResizeObserverCallback) { this.cb = cb; instances.push(this) }
+    observe(target: Element) {
+      this.targets.add(target)
+      observed.push(target)
+      if (auto) queueMicrotask(() => this.cb([], this as unknown as ResizeObserver))
+    }
+    unobserve() {}
+    disconnect() { this.targets.clear() }
+  })
+  const notify = () => act(() => { for (const { cb } of instances) cb([], {} as ResizeObserver) })
+  /** 그 요소를 관찰 중인 관찰자만 깨운다. */
+  const notifyFor = (target: Element) => act(() => {
+    for (const { cb, targets } of instances) if (targets.has(target)) cb([], {} as ResizeObserver)
+  })
+  return { notify, notifyFor, observed }
+}
+
+/** 칩은 멀리(left 2000, 접히지 않음), 모든 요소 폭 100 으로 돌려주는 getBoundingClientRect 모의. */
+function mockRects() {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const left = this.hasAttribute('data-ai-chip') ? 2000 : 0
+    return { left, right: left + 100, width: 100 } as DOMRect
+  })
+}
+
 describe('HeaderDensityProvider', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -42,14 +74,7 @@ describe('HeaderDensityProvider', () => {
   })
 
   it('늦게 연결한 칩의 크기가 바뀌면 관찰자가 밀도를 다시 계산한다', async () => {
-    const observers: { targets: Set<Element>; notify: () => void }[] = []
-    vi.stubGlobal('ResizeObserver', class {
-      targets = new Set<Element>()
-      notify: () => void
-      constructor(notify: () => void) { this.notify = notify; observers.push(this) }
-      observe(target: Element) { this.targets.add(target) }
-      disconnect() { this.targets.clear() }
-    })
+    const ro = stubRo({ auto: true })
     let chipLeft = 500
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
@@ -59,10 +84,7 @@ describe('HeaderDensityProvider', () => {
     view.rerender(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>)
     await waitFor(() => expect(document.querySelector<HTMLElement>('[data-ai-chip]')?.style.getPropertyValue('--ai-actions-width')).toBe('100px'))
     chipLeft = 120
-    act(() => {
-      const chip = document.querySelector('[data-ai-chip]')!
-      for (const observer of observers) if (observer.targets.has(chip)) observer.notify()
-    })
+    ro.notifyFor(document.querySelector('[data-ai-chip]')!)
     expect(screen.getByRole('status').textContent).toBe('true/false')
   })
 
@@ -176,8 +198,8 @@ describe('HeaderDensityProvider', () => {
   // WP-1612: 패널이 열려 틀이 left 전환으로 옮겨 가도 크기는 그대로라 ResizeObserver 가 깨우지 않는다.
   // 전환이 끝난(틀 자신의 left transitionend) 뒤 다시 재야 짧은 경로에서도 헤더 넣기까지 간다.
   it('틀의 left 전환이 끝나면 다시 재 헤더 넣기까지 가고, 다른 속성·자식에서 버블된 종료는 무시한다', async () => {
-    // 관찰자는 아무것도 알리지 않는다 — 크기 변화 없이 위치만 바뀌는 상황.
-    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    // 관찰자는 observe 직후 첫 알림만 준다(WP-2078 — 첫 값은 이 알림이 넣는다). 그 뒤로는 크기 변화 없이 위치만 바뀌는 상황.
+    stubRo({ auto: true })
     let chipLeft = 500
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const left = this.hasAttribute('data-ai-chip') ? chipLeft : 0
@@ -232,5 +254,89 @@ describe('HeaderDensityProvider', () => {
     actionsRight = 773
     act(() => window.dispatchEvent(new Event('resize')))
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('false/false'))
+  })
+
+  // WP-2078: 첫 마운트 커밋 안에서는 레이아웃을 읽지 않고 ResizeObserver 첫 알림이 값을 넣는다.
+  describe('첫 적용 타이밍(WP-2078)', () => {
+    const chipEl = () => document.querySelector<HTMLElement>('[data-ai-chip]')!
+
+    it('첫 마운트 커밋에서는 칩 변수를 쓰지 않고 RO 첫 알림이 넣는다', () => {
+      const ro = stubRo()
+      const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect)
+      act(() => { render(<HeaderDensityProvider><Fixture mounted={false} chipMounted /></HeaderDensityProvider>) })
+      const calls = spy.mock.calls.length
+      // 밀도 판정(Provider)은 별도 효과에서 읽을 수 있어, 훅이 만든 칩 변수가 아직 없음으로 확인한다.
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('')
+      expect(chipEl().style.getPropertyValue('--ai-chip-offset')).toBe('')
+      ro.notify()
+      expect(spy.mock.calls.length).toBeGreaterThan(calls)
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('0px')
+      expect(chipEl().style.getPropertyValue('--ai-chip-offset')).toBe('162px')
+    })
+
+    it('RO 첫 적용은 위치 전환을 끄고 다음 프레임에 되돌린다', () => {
+      const ro = stubRo()
+      let frame: FrameRequestCallback | null = null
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => { frame = cb; return 7 })
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect)
+      act(() => { render(<HeaderDensityProvider><Fixture mounted={false} chipMounted /></HeaderDensityProvider>) })
+      chipEl().style.transitionProperty = 'left'
+      ro.notify()
+      expect(chipEl().style.transitionProperty).toBe('none')
+      act(() => { frame?.(0) })
+      expect(chipEl().style.transitionProperty).toBe('left')
+    })
+
+    it('액션이 사라지면 RO 재관찰 알림으로 액션 폭을 0px 로 맞춘다', async () => {
+      const ro = stubRo()
+      mockRects()
+      act(() => { render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>) })
+      ro.notify()
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('100px')
+      document.querySelector('[data-ai-actions]')!.remove()
+      ro.observed.length = 0
+      await act(async () => { await Promise.resolve() })
+      // 액션이 사라지면 칩만 다시 관찰한다.
+      expect(ro.observed).toContain(chipEl())
+      expect(ro.observed.some(el => el.hasAttribute('data-ai-actions'))).toBe(false)
+      ro.notify()
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('0px')
+    })
+
+    it('헤더 등록 커밋(null -> 요소)에서도 칩 변수를 쓰지 않고 RO 첫 알림이 넣는다', () => {
+      const ro = stubRo()
+      mockRects()
+      act(() => { render(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>) })
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('')
+      expect(chipEl().style.getPropertyValue('--ai-chip-offset')).toBe('')
+      ro.notify()
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('100px')
+      expect(chipEl().style.getPropertyValue('--ai-chip-offset')).toBe('162px')
+    })
+
+    it('칩을 이미 맞춘 뒤 늦게 등록된 헤더는 같은 커밋에서 동기로 칩 변수를 맞춘다', () => {
+      const ro = stubRo()
+      mockRects()
+      let view!: ReturnType<typeof render>
+      act(() => { view = render(<HeaderDensityProvider><Fixture mounted={false} chipMounted /></HeaderDensityProvider>) })
+      // 헤더 없이 칩이 먼저 첫 적용을 마친다(콜드 로드에서 페이지 청크가 늦게 오는 경우).
+      ro.notify()
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('0px')
+      // 헤더 등록 커밋 — RO 알림 없이도 이 커밋에서 값이 맞아야 한다(알림까지 기다리면 전환이 켜진 채 미끄러진다).
+      act(() => { view.rerender(<HeaderDensityProvider><Fixture mounted /></HeaderDensityProvider>) })
+      expect(chipEl().style.getPropertyValue('--ai-actions-width')).toBe('100px')
+    })
+
+    it('언마운트하면 대기 중인 rAF 를 취소한다', () => {
+      const ro = stubRo()
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 42)
+      const cancel = vi.spyOn(window, 'cancelAnimationFrame')
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect)
+      let view!: ReturnType<typeof render>
+      act(() => { view = render(<HeaderDensityProvider><Fixture mounted={false} chipMounted /></HeaderDensityProvider>) })
+      ro.notify()
+      view.unmount()
+      expect(cancel).toHaveBeenCalledWith(42)
+    })
   })
 })
