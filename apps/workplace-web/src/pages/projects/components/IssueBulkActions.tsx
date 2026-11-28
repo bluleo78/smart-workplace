@@ -19,6 +19,7 @@ import { assigneeCandidates } from '@/lib/assigneeCandidates';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { MobilePickerSheet } from '../../../components/mobile/MobilePickerSheet';
+import { ResultStatus } from '../../../components/ResultStatus';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,7 @@ import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { failedOf } from '../../../lib/bulkResult';
+import { bulkSelectionAnnouncement } from '../../../lib/bulkSelectionAnnouncement';
 import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
@@ -209,8 +211,19 @@ export function IssueBulkActions({
 
   return (
     <>
+      {/* WP-2065: 선택 개수 낭독 — 바 밖에 늘 마운트한다(바와 함께 생기거나 사라지는 영역은 낭독되지 않는다).
+          개수를 조건 키로 넘겨 바뀔 때마다 비웠다 한 틱 뒤 채운다(ResultStatus). */}
+      <ResultStatus
+        conditionKey={String(selected.size)}
+        ready
+        text={bulkSelectionAnnouncement(selected.size)}
+        testId="issue-bulk-status"
+      />
       {selected.size > 0 && (
         <div
+          // WP-2065: 이름 있는 묶음 — toolbar 는 화살표 키 이동을 약속하는데 이 바는 Tab 으로 옮겨 다녀 group 을 쓴다.
+          role="group"
+          aria-label="일괄 작업"
           data-testid="issue-bulk-toolbar"
           data-mobile={isMobile || undefined}
           onFocus={isMobile ? undefined : revealFocusedInBar}
