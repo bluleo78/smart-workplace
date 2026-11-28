@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { expectToggleLook } from '@/test/kits/projects/listBoard'
 import { InProjectTabs } from '@/test/kits/projects/projectTabs'
 import { API, cycle, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
 import { shellHandlers } from '@/test/msw/baseHandlers'
@@ -297,6 +298,30 @@ describe('타임라인 — 필터', () => {
     expect(await screen.findByRole('dialog', { name: '담당자 선택' })).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: /한여섯/ }))
     await waitFor(() => expect(location()).toMatch(/assignee[^&]*=7/))
+  })
+
+  // WP-2166 — +N 팝오버 행도 켜짐을 토글 켜짐 모양(aria-pressed + primary 클래스)으로 표시한다.
+  test('+N 팝오버 행은 선택에 따라 토글 켜짐 모양이 바뀐다', async () => {
+    const six = ['김개발', '이테스트', '박세번', '최네번', '정다섯', '한여섯'].map((name, i) =>
+      createMember({ userId: i + 2, name, username: `u${i + 2}@example.com` }),
+    )
+    const { user } = await openTimeline(`/projects/${KEY}/timeline?period=all`, defaultApi({ members: six }))
+    // 팝오버가 닫혔으면 다시 열어 행 단추를 새로 찾는다.
+    const row = async () => {
+      if (!screen.queryByRole('dialog', { name: '담당자 선택' })) await user.click(await screen.findByTestId('assignee-avatar-overflow'))
+      return within(await screen.findByRole('dialog', { name: '담당자 선택' })).findByRole('button', { name: /한여섯/ })
+    }
+    let btn = await row()
+    expect(btn).toHaveAttribute('aria-pressed', 'false')
+    expectToggleLook(btn, false)
+    await user.click(btn)
+    btn = await row()
+    await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'true'))
+    expectToggleLook(btn, true)
+    await user.click(btn)
+    btn = await row()
+    await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'false'))
+    expectToggleLook(btn, false)
   })
 })
 

@@ -19,6 +19,8 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { AI_RUN_KIND_OPTIONS } from '@/lib/aiRunKindLabels'
 import { failedWithoutData } from '@/lib/queryFailure'
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
+import { cn } from '@/lib/utils'
 
 import { AiStatusHistoryCards } from './AiStatusHistoryCards'
 import {
@@ -83,20 +85,24 @@ function MobilePeriodChip({
         </Button>
       </PopoverTrigger>
       <PopoverContent aria-label="조회 기간 선택" className="w-40 p-1" align="start">
-        {PERIOD_OPTIONS.map((o) => (
-          <Button
-            key={o.value}
-            variant={!ranged && o.value === period ? 'secondary' : 'ghost'}
-            size="sm"
-            className="w-full justify-start"
-            onClick={() => {
-              onSelect(o.value)
-              setOpen(false)
-            }}
-          >
-            {o.label}
-          </Button>
-        ))}
+        {PERIOD_OPTIONS.map((o) => {
+          const on = !ranged && o.value === period
+          // WP-2166: TimelinePeriodPicker 와 같은 목록 선택 행 — ghost hover 가 선택색을 덮지 않게 맨 단추
+          return (
+            <button
+              key={o.value}
+              type="button"
+              className={cn('flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-muted', on && SELECTED_ROW_CLASS)}
+              aria-pressed={on}
+              onClick={() => {
+                onSelect(o.value)
+                setOpen(false)
+              }}
+            >
+              {o.label}
+            </button>
+          )
+        })}
       </PopoverContent>
     </Popover>
   )
