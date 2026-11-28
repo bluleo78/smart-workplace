@@ -72,6 +72,8 @@ export const RECURRING_TAGS_NOTE = '태그는 회차마다 따로 붙지 않고 
 
 /** 태그 줄 아래 안내 문구 (WP-716) — 상세 보기 머리·편집 폼 태그 줄이 같은 문구를 쓴다 */
 export const TAG_HINT_OUTLOOK_READ_ONLY = 'Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요'
+// 새 일정에서 고른 캘린더가 공유·위임받은 Outlook 캘린더일 때(서버가 태그 있는 생성을 409 로 거절한다, WP-2172)
+export const TAG_HINT_SHARED_OUTLOOK = '공유·위임받은 Outlook 캘린더라 태그를 붙일 수 없어요 · 태그 없이 저장돼요'
 export const TAG_HINT_OUTLOOK_EVENT = 'Outlook 범주에도 함께 반영돼요 (없던 범주는 색 없이)'
 export const TAG_HINT_OUTLOOK_SERIES = '반복 일정 전체의 Outlook 범주에 함께 반영돼요 (없던 범주는 색 없이)'
 
@@ -83,6 +85,14 @@ export const TAG_HINT_OUTLOOK_SERIES = '반복 일정 전체의 Outlook 범주�
  * - 앱 일정: 안내 없음.
  * 붙일 수 없는 일정은 outlookTagScope 를 보지 않는다 — 앱 일정은 늘 붙일 수 있어, 붙일 수 없으면 Outlook 일정이다(필드가 없는 응답·모킹 호환).
  */
+/**
+ * 새 일정 창의 태그 줄 안내 — 고른 캘린더가 태그를 받지 못하면(공유·위임 Outlook, WP-2172) 그 이유를, 받으면 null.
+ * 편집은 eventTagHint(상세 응답 기준)를 쓴다.
+ */
+export function newEventTagHint(tagsWritable: boolean): string | null {
+  return tagsWritable ? null : TAG_HINT_SHARED_OUTLOOK
+}
+
 export function eventTagHint(event: Pick<CalendarEvent, 'tags' | 'tagsEditable' | 'outlookTagScope'>): string | null {
   if (event.tagsEditable ?? false) {
     if (event.outlookTagScope === 'SERIES') return TAG_HINT_OUTLOOK_SERIES

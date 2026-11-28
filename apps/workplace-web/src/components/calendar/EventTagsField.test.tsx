@@ -53,6 +53,12 @@ describe('EventTagsField', () => {
     expect(screen.getByText(TAG_HINT_OUTLOOK_READ_ONLY)).toBeInTheDocument()
   })
 
+  it('편집할 수 없고 태그가 없어도 안내가 있으면 줄과 안내를 보인다 (WP-2172)', () => {
+    renderWithProviders(<EventTagsField value={[]} onChange={vi.fn()} editable={false} hint="안내" />)
+    expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent('안내')
+    expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument()
+  })
+
   it('붙일 수 없고 태그도 없으면 줄째 숨긴다', () => {
     renderWithProviders(<EventTagsField value={[]} onChange={vi.fn()} editable={false} hint={null} />)
     expect(screen.queryByTestId('calendar-form-tags')).not.toBeInTheDocument()

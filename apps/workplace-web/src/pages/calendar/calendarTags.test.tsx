@@ -7,6 +7,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { TAG_HINT_SHARED_OUTLOOK } from '@/lib/calendarTag'
 import { calendarHandlers, capture, pinNow, renderCalendarPage } from '@/test/kits/calendar/testkit-b8'
 import type { CalendarEvent, CalendarTag, TagFeed } from '@/types/calendar'
 
@@ -26,6 +27,15 @@ const CALENDARS = [
   calendar({ id: 10, name: '회사 일정', isDefault: false, isReadOnly: true, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
   // 내 사서함의 쓸 수 있는 Outlook 달력 — 여기 일정의 태그는 Outlook 범주로 써 넣는다(WP-716)
   calendar({ id: 11, name: 'Outlook 일정', isDefault: false, isReadOnly: false, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
+]
+
+// 공유·위임받은 Outlook 캘린더 — 쓸 수는 있지만 서버가 태그를 거절한다(tagsWritable=false, WP-2172)
+const CALENDARS_WITH_SHARED = [
+  ...CALENDARS,
+  calendar({
+    id: 12, name: '공유 Outlook', isDefault: false, isReadOnly: false,
+    accountEmail: 'boss@corp.kr', provider: 'M365_GRAPH', tagsWritable: false,
+  }),
 ]
 
 /** 내 기본 캘린더의 내가 주최한 앱 일정 — 편집 폼이 열리고 태그를 바꿀 수 있다. */
@@ -187,6 +197,50 @@ describe('편집·새 일정 폼의 태그(폼 상태, WP-801)', () => {
     expect(post.bodies[0]).toMatchObject({ title: '고객 미팅', tagIds: [2] })
     await waitFor(() => expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument())
     expect(put.bodies).toEqual([])
+  })
+
+  test('새 일정 폼에서 공유·위임 Outlook 캘린더를 고르면 태그를 붙일 수 없다고 안내하고 tagIds 없이 저장한다 (WP-2172)', async () => {
+    const post = capture('post', '/calendar/events', () =>
+      HttpResponse.json(calendarEvent({ id: 999, title: '고객 미팅', calendarId: 12 }), { status: 201 }),
+    )
+    const { user } = renderCalendarPage('/calendar', [post.handler, ...calendarHandlers({ calendars: CALENDARS_WITH_SHARED, tags: TAGS })])
+    await user.click(await screen.findByTestId('calendar-new-event'))
+    fireEvent.change(await screen.findByTestId('calendar-form-title'), { target: { value: '고객 미팅' } })
+    await pickTags(user, 'calendar-form-tag-add', [2])
+
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    await user.click(await screen.findByRole('option', { name: '공유 Outlook' }))
+
+    await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
+    expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent(TAG_HINT_SHARED_OUTLOOK)
+    expect(chipNames(screen.getByTestId('calendar-form-tags'))).toEqual(['운영'])
+
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(post.bodies).toHaveLength(1))
+    expect(post.bodies[0]).toMatchObject({ calendarId: 12 })
+    expect(post.bodies[0]).not.toHaveProperty('tagIds')
+  })
+
+  test('공유 캘린더에서 내 캘린더로 되돌리면 고른 태그가 다시 실린다 (WP-2172)', async () => {
+    const post = capture('post', '/calendar/events', () =>
+      HttpResponse.json(calendarEvent({ id: 999, title: '고객 미팅', calendarId: 1 }), { status: 201 }),
+    )
+    const { user } = renderCalendarPage('/calendar', [post.handler, ...calendarHandlers({ calendars: CALENDARS_WITH_SHARED, tags: TAGS })])
+    await user.click(await screen.findByTestId('calendar-new-event'))
+    fireEvent.change(await screen.findByTestId('calendar-form-title'), { target: { value: '고객 미팅' } })
+    await pickTags(user, 'calendar-form-tag-add', [2])
+
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    await user.click(await screen.findByRole('option', { name: '공유 Outlook' }))
+    await waitFor(() => expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument())
+
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    await user.click(await screen.findByRole('option', { name: '기본' }))
+    expect(await screen.findByTestId('calendar-form-tag-add')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(post.bodies).toHaveLength(1))
+    expect(post.bodies[0]).toMatchObject({ calendarId: 1, tagIds: [2] })
   })
 
   test('태그를 실은 저장이 실패하면 오류를 알리고 폼·고른 태그가 그대로 남는다', async () => {

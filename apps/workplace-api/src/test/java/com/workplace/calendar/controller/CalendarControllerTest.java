@@ -58,7 +58,7 @@ class CalendarControllerTest extends WebMvcSliceTestBase {
   @Autowired UserRepository userRepository;
 
   private CalendarResponse sample() {
-    return new CalendarResponse(1L, "기본", "blue", true, 0, false, null, null);
+    return new CalendarResponse(1L, "기본", "blue", true, 0, false, null, null, true);
   }
 
   @BeforeEach
@@ -83,7 +83,7 @@ class CalendarControllerTest extends WebMvcSliceTestBase {
   @Test
   void create_valid_returns201() throws Exception {
     when(service.create(eq(1L), any()))
-        .thenReturn(new CalendarResponse(2L, "업무", "red", false, 1, false, null, null));
+        .thenReturn(new CalendarResponse(2L, "업무", "red", false, 1, false, null, null, true));
 
     CalendarRequest req = new CalendarRequest("업무", "red", null);
 

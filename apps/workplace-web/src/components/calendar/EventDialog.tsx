@@ -65,7 +65,7 @@ import {
 } from '@/lib/calendarEventForm'
 import { attendeeDisplayName, attendeeKey, reminderLabel, sortAttendeesForView } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
-import { changedTagIds, eventTagHint } from '@/lib/calendarTag'
+import { changedTagIds, eventTagHint, newEventTagHint } from '@/lib/calendarTag'
 import { INCOMPLETE_DATE_MESSAGE, isIncompleteDateInput } from '@/lib/dateInput'
 import { canShowNoteRow } from '@/lib/eventNote'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
@@ -351,7 +351,12 @@ export function EventDialog({
   // 기존 일정은 상세 응답(마스터 태그·tagsEditable)이 출발점 — 상세 전엔 저장 버튼이 막혀 있어 비교 기준이 늘 상세다.
   const initialTags = isEdit ? (detailEvent?.tags ?? []) : []
   const formTags = touchedTags ?? initialTags
-  const tagsEditable = isEdit ? (detailEvent?.tagsEditable ?? false) : true
+  // 새 일정은 고른 캘린더가 태그를 받을 수 있어야 한다(공유·위임 Outlook 은 서버가 409 로 거절, WP-2172).
+  // formTags 는 지우지 않는다 — 내 캘린더로 되돌리면 고른 태그가 다시 실린다. 목록 로드 전·모르는 캘린더는 true.
+  const selectedCalendarTagsWritable = calendars.find((c) => c.id === watchedCalendarId)?.tagsWritable ?? true
+  const tagsEditable = isEdit ? (detailEvent?.tagsEditable ?? false) : selectedCalendarTagsWritable
+  // 태그 줄 아래 안내 — 편집은 상세 응답 기준(상세 전엔 안내 없음), 새 일정은 공유·위임 Outlook 캘린더일 때만 안내한다
+  const tagHint = isEdit ? (detailEvent ? eventTagHint(detailEvent) : null) : newEventTagHint(selectedCalendarTagsWritable)
   // 편집 모드는 상세가 와야 태그 줄을 그린다(목록 이벤트엔 태그 수정 가능 여부가 없다)
   const showTags = !isEdit || detailEvent != null
 
@@ -879,7 +884,7 @@ export function EventDialog({
                   value={formTags}
                   onChange={setTouchedTags}
                   editable={tagsEditable}
-                  hint={isEdit && detailEvent ? eventTagHint(detailEvent) : null}
+                  hint={tagHint}
                 />
               )}
 

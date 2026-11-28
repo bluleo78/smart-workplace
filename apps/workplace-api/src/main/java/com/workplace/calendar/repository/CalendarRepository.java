@@ -215,6 +215,9 @@ public class CalendarRepository {
         r.get(CALENDAR.POSITION),
         Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY)),
         r.get(EMAIL_ACCOUNT.EMAIL_ADDRESS), // 로컬 캘린더는 JOIN 행 없어 null
-        r.get(EMAIL_ACCOUNT.PROVIDER)); // 로컬 캘린더는 null
+        r.get(EMAIL_ACCOUNT.PROVIDER), // 로컬 캘린더는 null
+        // WP-2172: 로컬(외부 계정 없음) 또는 본인 메일함 캘린더만 태그 가능 — 생성 검사(WP-801)와 같은 기준
+        r.get(CALENDAR.EXTERNAL_ACCOUNT_ID) == null
+            || Boolean.TRUE.equals(r.get(CALENDAR.IS_OWN_MAILBOX)));
   }
 }
