@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest'
 
 import { fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 
-import { calendar } from '../../../e2e/factories/calendar.factory'
+import { calendar, calendarEvent } from '../../../e2e/factories/calendar.factory'
 
 fixClock()
 
@@ -155,5 +155,122 @@ describe('새 일정 — 캘린더 처음 값', () => {
     const { user } = await renderCalendar({ calendars: CALENDARS, defaultCalendarId: 10 })
     await user.click(screen.getByTestId('calendar-new-event'))
     await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더'))
+  })
+})
+
+// 반복 전환·안내(WP-2170) — 서버는 Outlook 캘린더의 반복 일정 생성을 422 로 막는다(에픽 WP-2168). 화면이 먼저 Works 로 옮기고 안내한다.
+describe('새 일정 — Outlook 반복·참석자 안내(WP-2170)', () => {
+  const HINT = 'calendar-form-recurrence-works-hint'
+
+  /** 설정 defaultCalendarId=3(Outlook) 으로 새 일정 창을 연다 */
+  async function openNewWithOutlook(extra: Parameters<typeof renderCalendar>[1] = {}) {
+    const view = await renderCalendar({ calendars: CALENDARS, defaultCalendarId: 3 }, extra)
+    await view.user.click(screen.getByTestId('calendar-new-event'))
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('업무 · Outlook'))
+    return view
+  }
+
+  /** 반복 빈도 Select 에서 항목을 고른다 */
+  async function pickFreq(user: Awaited<ReturnType<typeof renderCalendar>>['user'], name: string) {
+    await user.click(screen.getByTestId('calendar-form-recurrence-freq'))
+    await user.click(await screen.findByRole('option', { name }))
+  }
+
+  test('Outlook 이 처음 값인 새 일정에서 반복을 켜면 Works 캘린더로 바뀌고 안내가 보이며 저장 POST 가 Works 로 간다(WP-2170)', async () => {
+    const { user, requests } = await openNewWithOutlook()
+    await pickFreq(user, '매주')
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더'))
+    expect(screen.getByTestId(HINT)).toBeInTheDocument()
+    await user.click(screen.getByTestId('calendar-form-title'))
+    await user.paste('반복 일정')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.posts).toHaveLength(1))
+    expect(requests.posts[0]).toMatchObject({ calendarId: 1 })
+    expect(requests.posts[0].recurrenceRule).toBeTruthy()
+  })
+
+  test('반복을 다시 끄면 원래 Outlook 캘린더로 돌아오고 반복 안내가 사라진다(WP-2170)', async () => {
+    const { user } = await openNewWithOutlook()
+    await pickFreq(user, '매주')
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더'))
+    await pickFreq(user, '반복 안 함')
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('업무 · Outlook'))
+    expect(screen.queryByTestId(HINT)).not.toBeInTheDocument()
+  })
+
+  test('반복이 켜진 새 일정에서는 Outlook 캘린더 항목을 고를 수 없다(WP-2170)', async () => {
+    const { user } = await openNewWithOutlook()
+    await pickFreq(user, '매주')
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    const option = await screen.findByRole('option', { name: '업무 · Outlook' })
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('option', { name: '팀 일정' })).not.toHaveAttribute('aria-disabled', 'true')
+  })
+
+  test('Outlook 이 선택돼 있으면 참석자 아래 안내가 보이고 Works 로 바꾸면 사라진다(WP-2170)', async () => {
+    const { user } = await openNewWithOutlook()
+    expect(screen.getByTestId('calendar-form-attendee-outlook-hint')).toHaveTextContent('초대 메일은 Outlook 발송')
+    await user.click(screen.getByTestId('calendar-form-calendar'))
+    await user.click(await screen.findByRole('option', { name: 'Works 캘린더' }))
+    await waitFor(() => expect(screen.queryByTestId('calendar-form-attendee-outlook-hint')).not.toBeInTheDocument())
+  })
+
+  test('반복 전환 뒤 설정 응답이 늦게 와도 Outlook 으로 되돌아가지 않는다(WP-2170)', async () => {
+    const { user } = await renderCalendar(
+      { calendars: CALENDARS },
+      {
+        handlers: [
+          http.get('/api/v1/calendar/settings', async () => {
+            await delay(600)
+            return HttpResponse.json({ defaultCalendarId: 3 })
+          }),
+        ],
+      },
+    )
+    await user.click(screen.getByTestId('calendar-new-event'))
+    await user.click(await screen.findByTestId('calendar-form-calendar'))
+    await user.click(await screen.findByRole('option', { name: '업무 · Outlook' }))
+    await pickFreq(user, '매주')
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더'))
+    // 설정 응답이 반영(배지 이동)된 뒤에도 Works 가 남는다
+    await waitFor(() => expect(badgeIn(3)).toHaveTextContent('기본'), { timeout: 3000 })
+    expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더')
+  })
+
+  test('반복을 먼저 켠 뒤 Outlook 기본 설정이 늦게 와도 Works 에 남고 안내가 보이며, 반복을 끄면 Outlook 이 된다(WP-2170)', async () => {
+    const { user } = await renderCalendar(
+      { calendars: CALENDARS },
+      {
+        handlers: [
+          http.get('/api/v1/calendar/settings', async () => {
+            await delay(600)
+            return HttpResponse.json({ defaultCalendarId: 3 })
+          }),
+        ],
+      },
+    )
+    await user.click(screen.getByTestId('calendar-new-event'))
+    await pickFreq(user, '매주')
+    await waitFor(() => expect(badgeIn(3)).toHaveTextContent('기본'), { timeout: 3000 })
+    expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('Works 캘린더')
+    expect(screen.getByTestId(HINT)).toBeInTheDocument()
+    await pickFreq(user, '반복 안 함')
+    await waitFor(() => expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('업무 · Outlook'))
+    expect(screen.queryByTestId(HINT)).not.toBeInTheDocument()
+  })
+
+  test('편집 모드에서는 반복을 바꿔도 캘린더가 바뀌지 않고 반복 안내가 없다(WP-2170)', async () => {
+    const ev = calendarEvent({
+      id: 10, title: '기존 일정', calendarId: 3, color: null, effectiveColor: 'red',
+      startsAt: '2026-06-10T01:00:00Z', endsAt: '2026-06-10T02:00:00Z', myRole: 'ORGANIZER',
+    })
+    const { user } = await renderCalendar({ calendars: CALENDARS, defaultCalendarId: 3, events: [{ ...ev, attendees: [] }] })
+    await user.click(await screen.findByTestId('calendar-event-10'))
+    expect(await screen.findByTestId('calendar-form-title')).toHaveValue('기존 일정')
+    // Outlook 일정이라야 「편집에서는 전환하지 않는다」가 의미 있다 — 새 일정이면 여기서 Works 로 바뀐다
+    expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('업무 · Outlook')
+    await pickFreq(user, '매주')
+    expect(screen.getByTestId('calendar-form-calendar')).toHaveTextContent('업무 · Outlook')
+    expect(screen.queryByTestId(HINT)).not.toBeInTheDocument()
   })
 })

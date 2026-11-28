@@ -531,6 +531,58 @@ export function isOutlookCalendar(c: { provider?: string | null }): boolean {
   return c.provider === 'M365_GRAPH'
 }
 
+// 반복 전환 판정에 필요한 캘린더 최소 필드 — Calendar 가 그대로 들어맞는다.
+export type CalendarLike = { id: number; isDefault?: boolean; isReadOnly?: boolean; provider?: string | null }
+
+/**
+ * 반복 일정을 만들 Works 캘린더 id.
+ * 서버가 외부(Outlook) 캘린더의 반복 일정을 422 로 거절하므로(WP-2170) 대신 쓸 곳을 찾는다.
+ * 기본 + 쓰기 가능 + 비Outlook 을 우선하고, 없으면 비Outlook·쓰기 가능 첫 캘린더, 그것도 없으면 null.
+ */
+export function worksCalendarId(calendars: CalendarLike[]): number | null {
+  const writable = calendars.filter((c) => !c.isReadOnly && !isOutlookCalendar(c))
+  return (writable.find((c) => c.isDefault) ?? writable[0])?.id ?? null
+}
+
+// 쓰기 가능한 Outlook 캘린더가 있는가 — 있어야 「Outlook 캘린더는 반복 불가」 안내가 의미 있다.
+export function hasWritableOutlook(calendars: CalendarLike[]): boolean {
+  return calendars.some((c) => isOutlookCalendar(c) && !c.isReadOnly)
+}
+
+/**
+ * 반복 빈도 변경에 따른 캘린더 자동 전환·복원 (WP-2170).
+ * 새 일정에서 반복을 켰는데 Outlook 이 선택돼 있으면 Works 캘린더로 옮기고 원래 id 를 기억하며,
+ * 반복을 다시 끄면 그때만(자동 전환한 경우) 원래 캘린더로 되돌린다. 편집·그 밖의 변화는 건드리지 않는다.
+ */
+export function recurrenceCalendarSwitch(args: {
+  isEdit: boolean
+  prevFreq: string
+  nextFreq: string
+  calendarId: number | undefined
+  switchedFromId: number | null
+  calendars: CalendarLike[]
+}): { calendarId: number | undefined; switchedFromId: number | null } {
+  const { isEdit, prevFreq, nextFreq, calendarId, switchedFromId, calendars } = args
+  const unchanged = { calendarId, switchedFromId }
+  if (isEdit) return unchanged
+  if (prevFreq === 'NONE' && nextFreq !== 'NONE') {
+    const selected = calendars.find((c) => c.id === calendarId)
+    const works = worksCalendarId(calendars)
+    if (selected && isOutlookCalendar(selected) && works != null) {
+      return { calendarId: works, switchedFromId: calendarId ?? null }
+    }
+    return unchanged
+  }
+  if (prevFreq !== 'NONE' && nextFreq === 'NONE' && switchedFromId != null) {
+    // 창을 연 사이 M365 연결을 끊었거나 읽기 전용이 되어 원래 캘린더를 쓸 수 없으면 되돌리지 않고 지금 캘린더를 둔다
+    // — 목록에 없는 id 로 저장하면 404/409 가 난다.
+    const original = calendars.find((c) => c.id === switchedFromId)
+    if (!original || original.isReadOnly) return { calendarId, switchedFromId: null }
+    return { calendarId: switchedFromId, switchedFromId: null }
+  }
+  return unchanged
+}
+
 // 공급자 raw 문자열 → 사이드바 pill 라벨. IMAP 은 일정 동기화를 안 하므로 현재는 M365 만 실제 등장.
 export function providerLabel(provider: string | null | undefined): string {
   switch (provider) {

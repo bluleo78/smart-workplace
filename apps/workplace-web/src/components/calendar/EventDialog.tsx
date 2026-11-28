@@ -49,7 +49,7 @@ import { useCalendars, useDefaultCalendarId } from '@/hooks/queries/useCalendars
 import { useCreateMeetingNote } from '@/hooks/queries/useCreateMeetingNote'
 import { useEventNote, useLinkEventNote, useUnlinkEventNote } from '@/hooks/queries/useEventNote'
 import { useAuth } from '@/hooks/useAuth'
-import { INVITED_CALENDAR_LABEL, isOutlookCalendar } from '@/lib/calendar'
+import { hasWritableOutlook, INVITED_CALENDAR_LABEL, isOutlookCalendar, recurrenceCalendarSwitch, worksCalendarId } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
 import {
   allDayFormRange,
@@ -151,6 +151,10 @@ export function EventDialog({
 
   // 생성 모드에서 사용자가 캘린더를 직접 골랐는지 — 설정이 늦게 와도 고른 값을 덮지 않게(열 때마다 false 로)
   const calendarPickedRef = useRef(false)
+  // 늦게 온 기본 캘린더를 마지막으로 반영한 값 — 같은 값으로 effect 가 다시 돌 때(캘린더 목록 재조회) 폼을 건드리지 않게(WP-2170)
+  const appliedDefaultRef = useRef<number | null>(null)
+  // 새 일정에서 반복을 켜 Outlook → Works 로 자동 전환했을 때의 원래 캘린더 id(WP-2170). 반복을 끄면 되돌리고, 직접 고르면 비운다.
+  const [recurrenceSwitchedFromId, setRecurrenceSwitchedFromId] = useState<number | null>(null)
 
   // 생성 모드에서 선택된 참석자 목록 — id+이름+종류 저장으로 칩에 실명 표시 (이슈 #489)
   const [selectedAttendees, setSelectedAttendees] = useState<SelectedMember[]>([])
@@ -252,7 +256,10 @@ export function EventDialog({
     name: ['calendarId', 'color', 'recurrenceFreq', 'recurrenceEnd', 'reminderMinutes', 'allDay'],
   })
   // 색 점의 「상속」 색 — 고른 캘린더의 색(목록 로드 전·내 목록에 없으면 일정의 실제 색)
-  const calendarColor = calendars.find((c) => c.id === watchedCalendarId)?.color ?? event?.effectiveColor ?? null
+  const selectedCalendar = calendars.find((c) => c.id === watchedCalendarId)
+  const calendarColor = selectedCalendar?.color ?? event?.effectiveColor ?? null
+  // 새 일정에서 반복을 켠 상태 — Outlook 은 반복을 저장할 수 없어(서버 422) 항목을 막고 안내를 띄운다(WP-2170)
+  const recurringCreate = !isEdit && recurrenceFreq !== 'NONE'
 
   // 다이얼로그가 열릴 때마다 폼 초기화 + 참석자 선택 초기화
   useEffect(() => {
@@ -270,6 +277,8 @@ export function EventDialog({
     setMeetingDialog(null)
     setColorOpen(false)
     calendarPickedRef.current = false
+    appliedDefaultRef.current = null
+    setRecurrenceSwitchedFromId(null)
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
     // 폼이 담을 수 없는 규칙이면 반복 칸이 잠겨 보이지 않으므로 NONE 으로 둔다 — 숨은 칸(종료일 등) 검증에 걸려 저장이 조용히 막히지 않게(WP-708).
@@ -329,10 +338,26 @@ export function EventDialog({
   // 생성 모드: 캘린더 목록·기본 캘린더 설정이 늦게 로드되면 기본 캘린더만 채운다(전체 reset 금지 — 사용자 입력 보존).
   // 목록이 먼저 와 Works 캘린더가 담긴 뒤 설정이 오면 기본값이 바뀌므로, 사용자가 아직 고르지 않았을 때만 새 기본값으로 바꾼다(WP-2169).
   useEffect(() => {
+    // 같은 기본값을 이미 반영했으면 다시 하지 않는다 — calendars 가 다시 받아질 때마다(창 포커스 등) 폼 상태가 사용자 조작 없이 바뀌지 않게.
+    if (appliedDefaultRef.current === defaultCalendarId) return
     if (open && !isEdit && defaultCalendarId != null && !calendarPickedRef.current) {
-      if (form.getValues('calendarId') !== defaultCalendarId) form.setValue('calendarId', defaultCalendarId)
+      appliedDefaultRef.current = defaultCalendarId
+      // 반복이 이미 켜졌는데 늦게 온 기본이 Outlook 이면 적용하지 않고 기억만 한다 — 적용하면 비활성인 Outlook 이 선택돼 저장이 서버 422 가 된다.
+      // 기억해 두면 반복을 끌 때 recurrenceCalendarSwitch 가 그 Outlook 으로 되돌린다(WP-2170).
+      const defaultCalendar = calendars.find((c) => c.id === defaultCalendarId)
+      // 쓸 수 있는 Works 캘린더가 없으면 옮길 곳이 없으니 기억하지 않고 아래(그대로 적용)로 간다 — 기억하면 안내만 「Works 에 저장」이라 거짓이 된다.
+      const works = worksCalendarId(calendars)
+      if (form.getValues('recurrenceFreq') !== 'NONE' && defaultCalendar && isOutlookCalendar(defaultCalendar) && works != null) {
+        setRecurrenceSwitchedFromId(defaultCalendarId)
+        // 캘린더 칸이 아직 비었으면(목록이 늦게 와 반복을 먼저 켠 경우) Works 로 채운다 — 비워 두면 저장이 기본 캘린더(Outlook)로 폴백해 422 가 된다.
+        if (form.getValues('calendarId') == null) form.setValue('calendarId', works)
+      } else {
+        // Outlook 이 아닌 기본을 적용하면 이전에 기억한 Outlook 은 낡은 값이라 비운다 — 반복을 꺼도 엉뚱한 Outlook 으로 되돌지 않게.
+        setRecurrenceSwitchedFromId(null)
+        if (form.getValues('calendarId') !== defaultCalendarId) form.setValue('calendarId', defaultCalendarId)
+      }
     }
-  }, [open, isEdit, defaultCalendarId, form])
+  }, [open, isEdit, defaultCalendarId, calendars, form])
 
   // 폼이 담을 수 없는 반복 규칙(여러 요일·매년 등, MCP 로 만든 일정) — 반복 칸을 잠그고 저장 때 원래 규칙을 그대로 보낸다(WP-708).
   // 예전엔 BYDAY 가 빠진 채 저장되거나 YEARLY 가 「반복 없음」으로 저장돼 반복이 사라졌다.
@@ -620,7 +645,24 @@ export function EventDialog({
                   {!lockedRecurrenceRule && (
                     <Select
                       value={recurrenceFreq}
-                      onValueChange={(v) => form.setValue('recurrenceFreq', v as FormValues['recurrenceFreq'])}
+                      onValueChange={(v) => {
+                        // 서버는 Outlook 캘린더의 반복 일정 생성을 422 로 막는다(에픽 WP-2168) — 새 일정에서 반복을 켜면 Works 캘린더로 옮기고,
+                        // 끄면 원래 캘린더로 되돌린다. 자동 전환도 「고른 값」이라 늦게 온 기본 캘린더 설정이 덮지 않게 표시한다.
+                        const next = recurrenceCalendarSwitch({
+                          isEdit,
+                          prevFreq: recurrenceFreq,
+                          nextFreq: v,
+                          calendarId: form.getValues('calendarId'),
+                          switchedFromId: recurrenceSwitchedFromId,
+                          calendars,
+                        })
+                        if (next.calendarId !== form.getValues('calendarId')) {
+                          form.setValue('calendarId', next.calendarId as number)
+                          calendarPickedRef.current = true
+                        }
+                        setRecurrenceSwitchedFromId(next.switchedFromId)
+                        form.setValue('recurrenceFreq', v as FormValues['recurrenceFreq'])
+                      }}
                     >
                       <SelectTrigger
                         id="ev-recurrence-freq"
@@ -737,6 +779,13 @@ export function EventDialog({
                     )}
                   </>
                 )}
+
+                {/* Outlook 캘린더는 반복 일정을 못 만든다 — 자동 전환했거나 고를 수 있는 Outlook 이 있을 때 이유를 알린다(WP-2170) */}
+                {recurringCreate && worksCalendarId(calendars) != null && (recurrenceSwitchedFromId != null || hasWritableOutlook(calendars)) && (
+                  <p data-testid="calendar-form-recurrence-works-hint" className="text-xs text-muted-foreground break-keep">
+                    반복 일정은 Works 캘린더에 저장
+                  </p>
+                )}
               </EventFormRow>
 
               {/* 장소 */}
@@ -773,6 +822,13 @@ export function EventDialog({
                     onRemove={canManageAttendees ? (userId) => removeAttendee.mutate(userId) : undefined}
                     hideAdd={isEdit && !canManageAttendees}
                   />
+                  {/* Outlook 캘린더 일정은 초대 메일을 Outlook 이 보내고 AI 참석자는 Works 에만 남는다(WP-2170) */}
+                  {/* 초대할 수 없는 사람(편집 중인 피초대자 등)에게는 발송 안내가 맞지 않아 보이지 않는다 */}
+                  {(!isEdit || canManageAttendees) && selectedCalendar && isOutlookCalendar(selectedCalendar) && (
+                    <p data-testid="calendar-form-attendee-outlook-hint" className="mt-1 text-xs text-muted-foreground break-keep">
+                      초대 메일은 Outlook 발송 · AI 참석자는 Works 에만 표시
+                    </p>
+                  )}
                 </EventFormRow>
               ) : null}
 
@@ -855,6 +911,7 @@ export function EventDialog({
                         onValueChange={(v) => {
                           // 사용자가 직접 골랐다 — 늦게 온 기본 캘린더 설정이 덮지 않게 표시한다(WP-2169)
                           calendarPickedRef.current = true
+                          setRecurrenceSwitchedFromId(null)
                           field.onChange(Number(v))
                         }}
                       >
@@ -874,7 +931,12 @@ export function EventDialog({
                           {calendars
                             .filter((c) => !c.isReadOnly)
                             .map((c) => (
-                              <SelectItem key={c.id} value={c.id.toString()}>
+                              // 반복이 켜진 새 일정은 Outlook 을 고를 수 없다 — 서버 422 를 화면에서 먼저 막는다(WP-2170)
+                              <SelectItem
+                                key={c.id}
+                                value={c.id.toString()}
+                                disabled={recurringCreate && isOutlookCalendar(c)}
+                              >
                                 {/* 외부(M365) 캘린더는 이름 뒤에 「· Outlook」 — 같은 이름의 Works 캘린더와 구분한다(WP-2169) */}
                                 {isOutlookCalendar(c) ? `${c.name} · Outlook` : c.name}
                               </SelectItem>
