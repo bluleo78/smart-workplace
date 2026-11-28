@@ -7,4 +7,6 @@
  */
 export interface CalendarSettings {
   defaultCalendarId: number | null
+  /** Outlook 기본 캘린더 물었음(WP-2171) — false 일 때만 확인 창 후보. 서버 이전 응답·테스트 기본에는 없을 수 있다 */
+  outlookPrompted?: boolean
 }

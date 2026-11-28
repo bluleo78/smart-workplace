@@ -13,4 +13,8 @@ export const calendarSettingsApi = {
     const { data } = await client.put<CalendarSettings>('/calendar/settings', { calendarId })
     return data
   },
+  /** 「Outlook 을 새 일정 기본으로 할까요」 확인 창을 물었다고 기록(WP-2171) — 멱등, 204. 다른 기기에서도 다시 묻지 않는다. */
+  markOutlookPrompted: async (): Promise<void> => {
+    await client.post('/calendar/settings/outlook-prompted')
+  },
 }

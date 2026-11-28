@@ -165,6 +165,7 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 캘린더 사이드바 「태그」 묶음·태그 피커가 조회한다(WP-714) — 빈 기본 스텁으로 프록시 누수를 막는다
   await mockApi(page, 'GET', '/api/v1/calendar/tags', [])
   // 새 일정 기본 캘린더 설정(WP-2169) — 캘린더 사이드바·일정 창이 조회한다. null 이면 웹이 isDefault 캘린더로 폴백
+  // outlookPrompted 를 생략한다 — 웹은 생략을 「이미 물었음」으로 보므로 Outlook 기본 캘린더 확인 창(WP-2171)이 e2e 화면을 덮지 않는다
   await mockApi(page, 'GET', '/api/v1/calendar/settings', { defaultCalendarId: null })
   await mockApi(page, 'GET', '/api/v1/messaging/channels', [])
   await mockApi(page, 'GET', '/api/v1/messaging/dms', [])

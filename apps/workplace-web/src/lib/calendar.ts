@@ -4,6 +4,7 @@ import {
 } from 'date-fns'
 
 import type { Calendar, CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
+import type { CalendarSettings } from '../types/calendarSettings'
 import { endClock24, formatLocalClockTime24, formatLocalMonthDaySlash, isNextMidnightEnd } from './formatters'
 import { type StorageOwner, userScopedKey } from './userScopedKey'
 
@@ -529,6 +530,31 @@ export function isNotEventOrganizer(
 // Outlook(M365 Graph) 연동 캘린더인가 — 캘린더 선택 항목에 「· Outlook」 표시를 붙일지 정한다.
 export function isOutlookCalendar(c: { provider?: string | null }): boolean {
   return c.provider === 'M365_GRAPH'
+}
+
+/** 「새 일정 기본 캘린더」 확인 창이 권할 캘린더(WP-2171) — 쓸 수 있는(읽기 전용 아닌) Outlook 캘린더 중 목록 순서 첫째. 없으면 null. */
+export function outlookPromptTarget(calendars: Calendar[]): Calendar | null {
+  return calendars.find((c) => isOutlookCalendar(c) && !c.isReadOnly) ?? null
+}
+
+/**
+ * Outlook 기본 캘린더 확인 창 판정(WP-2171).
+ * - 'show': 창을 띄운다 — 아직 안 물었고(outlookPrompted === false), 권할 Outlook 캘린더가 있고, 지금 기본이 Works 캘린더다.
+ * - 'mark': 창 없이 물었음만 기록한다 — 기본이 이미 Outlook 이거나 사용자가 고른 다른 캘린더(팀 등)라 물을 필요가 없다(다른 기기에서도 다시 안 묻게).
+ * - 'none': 아무것도 하지 않는다 — 비활성(캘린더 화면·연결 직후 아님), 설정을 아직 모름, 이미 물었음, 권할 캘린더 없음.
+ */
+export function shouldPromptOutlookDefault(args: {
+  settings?: CalendarSettings
+  calendars: Calendar[]
+  active: boolean
+}): 'show' | 'mark' | 'none' {
+  const { settings, calendars, active } = args
+  if (!active || !settings || settings.outlookPrompted !== false) return 'none'
+  if (!outlookPromptTarget(calendars)) return 'none'
+  const current = calendars.find((c) => c.id === settings.defaultCalendarId)
+  // 지정이 없거나(Works 로 폴백) 지금 기본이 Works 캘린더일 때만 묻는다 — Outlook·팀 캘린더 등 사용자가 이미 고른 기본은 건드리지 않고 기록만 한다
+  if (!current || current.isDefault) return 'show'
+  return 'mark'
 }
 
 // 공급자 raw 문자열 → 사이드바 pill 라벨. IMAP 은 일정 동기화를 안 하므로 현재는 M365 만 실제 등장.

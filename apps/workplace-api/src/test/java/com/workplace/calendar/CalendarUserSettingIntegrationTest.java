@@ -314,4 +314,144 @@ class CalendarUserSettingIntegrationTest extends IntegrationTestBase {
     useTenant(1L);
     assertThat(effectiveDefault(me)).isEqualTo(second);
   }
+
+  ResultActions postPrompted(long uid, long tenantId) throws Exception {
+    return mvc.perform(post("/api/v1/calendar/settings/outlook-prompted").with(as(uid, tenantId)));
+  }
+
+  /** GET 응답의 outlookPrompted. */
+  boolean prompted(long uid, long tenantId) throws Exception {
+    String json =
+        getSetting(uid, tenantId)
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    return om.readTree(json).get("outlookPrompted").asBoolean();
+  }
+
+  @Test
+  void 처음_조회하면_물었음이_아니다() throws Exception {
+    long me = user();
+
+    getSetting(me).andExpect(status().isOk()).andExpect(jsonPath("$.outlookPrompted").value(false));
+  }
+
+  @Test
+  void 물었음을_기록하면_플래그가_서고_기본_캘린더는_그대로() throws Exception {
+    long me = user();
+    long works = calendarRepo.findDefaultId(me).orElse(calendarService.ensureDefault(me));
+
+    postPrompted(me, 1L).andExpect(status().isNoContent());
+
+    getSetting(me)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.outlookPrompted").value(true))
+        .andExpect(jsonPath("$.defaultCalendarId").value(works));
+  }
+
+  @Test
+  void 물었음_기록은_멱등이고_첫_시각을_유지한다() throws Exception {
+    long me = user();
+    postPrompted(me, 1L).andExpect(status().isNoContent());
+    OffsetDateTime first =
+        dsl.select(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT)
+            .from(CALENDAR_USER_SETTING)
+            .where(CALENDAR_USER_SETTING.USER_ID.eq(me))
+            .fetchOne(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT);
+    assertThat(first).isNotNull();
+
+    postPrompted(me, 1L).andExpect(status().isNoContent());
+
+    // 같은 트랜잭션 안에서는 now() 가 같아 시각만으로는 약하다 — 행이 하나이고 시각이 그대로인지 함께 본다.
+    assertThat(dsl.fetchCount(CALENDAR_USER_SETTING, CALENDAR_USER_SETTING.USER_ID.eq(me)))
+        .isEqualTo(1);
+    assertThat(
+            dsl.select(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT)
+                .from(CALENDAR_USER_SETTING)
+                .where(CALENDAR_USER_SETTING.USER_ID.eq(me))
+                .fetchOne(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT))
+        .isEqualTo(first);
+  }
+
+  @Test
+  void 읽기_권한만_있는_사용자도_물었음을_기록할_수_있다() throws Exception {
+    long me = user();
+    RequestPostProcessor readOnly =
+        authentication(
+            new UsernamePasswordAuthenticationToken(
+                me, "n/a", List.of(new SimpleGrantedAuthority("calendar:read"))));
+
+    mvc.perform(
+            post("/api/v1/calendar/settings/outlook-prompted")
+                .with(
+                    req -> {
+                      TenantContext.set(1L);
+                      return readOnly.postProcessRequest(req);
+                    }))
+        .andExpect(status().isNoContent());
+
+    assertThat(prompted(me, 1L)).isTrue();
+  }
+
+  @Test
+  void 물었음_시각이_이미_있으면_다시_기록해도_바뀌지_않는다() throws Exception {
+    long me = user();
+    OffsetDateTime old = OffsetDateTime.now().minusDays(3).withNano(0);
+    dsl.insertInto(CALENDAR_USER_SETTING)
+        .set(CALENDAR_USER_SETTING.USER_ID, me)
+        .set(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT, old)
+        .execute();
+
+    postPrompted(me, 1L).andExpect(status().isNoContent());
+
+    assertThat(
+            dsl.select(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT)
+                .from(CALENDAR_USER_SETTING)
+                .where(CALENDAR_USER_SETTING.USER_ID.eq(me))
+                .fetchOne(CALENDAR_USER_SETTING.OUTLOOK_PROMPTED_AT)
+                .toInstant())
+        .isEqualTo(old.toInstant());
+  }
+
+  @Test
+  void 기본_캘린더를_지정해도_물었음은_기록되지_않는다() throws Exception {
+    long me = user();
+    long second = insertCalendar(me, null, false);
+
+    putSetting(me, body(second))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.outlookPrompted").value(false));
+
+    assertThat(prompted(me, 1L)).isFalse();
+  }
+
+  @Test
+  void 물었음을_기록해도_이미_지정한_캘린더는_유지된다() throws Exception {
+    long me = user();
+    long second = insertCalendar(me, null, false);
+    putSetting(me, body(second)).andExpect(status().isOk());
+
+    postPrompted(me, 1L).andExpect(status().isNoContent());
+
+    assertThat(effectiveDefault(me)).isEqualTo(second);
+    assertThat(prompted(me, 1L)).isTrue();
+    // 이미 물은 뒤 지정(PUT)해도 물었음은 응답에 그대로 실린다.
+    putSetting(me, body(second)).andExpect(jsonPath("$.outlookPrompted").value(true));
+  }
+
+  @Test
+  void 다른_테넌트의_물었음_플래그는_분리된다() throws Exception {
+    long me = user();
+    postPrompted(me, 1L).andExpect(status().isNoContent());
+
+    long other = ensureFixtureTenant("wp2171-other");
+    TestFixtures.ensureActiveMember(dsl, me, other);
+    useTenant(other);
+
+    assertThat(prompted(me, other)).isFalse();
+
+    useTenant(1L);
+    assertThat(prompted(me, 1L)).isTrue();
+  }
 }

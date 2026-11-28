@@ -47,6 +47,12 @@ type ApiOptions = {
   linkedCard?: (pageId: number) => EventNoteRef
   /** 새 일정 기본 캘린더 설정(WP-2169) — GET /calendar/settings 의 defaultCalendarId. 기본 null(웹이 isDefault 로 폴백) */
   defaultCalendarId?: number | null
+  /** Outlook 기본 캘린더 물었음(WP-2171) — 기본 true(확인 창 없음). false 면 창 후보 */
+  outlookPrompted?: boolean
+  /** PUT /calendar/settings 를 이 상태 코드로 실패시킨다(409 등) */
+  settingsPutStatus?: number
+  /** PUT /calendar/settings 응답을 늦춘다(요청 중 상태 관찰) */
+  holdPut?: () => Promise<void>
 }
 
 /**
@@ -61,6 +67,7 @@ export function calendarApi(opts: ApiOptions = {}) {
     notes: { ...(opts.notes ?? {}) } as Record<string, EventNoteRef>,
     // 새 일정 기본 캘린더 설정(WP-2169) — PUT 이 바꾸고 GET 이 돌려준다
     defaultCalendarId: opts.defaultCalendarId ?? null,
+    outlookPrompted: opts.outlookPrompted ?? true,
   }
   const requests = {
     posts: [] as Record<string, unknown>[],
@@ -76,17 +83,31 @@ export function calendarApi(opts: ApiOptions = {}) {
     noteDeletes: [] as URL[],
     // 기본 캘린더 지정(PUT /calendar/settings) 본문(WP-2169)
     settingsPuts: [] as { calendarId: number }[],
+    // Outlook 기본 캘린더 물었음 기록(POST /calendar/settings/outlook-prompted) 횟수(WP-2171)
+    promptPosts: [] as true[],
+    // 설정 GET 횟수 — 비활성 때 안 부르는지 본다(WP-2171)
+    settingsGets: 0,
   }
   const noteKey = (id: number | string, url: URL) => `${id}|${url.searchParams.get('occurrenceDate') ?? ''}`
   const handlers = [
     http.get('/api/v1/calendars', () => HttpResponse.json(state.calendars)),
     // 새 일정 기본 캘린더 설정(WP-2169) — 지정하면 state 를 바꿔 다시 읽을 때 새 값을 준다
-    http.get('/api/v1/calendar/settings', () => HttpResponse.json({ defaultCalendarId: state.defaultCalendarId })),
+    http.get('/api/v1/calendar/settings', () => {
+      requests.settingsGets++
+      return HttpResponse.json({ defaultCalendarId: state.defaultCalendarId, outlookPrompted: state.outlookPrompted })
+    }),
     http.put('/api/v1/calendar/settings', async ({ request }) => {
       const body = (await request.json()) as { calendarId: number }
       requests.settingsPuts.push(body)
+      if (opts.holdPut) await opts.holdPut()
+      if (opts.settingsPutStatus) return HttpResponse.json({ message: 'conflict' }, { status: opts.settingsPutStatus })
       state.defaultCalendarId = body.calendarId
-      return HttpResponse.json({ defaultCalendarId: body.calendarId })
+      return HttpResponse.json({ defaultCalendarId: body.calendarId, outlookPrompted: state.outlookPrompted })
+    }),
+    http.post('/api/v1/calendar/settings/outlook-prompted', () => {
+      requests.promptPosts.push(true)
+      state.outlookPrompted = true
+      return new HttpResponse(null, { status: 204 })
     }),
     http.post('/api/v1/calendars', async ({ request }) => {
       const body = (await request.json()) as { name: string; color: string }
