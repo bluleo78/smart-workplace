@@ -16,6 +16,10 @@ appendFileSync(
     args,
     input,
     token: process.env.GITLAB_TOKEN ?? null,
+    // gh 쪽 토큰 — github.com 은 GH_TOKEN, GitHub Enterprise 는 GH_ENTERPRISE_TOKEN 으로 받는다(WP-2167).
+    ghToken: process.env.GH_TOKEN ?? null,
+    ghEnterpriseToken: process.env.GH_ENTERPRISE_TOKEN ?? null,
+    ghHost: process.env.GH_HOST ?? null, // GHE 호출만 호스트를 알려 준다(로그인 기록 없이도)
     telemetry: process.env.GLAB_SEND_TELEMETRY ?? null,
     checkUpdate: process.env.GLAB_CHECK_UPDATE ?? null,
   }) + '\n',

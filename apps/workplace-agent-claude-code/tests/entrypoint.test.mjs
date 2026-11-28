@@ -398,6 +398,122 @@ test('passesGithubTokenOnStdinOnly', (t) => {
   assert.equal(git('user.email'), 'kodi@agents.genia-works.local');
 });
 
+/** gh 를 덮어쓴다 — auth login 은 loginScript(종료 코드로 끝나는 셸), auth status 는 statusExit 로 끝난다. 로그인 시도 수는 login.n 에 센다. */
+function fakeGh(f, loginScript, statusExit) {
+  exe(f.d('bin', 'gh'), `#!/bin/sh
+printf 'args %s\\n' "$*" >> "$FAKE_OUT/gh.log"
+case "$1 $2" in
+  "auth login")
+    cat > /dev/null
+    n=$(cat "$FAKE_OUT/login.n" 2>/dev/null || echo 0)
+    n=$((n + 1))
+    echo "$n" > "$FAKE_OUT/login.n"
+    ${loginScript}
+    ;;
+  "auth status") exit ${statusExit} ;;
+esac
+exit 0
+`);
+}
+
+test('retriesGithubLoginAndRecordsResultForSession', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0' } });
+  fakeGh(f, 'if [ "$n" -lt 3 ]; then echo "error connecting to api.github.com" >&2; exit 1; fi; exit 0', 0);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((f.read('out', 'gh.log').match(/auth login/g) || []).length, 3);
+  const status = f.read('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  assert.match(status, /github github\.com login ok/);
+  assert.match(status, /gh auth status 0/);
+  assert.doesNotMatch(r.stderr, /GitHub 로그인 실패/);
+});
+
+test('recordsFullGithubLoginErrorWithoutToken', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0' } });
+  fakeGh(f, 'printf "error validating token: HTTP 401\\ntoken ghp_leakedvalue123 rejected\\nold 0123456789abcdef0123456789abcdef01234567 x\\n" >&2; exit 1', 1);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const path = f.d('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  const status = f.read('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  assert.match(status, /login failed\(3회\)/);
+  // 로그인이 실패하면 시간 제한 없는 gh auth status 를 부르지 않는다(네트워크 장애 때 부팅·종료 신호가 밀리지 않게)
+  assert.match(status, /gh auth status 생략/);
+  assert.doesNotMatch(f.read('out', 'gh.log'), /auth status/);
+  assert.match(status, /HTTP 401/);
+  assert.match(status, /token \*\*\* rejected/);
+  assert.match(status, /old \*\*\* x/); // 옛 40자 16진 토큰도 가린다
+  assert.doesNotMatch(status + r.stdout + r.stderr, /ghp_leakedvalue123|ghp_secrettoken|0123456789abcdef0123456789abcdef01234567/);
+  assert.match(r.stderr, /GitHub 로그인 실패/);
+  assert.ok(r.stderr.includes(path), r.stderr);
+});
+
+test('로그인이 계속 실패한 GitHub 호스트에는 토큰 파일을 읽는 git 자격 증명 도우미를 건다', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0' } });
+  fakeGh(f, 'echo "boom" >&2; exit 1', 1);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const fill = spawnSync('git', ['credential', 'fill'], {
+    env: { ...f.env, GIT_TERMINAL_PROMPT: '0' },
+    input: 'protocol=https\nhost=github.com\n\n',
+    encoding: 'utf8',
+  });
+  assert.equal(fill.status, 0, fill.stderr);
+  assert.match(fill.stdout, /username=x-access-token\npassword=ghp_secrettoken\n/);
+  assert.doesNotMatch(readFileSync(join(f.env.HOME, '.gitconfig'), 'utf8'), /ghp_/);
+  assert.match(f.read('work', 'agents', 'kodi', 'state', 'git-auth.log'), /git 도우미 토큰 파일/);
+});
+
+test('환경에 GH_TOKEN·GITHUB_TOKEN 이 있어도 저장 로그인을 한다(gh 가 환경 토큰이 있으면 거절하므로 그 호출에서만 뺀다)', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0', GH_TOKEN: 'envtoken', GITHUB_TOKEN: 'envtoken2' } });
+  fakeGh(f, '[ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] && { echo "The value of the GH_TOKEN environment variable is being used for authentication." >&2; exit 1; }', 0);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(f.read('out', 'login.n').trim(), '1');
+  assert.match(f.read('work', 'agents', 'kodi', 'state', 'git-auth.log'), /login ok/);
+});
+
+test('gh 로그인이 응답 없이 멈추면 제한 시간에 끊고 실패로 남긴다', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0', GENIA_GH_LOGIN_TRIES: '1', GENIA_GH_LOGIN_TIMEOUT: '1' } });
+  fakeGh(f, 'sleep 20', 0);
+  const started = Date.now();
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Date.now() - started < 10000, '제한 시간에 끊겨야 한다');
+  const status = f.read('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  assert.match(status, /login failed\(1회\)/);
+  assert.match(status, /1초 안에 끝나지 않았습니다/);
+});
+
+test('접두사 없는 토큰도 그 파일 값으로 가린다', (t) => {
+  const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0' } });
+  writeFileSync(f.d('run', 'repo-tokens', 'github', 'github.com'), 'PlainSecret12345\n');
+  fakeGh(f, 'echo "bad credentials for PlainSecret12345" >&2; exit 1', 1);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const status = f.read('work', 'agents', 'kodi', 'state', 'git-auth.log');
+  assert.match(status, /bad credentials for \*\*\*/);
+  assert.doesNotMatch(status + r.stdout + r.stderr, /PlainSecret12345/);
+});
+
+test('로그인이 성공하면 git 도우미를 따로 걸지 않는다', (t) => {
+  const f = fixture(t);
+  const r = callLib(f.env, 'check_required && setup_git');
+  assert.equal(r.status, 0, r.stderr);
+  const cfg = spawnSync('git', ['config', '--global', '--get-all', 'credential.https://github.com.helper'], { env: f.env, encoding: 'utf8' });
+  assert.doesNotMatch(cfg.stdout, /x-access-token/);
+  assert.doesNotMatch(f.read('work', 'agents', 'kodi', 'state', 'git-auth.log'), /git 도우미/);
+});
+
+test('GENIA_GH_LOGIN_TRIES 가 숫자가 아니거나 0(00 포함)이면 3번 시도한다', (t) => {
+  for (const tries of ['abc', '00']) {
+    const f = fixture(t, { env: { GENIA_GH_LOGIN_WAIT: '0', GENIA_GH_LOGIN_TRIES: tries } });
+    fakeGh(f, 'exit 1', 1);
+    const r = callLib(f.env, 'check_required && setup_git');
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal((f.read('out', 'gh.log').match(/auth login/g) || []).length, 3, tries);
+  }
+});
+
 test('logsInToEveryGithubHostAndGivesGitlabACredentialHelper', (t) => {
   const f = fixture(t);
   writeFileSync(f.d('run', 'repo-tokens', 'github', 'ghe.example.com'), 'ghp_enterprisetoken\n');

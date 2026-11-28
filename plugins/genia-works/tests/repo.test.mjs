@@ -35,11 +35,11 @@ function origin(url) {
 function reply(map) {
   writeFileSync(replies, JSON.stringify(map));
 }
-function run(args, { path = `${bin}:${process.env.PATH}` } = {}) {
+function run(args, { path = `${bin}:${process.env.PATH}`, env = {} } = {}) {
   return spawnSync(script, args, {
     cwd: repo,
     encoding: 'utf8',
-    env: { PATH: path, HOME: root, GENIA_RUN_DIR: runDir, FAKE_CLI_LOG: log, FAKE_CLI_REPLIES: replies, TMPDIR: root },
+    env: { PATH: path, HOME: root, GENIA_RUN_DIR: runDir, FAKE_CLI_LOG: log, FAKE_CLI_REPLIES: replies, TMPDIR: root, ...env },
   });
 }
 function calls() {
@@ -351,4 +351,101 @@ test('ci-job: 40자 SHA 가 아니거나 잡 이름이 이상하면 아무것도
   assert.equal(run(['ci-job', SHA40, 'a;rm -rf']).status, 2);
   assert.equal(run(['ci-job', SHA40]).status, 2);
   assert.deepEqual(calls(), []);
+});
+
+// Pod 의 GitHub 토큰 파일을 gh 호출에만 환경변수로 넘긴다(WP-2167) — gh 로그인 기록이 없어도 PR 흐름이 돈다.
+function ghToken(host, value) {
+  mkdirSync(join(runDir, 'repo-tokens', 'github'), { recursive: true });
+  writeFileSync(join(runDir, 'repo-tokens', 'github', host), value);
+}
+
+test('GitHub Pod 토큰 파일이 있으면 gh 호출마다 GH_TOKEN 으로 넘기고 인자에는 두지 않는다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-podsecret\n');
+  reply({ 'gh pr view': { out: { number: 5, title: 't', body: '', url: 'u', headRefName: 'h', headRefOid: 'o', state: 'OPEN', mergeable: 'MERGEABLE', statusCheckRollup: [], reviewDecision: '', mergeCommit: null } } });
+  assert.equal(run(['pr-view', '5']).status, 0);
+  assert.equal(run(['auth-check']).status, 0);
+  const c = calls();
+  assert.ok(c.length >= 2);
+  for (const x of c) {
+    assert.equal(x.ghToken, 'ghp-podsecret');
+    assert.equal(x.ghEnterpriseToken, null);
+    assert.equal(x.ghHost, null); // github.com 호출에는 GH_HOST 를 넣지 않는다
+    assert.ok(!JSON.stringify(x.args).includes('ghp-podsecret'));
+  }
+});
+
+test('GitHub Enterprise 호스트는 GH_ENTERPRISE_TOKEN 으로', () => {
+  origin('https://code.example.com/a/b.git');
+  ghToken('code.example.com', 'ghe-secret');
+  assert.equal(run(['auth-check']).status, 0);
+  const c = calls();
+  assert.ok(c.length >= 1);
+  for (const x of c) {
+    assert.equal(x.ghEnterpriseToken, 'ghe-secret');
+    assert.equal(x.ghToken, null);
+    assert.equal(x.ghHost, 'code.example.com'); // 로그인 기록 없이 gh 가 그 호스트를 알게
+  }
+});
+
+test('GitHub Enterprise Cloud(*.ghe.com)는 GH_TOKEN 과 GH_HOST 로', () => {
+  origin('https://acme.ghe.com/a/b.git');
+  ghToken('acme.ghe.com', 'ghec-secret');
+  assert.equal(run(['auth-check']).status, 0);
+  const c = calls();
+  assert.ok(c.length >= 1);
+  for (const x of c) {
+    assert.equal(x.ghToken, 'ghec-secret');
+    assert.equal(x.ghEnterpriseToken, null);
+    assert.equal(x.ghHost, 'acme.ghe.com');
+  }
+});
+
+test('gh 통과: GitHub 은 Pod 토큰으로 gh 를 그대로 부르고, GitLab 은 2', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-podsecret');
+  const r = run(['gh', 'run', 'list', '--branch', 'main', '--workflow', 'CI', '--limit', '5']);
+  assert.equal(r.status, 0, r.stderr);
+  const c = calls();
+  assert.deepEqual(c.at(-1).args, ['run', 'list', '--branch', 'main', '--workflow', 'CI', '--limit', '5']);
+  assert.equal(c.at(-1).ghToken, 'ghp-podsecret');
+  assert.equal(run(['gh']).status, 2);
+  spawnSync('git', ['remote', 'set-url', 'origin', 'https://gitlab.iacloud.kr/t/ttp.git'], { cwd: repo });
+  const g = run(['gh', 'run', 'list']);
+  assert.equal(g.status, 2);
+  assert.match(g.stderr, /GitHub 저장소만/);
+});
+
+test('auth-check: Pod 토큰이 있는데 실패하면 토큰 거절로 안내한다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-revoked');
+  reply({ 'gh auth status': { code: 1 } });
+  const r = run(['auth-check']);
+  assert.equal(r.status, 4);
+  assert.match(r.stderr, /Pod 의 GitHub 토큰\(github.com\)이 거절됐습니다/);
+  assert.match(r.stderr, /git-auth\.log/);
+});
+
+test('토큰 파일 끝의 CR·줄바꿈·공백은 빼고 넘긴다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-crlf \r\n');
+  assert.equal(run(['auth-check']).status, 0);
+  for (const x of calls()) assert.equal(x.ghToken, 'ghp-crlf');
+});
+
+test('빈 토큰 파일이면 토큰을 넘기지 않는다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', '');
+  assert.equal(run(['auth-check']).status, 0);
+  for (const x of calls()) {
+    assert.equal(x.ghToken, null);
+    assert.equal(x.ghEnterpriseToken, null);
+  }
+});
+
+test('세션에 GH_TOKEN 이 있어도 Pod 토큰 파일 값이 쓰인다', () => {
+  origin('https://github.com/a/wp.git');
+  ghToken('github.com', 'ghp-pod');
+  assert.equal(run(['auth-check'], { env: { GH_TOKEN: 'old' } }).status, 0);
+  for (const x of calls()) assert.equal(x.ghToken, 'ghp-pod');
 });
