@@ -12,6 +12,10 @@
 //   되살리기 replace 는 그 항목의 state(열림 마크)를 이어받는다.
 //   표식 없는 링크 PUSH(사이드바의 같은 프로젝트 링크)·다른 화면에서 돌아오는 뒤로/앞으로·새로고침(첫 렌더라 앞 위치 없음)이나 목록 화면이 새로 붙는 진입(모바일 뒤로 가기)은
 //   평소처럼 조건 없는 주소로 들어온 것이라 기억을 되살리고, 화면에 조건이 다시 생기면 이 유지도 끝난다.
+// - 문서를 다시 불러온 첫 항목(새로고침·세션 복원·문서 로드 뒤로/앞으로, WP-2096)은 주소 조건을 따르되 기억은 쓰지 않는다 — 오래된 탭의 F5 가 가장 최근 선택을 덮지 않게.
+//   그 직후 같은 화면에 머무는 이동(aiChat 지우기·열·저장된 뷰 정리 replace, 시트·패널 열고 닫기, 해시 이동)도 기억할 조건이 그대로인 동안은 쓰지 않는다.
+//   사용자가 조건을 바꾸거나(조건이 달라짐) 링크로 이동하거나(PUSH — 같은 조건의 공유·에픽·저장된 뷰 링크도) 다른 경로로 옮기면 그때부터 평소처럼 기억한다.
+//   새로고침 뒤 뒤로/앞으로 가기로 그 항목에 돌아온 POP 도 사용자의 이동이라 기억한다(documentNavigation 이 popstate 로 가른다).
 // - 들어온 주소에 조건이 없을 때만 되살린다 — 공유 링크·에픽 링크·저장된 뷰처럼 주소에 조건이 있으면 그것을 따르고 기억을 바꾼다.
 // - 개요 탭(WP-1478)의 링크는 조건을 단 주소로 이슈 탭을 열지만 기억은 바꾸지 않는다(state FROM_OVERVIEW_STATE) — 「오래 멈춤」·
 //   고정 날짜(마감 ~11/10) 같은 그때그때의 조건이 사용자가 고른 기억을 덮지 않게. 화면 안에서 조건을 바꾸면(replace, state 없음) 다시 기억한다.
@@ -21,6 +25,7 @@ import { useLocation, useNavigationType, useSearchParams } from 'react-router-do
 
 import { useAuth } from '@/hooks/useAuth'
 import { CHAT_PARAM } from '@/lib/aiChatLink'
+import { isReloadedDocumentEntry } from '@/lib/documentNavigation'
 import { hasAnyOpenMark } from '@/lib/historyParam'
 import { readStored, writeStored } from '@/lib/storageWithFallback'
 import { userScopedKey } from '@/lib/userScopedKey'
@@ -105,7 +110,7 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   const navigationType = useNavigationType()
   // 이동마다 다시 본다 — 되살린 주소를 같은 커밋의 다른 replace(AI 대화 링크가 aiChat 지우기)가 낡은 쿼리로 덮으면,
   // 조건 없는 주소가 다시 와도 stored 가 같아 effect 가 돌지 않는다.
-  const { key: locationKey, state, pathname } = useLocation()
+  const { key: locationKey, state, pathname, search } = useLocation()
   // 바로 앞 위치 — 「같은 화면에 머무는 이동인가」와 「알 수 없는 값 지우기 그 이동인가」를 가른다. 렌더 중 갱신이라 같은 렌더에서 바로 쓴다.
   // 첫 렌더(새로고침·새 탭·목록 화면이 새로 붙는 진입)는 앞 위치가 없어 언제나 새로 들어온 것으로 본다.
   const spot: ScreenSpot = { pathname, conditions: listConditionsOf(params), hasIgnored: ignoredFilterTokens(params).length > 0 }
@@ -125,6 +130,8 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
   // 새로고침(F5)·뒤로/앞으로(POP)에도 다시 읽히고, state 를 이어받는 replace(AI 대화 링크 처리기의 aiChat 지우기 등)에도 실려 오는데,
   // 그때까지 따르면 조건 없는 주소로 다시 들어와도 기억을 되살리지 않는다(WP-2083 리뷰) — 그런 이동에 실린 표지는 없는 것으로 본다.
   const ignoredCleared = readIgnoredClearedState(state) && navigationType === 'REPLACE' && samePath && prev?.hasIgnored === true
+  // 문서를 다시 불러온 첫 항목인가(WP-2096) — 이 항목의 주소 조건은 오래된 것일 수 있어 공유 기억에 쓰지 않는다.
+  const reloadedNow = isReloadedDocumentEntry(navigationType, pathname, search)
   const query = rememberedIssueQuery(params).toString()
   // 주소에 조건이 있는가 — 기본 보기(view=list)는 직렬화하면 빠지지만, 주소에 적혀 있으면 「목록으로」 고른 것이라 되살리지 않는다.
   const recordable = query !== '' || params.has('view')
@@ -147,6 +154,21 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
     navigationType === 'REPLACE'
       ? samePath
       : sameScreen && (navigationType === 'POP' || params.has(CHAT_PARAM) || hasAnyOpenMark(state))
+  // 다시 불러온 항목의 조건(프로젝트별) — 직후의 이동은 navigationType 이 POP 이 아니라 reloadedNow 가 꺼지지만, 같은 화면에 머물고 기억할 조건이 그대로면 여전히 낡은 조건이다.
+  // 렌더 중 갱신(hadConditionsFor 와 같은 패턴)이라 같은 렌더에서 바로 쓴다.
+  const [reloaded, setReloaded] = useState<{ projectKey: string; query: string; key: string } | null>(null)
+  const markedSame = reloaded !== null && reloaded.projectKey === projectKey && reloaded.query === query
+  // 다시 불러온 항목에 이어지는 같은 화면의 이동 — onScreen(같은 경로의 REPLACE·시트/패널 표식 PUSH·그 항목을 닫는 POP·해시 이동 POP)이고 기억할 조건이 그대로일 때만.
+  // 표식 없는 PUSH(같은 조건의 공유·에픽·저장된 뷰 링크)·다른 경로로 옮김·조건이 바뀐 이동은 사용자의 이동이라 표지를 지우고 평소처럼 기억한다(WP-2096 리뷰).
+  // location.key 가 표지를 단 때와 같으면 이동으로 보지 않는다 — state 없는 항목은 모두 key 'default' 라 해시 항목으로 옮겨도 key 가 같아 앞 위치(visit)가 밀리지 않는다.
+  const followsReload = markedSame && (onScreen || reloaded.key === locationKey)
+  if (reloadedNow) {
+    if (!markedSame) setReloaded({ projectKey, query, key: locationKey })
+  } else if (reloaded !== null && !followsReload) {
+    setReloaded(null)
+  }
+  // 기억 쓰기를 건너뛸 항목 — 다시 불러온 첫 항목이거나, 그 항목에 이어지는 같은 화면의 이동.
+  const reloadedEntry = reloadedNow || followsReload
   const stillReplacing = !recordable && onScreen
   if (!stillReplacing) {
     if (keepClearedFor !== null) setKeepClearedFor(null)
@@ -176,9 +198,9 @@ export function useRememberedIssueQuery(projectKey: string, enabled: boolean): b
     // 알 수 없는 값 지우기와 그 뒤 같은 화면의 조건 없는 replace(keepCleared)는 cleared·stored 가 이미 막혀 있어, 남은 조건이 있을 때만 기억을 쓴다.
     // 조건이 있으면 기억하고, 화면 안에서 지웠으면 기억도 지운다. 그 밖(기억이 없는 조건 없는 진입·개요 링크로 온 이동)은 건드리지 않는다.
     if (fromOverview) return
-    if (recordable) writeStored(storageKey, query || null)
+    if (recordable && !reloadedEntry) writeStored(storageKey, query || null)
     else if (cleared) writeStored(storageKey, null)
-  }, [storageKey, stored, recordable, cleared, query, setParams, locationKey, fromOverview, state])
+  }, [storageKey, stored, recordable, cleared, query, setParams, locationKey, fromOverview, state, reloadedEntry])
 
   return stored !== ''
 }

@@ -6,12 +6,13 @@
 import { act, render, renderHook, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { AuthContext } from '@/hooks/auth-context-value'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { resetDocumentPopForTests } from '@/lib/documentNavigation'
 import { settleHistory } from '@/test/history'
 import { memoryStorage } from '@/test/memoryStorage'
 import { testAuthValue } from '@/test/renderWithProviders'
@@ -55,6 +56,137 @@ beforeEach(() => {
   openSession.mockClear()
   // 실제 세션 히스토리(BrowserRouter)를 쓰는 테스트가 남긴 항목·state(idx)를 걷는다 — 뒤 테스트의 모바일 뒤로 가기가 idx 를 읽는다.
   window.history.replaceState(null, '', '/')
+})
+
+describe('새로고침·세션 복원(WP-2096)', () => {
+  // 문서 진입 항목(Navigation Timing)을 흉내 낸다 — 실제 브라우저는 type·name(주소)을 준다.
+  const entryAs = (type: string, name: string) =>
+    vi.spyOn(performance, 'getEntriesByType').mockReturnValue([{ type, name }] as unknown as PerformanceEntryList)
+  // 앞 테스트의 뒤로 가기(popstate)가 남긴 표시를 지운다 — 남으면 다시 불러온 첫 항목도 첫 항목으로 보지 않는다.
+  beforeEach(() => resetDocumentPopForTests())
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each(['reload', 'back_forward'])('%s 로 다시 불러온 첫 항목은 주소 조건을 따르되 기억을 덮지 않는다', (type) => {
+    localStorage.setItem(keyOf('WP'), 'statusId=2%2C3&priority=HIGH')
+    entryAs(type, 'http://localhost/projects/WP?statusId=3')
+    const { result } = renderAt('/projects/WP?statusId=3')
+    expect(result.current.location.search).toBe('?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=2%2C3&priority=HIGH')
+  })
+
+  it('navigate(새로 친 주소·공유 링크)는 지금처럼 주소 조건을 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'statusId=2%2C3&priority=HIGH')
+    entryAs('navigate', 'http://localhost/projects/WP?statusId=3')
+    renderAt('/projects/WP?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=3')
+  })
+
+  it('다시 불러온 항목에서 화면 안 replace 로 조건을 바꾸면 그때부터 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'statusId=2%2C3&priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    const { result } = renderAt('/projects/WP?statusId=3')
+    act(() => result.current.setParams('priority=LOW', { replace: true }))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=LOW')
+  })
+
+  it('다시 불러온 직후 주소 정리 replace(aiChat 지우기)에도 기억을 덮지 않고, 조건을 바꾸면 그때부터 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'statusId=2%2C3&priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3&aiChat=abc')
+    const { result } = renderAt('/projects/WP?statusId=3&aiChat=abc')
+    act(() => result.current.setParams('statusId=3', { replace: true }))
+    expect(result.current.location.search).toBe('?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=2%2C3&priority=HIGH')
+    act(() => result.current.setParams('priority=LOW', { replace: true }))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=LOW')
+  })
+
+  it('다시 불러온 항목이 조건 없는 주소면 기억으로 되살린다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP')
+    const { result } = renderAt('/projects/WP')
+    expect(result.current.location.search).toBe('?priority=HIGH')
+  })
+
+  it('다시 불러온 항목 뒤 링크 이동(PUSH)의 조건은 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'statusId=2%2C3&priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    const { result } = renderAt('/projects/WP?statusId=3')
+    act(() => result.current.navigate('/projects/WP?priority=HIGH'))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+  })
+
+  it('다시 불러온 항목 뒤 같은 조건의 링크 이동(PUSH — 공유·에픽·저장된 뷰 링크)도 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    const { result } = renderAt('/projects/WP?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    act(() => result.current.navigate('/projects/WP?statusId=3'))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=3')
+  })
+
+  it('다시 불러온 항목에서 같은 조건으로 다른 경로로 옮기면(replace) 기억한다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    const { result } = renderAt('/projects/WP?statusId=3')
+    act(() => result.current.navigate('/projects/WP/issues?statusId=3', { replace: true }))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=3')
+  })
+
+  it('다시 불러온 항목에서 시트·패널을 열고(표식 PUSH) 닫아도(POP) 기억을 덮지 않는다', () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    const { result } = renderAt('/projects/WP?statusId=3')
+    act(() => result.current.navigate('/projects/WP?statusId=3', { state: { sheet: '1', 'historyParam:sheet': 1 } }))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    act(() => result.current.navigate(-1))
+    expect(result.current.location.search).toBe('?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+  })
+
+  it('다시 불러온 항목에서 해시만 바꾼 이동(popstate)도 기억을 덮지 않는다', async () => {
+    localStorage.setItem(keyOf('WP'), 'priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    window.history.replaceState(null, '', '/projects/WP?statusId=3')
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <AuthContext.Provider value={testAuthValue}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </AuthContext.Provider>
+    )
+    const { result } = renderHook(() => {
+      useRememberedIssueQuery('WP', true)
+      return { location: useLocation() }
+    }, { wrapper })
+    // 앵커 클릭과 같은 모양 — 브라우저가 해시 항목을 쌓고 popstate 를 낸다(jsdom 은 해시 대입의 popstate 를 늦게 내 직접 흉내 낸다).
+    act(() => {
+      window.history.pushState(null, '', '/projects/WP?statusId=3#section')
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }))
+    })
+    expect(result.current.location.hash).toBe('#section')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+  })
+
+  it('새로고침 뒤 링크 이동 → 뒤로 가기로 다시 불러온 항목에 돌아온 POP 은 사용자의 이동이라 기억한다', async () => {
+    localStorage.setItem(keyOf('WP'), 'statusId=2%2C3&priority=HIGH')
+    entryAs('reload', 'http://localhost/projects/WP?statusId=3')
+    // 뒤로 가기는 실제 세션 히스토리(popstate)로 가른다 — BrowserRouter 로 띄운다.
+    window.history.replaceState(null, '', '/projects/WP?statusId=3')
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <AuthContext.Provider value={testAuthValue}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </AuthContext.Provider>
+    )
+    const { result } = renderHook(() => {
+      useRememberedIssueQuery('WP', true)
+      return { location: useLocation(), navigate: useNavigate() }
+    }, { wrapper })
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=2%2C3&priority=HIGH')
+    act(() => result.current.navigate('/projects/WP?priority=LOW'))
+    expect(localStorage.getItem(keyOf('WP'))).toBe('priority=LOW')
+    act(() => result.current.navigate(-1))
+    await act(settleHistory)
+    expect(result.current.location.search).toBe('?statusId=3')
+    expect(localStorage.getItem(keyOf('WP'))).toBe('statusId=3')
+  })
 })
 
 describe('rememberedIssueQuery', () => {
