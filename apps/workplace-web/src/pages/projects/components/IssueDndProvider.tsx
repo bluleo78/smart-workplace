@@ -121,7 +121,8 @@ export function IssueDndProvider({ projectKey, children }: { projectKey: string;
       return;
     }
     if (!isEpicDropData(dst)) return;
-    // 비허용 대상은 droppable 이 disabled 라 over 가 되지 않지만, 규칙을 한 번 더 확인해 방어한다.
+    // 비허용(어두운) 에픽 행도 드래그 중 전 행이 droppable 로 등록되므로 over 가 된다 — 이 확인이 어두운 행
+    // 드롭을 막는 주된 관문이다(등록은 EpicSidePanel useEpicDroppable, WP-2088). 막히지 않으면 에픽이 붙는다.
     if (epicDropState(src.issue, dst.epic) !== 'allowed') return;
     moveEpic.mutate({ issue: src.issue, to: dst.epic });
   }

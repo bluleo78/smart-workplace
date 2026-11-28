@@ -70,7 +70,8 @@ export function EpicSidePanel({
   const dnd = useIssueDnd();
   const activeIssue = dnd?.activeIssue ?? null;
   const blockReason = activeIssue ? epicDragBlockReason(activeIssue) : null;
-  // 패널 전체 영역 존 — 드래그 중에만 활성. 패널 위(비허용 항목·배너·여백)에 놓으면 no-op 이 되고 아래 보드로 새지 않는다.
+  // 패널 전체 영역 존 — 드래그 중에만 활성. 판정 규칙(에픽 항목 우선 → 그 외엔 보드 상태 대상만, 아니면 무반응)의
+  // 원본 주석은 epicDnd.EPIC_PANEL_ZONE_ID 에 있다(WP-2088 반려 ① — 목록 구간에는 넘기지 않는다).
   // data 에 epic 키가 없으므로 provider 의 에픽 드롭·보드 상태 모니터 모두 무시한다.
   const { setNodeRef: setZoneRef } = useDroppable({ id: EPIC_PANEL_ZONE_ID, data: { zone: true }, disabled: activeIssue == null });
 
@@ -215,7 +216,10 @@ export function EpicSidePanel({
   );
 }
 
-// 패널 항목을 에픽 드롭 대상으로 만든다 — 허용 상태일 때만 활성(비허용은 over 가 되지 않아 놓아도 무시).
+// 패널 항목을 에픽 드롭 대상으로 만든다 — 드래그 중에는 행이 보이는 한 무엇이든 등록한다(disabled 는 드래그 없음 = idle).
+// 어두운 행(current·blocked)도 over 는 될 수 있으나 IssueDndProvider 의 두 번째 판정(epicDropState !== 'allowed')이 막아
+// 에픽을 붙이지 않는다. 그래서 어두운 행에 놓으면 무반응으로 끝난다 — 등록을 끄면(drag 중 비허용 비활성) 그 행이 충돌
+// 판정에서 사라져, 그 아래 패널이 덮은 컬럼이 대상이 되어 상태가 바뀐다(WP-2088).
 // clip: 항목을 감싼 스크롤 컨테이너(에픽 목록만) — 가려진 항목이 포인터 판정에 잡히지 않게 한다.
 // 종료 에픽(진행 중 사이클 소속, WP-389)은 ParentRef.status 로 epicDropState 가 차단한다.
 function useEpicDroppable(
@@ -226,8 +230,10 @@ function useEpicDroppable(
   const state = epicDropState(activeIssue, epic);
   const { setNodeRef, isOver } = useDroppable({
     id: epic ? epicDropId(epic.number) : EPIC_DROP_NONE_ID,
-    data: { epic, clip } satisfies EpicDropData,
-    disabled: state !== 'allowed',
+    // data.state — 어두운 행을 재계산 없이 구분(키보드 후보 제외·안내 문구, epicDnd).
+    data: { epic, clip, state } satisfies EpicDropData,
+    // 드래그가 없으면 등록 안 함(오늘과 동일 — 아이들 페이지에 droppable 이 없다). 드래그 중에는 허용 여부와 무관하게 등록.
+    disabled: activeIssue == null,
   });
   const dropState = state === 'allowed' && isOver ? 'over' : state;
   return { setNodeRef, dropState, dropClass: DROP_CLASS[dropState] };

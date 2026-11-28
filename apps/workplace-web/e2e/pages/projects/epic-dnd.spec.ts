@@ -201,7 +201,9 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () =>
     expect(statusPatch.count()).toBe(0);
   });
 
-  // 떠 있는 패널은 보드 오른쪽 컬럼을 덮는다 — 패널 위 어디에 놓아도 아래 카드/컬럼으로 새면 안 된다.
+  // 떠 있는 패널은 보드 오른쪽 컬럼을 덮는다 — 아래 반복은 「에픽 항목 위」에 놓는 경우만 다룬다. 드래그 중 패널 행은
+  // 전부 드롭 대상이라 어두운 행(현재 에픽·차단)이 드롭을 삼키고 무반응으로 끝난다(덮인 컬럼으로 새지 않는다).
+  // 에픽이 아닌 빈 여백에 놓으면 아래 덮인 컬럼으로 상태가 바뀐다 — WP-2088 테스트(가려진 컬럼 위 패널 빈 여백) 참조.
   for (const c of [
     { name: '현재 에픽', issue: () => createIssue({ id: 1, number: 1, title: '카드', status: 'TODO', parent: parentOf(EPIC_A) }), target: `epic-filter-${EPIC_A.number}` },
     { name: 'SUBTASK 카드를 에픽', issue: () => createIssue({ id: 1, number: 1, title: '카드', status: 'TODO', type: makeSubtaskType(), parent: { number: 9, title: '부모', type: makeSubtaskType() } }), target: `epic-filter-${EPIC_A.number}` },
@@ -231,9 +233,11 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () =>
     }).toPass();
   });
 
-  // 배너는 기본 뷰포트에서 보드 컬럼보다 위에 떠 아래에 깔린 대상이 없다 — 그래서 누수 검증은 패널 하단 빈 여백 중
+  // 배너는 기본 뷰포트에서 보드 컬럼보다 위에 떠 아래에 깔린 대상이 없다 — 그래서 판정은 패널 하단 빈 여백 중
   // 가려진 컬럼 몸통과 겹치는 지점에서 한다(에픽 항목이 아닌 패널 영역).
-  test('패널 닫힘(떠 있는 패널): 가려진 컬럼 위 패널 빈 여백에 놓으면 상태·에픽 PATCH 모두 없음', async ({ authenticatedPage: page }) => {
+  // WP-2088: 이 자리에 놓으면 충돌 판정이 빈 결과를 돌려 드롭이 조용히 무시됐다 — 이제 에픽이 아닌 한 사용자가
+  // 지금 보는 컬럼이 우선이라 그 아래 가려진 컬럼으로 상태가 바뀌고, 에픽은 건드리지 않는다.
+  test('패널 닫힘(떠 있는 패널): 가려진 컬럼 위 패널 빈 여백에 놓으면 그 컬럼으로 상태가 바뀌고 에픽 PATCH 없음 (WP-2088)', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })] });
     const statusPatch = trackStatusPatch(page);
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
@@ -244,9 +248,13 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () =>
     const x = panel.x + panel.width / 2;
     // 패널 중앙 x 아래에 깔린 컬럼 — 상태 id 로 정확히 찾는다(board-col-count-* 등 접두 일치 회피).
     let covered: { x: number; y: number; width: number; height: number } | null = null;
+    let coveredStatusId: number | null = null;
     for (const st of [1, 2, 3, 4]) {
       const b = await page.getByTestId(`board-col-${st}`).boundingBox();
-      if (b && b.x <= x && x <= b.x + b.width) covered = b;
+      if (b && b.x <= x && x <= b.x + b.width) {
+        covered = b;
+        coveredStatusId = st;
+      }
     }
     expect(covered, '떠 있는 패널이 덮는 보드 컬럼이 있어야 한다').not.toBeNull();
     const y = covered!.y + covered!.height - 10;
@@ -255,8 +263,12 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () =>
     expect(y).toBeLessThan(panel.y + panel.height);
     await page.mouse.move(x, y, { steps: 10 });
     await dropDnd(page);
+    // 에픽 PATCH 는 없다(에픽은 건드리지 않는다) — 그대로 유지 검증.
     await expectStays(page, patches, []);
-    expect(statusPatch.count()).toBe(0);
+    // 상태 PATCH 는 정확히 한 번, 본문은 덮인 컬럼의 상태 id — 그 컬럼으로 옮겼다는 뜻.
+    await statusPatch.waitFor(1);
+    expect(statusPatch.count()).toBe(1);
+    expect(statusPatch.lastBody()).toEqual({ statusId: coveredStatusId! });
   });
 
   test('그룹 보드(담당자) 카드도 에픽으로 옮길 수 있다', async ({ authenticatedPage: page }) => {
